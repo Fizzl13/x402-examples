@@ -76,6 +76,12 @@ export async function solanaSigner(env) {
   throw new Error("Set SOLANA_PRIVATE_KEY or SOLANA_SEED");
 }
 
+// MetaMask exports the key without 0x; a paste can carry a newline.
+export function evmKey(key) {
+  const k = String(key).trim();
+  return k.startsWith("0x") ? k : `0x${k}`;
+}
+
 export function explorerUrl(network, tx) {
   if (!tx) return null;
   return network === SOLANA ? `https://solscan.io/tx/${tx}` : `https://basescan.org/tx/${tx}`;
@@ -99,7 +105,7 @@ async function payingFetch(network) {
   }
   const { privateKeyToAccount } = await import("viem/accounts");
   const { ExactEvmScheme } = await import("@x402/evm/exact/client");
-  const account = privateKeyToAccount(process.env.EVM_PRIVATE_KEY);
+  const account = privateKeyToAccount(evmKey(process.env.EVM_PRIVATE_KEY));
   client.register(BASE, new ExactEvmScheme(account));
   return { fetch: wrapFetchWithPayment(fetch, client), payer: account.address };
 }

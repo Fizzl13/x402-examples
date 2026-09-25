@@ -1,7 +1,7 @@
 // Run: npm test (no network, nothing paid)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decide, payNetwork, solanaKeyBytes, seedBytes, solanaSigner, explorerUrl, tokenUrl, SOLANA, BASE } from "./token-check.mjs";
+import { decide, evmKey, payNetwork, solanaKeyBytes, seedBytes, solanaSigner, explorerUrl, tokenUrl, SOLANA, BASE } from "./token-check.mjs";
 
 test("the agent acts on the verdict: go, ask or stop", () => {
   assert.equal(decide({ verdict: "green" }).action, "go");
@@ -45,4 +45,11 @@ test("SOLANA_SEED: the same password always gives the same wallet; short ones ar
   assert.equal(a.address, b.address, "a trailing newline from a paste changes nothing");
   assert.notEqual((await solanaSigner({ SOLANA_SEED: `${seed}!` })).address, a.address);
   assert.throws(() => seedBytes("too short"), /at least 32 characters/);
+});
+
+test("EVM key: with or without 0x, stray whitespace ignored", () => {
+  const hex = "ab".repeat(32);
+  assert.equal(evmKey(hex), `0x${hex}`);
+  assert.equal(evmKey(`0x${hex}`), `0x${hex}`);
+  assert.equal(evmKey(` ${hex}\n`), `0x${hex}`);
 });
