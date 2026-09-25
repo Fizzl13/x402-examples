@@ -28,6 +28,20 @@ const INTERVALS = ["4h", "1d"];
 // Thresholds for the read. Funding is per funding period (usually 8h); 0.01% is the common baseline.
 export const ELEVATED_FUNDING = 0.01; // percent
 export const CROWDED_NET = 0.25; // net position as a share of gross (long + short) for leveraged funds
+// Venues pay funding over different periods; every rate is compared per 8 hours.
+// Edge Agents' fundingRate8hPercent is used when present, else the raw rate is scaled
+// by fundingIntervalHours, else by the venue's usual interval (marked as estimated).
+export const USUAL_INTERVAL_HOURS = { okx: 8, binance: 8, bybit: 8, deribit: 8, hyperliquid: 1, dydx: 1, coinbase: 1 };
+export function rate8h(v) {
+  const direct = Number(v.fundingRate8hPercent);
+  if (v.fundingRate8hPercent != null && Number.isFinite(direct)) return { rate: direct, intervalHours: Number(v.fundingIntervalHours) || null, estimated: false };
+  const raw = Number(v.fundingRatePercent);
+  if (v.fundingRatePercent == null || !Number.isFinite(raw)) return null;
+  const given = Number(v.fundingIntervalHours);
+  if (given > 0) return { rate: (raw * 8) / given, intervalHours: given, estimated: false };
+  const usual = USUAL_INTERVAL_HOURS[String(v.venue).toLowerCase()] || 8;
+  return { rate: (raw * 8) / usual, intervalHours: usual, estimated: true };
+}
 export const MIN_VENUES = 2; // funding needs at least this many live venues before it can set the crowd
 
 const args = process.argv.slice(2);
@@ -43,9 +57,9 @@ export function readFunding(data, asset) {
   const row = findAssetRows(data).find((a) => String(a.asset).toUpperCase() === asset);
   if (!row) return { available: false, reason: `no ${asset} row` };
   const venues = row.venues || [];
-  const live = venues.filter((v) => v.status === "available" && Number.isFinite(Number(v.fundingRatePercent)));
+  const live = venues.filter((v) => v.status === "available" && rate8h(v));
   if (!live.length) return { available: false, reason: "no venue available" };
-  const rates = live.map((v) => Number(v.fundingRatePercent));
+  const rates = live.map((v) => rate8h(v).rate);
   const avg = rates.reduce((s, r) => s + r, 0) / rates.length;
   const allPositive = rates.every((r) => r > 0);
   const allNegative = rates.every((r) => r < 0);
@@ -56,7 +70,11 @@ export function readFunding(data, asset) {
     totalVenues: venues.length,
     generatedAt: data?.generatedAt || null,
     averagePercent: avg,
-    venues: live.map((v) => ({ venue: v.venue, ratePercent: Number(v.fundingRatePercent), nextFundingTime: v.nextFundingTime })),
+    per: "8h",
+    venues: live.map((v) => {
+      const r = rate8h(v);
+      return { venue: v.venue, ratePercent: r.rate, intervalHours: r.intervalHours, ...(r.estimated ? { estimatedInterval: true } : {}), nextFundingTime: v.nextFundingTime };
+    }),
     withheld: venues.filter((v) => !live.includes(v)).map((v) => v.venue),
     // One venue is not a market-wide crowd: below MIN_VENUES the lean is too_few_venues.
     lean: !enough ? "too_few_venues" : allPositive && avg >= ELEVATED_FUNDING ? "longs_paying" : allNegative && avg <= -ELEVATED_FUNDING ? "shorts_paying" : "balanced",
@@ -223,7 +241,7 @@ async function main() {
   const pct = (n) => `${n >= 0 ? "+" : ""}${n.toFixed(4)}%`;
   console.log(`\n${asset}: ${result.verdict.toUpperCase().replace(/_/g, " ")}\n${result.read}\n`);
   console.log(funding.available
-    ? `Funding     avg ${pct(funding.averagePercent)}, ${funding.liveVenues} of ${funding.totalVenues} venues (${funding.venues.map((v) => `${v.venue} ${pct(v.ratePercent)}`).join(", ")})${funding.withheld.length ? `; withheld: ${funding.withheld.join(", ")}` : ""}  [${funding.generatedAt ? `as of ${funding.generatedAt}` : "live"}, next funding ${funding.venues[0]?.nextFundingTime || "?"}]`
+    ? `Funding     avg ${pct(funding.averagePercent)} per 8h, ${funding.liveVenues} of ${funding.totalVenues} venues (${funding.venues.map((v) => `${v.venue} ${pct(v.ratePercent)}${v.estimatedInterval ? "*" : ""}`).join(", ")})${funding.venues.some((v) => v.estimatedInterval) ? " *interval assumed" : ""}${funding.withheld.length ? `; withheld: ${funding.withheld.join(", ")}` : ""}  [${funding.generatedAt ? `as of ${funding.generatedAt}` : "live"}, next funding ${funding.venues[0]?.nextFundingTime || "?"}]`
     : `Funding     unavailable (${funding.reason})`);
   console.log(positioning.available
     ? `Positioning leveraged funds net ${(positioning.netShare * 100).toFixed(0)}% of gross (long ${positioning.long}, short ${positioning.short})  [weekly CFTC, report ${positioning.reportDate || "date not given"}]`
