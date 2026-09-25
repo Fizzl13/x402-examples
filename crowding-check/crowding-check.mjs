@@ -28,6 +28,7 @@ const INTERVALS = ["4h", "1d"];
 // Thresholds for the read. Funding is per funding period (usually 8h); 0.01% is the common baseline.
 export const ELEVATED_FUNDING = 0.01; // percent
 export const CROWDED_NET = 0.25; // net position as a share of gross (long + short) for leveraged funds
+export const MIN_VENUES = 2; // funding needs at least this many live venues before it can set the crowd
 
 const args = process.argv.slice(2);
 const asset = (args.find((a) => !a.startsWith("--")) || "BTC").toUpperCase();
@@ -48,13 +49,17 @@ export function readFunding(data, asset) {
   const avg = rates.reduce((s, r) => s + r, 0) / rates.length;
   const allPositive = rates.every((r) => r > 0);
   const allNegative = rates.every((r) => r < 0);
+  const enough = live.length >= MIN_VENUES;
   return {
     available: true,
+    liveVenues: live.length,
+    totalVenues: venues.length,
     generatedAt: data?.generatedAt || null,
     averagePercent: avg,
     venues: live.map((v) => ({ venue: v.venue, ratePercent: Number(v.fundingRatePercent), nextFundingTime: v.nextFundingTime })),
     withheld: venues.filter((v) => !live.includes(v)).map((v) => v.venue),
-    lean: allPositive && avg >= ELEVATED_FUNDING ? "longs_paying" : allNegative && avg <= -ELEVATED_FUNDING ? "shorts_paying" : "balanced",
+    // One venue is not a market-wide crowd: below MIN_VENUES the lean is too_few_venues.
+    lean: !enough ? "too_few_venues" : allPositive && avg >= ELEVATED_FUNDING ? "longs_paying" : allNegative && avg <= -ELEVATED_FUNDING ? "shorts_paying" : "balanced",
   };
 }
 
@@ -141,8 +146,9 @@ export function combine({ funding, positioning, clouds }) {
   const above = clouds.filter((c) => c.cloud === "above_cloud").length;
   const trend = below === clouds.length ? "bearish" : above === clouds.length ? "bullish" : "mixed";
 
-  const longSigns = [funding.lean === "longs_paying" && "funding positive across venues", positioning.lean === "crowded_long" && "leveraged funds heavily net long"].filter(Boolean);
-  const shortSigns = [funding.lean === "shorts_paying" && "funding negative across venues", positioning.lean === "crowded_short" && "leveraged funds heavily net short"].filter(Boolean);
+  const venues = funding.totalVenues ? ` (${funding.liveVenues} of ${funding.totalVenues} venues)` : "";
+  const longSigns = [funding.lean === "longs_paying" && `funding positive across venues${venues}`, positioning.lean === "crowded_long" && "leveraged funds heavily net long"].filter(Boolean);
+  const shortSigns = [funding.lean === "shorts_paying" && `funding negative across venues${venues}`, positioning.lean === "crowded_short" && "leveraged funds heavily net short"].filter(Boolean);
   // Funding leads: leveraged funds on CME are often net short by structure (basis trades), so
   // positioning only adds weight when it agrees with funding, and never sets the crowd on its own.
   const crowd = funding.lean === "longs_paying" && positioning.lean !== "crowded_short" ? "long" : funding.lean === "shorts_paying" && positioning.lean !== "crowded_long" ? "short" : "none";
@@ -152,6 +158,7 @@ export function combine({ funding, positioning, clouds }) {
   if (crowd === "short" && trend === "bullish") return { verdict: "squeeze_risk", read: `Crowded short (${shortSigns.join(", ")}) while price is ${where}: shorts are leaning against a bullish trend.` };
   if (crowd === "long" && trend === "bullish") return { verdict: "crowded_trend", read: `Trend and crowd agree (bullish; ${longSigns.join(", ")}): the trend is intact but positioning is stretched.` };
   if (crowd === "short" && trend === "bearish") return { verdict: "crowded_trend", read: `Trend and crowd agree (bearish; ${shortSigns.join(", ")}): the trend is intact but positioning is stretched.` };
+  if (funding.lean === "too_few_venues") return { verdict: "no_crowding_signal", read: `No crowding call: funding came from only ${funding.liveVenues} of ${funding.totalVenues} venues (at least ${MIN_VENUES} needed). Price is ${where}.` };
   return { verdict: "no_crowding_signal", read: `No clear crowding against the trend (price is ${where}).` };
 }
 
@@ -216,7 +223,7 @@ async function main() {
   const pct = (n) => `${n >= 0 ? "+" : ""}${n.toFixed(4)}%`;
   console.log(`\n${asset}: ${result.verdict.toUpperCase().replace(/_/g, " ")}\n${result.read}\n`);
   console.log(funding.available
-    ? `Funding     avg ${pct(funding.averagePercent)} (${funding.venues.map((v) => `${v.venue} ${pct(v.ratePercent)}`).join(", ")})${funding.withheld.length ? `; withheld: ${funding.withheld.join(", ")}` : ""}  [${funding.generatedAt ? `as of ${funding.generatedAt}` : "live"}, next funding ${funding.venues[0]?.nextFundingTime || "?"}]`
+    ? `Funding     avg ${pct(funding.averagePercent)}, ${funding.liveVenues} of ${funding.totalVenues} venues (${funding.venues.map((v) => `${v.venue} ${pct(v.ratePercent)}`).join(", ")})${funding.withheld.length ? `; withheld: ${funding.withheld.join(", ")}` : ""}  [${funding.generatedAt ? `as of ${funding.generatedAt}` : "live"}, next funding ${funding.venues[0]?.nextFundingTime || "?"}]`
     : `Funding     unavailable (${funding.reason})`);
   console.log(positioning.available
     ? `Positioning leveraged funds net ${(positioning.netShare * 100).toFixed(0)}% of gross (long ${positioning.long}, short ${positioning.short})  [weekly CFTC, report ${positioning.reportDate || "date not given"}]`
