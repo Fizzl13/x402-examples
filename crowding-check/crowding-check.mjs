@@ -11,6 +11,7 @@
 //   node crowding-check.mjs BTC --dry-run   # prices only, pays nothing
 //   EVM_PRIVATE_KEY=0x... node crowding-check.mjs BTC
 //   EVM_PRIVATE_KEY=0x... node crowding-check.mjs ETH --json
+//   EVM_PRIVATE_KEY=0x... node crowding-check.mjs BTC --json --raw   # plus the raw responses
 //
 // Use a dedicated wallet with a few dollars of USDC on Base; no ETH is needed.
 // Not trade advice: this is an example of combining two x402 services.
@@ -32,6 +33,7 @@ const args = process.argv.slice(2);
 const asset = (args.find((a) => !a.startsWith("--")) || "BTC").toUpperCase();
 const dryRun = args.includes("--dry-run");
 const asJson = args.includes("--json");
+const withRaw = args.includes("--raw"); // include the raw responses, to check the parsers against live data
 
 // ---------------------------------------------------------------- reading the inputs
 
@@ -208,7 +210,7 @@ async function main() {
   const funding = readFunding(fundingRaw, asset);
   const positioning = readPositioning(positioningRaw);
   const clouds = signals.map(readCloud);
-  const result = { asset, ...combine({ funding, positioning, clouds }), inputs: { funding, positioning, clouds }, receipts, note: "Example of combining two x402 services; not trade advice." };
+  const result = { asset, ...combine({ funding, positioning, clouds }), inputs: { funding, positioning, clouds }, receipts, note: "Example of combining two x402 services; not trade advice.", ...(withRaw ? { raw: { funding: fundingRaw, positioning: positioningRaw } } : {}) };
 
   if (asJson) return console.log(JSON.stringify(result, null, 2));
   const pct = (n) => `${n >= 0 ? "+" : ""}${n.toFixed(4)}%`;
