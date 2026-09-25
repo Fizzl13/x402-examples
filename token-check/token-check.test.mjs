@@ -1,7 +1,7 @@
 // Run: npm test (no network, nothing paid)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decide, payNetwork, solanaKeyBytes, explorerUrl, tokenUrl, SOLANA, BASE } from "./token-check.mjs";
+import { decide, payNetwork, solanaKeyBytes, seedBytes, solanaSigner, explorerUrl, tokenUrl, SOLANA, BASE } from "./token-check.mjs";
 
 test("the agent acts on the verdict: go, ask or stop", () => {
   assert.equal(decide({ verdict: "green" }).action, "go");
@@ -14,6 +14,7 @@ test("payment network: --pay-on wins, then Solana, then Base", () => {
   assert.equal(payNetwork({ SOLANA_PRIVATE_KEY: "x", EVM_PRIVATE_KEY: "y" }), SOLANA);
   assert.equal(payNetwork({ SOLANA_PRIVATE_KEY: "x", EVM_PRIVATE_KEY: "y" }, "base"), BASE);
   assert.equal(payNetwork({ EVM_PRIVATE_KEY: "y" }), BASE);
+  assert.equal(payNetwork({ SOLANA_SEED: "x", EVM_PRIVATE_KEY: "y" }), SOLANA);
   assert.equal(payNetwork({}), null);
   assert.throws(() => payNetwork({}, "tron"), /solana or base/);
 });
@@ -34,4 +35,14 @@ test("links", () => {
   assert.equal(explorerUrl(BASE, "0xabc"), "https://basescan.org/tx/0xabc");
   assert.equal(explorerUrl(BASE, null), null);
   assert.equal(tokenUrl("solana", "Mint1"), "https://presign-guard.onrender.com/v1/token?chain=solana&address=Mint1");
+});
+
+test("SOLANA_SEED: the same password always gives the same wallet; short ones are refused", async () => {
+  const seed = "correct horse battery staple, but much longer and random";
+  assert.equal(seedBytes(seed).length, 32);
+  const a = await solanaSigner({ SOLANA_SEED: seed });
+  const b = await solanaSigner({ SOLANA_SEED: `${seed}\n` });
+  assert.equal(a.address, b.address, "a trailing newline from a paste changes nothing");
+  assert.notEqual((await solanaSigner({ SOLANA_SEED: `${seed}!` })).address, a.address);
+  assert.throws(() => seedBytes("too short"), /at least 32 characters/);
 });

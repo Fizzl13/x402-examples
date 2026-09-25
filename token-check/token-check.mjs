@@ -4,6 +4,9 @@
 //
 // Pays with x402 in USDC, on Solana or on Base:
 //   SOLANA_PRIVATE_KEY  base58 secret key (as Phantom exports it) or a JSON byte array
+//   SOLANA_SEED         or: any long random password (32+ characters); the wallet is
+//                       derived from it, so no key has to be exported from a wallet app.
+//                       `--address` prints that wallet's address, to fund it with USDC.
 //   EVM_PRIVATE_KEY     0x-prefixed private key
 // With both set, Solana is used unless you pass --pay-on base.
 // On Solana the facilitator pays the network fee: the wallet needs USDC only.
@@ -17,6 +20,7 @@
 // Use a dedicated wallet with a few cents of USDC. Not financial advice: a green
 // verdict means no known red flags, not that a token will hold its value.
 
+import { createHash } from "node:crypto";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
@@ -36,7 +40,7 @@ export function decide(result) {
 export function payNetwork(env, payOn) {
   if (payOn === "solana" || payOn === "base") return payOn === "solana" ? SOLANA : BASE;
   if (payOn) throw new Error("--pay-on must be solana or base");
-  if (env.SOLANA_PRIVATE_KEY) return SOLANA;
+  if (env.SOLANA_PRIVATE_KEY || env.SOLANA_SEED) return SOLANA;
   if (env.EVM_PRIVATE_KEY) return BASE;
   return null;
 }
@@ -57,6 +61,21 @@ export async function solanaKeyBytes(secret) {
   return bytes;
 }
 
+// SOLANA_SEED: a long random password becomes the wallet's 32-byte private key (SHA-256).
+export const MIN_SEED_LENGTH = 32;
+export function seedBytes(seed) {
+  const s = String(seed).trim();
+  if (s.length < MIN_SEED_LENGTH) throw new Error(`SOLANA_SEED must be at least ${MIN_SEED_LENGTH} characters of random text`);
+  return new Uint8Array(createHash("sha256").update(s, "utf8").digest());
+}
+
+export async function solanaSigner(env) {
+  const kit = await import("@solana/kit");
+  if (env.SOLANA_PRIVATE_KEY) return kit.createKeyPairSignerFromBytes(await solanaKeyBytes(env.SOLANA_PRIVATE_KEY));
+  if (env.SOLANA_SEED) return kit.createKeyPairSignerFromPrivateKeyBytes(seedBytes(env.SOLANA_SEED));
+  throw new Error("Set SOLANA_PRIVATE_KEY or SOLANA_SEED");
+}
+
 export function explorerUrl(network, tx) {
   if (!tx) return null;
   return network === SOLANA ? `https://solscan.io/tx/${tx}` : `https://basescan.org/tx/${tx}`;
@@ -73,9 +92,8 @@ async function payingFetch(network) {
     return pick;
   }).setSpendControls({ maxAmountPerPayment: "$0.02" }); // the verdict costs $0.01; never pay more than twice that
   if (network === SOLANA) {
-    const { createKeyPairSignerFromBytes } = await import("@solana/kit");
     const { ExactSvmScheme } = await import("@x402/svm/exact/client");
-    const signer = await createKeyPairSignerFromBytes(await solanaKeyBytes(process.env.SOLANA_PRIVATE_KEY));
+    const signer = await solanaSigner(process.env);
     client.register(SOLANA, new ExactSvmScheme(signer, process.env.SOLANA_RPC_URL ? { rpcUrl: process.env.SOLANA_RPC_URL } : undefined));
     return { fetch: wrapFetchWithPayment(fetch, client), payer: signer.address };
   }
@@ -99,6 +117,12 @@ async function priceOnly(url) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes("--address")) {
+    const signer = await solanaSigner(process.env);
+    console.log(`Solana payer address: ${signer.address}`);
+    console.log("Send it a little USDC (Solana); no SOL is needed. Check: https://solscan.io/account/" + signer.address);
+    return;
+  }
   const flag = (name) => {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : undefined;
@@ -118,7 +142,7 @@ async function main() {
 
   const network = payNetwork(process.env, flag("--pay-on"));
   if (!network) {
-    console.error("Set SOLANA_PRIVATE_KEY or EVM_PRIVATE_KEY (a dedicated wallet with a few cents of USDC), or use --dry-run.");
+    console.error("Set SOLANA_PRIVATE_KEY, SOLANA_SEED or EVM_PRIVATE_KEY (a dedicated wallet with a few cents of USDC), or use --dry-run.");
     process.exit(2);
   }
   const { fetch: pay, payer } = await payingFetch(network);

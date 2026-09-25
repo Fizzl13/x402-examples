@@ -23,7 +23,7 @@ EVM_PRIVATE_KEY=0x... node token-check.mjs base <token> --pay-on base           
 node token-check.mjs ... --json                                                       # full verdict + payment receipt
 ```
 
-`SOLANA_PRIVATE_KEY` is the base58 secret key as Phantom exports it, or a Solana CLI keypair (a JSON array of 64 bytes). With both keys set, Solana is used unless you pass `--pay-on base`. The script refuses to pay more than $0.02 per call.
+`SOLANA_PRIVATE_KEY` is the base58 secret key as Phantom exports it, or a Solana CLI keypair (a JSON array of 64 bytes). If your wallet app won't export a private key, set `SOLANA_SEED` instead: a long random password (32+ characters, e.g. from a password manager). The script derives a wallet from it, and `node token-check.mjs --address` prints that wallet's address so you can send it a little USDC. The key then lives only in that secret. With both keys set, Solana is used unless you pass `--pay-on base`. The script refuses to pay more than $0.02 per call.
 
 ```
 Bonk (solana): SAFE: no red flags, $421k liquidity, 3.8 years old
@@ -44,6 +44,6 @@ MCP clients can use the same check as a tool: `token_verdict` ($0.01) or the fre
 
 ## Paid run from GitHub
 
-The workflow **Token check (paid)** (Actions tab, run by hand) pays with the repository secret `SOLANA_PRIVATE_KEY` (or `EVM_PRIVATE_KEY` with `pay_on: base`), and prints the verdict and the transaction link.
+The workflow **Token check (paid)** (Actions tab, run by hand) pays with the repository secret `SOLANA_SEED` or `SOLANA_PRIVATE_KEY` (or `EVM_PRIVATE_KEY` with `pay_on: base`), and prints the verdict and the transaction link. Run it once with `action: show-address` to see the Solana payer address to fund.
 
 Use a dedicated wallet with a few cents of USDC and never commit its key. Not financial advice: green means no known red flags, not that a token will hold its value.
