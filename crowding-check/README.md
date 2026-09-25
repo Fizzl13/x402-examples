@@ -59,3 +59,7 @@ This is an example of combining two services, not trade advice.
 ```bash
 npm test   # offline: the read logic on sample responses, no network, no payments
 ```
+
+## Run it on GitHub Actions
+
+Fork or copy this repository, add a repository secret `EVM_PRIVATE_KEY` (a dedicated wallet with a few dollars of USDC on Base), then start **Actions → Live run (paid) → Run workflow**. The result, with the raw responses and the payment receipts, is saved as an artifact.

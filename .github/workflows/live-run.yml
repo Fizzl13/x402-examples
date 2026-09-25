@@ -1,0 +1,43 @@
+# A real, paid run of an example ($0.22 per crowding check), started by hand only.
+# The wallet key is the repository secret EVM_PRIVATE_KEY: a dedicated wallet with a
+# few dollars of USDC on Base. Secrets are masked in logs and never given to forks.
+name: Live run (paid)
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset:
+        description: "BTC or ETH"
+        type: choice
+        options: [BTC, ETH]
+        default: BTC
+
+permissions:
+  contents: read
+
+jobs:
+  crowding-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crowding-check
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+      - name: Prices (nothing paid)
+        run: node crowding-check.mjs "${{ inputs.asset }}" --dry-run
+      - name: Paid run
+        env:
+          EVM_PRIVATE_KEY: ${{ secrets.EVM_PRIVATE_KEY }}
+        run: |
+          node crowding-check.mjs "${{ inputs.asset }}" --json --raw > result.json
+          node -e 'const r=require("./result.json"); console.log(`\n${r.asset}: ${r.verdict}\n${r.read}\n`); console.log(JSON.stringify(r.inputs, null, 2)); console.log("receipts:", JSON.stringify(r.receipts))'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crowding-check-${{ inputs.asset }}
+          path: crowding-check/result.json
+          if-no-files-found: ignore
