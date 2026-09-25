@@ -14,7 +14,9 @@ test("funding: withheld venues are listed, not averaged; the lean needs every ve
   assert.equal(funding(0.005, 0.004).lean, "balanced", "positive but at baseline");
   assert.equal(funding(null).available, false);
   const wrapped = readFunding({ serviceId: "perp-funding-rates", generatedAt: "2026-09-25T12:00:00Z", data: { assets: [{ asset: "ETH", venues: [{ venue: "okx", status: "available", fundingRatePercent: -0.02 }] }] } }, "ETH");
-  assert.equal(wrapped.lean, "shorts_paying", "rows inside the report envelope are found");
+  assert.equal(wrapped.available, true, "rows inside the report envelope are found");
+  assert.equal(wrapped.lean, "too_few_venues", "one live venue cannot set the crowd");
+  assert.equal(wrapped.liveVenues, 1);
   assert.equal(wrapped.generatedAt, "2026-09-25T12:00:00Z");
 });
 
@@ -34,4 +36,8 @@ test("the read: crowd against the trend is flagged; positioning alone never sets
   assert.equal(combine({ funding: funding(0.0, 0.001), positioning: crowdedShort, clouds: clouds("above_cloud") }).verdict, "no_crowding_signal");
   assert.equal(combine({ funding: funding(0.02, 0.02), positioning: crowdedShort, clouds: clouds("below_cloud") }).verdict, "no_crowding_signal", "funding and positioning disagree");
   assert.equal(combine({ funding: funding(0.02, 0.02), positioning: crowdedLong, clouds: [...clouds("below_cloud").slice(0, 1), ...clouds("above_cloud").slice(1)] }).verdict, "no_crowding_signal", "mixed trend");
+  const oneVenue = combine({ funding: funding(0.03, null, null), positioning: crowdedLong, clouds: clouds("below_cloud") });
+  assert.equal(oneVenue.verdict, "no_crowding_signal", "OKX alone is not a crowd, even with positioning agreeing");
+  assert.match(oneVenue.read, /only 1 of 3 venues/);
+  assert.match(combine({ funding: funding(0.02, 0.02, null), positioning: crowdedLong, clouds: clouds("below_cloud") }).read, /\(2 of 3 venues\)/);
 });
