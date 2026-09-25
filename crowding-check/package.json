@@ -1,0 +1,18 @@
+{
+  "name": "crowding-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An agent pays two x402 services (Edge Agents funding and positioning, Ichimoku Signal confluence) and combines them into one read.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dry-run": "node crowding-check.mjs BTC --dry-run",
+    "test": "node --test crowding-check.test.mjs"
+  },
+  "dependencies": {
+    "@x402/evm": "^2.27.0",
+    "@x402/fetch": "^2.27.0",
+    "viem": "^2.56.8"
+  },
+  "license": "MIT"
+}
