@@ -44,9 +44,17 @@ export function payNetwork(env, payOn) {
 // Phantom exports a base58 string; Solana CLI keypair files are a JSON array of 64 bytes.
 export async function solanaKeyBytes(secret) {
   const s = String(secret).trim();
-  if (s.startsWith("[")) return new Uint8Array(JSON.parse(s));
-  const { getBase58Encoder } = await import("@solana/kit");
-  return new Uint8Array(getBase58Encoder().encode(s));
+  let bytes;
+  if (s.startsWith("[")) bytes = new Uint8Array(JSON.parse(s));
+  else {
+    const { getBase58Encoder } = await import("@solana/kit");
+    bytes = new Uint8Array(getBase58Encoder().encode(s));
+  }
+  if (bytes.length === 32) {
+    throw new Error("SOLANA_PRIVATE_KEY is 32 bytes: that looks like the wallet address (public key). Use the private key: in Phantom, Show private key (about 88 characters).");
+  }
+  if (bytes.length !== 64) throw new Error(`SOLANA_PRIVATE_KEY must be a 64-byte secret key (got ${bytes.length} bytes)`);
+  return bytes;
 }
 
 export function explorerUrl(network, tx) {

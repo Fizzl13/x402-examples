@@ -25,6 +25,8 @@ test("Solana keys: base58 (Phantom) and a JSON byte array give the same 64 bytes
   assert.deepEqual([...await solanaKeyBytes(base58)], bytes);
   assert.deepEqual([...await solanaKeyBytes(JSON.stringify(bytes))], bytes);
   assert.equal((await solanaKeyBytes(`  ${base58}\n`)).length, 64, "stray whitespace from a paste is ignored");
+  const address = getBase58Decoder().decode(new Uint8Array(32).fill(7));
+  await assert.rejects(solanaKeyBytes(address), /looks like the wallet address/);
 });
 
 test("links", () => {
