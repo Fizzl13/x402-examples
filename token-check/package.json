@@ -1,0 +1,22 @@
+{
+  "name": "token-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Before an agent buys, holds or accepts a token, it pays $0.01 (USDC on Solana or Base, via x402) for a verdict from presign-guard and acts on it.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dry-run": "node token-check.mjs solana DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 --dry-run",
+    "test": "node --test token-check.test.mjs"
+  },
+  "dependencies": {
+    "@solana/kit": "^5.5.1",
+    "@x402/evm": "^2.27.0",
+    "@x402/fetch": "^2.27.0",
+    "@x402/svm": "^2.27.0",
+    "viem": "^2.56.9"
+  },
+  "license": "MIT"
+}

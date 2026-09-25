@@ -1,0 +1,57 @@
+# A real, paid token check ($0.01), started by hand only. Pays on Solana with the
+# repository secret SOLANA_PRIVATE_KEY, or on Base with EVM_PRIVATE_KEY: dedicated
+# wallets with a few cents of USDC. Secrets are masked in logs and never given to forks.
+name: Token check (paid)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: "Chain of the token"
+        type: choice
+        options: [solana, base, ethereum, arbitrum, optimism, polygon, bsc]
+        default: solana
+      address:
+        description: "Token address or Solana mint"
+        type: string
+        default: DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263
+      pay_on:
+        description: "Network to pay on"
+        type: choice
+        options: [solana, base]
+        default: solana
+
+permissions:
+  contents: read
+
+jobs:
+  token-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: token-check
+    env:
+      CHAIN: ${{ inputs.chain }}
+      ADDRESS: ${{ inputs.address }}
+      PAY_ON: ${{ inputs.pay_on }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+      - name: Price (nothing paid)
+        run: node token-check.mjs "$CHAIN" "$ADDRESS" --dry-run
+      - name: Paid run
+        env:
+          SOLANA_PRIVATE_KEY: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_PRIVATE_KEY || '' }}
+          EVM_PRIVATE_KEY: ${{ inputs.pay_on == 'base' && secrets.EVM_PRIVATE_KEY || '' }}
+        run: |
+          node token-check.mjs "$CHAIN" "$ADDRESS" --pay-on "$PAY_ON" --json > result.json
+          node -e 'const r=require("./result.json"); console.log(`\n${r.token.symbol ?? ""} ${r.one_liner}\nAgent action: ${r.decision.action}\nPaid on ${r.payment.network} from ${r.payment.payer}\n${r.payment.explorer ?? "(no transaction id)"}\n`)'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: token-check
+          path: token-check/result.json
+          if-no-files-found: ignore
