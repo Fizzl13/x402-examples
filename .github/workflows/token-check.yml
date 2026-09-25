@@ -1,11 +1,18 @@
 # A real, paid token check ($0.01), started by hand only. Pays on Solana with the
-# repository secret SOLANA_PRIVATE_KEY, or on Base with EVM_PRIVATE_KEY: dedicated
-# wallets with a few cents of USDC. Secrets are masked in logs and never given to forks.
+# repository secret SOLANA_SEED (a long random password the wallet is derived from)
+# or SOLANA_PRIVATE_KEY, or on Base with EVM_PRIVATE_KEY: dedicated wallets with a
+# few cents of USDC. Secrets are masked in logs and never given to forks.
+# action "show-address" prints the Solana payer address (to fund it) and pays nothing.
 name: Token check (paid)
 
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: "pay = a real paid check; show-address = print the Solana payer address, pay nothing"
+        type: choice
+        options: [pay, show-address]
+        default: pay
       chain:
         description: "Chain of the token"
         type: choice
@@ -40,11 +47,20 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npm test
+      - name: Solana payer address (nothing paid)
+        if: inputs.action == 'show-address'
+        env:
+          SOLANA_PRIVATE_KEY: ${{ secrets.SOLANA_PRIVATE_KEY }}
+          SOLANA_SEED: ${{ secrets.SOLANA_SEED }}
+        run: node token-check.mjs --address
       - name: Price (nothing paid)
+        if: inputs.action == 'pay'
         run: node token-check.mjs "$CHAIN" "$ADDRESS" --dry-run
       - name: Paid run
+        if: inputs.action == 'pay'
         env:
           SOLANA_PRIVATE_KEY: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_PRIVATE_KEY || '' }}
+          SOLANA_SEED: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_SEED || '' }}
           EVM_PRIVATE_KEY: ${{ inputs.pay_on == 'base' && secrets.EVM_PRIVATE_KEY || '' }}
         run: |
           node token-check.mjs "$CHAIN" "$ADDRESS" --pay-on "$PAY_ON" --json > result.json
