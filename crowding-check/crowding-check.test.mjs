@@ -1,7 +1,7 @@
 // The crowding check: reading funding, positioning and the cloud.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFunding, readPositioning, readCloud, combine } from "./crowding-check.mjs";
+import { readFunding, readPositioning, readCloud, combine, rate8h } from "./crowding-check.mjs";
 
 const funding = (...rates) => readFunding({ assets: [{ asset: "BTC", venues: rates.map((r, i) => (r === null ? { venue: `v${i}`, status: "unavailable" } : { venue: `v${i}`, status: "available", fundingRatePercent: r })) }] }, "BTC");
 const clouds = (cloud) => ["4h", "1d"].map((interval) => readCloud({ interval, indicators: { ichimoku: { cloud_position: cloud } } }));
@@ -40,4 +40,22 @@ test("the read: crowd against the trend is flagged; positioning alone never sets
   assert.equal(oneVenue.verdict, "no_crowding_signal", "OKX alone is not a crowd, even with positioning agreeing");
   assert.match(oneVenue.read, /only 1 of 3 venues/);
   assert.match(combine({ funding: funding(0.02, 0.02, null), positioning: crowdedLong, clouds: clouds("below_cloud") }).read, /\(2 of 3 venues\)/);
+});
+
+test("funding is compared per 8 hours: Edge's 8h field, then the given interval, then the venue's usual one", () => {
+  assert.deepEqual(rate8h({ venue: "hyperliquid", fundingRatePercent: 0.00125, fundingRate8hPercent: 0.01, fundingIntervalHours: 1 }), { rate: 0.01, intervalHours: 1, estimated: false });
+  assert.deepEqual(rate8h({ venue: "hyperliquid", fundingRatePercent: 0.00125, fundingIntervalHours: 1 }), { rate: 0.01, intervalHours: 1, estimated: false });
+  assert.deepEqual(rate8h({ venue: "hyperliquid", fundingRatePercent: 0.00125 }), { rate: 0.01, intervalHours: 1, estimated: true });
+  assert.deepEqual(rate8h({ venue: "okx", fundingRatePercent: 0.003 }), { rate: 0.003, intervalHours: 8, estimated: true });
+  assert.equal(rate8h({ venue: "okx" }), null);
+  // Today's live mix: hourly venues were understated 8x before normalising.
+  const f = readFunding({ assets: [{ asset: "BTC", venues: [
+    { venue: "okx", status: "available", fundingRatePercent: 0.003395 },
+    { venue: "hyperliquid", status: "available", fundingRatePercent: 0.00125 },
+    { venue: "dydx", status: "available", fundingRatePercent: 0 },
+    { venue: "deribit", status: "available", fundingRatePercent: -0.000007 },
+  ] }] }, "BTC");
+  assert.equal(f.per, "8h");
+  assert.ok(Math.abs(f.averagePercent - (0.003395 + 0.01 + 0 - 0.000007) / 4) < 1e-12);
+  assert.equal(f.venues.find((v) => v.venue === "hyperliquid").estimatedInterval, true);
 });

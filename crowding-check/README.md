@@ -12,7 +12,7 @@ Total: **$0.22 per run**, paid in USDC on Base with x402. No accounts, no API ke
 
 ## The read
 
-The crowd is set by funding: every live venue paying in the same direction, at or above 0.01% per funding period, with at least 2 venues live. A venue that is withheld is never estimated, and the read says how many venues answered (for example "2 of 3 venues"). Leveraged-fund positioning adds weight when it agrees, but never sets the crowd on its own: on CME, leveraged funds are often net short by structure (basis trades), so on its own that isn't a crowded bet.
+The crowd is set by funding: every live venue paying in the same direction, at or above 0.01% per 8 hours, with at least 2 venues live. Venues pay funding over different periods (Hyperliquid and dYdX hourly, OKX every 8h), so every rate is converted to 8 hours first: Edge Agents' `fundingRate8hPercent` when present, otherwise the raw rate scaled by `fundingIntervalHours`, otherwise by the venue's usual interval (marked with * in the output). A venue that is withheld is never estimated, and the read says how many venues answered (for example "2 of 3 venues"). Leveraged-fund positioning adds weight when it agrees, but never sets the crowd on its own: on CME, leveraged funds are often net short by structure (basis trades), so on its own that isn't a crowded bet.
 
 The trend is the Ichimoku cloud on 4h and 1d: bearish when price is below the cloud on both, bullish when above on both, otherwise mixed.
 
@@ -46,7 +46,7 @@ Example output (shape):
 BTC: CAUTION
 Crowded long (funding positive across venues (2 of 3 venues), leveraged funds heavily net long) while price is below cloud on 4h, below cloud on 1d: longs are leaning against a bearish trend.
 
-Funding     avg +0.0135%, 2 of 3 venues (binance +0.0120%, bybit +0.0150%); withheld: okx  [live, next funding …]
+Funding     avg +0.0135% per 8h, 2 of 3 venues (binance +0.0120%, bybit +0.0150%); withheld: okx  [live, next funding …]
 Positioning leveraged funds net 43% of gross (long …, short …)  [weekly CFTC, report …]
 Ichimoku    4h: below cloud, confluence bearish (1 of 6 indicators bullish)  [2026-…]
 Ichimoku    1d: below cloud, confluence bearish (2 of 6 indicators bullish)  [2026-…]
