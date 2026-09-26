@@ -18,6 +18,14 @@ on:
         description: "Publish the version in safe-fetch/package.json to npm"
         type: boolean
         default: false
+      live_url:
+        description: "Optional: a real paid call through the package to this x402 URL (Base, EVM_PRIVATE_KEY)"
+        type: string
+        default: ""
+      live_max_usd:
+        description: "Budget for the live call in USD"
+        type: string
+        default: "0.05"
 
 permissions:
   contents: read
@@ -35,6 +43,24 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm pack --dry-run
+
+  live:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.live_url != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: safe-fetch
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: node example.mjs "$LIVE_URL" "$LIVE_MAX_USD"
+        env:
+          LIVE_URL: ${{ inputs.live_url }}
+          LIVE_MAX_USD: ${{ inputs.live_max_usd }}
+          EVM_PRIVATE_KEY: ${{ secrets.EVM_PRIVATE_KEY }}
 
   publish:
     needs: test
