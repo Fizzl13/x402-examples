@@ -11,7 +11,12 @@
   },
   "main": "./index.js",
   "types": "./index.d.ts",
-  "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -22,9 +27,20 @@
     "@x402/fetch": "^2.27.0"
   },
   "devDependencies": {
-    "@x402/fetch": "^2.27.0"
+    "@x402/evm": "^2.27.0",
+    "@x402/fetch": "^2.27.0",
+    "viem": "^2.56.9"
   },
-  "keywords": ["x402", "agents", "payments", "fetch", "preflight", "usdc", "base", "solana"],
+  "keywords": [
+    "x402",
+    "agents",
+    "payments",
+    "fetch",
+    "preflight",
+    "usdc",
+    "base",
+    "solana"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Fizzl13/x402-examples.git",
