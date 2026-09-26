@@ -33,6 +33,10 @@ on:
         description: "Pay on a caution verdict too"
         type: boolean
         default: false
+      json:
+        description: "Print the full result as JSON (the whole endpoint response)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -50,6 +54,7 @@ jobs:
       MAX_USD: ${{ inputs.max_usd }}
       PAY_ON: ${{ inputs.pay_on }}
       ACCEPT_CAUTION: ${{ inputs.accept_caution && '--accept-caution' || '' }}
+      JSON: ${{ inputs.json && '--json' || '' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -63,4 +68,4 @@ jobs:
           EVM_PRIVATE_KEY: ${{ inputs.pay_on == 'base' && secrets.EVM_PRIVATE_KEY || '' }}
           SOLANA_SEED: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_SEED || '' }}
           SOLANA_PRIVATE_KEY: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_PRIVATE_KEY || '' }}
-        run: node safe-pay.mjs "$TARGET" --method "$METHOD" ${BODY:+--body "$BODY"} --max-usd "$MAX_USD" --pay-on "$PAY_ON" $ACCEPT_CAUTION
+        run: node safe-pay.mjs "$TARGET" --method "$METHOD" ${BODY:+--body "$BODY"} --max-usd "$MAX_USD" --pay-on "$PAY_ON" $ACCEPT_CAUTION $JSON
