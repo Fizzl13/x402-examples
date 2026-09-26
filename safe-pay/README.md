@@ -25,10 +25,10 @@ node safe-pay.mjs <url> --json                                                  
 The script never pays more than $0.002 for the preflight or more than `--max-usd` (at most $1) for the endpoint.
 
 ```
-Preflight (paid $0.001): GO: OK to pay: $0.02 on Base.
+Preflight (paid $0.001: https://basescan.org/tx/0x…): GO: OK to pay: $0.02 on Base.
 Decision: PAY (OK to pay: $0.02 on Base.)
-Endpoint: HTTP 200, paid: https://basescan.org/tx/0x…
-{"pair":"BTC-USDT","interval":"1d","signal":"bullish", …}
+Endpoint: HTTP 200, paid: https://basescan.org/tx/0xab07f510e9f1bc3ed2dd27ba060d304b52e2e23e1beb0fabc4ceacde249d556a
+{"pair":"BTC-USDT","interval":"1h","price":84031.86,"cloud_position":"below_cloud","tenkan_kijun_cross":"bearish_cross","signal":"bearish", …}
 ```
 
 In your own agent, it's one extra paid GET before the real one:
