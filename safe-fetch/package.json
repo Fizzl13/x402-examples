@@ -1,0 +1,35 @@
+{
+  "name": "x402-safe-fetch",
+  "version": "0.1.0",
+  "description": "A fetch for AI agents that checks an unknown x402 endpoint ($0.001 x402 Doctor preflight) before paying it, and never pays above your budget.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@x402/fetch": "^2.27.0"
+  },
+  "devDependencies": {
+    "@x402/fetch": "^2.27.0"
+  },
+  "keywords": ["x402", "agents", "payments", "fetch", "preflight", "usdc", "base", "solana"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fizzl13/x402-examples.git",
+    "directory": "safe-fetch"
+  },
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/safe-fetch#readme",
+  "license": "MIT"
+}
