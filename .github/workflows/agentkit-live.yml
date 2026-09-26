@@ -1,0 +1,25 @@
+# One-off live test for coinbase/agentkit#1522 (x402Doctor action provider). Runs on push to
+# the agentkit-live branch only. Pays two x402 Doctor preflights ($0.001 each) from Account 3.
+name: agentkit-live
+on:
+  push:
+    branches: [agentkit-live]
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: corepack enable
+      - run: git clone --depth 1 --branch x402-doctor https://github.com/Fizzl13/agentkit /tmp/agentkit
+      - run: pnpm install --frozen-lockfile --filter @coinbase/agentkit...
+        working-directory: /tmp/agentkit/typescript
+      - run: pnpm run build
+        working-directory: /tmp/agentkit/typescript/agentkit
+      - run: node agentkit-live/run.cjs
+        env:
+          AGENTKIT_DIR: /tmp/agentkit
+          EVM_PRIVATE_KEY: ${{ secrets.EVM_PRIVATE_KEY }}
