@@ -1,0 +1,22 @@
+{
+  "name": "safe-pay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Before an agent pays an unknown x402 endpoint, it pays $0.001 for an x402 Doctor preflight and pays the endpoint only on go, within a budget.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dry-run": "node safe-pay.mjs https://ichimoku-signal.onrender.com/signal/BTC-USDT --dry-run",
+    "test": "node --test safe-pay.test.mjs"
+  },
+  "dependencies": {
+    "@solana/kit": "^5.5.1",
+    "@x402/evm": "^2.27.0",
+    "@x402/fetch": "^2.27.0",
+    "@x402/svm": "^2.27.0",
+    "viem": "^2.56.9"
+  },
+  "license": "MIT"
+}

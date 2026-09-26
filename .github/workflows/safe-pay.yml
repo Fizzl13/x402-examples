@@ -1,0 +1,66 @@
+# A real, paid safe-pay run, started by hand only: $0.001 for the x402 Doctor
+# preflight, then the endpoint itself only when Doctor says go, within max_usd.
+# Pays on Base with EVM_PRIVATE_KEY or on Solana with SOLANA_SEED /
+# SOLANA_PRIVATE_KEY: dedicated wallets with a few cents of USDC.
+name: Safe pay (paid)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "x402 endpoint to pay (https)"
+        type: string
+        default: https://ichimoku-signal.onrender.com/signal/BTC-USDT
+      method:
+        description: "HTTP method"
+        type: choice
+        options: [GET, POST]
+        default: GET
+      body:
+        description: "JSON body for POST (optional)"
+        type: string
+        default: ""
+      max_usd:
+        description: "Budget for the endpoint call in USD (max 1)"
+        type: string
+        default: "0.05"
+      pay_on:
+        description: "Network to pay on"
+        type: choice
+        options: [base, solana]
+        default: base
+      accept_caution:
+        description: "Pay on a caution verdict too"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  safe-pay:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: safe-pay
+    env:
+      TARGET: ${{ inputs.url }}
+      METHOD: ${{ inputs.method }}
+      BODY: ${{ inputs.body }}
+      MAX_USD: ${{ inputs.max_usd }}
+      PAY_ON: ${{ inputs.pay_on }}
+      ACCEPT_CAUTION: ${{ inputs.accept_caution && '--accept-caution' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+      - name: Prices (nothing paid)
+        run: node safe-pay.mjs "$TARGET" --method "$METHOD" ${BODY:+--body "$BODY"} --max-usd "$MAX_USD" --dry-run
+      - name: Paid run
+        env:
+          EVM_PRIVATE_KEY: ${{ inputs.pay_on == 'base' && secrets.EVM_PRIVATE_KEY || '' }}
+          SOLANA_SEED: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_SEED || '' }}
+          SOLANA_PRIVATE_KEY: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_PRIVATE_KEY || '' }}
+        run: node safe-pay.mjs "$TARGET" --method "$METHOD" ${BODY:+--body "$BODY"} --max-usd "$MAX_USD" --pay-on "$PAY_ON" $ACCEPT_CAUTION
