@@ -6,6 +6,10 @@ const viem = require(path.join(process.env.AGENTKIT_DIR, "typescript/agentkit/no
 const { privateKeyToAccount } = require(path.join(process.env.AGENTKIT_DIR, "typescript/agentkit/node_modules/viem/accounts"));
 const { base } = require(path.join(process.env.AGENTKIT_DIR, "typescript/agentkit/node_modules/viem/chains"));
 
+// AgentKit fires analytics events without awaiting them; a failed event (HTTP 400 from its
+// analytics endpoint on this runner) would otherwise end the process as an unhandled rejection.
+process.on("unhandledRejection", (e) => console.warn("(AgentKit analytics event failed, ignored:", e && e.message, ")"));
+
 (async () => {
   const key = String(process.env.EVM_PRIVATE_KEY || "").trim();
   const account = privateKeyToAccount(key.startsWith("0x") ? key : `0x${key}`);
