@@ -1,0 +1,55 @@
+# x402-safe-fetch: offline tests on every change, and an npm publish started
+# by hand. Publishing uses npm trusted publishing (GitHub OIDC, provenance):
+# no token or secret. The very first version is published once by hand
+# (npm publish from a terminal, with 2FA), because trusted publishing can only
+# be configured on npmjs.com for a package that exists; then configure this
+# repository and workflow (safe-fetch.yml) as its trusted publisher.
+name: safe-fetch
+
+on:
+  push:
+    branches: [main]
+    paths: ["safe-fetch/**", ".github/workflows/safe-fetch.yml"]
+  pull_request:
+    paths: ["safe-fetch/**", ".github/workflows/safe-fetch.yml"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the version in safe-fetch/package.json to npm"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: safe-fetch
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+      - run: npm pack --dry-run
+
+  publish:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: safe-fetch
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
+      - run: npm install -g npm@latest # trusted publishing needs npm 11.5 or newer
+      - run: npm ci
+      - run: npm publish --provenance --access public
