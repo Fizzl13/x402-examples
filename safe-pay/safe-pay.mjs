@@ -176,7 +176,8 @@ async function main() {
   }
 
   if (args.includes("--json")) { console.log(JSON.stringify(out, null, 2)); return; }
-  console.log(`Preflight (paid $0.001): ${preflight.verdict.toUpperCase()}: ${preflight.summary}`);
+  const prePaid = out.preflight.payment.explorer;
+  console.log(`Preflight (paid $0.001${prePaid ? `: ${prePaid}` : ""}): ${preflight.verdict.toUpperCase()}: ${preflight.summary}`);
   for (const r of preflight.reasons || []) console.log(`  - ${r.level}: ${r.message}`);
   console.log(`Decision: ${decision.action.toUpperCase()} (${decision.why})`);
   if (out.endpoint) {
