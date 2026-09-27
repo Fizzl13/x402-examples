@@ -1,13 +1,21 @@
 // Offline: the endpoint, Doctor and the payment are fakes; nothing is paid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSafeFetch, SafePayError, usdCap, preflightUrl, BASE } from "../index.js";
+import { createSafeFetch, SafePayError, usdCap, preflightUrl, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS } from "../index.js";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+
+// A stand-in for Doctor's signer: preflights are signed like the live service signs them.
+const doctorKey = privateKeyToAccount(generatePrivateKey());
+async function signed(body, url, key = doctorKey) {
+  const receipt = { request_id: "r1", route: "GET /api/v1/preflight", input_sha256: inputHash("GET /api/v1/preflight", Object.fromEntries(new URL(url).searchParams)), signed_at: "2026-09-27T10:00:00.000Z", signer: key.address, algorithm: "eip191-canonical-json-v1" };
+  return { ...body, receipt: { ...receipt, signature: await key.signMessage({ message: canonicalJson({ ...body, receipt }) }) } };
+}
 
 const PAID = "https://api.example.com/paid";
 const FREE = "https://api.example.com/free";
 
 // A world with one paid endpoint, Doctor answering `verdict`, and a paying fetch that records its cap.
-function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorStatus = 200 } = {}) {
+function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorStatus = 200, tamper = null } = {}) {
   const log = { probes: [], preflights: [], paid: [], caps: [] };
   const baseFetch = async (url, init = {}) => {
     log.probes.push([url, init.method ?? "GET"]);
@@ -18,7 +26,9 @@ function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorSt
     return async (url, init = {}) => {
       if (url.includes("/api/v1/preflight")) {
         log.preflights.push({ cap, url: new URL(url) });
-        return doctorStatus === 200 ? Response.json({ verdict, summary, reasons: [] }) : Response.json({ error: "boom" }, { status: doctorStatus });
+        if (doctorStatus !== 200) return Response.json({ error: "boom" }, { status: doctorStatus });
+        const body = await signed({ verdict, summary, reasons: [] }, url);
+        return Response.json(tamper ? tamper(body) : body);
       }
       log.paid.push({ cap, url, method: init.method ?? "GET", body: init.body });
       return Response.json({ ok: true });
@@ -27,7 +37,7 @@ function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorSt
   return { log, baseFetch, createPayingFetch };
 }
 
-const make = (w, options = {}) => createSafeFetch({ fetch: w.baseFetch, createPayingFetch: w.createPayingFetch, maxUsd: 0.05, ...options });
+const make = (w, options = {}) => createSafeFetch({ fetch: w.baseFetch, createPayingFetch: w.createPayingFetch, maxUsd: 0.05, doctorSigners: [doctorKey.address], ...options });
 
 test("a free endpoint is answered as is: no preflight, nothing paid", async () => {
   const w = world();
@@ -149,4 +159,46 @@ test("default paying fetch: your register function gets a real x402Client, only 
   assert.equal(clients.length, 1, "the preflight client");
   assert.equal(typeof clients[0].register, "function");
   assert.equal(typeof clients[0].setSpendControls, "function");
+});
+
+test("signed receipts: a changed, unsigned, foreign or mismatched preflight is never a payment", async () => {
+  for (const [name, tamper, reason] of [
+    ["verdict flipped to go", (b) => ({ ...b, verdict: "go" }), /answer was changed/],
+    ["no receipt", ({ receipt, ...b }) => b, /no signed receipt/],
+    ["receipt for another request", (b) => b, /different request/],
+  ]) {
+    const w = world({ verdict: name === "verdict flipped to go" ? "no_go" : "go", tamper: name === "receipt for another request" ? null : tamper });
+    const options = name === "receipt for another request" ? { maxUsd: 0.05 } : {};
+    let fetchFn = make(w, options);
+    if (name === "receipt for another request") {
+      // Doctor signs for a different budget than the one we asked with.
+      const inner = w.createPayingFetch;
+      w.createPayingFetch = (cap) => async (url, init) => inner(cap)(url.includes("/api/v1/preflight") ? url.replace("max_usd=0.05", "max_usd=1") : url, init);
+      fetchFn = make(w);
+    }
+    await assert.rejects(fetchFn(PAID), (err) => {
+      assert.equal(err.code, "bad_receipt", name);
+      assert.match(err.message, reason, name);
+      return true;
+    });
+    assert.equal(w.log.paid.length, 0, `${name}: nothing paid`);
+  }
+  const stranger = world();
+  await assert.rejects(make(stranger, { doctorSigners: ["0x0000000000000000000000000000000000000001"] })(PAID), (err) => err.code === "bad_receipt" && /unknown key/.test(err.message));
+  assert.equal(stranger.log.paid.length, 0);
+});
+
+test("signed receipts: verifyReceipts 'off' skips the check; the published signer is pinned by default", async () => {
+  const w = world({ tamper: ({ receipt, ...b }) => b });
+  const res = await make(w, { verifyReceipts: "off" })(PAID);
+  assert.deepEqual(await res.json(), { ok: true });
+  assert.deepEqual(DOCTOR_SIGNERS, ["0xAaE66eF9Ee234397df33901568c8FBc36d43277d"]);
+  assert.throws(() => createSafeFetch({ register: () => {}, verifyReceipts: "maybe" }), /verifyReceipts/);
+});
+
+test("signed receipts: a real Doctor receipt from production verifies (27 Sep 2026 preflight)", () => {
+  const live = {"url":"https://ichimoku-signal.onrender.com/signal/BTC-USDT","method":"GET","verdict":"go","safe_to_pay":true,"summary":"OK to pay: $0.02 on Base.","recommended_option":0,"options":[{"index":0,"network":"eip155:8453","network_name":"Base","testnet":false,"scheme":"exact","asset":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","asset_symbol":"USDC","amount":"20000","usd":0.02,"pay_to":"0x6B0F4651eD42893ab58139938175E4a69f175F25","payable":true,"problems":[]},{"index":1,"network":"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp","network_name":"Solana","testnet":false,"scheme":"exact","asset":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","asset_symbol":"USDC","amount":"20000","usd":0.02,"pay_to":"ATWJ82T8nRdQwZnaysB68N5EpaSvLRsQP4h6eWmaJBH9","payable":true,"problems":[]}],"signals":{"https":true,"advertised_price_usd":0.02,"listed_in_cdp_bazaar":false,"origin_in_cdp_bazaar":true,"track_record":null,"x402_version":2},"reasons":[],"checked_at":"2026-09-27T07:47:00.700Z","cached":false,"receipt":{"request_id":"edddd0ee-ff3a-4470-80bb-b92a82e17d96","route":"GET /api/v1/preflight","input_sha256":"2da6ecd53282b9699f961b5095b926a46c9044ecc5d6cf88080d65eaabe63af1","signed_at":"2026-09-27T07:47:00.700Z","signer":"0xAaE66eF9Ee234397df33901568c8FBc36d43277d","algorithm":"eip191-canonical-json-v1","signature":"0xdcad07dfb5f05ee688bc62144759d928f7527c2157437485b0868969c1f118250e2677d910a81ee91be55bc8ac1fbf1c7487910ec5ab0d890f8475aa49821a481c"}};
+  const input = { url: "https://ichimoku-signal.onrender.com/signal/BTC-USDT", max_usd: "0.05" };
+  assert.equal(verifyReceipt(live, { route: "GET /api/v1/preflight", input }).valid, true);
+  assert.equal(verifyReceipt({ ...live, verdict: "no_go" }).valid, false);
 });

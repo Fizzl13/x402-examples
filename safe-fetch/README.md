@@ -56,8 +56,20 @@ Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` 
 | `trusted` | `[]` | Hosts paid without a preflight |
 | `onPreflight` | | `(preflight, { url, method, cached }) => void`, e.g. for logging |
 | `cacheMs` | 10 minutes | How long a verdict is reused per method and URL |
+| `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
+| `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor, or after a key rotation) |
 
 The preflight itself is capped at $0.002 and paid with the same schemes. `receiptOf(response)` returns the payment receipt (transaction hash) of a paid response.
+
+## Signed verdicts
+
+x402 Doctor signs every paid preflight (EIP-191 over canonical JSON, with the request inside the signed body; see [Signed verdicts](https://github.com/Fizzl13/x402-doctor#signed-verdicts)). safe-fetch checks that signature before it acts on a verdict:
+
+- the answer must be signed by Doctor's published signer, `0xAaE66eF9Ee234397df33901568c8FBc36d43277d` (pinned in the package, not fetched from the server it vouches for);
+- the signature must cover exactly this request: your endpoint, method, budget and network;
+- otherwise it throws `SafePayError` with code `bad_receipt` and **the endpoint is not paid**. A tampered "go", a missing receipt or a verdict for another request never turns into a payment.
+
+`verifyReceipt(body, { signers, route, input })`, `recoverSigner`, `canonicalJson` and `inputHash` are exported, so you can check any signed Doctor or presign-guard answer yourself.
 
 ## Costs and limits
 
