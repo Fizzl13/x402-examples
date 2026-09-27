@@ -9,11 +9,17 @@
 //             function that decides (e.g. ask the user)
 //   go      → pays the endpoint, never more than maxUsd
 // Trusted hosts skip the preflight; a verdict is reused for 10 minutes.
+// Every preflight must carry Doctor's signed receipt for exactly this request
+// (endpoint, method, budget, network), checked against Doctor's pinned signer:
+// a missing, changed or forged verdict is never a payment (receipt.js).
 //
 // Payments use @x402/fetch with the schemes you register (your keys stay in
 // your code): register: (client) => client.register("eip155:8453", new ExactEvmScheme(account))
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
+import { verifyReceipt, DOCTOR_SIGNERS } from "./receipt.js";
+
+export { verifyReceipt, recoverSigner, canonicalJson, inputHash, DOCTOR_SIGNERS } from "./receipt.js";
 
 export const DOCTOR_URL = "https://x402-doctor.onrender.com";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
@@ -22,7 +28,7 @@ export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 const NETWORK_ALIASES = { base: BASE, solana: SOLANA };
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "preflight_failed" | "no_option" */
+  /** code: "no_go" | "caution" | "preflight_failed" | "bad_receipt" | "no_option" */
   constructor(message, { code, preflight = null, url = null } = {}) {
     super(message);
     this.name = "SafePayError";
@@ -86,6 +92,8 @@ function requestOf(input, init) {
  * @param {(preflight: object, info: {url: string, method: string, cached: boolean}) => void} [options.onPreflight]
  * @param {number} [options.cacheMs]  how long a verdict is reused (default 10 minutes)
  * @param {string} [options.doctorUrl]
+ * @param {"require"|"off"} [options.verifyReceipts]  check Doctor's signature on every preflight (default "require")
+ * @param {string[]} [options.doctorSigners]  accepted Doctor signer addresses (default: the published signer)
  * @param {typeof fetch} [options.fetch]  the underlying fetch (default globalThis.fetch)
  * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
  * @param {() => number} [options.now]
@@ -99,6 +107,8 @@ export function createSafeFetch({
   onPreflight,
   cacheMs = 10 * 60 * 1000,
   doctorUrl = DOCTOR_URL,
+  verifyReceipts = "require",
+  doctorSigners = DOCTOR_SIGNERS,
   fetch: baseFetch = globalThis.fetch,
   createPayingFetch,
   now = Date.now,
@@ -111,6 +121,7 @@ export function createSafeFetch({
   if (!["stop", "pay"].includes(onCaution) && typeof onCaution !== "function") {
     throw new TypeError('onCaution must be "stop", "pay" or a function');
   }
+  if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
   const trustedHosts = new Set(trusted.map(hostOf).filter(Boolean));
 
   const makePayingFetch = createPayingFetch ?? ((cap) => {
@@ -132,10 +143,17 @@ export function createSafeFetch({
     const key = `${method} ${url}`;
     const hit = verdicts.get(key);
     if (hit && hit.expires > now()) return { preflight: hit.preflight, cached: true };
-    const res = await payPreflight(preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl }), { headers: { accept: "application/json" } });
+    const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl });
+    const res = await payPreflight(pfUrl, { headers: { accept: "application/json" } });
     const preflight = await res.json().catch(() => null);
     if (!res.ok || !preflight?.verdict) {
       throw new SafePayError(`preflight failed (HTTP ${res.status}); the endpoint was not paid`, { code: "preflight_failed", preflight, url });
+    }
+    if (verifyReceipts === "require") {
+      // Bound to this request: the query Doctor saw, as strings (see Doctor's input_sha256).
+      const input = Object.fromEntries(new URL(pfUrl).searchParams);
+      const check = verifyReceipt(preflight, { signers: doctorSigners, route: "GET /api/v1/preflight", input });
+      if (!check.valid) throw new SafePayError(`preflight not trusted (${check.reason}); the endpoint was not paid`, { code: "bad_receipt", preflight, url });
     }
     verdicts.set(key, { preflight, expires: now() + cacheMs });
     if (verdicts.size > 1000) verdicts.delete(verdicts.keys().next().value);

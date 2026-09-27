@@ -15,7 +15,7 @@ export interface Preflight {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "preflight_failed" | "no_option";
+  code: "no_go" | "caution" | "preflight_failed" | "bad_receipt" | "no_option";
   preflight: Preflight | null;
   url: string | null;
 }
@@ -35,6 +35,10 @@ export interface SafeFetchOptions {
   /** How long a verdict is reused, in ms. Default 10 minutes. */
   cacheMs?: number;
   doctorUrl?: string;
+  /** Check Doctor's signed receipt on every preflight (signer, and bound to this request). Default "require". */
+  verifyReceipts?: "require" | "off";
+  /** Accepted Doctor signer addresses. Default: the published signer (DOCTOR_SIGNERS). */
+  doctorSigners?: string[];
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;
@@ -45,3 +49,9 @@ export declare function createSafeFetch(options: SafeFetchOptions): (input: stri
 export declare function usdCap(maxUsd: number | string): string;
 export declare function preflightUrl(target: string, options?: { method?: string; maxUsd?: number | string; network?: string; doctorUrl?: string }): string;
 export declare function receiptOf(response: Response): { transaction?: string; network?: string; success?: boolean; [key: string]: unknown } | null;
+
+export declare const DOCTOR_SIGNERS: string[];
+export declare function canonicalJson(value: unknown): string;
+export declare function inputHash(route: string, input: unknown): string;
+export declare function recoverSigner(message: string, signature: string): string | null;
+export declare function verifyReceipt(body: unknown, options?: { signers?: string[]; route?: string; input?: unknown }): { valid: boolean; signer?: string; reason?: string };
