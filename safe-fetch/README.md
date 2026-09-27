@@ -57,7 +57,8 @@ Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` 
 | `onPreflight` | | `(preflight, { url, method, cached }) => void`, e.g. for logging |
 | `cacheMs` | 10 minutes | How long a verdict is reused per method and URL |
 | `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
-| `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor, or after a key rotation) |
+| `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
+| `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
 The preflight itself is capped at $0.002 and paid with the same schemes. `receiptOf(response)` returns the payment receipt (transaction hash) of a paid response.
 
@@ -68,6 +69,8 @@ x402 Doctor signs every paid preflight (EIP-191 over canonical JSON, with the re
 - the answer must be signed by Doctor's published signer, `0xAaE66eF9Ee234397df33901568c8FBc36d43277d` (pinned in the package, not fetched from the server it vouches for);
 - the signature must cover exactly this request: your endpoint, method, budget and network;
 - otherwise it throws `SafePayError` with code `bad_receipt` and **the endpoint is not paid**. A tampered "go", a missing receipt or a verdict for another request never turns into a payment.
+
+**Key rotation:** Doctor's signing key can change without a safe-fetch update. The Fizzl payout wallet (`0x6B0F4651eD42893ab58139938175E4a69f175F25`, the `payTo` of every payment) certifies each key, and the certificate travels inside the receipt (`receipt.cert`). safe-fetch accepts a key that is pinned *or* certified by that wallet for x402 Doctor, for signatures made on or after the certificate's date. Set `authority: null` to accept only `doctorSigners`.
 
 `verifyReceipt(body, { signers, route, input })`, `recoverSigner`, `canonicalJson` and `inputHash` are exported, so you can check any signed Doctor or presign-guard answer yourself.
 

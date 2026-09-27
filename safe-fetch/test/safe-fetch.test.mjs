@@ -1,13 +1,13 @@
 // Offline: the endpoint, Doctor and the payment are fakes; nothing is paid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSafeFetch, SafePayError, usdCap, preflightUrl, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS } from "../index.js";
+import { createSafeFetch, SafePayError, usdCap, preflightUrl, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 // A stand-in for Doctor's signer: preflights are signed like the live service signs them.
 const doctorKey = privateKeyToAccount(generatePrivateKey());
-async function signed(body, url, key = doctorKey) {
-  const receipt = { request_id: "r1", route: "GET /api/v1/preflight", input_sha256: inputHash("GET /api/v1/preflight", Object.fromEntries(new URL(url).searchParams)), signed_at: "2026-09-27T10:00:00.000Z", signer: key.address, algorithm: "eip191-canonical-json-v1" };
+async function signed(body, url, key = doctorKey, cert = null) {
+  const receipt = { request_id: "r1", route: "GET /api/v1/preflight", input_sha256: inputHash("GET /api/v1/preflight", Object.fromEntries(new URL(url).searchParams)), ...(cert && { cert }), signed_at: "2026-09-27T10:00:00.000Z", signer: key.address, algorithm: "eip191-canonical-json-v1" };
   return { ...body, receipt: { ...receipt, signature: await key.signMessage({ message: canonicalJson({ ...body, receipt }) }) } };
 }
 
@@ -28,7 +28,7 @@ function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorSt
         log.preflights.push({ cap, url: new URL(url) });
         if (doctorStatus !== 200) return Response.json({ error: "boom" }, { status: doctorStatus });
         const body = await signed({ verdict, summary, reasons: [] }, url);
-        return Response.json(tamper ? tamper(body) : body);
+        return Response.json(tamper ? await tamper(body, url) : body);
       }
       log.paid.push({ cap, url, method: init.method ?? "GET", body: init.body });
       return Response.json({ ok: true });
@@ -201,4 +201,31 @@ test("signed receipts: a real Doctor receipt from production verifies (27 Sep 20
   const input = { url: "https://ichimoku-signal.onrender.com/signal/BTC-USDT", max_usd: "0.05" };
   assert.equal(verifyReceipt(live, { route: "GET /api/v1/preflight", input }).valid, true);
   assert.equal(verifyReceipt({ ...live, verdict: "no_go" }).valid, false);
+});
+
+test("key rotation: a new Doctor key certified by the payout wallet is trusted without a new release", async () => {
+  assert.equal(AUTHORITY, "0x6B0F4651eD42893ab58139938175E4a69f175F25");
+  const payout = privateKeyToAccount(generatePrivateKey()); // stands in for the payout wallet
+  const rotated = privateKeyToAccount(generatePrivateKey()); // Doctor's new signing key, not pinned anywhere
+  const certBy = async (key, service = "x402-doctor", validFrom = "2026-09-01") => {
+    const c = { service, signer: rotated.address, valid_from: validFrom, authority: payout.address };
+    return { ...c, signature: await key.signMessage({ message: certMessage(c) }) };
+  };
+  const resign = (cert) => async ({ receipt, ...body }, url) => signed(body, url, rotated, cert);
+
+  const ok = world({ tamper: resign(await certBy(payout)) });
+  const res = await make(ok, { authority: payout.address })(PAID);
+  assert.deepEqual(await res.json(), { ok: true }, "certified: paid");
+
+  for (const [name, cert, options] of [
+    ["no certificate", null, { authority: payout.address }],
+    ["certified by someone else", await certBy(privateKeyToAccount(generatePrivateKey())), { authority: payout.address }],
+    ["certified for another service", await certBy(payout, "presign-guard"), { authority: payout.address }],
+    ["used before valid_from", await certBy(payout, "x402-doctor", "2999-01-01"), { authority: payout.address }],
+    ["certificates switched off", await certBy(payout), { authority: null }],
+  ]) {
+    const w = world({ tamper: resign(cert) });
+    await assert.rejects(make(w, options)(PAID), (err) => err.code === "bad_receipt" && /unknown key/.test(err.message), name);
+    assert.equal(w.log.paid.length, 0, `${name}: nothing paid`);
+  }
 });
