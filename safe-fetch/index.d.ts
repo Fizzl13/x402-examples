@@ -39,6 +39,8 @@ export interface SafeFetchOptions {
   verifyReceipts?: "require" | "off";
   /** Accepted Doctor signer addresses. Default: the published signer (DOCTOR_SIGNERS). */
   doctorSigners?: string[];
+  /** Wallet whose certificates (receipt.cert) also make a signer trusted, so a rotated Doctor key keeps working. Default: the Fizzl payout wallet; null accepts only doctorSigners. */
+  authority?: string | null;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;
@@ -54,4 +56,6 @@ export declare const DOCTOR_SIGNERS: string[];
 export declare function canonicalJson(value: unknown): string;
 export declare function inputHash(route: string, input: unknown): string;
 export declare function recoverSigner(message: string, signature: string): string | null;
-export declare function verifyReceipt(body: unknown, options?: { signers?: string[]; route?: string; input?: unknown }): { valid: boolean; signer?: string; reason?: string };
+export declare const AUTHORITY: string;
+export declare function certMessage(cert: { service: string; signer: string; valid_from: string }): string;
+export declare function verifyReceipt(body: unknown, options?: { signers?: string[]; route?: string; input?: unknown; authority?: string | null; service?: string }): { valid: boolean; signer?: string; reason?: string };

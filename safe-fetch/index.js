@@ -17,9 +17,9 @@
 // your code): register: (client) => client.register("eip155:8453", new ExactEvmScheme(account))
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
-import { verifyReceipt, DOCTOR_SIGNERS } from "./receipt.js";
+import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
-export { verifyReceipt, recoverSigner, canonicalJson, inputHash, DOCTOR_SIGNERS } from "./receipt.js";
+export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
 export const DOCTOR_URL = "https://x402-doctor.onrender.com";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
@@ -94,6 +94,7 @@ function requestOf(input, init) {
  * @param {string} [options.doctorUrl]
  * @param {"require"|"off"} [options.verifyReceipts]  check Doctor's signature on every preflight (default "require")
  * @param {string[]} [options.doctorSigners]  accepted Doctor signer addresses (default: the published signer)
+ * @param {string|null} [options.authority]  wallet whose certificates also make a signer trusted (default: the Fizzl payout wallet; null to accept only doctorSigners)
  * @param {typeof fetch} [options.fetch]  the underlying fetch (default globalThis.fetch)
  * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
  * @param {() => number} [options.now]
@@ -109,6 +110,7 @@ export function createSafeFetch({
   doctorUrl = DOCTOR_URL,
   verifyReceipts = "require",
   doctorSigners = DOCTOR_SIGNERS,
+  authority = AUTHORITY,
   fetch: baseFetch = globalThis.fetch,
   createPayingFetch,
   now = Date.now,
@@ -152,7 +154,7 @@ export function createSafeFetch({
     if (verifyReceipts === "require") {
       // Bound to this request: the query Doctor saw, as strings (see Doctor's input_sha256).
       const input = Object.fromEntries(new URL(pfUrl).searchParams);
-      const check = verifyReceipt(preflight, { signers: doctorSigners, route: "GET /api/v1/preflight", input });
+      const check = verifyReceipt(preflight, { signers: doctorSigners, route: "GET /api/v1/preflight", input, authority, service: "x402-doctor" });
       if (!check.valid) throw new SafePayError(`preflight not trusted (${check.reason}); the endpoint was not paid`, { code: "bad_receipt", preflight, url });
     }
     verdicts.set(key, { preflight, expires: now() + cacheMs });

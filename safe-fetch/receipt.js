@@ -17,6 +17,25 @@ import { keccak_256 } from "@noble/hashes/sha3";
 // protect against that server being compromised.
 export const DOCTOR_SIGNERS = ["0xAaE66eF9Ee234397df33901568c8FBc36d43277d"];
 
+// The payout wallet (the payTo of every Fizzl payment) certifies signing keys:
+// a key it authorised for the service is accepted too, so a rotated Doctor key
+// verifies without a new safe-fetch release. The certificate travels inside
+// the receipt (receipt.cert) as a personal_sign over certMessage.
+export const AUTHORITY = "0x6B0F4651eD42893ab58139938175E4a69f175F25";
+
+export function certMessage({ service, signer, valid_from }) {
+  return `fizzl receipt signer\nservice: ${service}\nsigner: ${signer}\nvalid_from: ${valid_from}`;
+}
+
+// A key the authority certified for `service`, used on or after valid_from.
+export function certifiedSigner(receipt, recovered, { authority = AUTHORITY, service = "x402-doctor" } = {}) {
+  const c = receipt && receipt.cert;
+  if (!c || c.service !== service || String(c.signer).toLowerCase() !== recovered) return false;
+  if (String(c.authority).toLowerCase() !== authority.toLowerCase()) return false;
+  if (!(String(receipt.signed_at).slice(0, 10) >= String(c.valid_from))) return false;
+  return recoverSigner(certMessage(c), c.signature) === authority.toLowerCase();
+}
+
 export function canonicalJson(value) {
   const ascii = (s) => JSON.stringify(s).replace(/[\u007f-￿]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
   const walk = (v) => {
@@ -56,13 +75,16 @@ export function recoverSigner(message, signature) {
  * and input) for exactly that request.
  * @returns {{ valid: boolean, signer?: string, reason?: string }}
  */
-export function verifyReceipt(body, { signers = DOCTOR_SIGNERS, route, input } = {}) {
+export function verifyReceipt(body, { signers = DOCTOR_SIGNERS, route, input, authority = AUTHORITY, service = "x402-doctor" } = {}) {
   const r = body && body.receipt;
   if (!r || typeof r.signature !== "string") return { valid: false, reason: "no signed receipt" };
   const { signature, ...rest } = r;
   const recovered = recoverSigner(canonicalJson({ ...body, receipt: rest }), signature);
   if (!recovered || recovered.toLowerCase() !== String(r.signer).toLowerCase()) return { valid: false, reason: "signature does not match: the answer was changed" };
-  if (!signers.some((s) => s.toLowerCase() === recovered)) return { valid: false, signer: recovered, reason: "signed by an unknown key, not x402 Doctor" };
+  const pinned = signers.some((s) => s.toLowerCase() === recovered);
+  if (!pinned && !(authority && certifiedSigner(r, recovered, { authority, service }))) {
+    return { valid: false, signer: recovered, reason: "signed by an unknown key, not x402 Doctor" };
+  }
   if (route !== undefined && input !== undefined && inputHash(route, input) !== r.input_sha256) {
     return { valid: false, signer: recovered, reason: "signed for a different request" };
   }
