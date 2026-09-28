@@ -34,7 +34,7 @@ test("links", () => {
   assert.equal(explorerUrl(SOLANA, "abc"), "https://solscan.io/tx/abc");
   assert.equal(explorerUrl(BASE, "0xabc"), "https://basescan.org/tx/0xabc");
   assert.equal(explorerUrl(BASE, null), null);
-  assert.equal(tokenUrl("solana", "Mint1"), "https://presign-guard.onrender.com/v1/token?chain=solana&address=Mint1");
+  assert.equal(tokenUrl("solana", "Mint1"), "https://presign-guard.fizzl.eu/v1/token?chain=solana&address=Mint1");
 });
 
 test("SOLANA_SEED: the same password always gives the same wallet; short ones are refused", async () => {

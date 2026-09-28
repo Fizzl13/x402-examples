@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 
-// Doctor's published signers (https://x402-doctor.onrender.com/.well-known/x402-doctor-signer.json).
+// Doctor's published signers (https://x402-doctor.fizzl.eu/.well-known/x402-doctor-signer.json).
 // Pinned here on purpose: a signer list fetched from the same server would not
 // protect against that server being compromised.
 export const DOCTOR_SIGNERS = ["0xAaE66eF9Ee234397df33901568c8FBc36d43277d"];

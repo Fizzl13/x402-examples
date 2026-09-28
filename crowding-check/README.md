@@ -6,7 +6,7 @@ A small open example of an agent combining two x402 services into one read:
 |---|---|---|---|
 | 1 | [Edge Agents](https://pay.edge-agents.ai) | perp funding rates (Binance, Bybit, OKX) | $0.01 |
 | 2 | Edge Agents | CFTC leveraged-fund positioning, CME (BTC or ETH, weekly) | $0.01 |
-| 3 | [Ichimoku Signal](https://ichimoku-signal.onrender.com) | confluence on 4h and on 1d (two calls) | $0.20 |
+| 3 | [Ichimoku Signal](https://ichimoku-signal.fizzl.eu) | confluence on 4h and on 1d (two calls) | $0.20 |
 
 Total: **$0.22 per run**, paid in USDC on Base with x402. No accounts, no API keys.
 

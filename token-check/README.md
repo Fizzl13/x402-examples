@@ -1,6 +1,6 @@
 # Token check: a verdict before an agent buys, holds or accepts a token
 
-Before an agent swaps into a token, holds one, or accepts one as payment, it pays **$0.01** for a verdict from [presign-guard](https://presign-guard.onrender.com) and acts on it:
+Before an agent swaps into a token, holds one, or accepts one as payment, it pays **$0.01** for a verdict from [presign-guard](https://presign-guard.fizzl.eu) and acts on it:
 
 | Verdict | Grade | Agent action |
 |---|---|---|
@@ -34,13 +34,13 @@ Paid $0.01 on Solana from 7xKX…: https://solscan.io/tx/…
 In your own agent, the whole check is one paid GET and one line of logic:
 
 ```js
-const res = await payingFetch(`https://presign-guard.onrender.com/v1/token?chain=solana&address=${mint}`);
+const res = await payingFetch(`https://presign-guard.fizzl.eu/v1/token?chain=solana&address=${mint}`);
 const { verdict, one_liner } = await res.json();
 if (verdict === "red") throw new Error(`not buying: ${one_liner}`);
 if (verdict === "orange") await askUser(one_liner);
 ```
 
-MCP clients can use the same check as a tool: `token_verdict` ($0.01) or the free `token_quick_verdict` on `https://presign-guard.onrender.com/mcp`.
+MCP clients can use the same check as a tool: `token_verdict` ($0.01) or the free `token_quick_verdict` on `https://presign-guard.fizzl.eu/mcp`.
 
 ## Paid run from GitHub
 

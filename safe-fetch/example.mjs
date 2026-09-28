@@ -5,7 +5,7 @@ import { createSafeFetch, SafePayError, receiptOf } from "./index.js";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 
-const url = process.argv[2] || "https://ichimoku-signal.onrender.com/signal/BTC-USDT";
+const url = process.argv[2] || "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT";
 const maxUsd = process.argv[3] || "0.05";
 const key = String(process.env.EVM_PRIVATE_KEY || "").trim();
 if (!key) {

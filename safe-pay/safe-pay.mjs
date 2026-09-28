@@ -15,9 +15,9 @@
 //   SOLANA_SEED         or: a long random password the Solana wallet is derived from
 //
 // Usage (in this folder, after npm install):
-//   node safe-pay.mjs https://ichimoku-signal.onrender.com/signal/BTC-USDT --dry-run   # prices only, pays nothing
-//   EVM_PRIVATE_KEY=... node safe-pay.mjs https://ichimoku-signal.onrender.com/signal/BTC-USDT --max-usd 0.05
-//   SOLANA_SEED=... node safe-pay.mjs "https://presign-guard.onrender.com/v1/token?chain=solana&address=<mint>" --pay-on solana
+//   node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --dry-run   # prices only, pays nothing
+//   EVM_PRIVATE_KEY=... node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --max-usd 0.05
+//   SOLANA_SEED=... node safe-pay.mjs "https://presign-guard.fizzl.eu/v1/token?chain=solana&address=<mint>" --pay-on solana
 //   ... --method POST --body '{"type":"approval",...}'   # for POST endpoints
 //   ... --json                                          # everything as JSON
 //
@@ -28,7 +28,7 @@ import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@
 
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export const BASE = "eip155:8453";
-const DOCTOR = (process.env.DOCTOR_URL || "https://x402-doctor.onrender.com").replace(/\/$/, "");
+const DOCTOR = (process.env.DOCTOR_URL || "https://x402-doctor.fizzl.eu").replace(/\/$/, "");
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never pay more than twice that
 
 // What the agent does with the preflight.

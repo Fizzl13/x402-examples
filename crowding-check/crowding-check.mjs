@@ -22,7 +22,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 const BASE = "eip155:8453";
 const EDGE = "https://pay.edge-agents.ai/v1/services";
-const ICHIMOKU = (process.env.SIGNAL_URL || "https://ichimoku-signal.onrender.com").replace(/\/$/, "");
+const ICHIMOKU = (process.env.SIGNAL_URL || "https://ichimoku-signal.fizzl.eu").replace(/\/$/, "");
 const INTERVALS = ["4h", "1d"];
 
 // Thresholds for the read. Funding is per funding period (usually 8h); 0.01% is the common baseline.

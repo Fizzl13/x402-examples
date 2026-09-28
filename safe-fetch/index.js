@@ -21,7 +21,7 @@ import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
 export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
-export const DOCTOR_URL = "https://x402-doctor.onrender.com";
+export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const BASE = "eip155:8453";
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";

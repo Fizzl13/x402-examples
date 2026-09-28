@@ -1,6 +1,6 @@
 # Safe pay: a preflight before paying an unknown x402 endpoint
 
-An agent that finds a paid endpoint (in the Bazaar, a catalogue, a link) doesn't know whether the payment will work, what it will really cost, or whether the payout address makes sense. So before paying, it pays **$0.001** for a preflight from [x402 Doctor](https://x402-doctor.onrender.com) and acts on it:
+An agent that finds a paid endpoint (in the Bazaar, a catalogue, a link) doesn't know whether the payment will work, what it will really cost, or whether the payout address makes sense. So before paying, it pays **$0.001** for a preflight from [x402 Doctor](https://x402-doctor.fizzl.eu) and acts on it:
 
 | Preflight | Agent action |
 |---|---|
@@ -14,10 +14,10 @@ The preflight reads the endpoint's 402 challenge. It checks the price against yo
 
 ```bash
 npm install
-node safe-pay.mjs https://ichimoku-signal.onrender.com/signal/BTC-USDT --dry-run         # both prices, pays nothing
+node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --dry-run         # both prices, pays nothing
 
-EVM_PRIVATE_KEY=... node safe-pay.mjs https://ichimoku-signal.onrender.com/signal/BTC-USDT --max-usd 0.05
-SOLANA_SEED=... node safe-pay.mjs "https://presign-guard.onrender.com/v1/token?chain=solana&address=<mint>" --pay-on solana
+EVM_PRIVATE_KEY=... node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --max-usd 0.05
+SOLANA_SEED=... node safe-pay.mjs "https://presign-guard.fizzl.eu/v1/token?chain=solana&address=<mint>" --pay-on solana
 node safe-pay.mjs <url> --method POST --body '{"...": "..."}'                            # POST endpoints
 node safe-pay.mjs <url> --json                                                           # everything as JSON
 ```
@@ -34,13 +34,13 @@ Endpoint: HTTP 200, paid: https://basescan.org/tx/0xab07f510e9f1bc3ed2dd27ba060d
 In your own agent, it's one extra paid GET before the real one:
 
 ```js
-const pre = await (await payingFetch(`https://x402-doctor.onrender.com/api/v1/preflight?url=${encodeURIComponent(url)}&max_usd=0.05&network=eip155:8453`)).json();
+const pre = await (await payingFetch(`https://x402-doctor.fizzl.eu/api/v1/preflight?url=${encodeURIComponent(url)}&max_usd=0.05&network=eip155:8453`)).json();
 if (pre.verdict === "no_go") throw new Error(pre.summary);
 if (pre.verdict === "caution") await askUser(pre.summary);
 const res = await payingFetch(url);
 ```
 
-MCP clients can use the same check as the `x402_preflight` tool ($0.001) on `https://x402-doctor.onrender.com/mcp`.
+MCP clients can use the same check as the `x402_preflight` tool ($0.001) on `https://x402-doctor.fizzl.eu/mcp`.
 
 ## Paid run from GitHub
 
