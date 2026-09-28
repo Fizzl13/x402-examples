@@ -3,7 +3,7 @@
 // An agent pays per call with x402 (USDC on Base):
 //   1. Edge Agents perp funding rates (Binance, Bybit, OKX)        $0.01
 //   2. Edge Agents CFTC leveraged-fund positioning (CME, weekly)    $0.01
-//   3. Ichimoku Signal confluence on 4h and 1d (two calls)          $0.20
+//   3. Ichimoku Signal confluence on 4h and 1d (two calls)          $0.30
 // and combines them into a short read, e.g. "crowded long + price below the cloud = caution".
 // Every input keeps its own timestamp: funding is minutes old, positioning is weekly.
 //
@@ -214,7 +214,7 @@ async function main() {
   const key = process.env.EVM_PRIVATE_KEY;
   if (!key) throw new Error("set EVM_PRIVATE_KEY (a dedicated wallet with USDC on Base), or use --dry-run");
   const account = privateKeyToAccount(key.startsWith("0x") ? key : `0x${key}`);
-  const client = new x402Client(preferBase).register(BASE, new ExactEvmScheme(account)).setSpendControls({ maxAmountPerPayment: "$0.10" });
+  const client = new x402Client(preferBase).register(BASE, new ExactEvmScheme(account)).setSpendControls({ maxAmountPerPayment: "$0.20" });
   const pay = wrapFetchWithPayment(fetch, client);
 
   const receipts = [];
