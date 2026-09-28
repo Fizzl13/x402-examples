@@ -5,7 +5,7 @@ export declare const PREFLIGHT_CAP: string;
 export declare const BASE: "eip155:8453";
 export declare const SOLANA: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
-/** The x402 Doctor preflight: see https://x402-doctor.onrender.com/openapi.json */
+/** The x402 Doctor preflight: see https://x402-doctor.fizzl.eu/openapi.json */
 export interface Preflight {
   verdict: "go" | "caution" | "no_go";
   summary?: string;

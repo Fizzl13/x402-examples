@@ -10,7 +10,7 @@ on:
       url:
         description: "x402 endpoint to pay (https)"
         type: string
-        default: https://ichimoku-signal.onrender.com/signal/BTC-USDT
+        default: https://ichimoku-signal.fizzl.eu/signal/BTC-USDT
       method:
         description: "HTTP method"
         type: choice

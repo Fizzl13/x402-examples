@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "dry-run": "node safe-pay.mjs https://ichimoku-signal.onrender.com/signal/BTC-USDT --dry-run",
+    "dry-run": "node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --dry-run",
     "test": "node --test safe-pay.test.mjs"
   },
   "dependencies": {

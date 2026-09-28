@@ -2,7 +2,7 @@
 
 A `fetch` for AI agents that checks an unknown x402 endpoint before paying it.
 
-A free endpoint is answered as is. For a paid one (HTTP 402), your agent first pays **$0.001** for an [x402 Doctor](https://x402-doctor.onrender.com) preflight and acts on it:
+A free endpoint is answered as is. For a paid one (HTTP 402), your agent first pays **$0.001** for an [x402 Doctor](https://x402-doctor.fizzl.eu) preflight and acts on it:
 
 | Preflight | What `safeFetch` does |
 |---|---|
@@ -35,7 +35,7 @@ const safeFetch = createSafeFetch({
 });
 
 try {
-  const res = await safeFetch("https://ichimoku-signal.onrender.com/signal/BTC-USDT");
+  const res = await safeFetch("https://ichimoku-signal.fizzl.eu/signal/BTC-USDT");
   console.log(await res.json());
 } catch (err) {
   if (err instanceof SafePayError) console.log(err.code, err.message, err.preflight?.reasons);

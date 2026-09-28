@@ -25,7 +25,7 @@ import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@
 
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export const BASE = "eip155:8453";
-const SERVICE = (process.env.TOKEN_VERDICT_URL || "https://presign-guard.onrender.com").replace(/\/$/, "");
+const SERVICE = (process.env.TOKEN_VERDICT_URL || "https://presign-guard.fizzl.eu").replace(/\/$/, "");
 export const CHAINS = ["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"];
 
 // What an agent does with the verdict.
