@@ -1,4 +1,4 @@
-# A real, paid run of an example ($0.22 per crowding check), started by hand only.
+# A real, paid run of an example ($0.32 per crowding check), started by hand only.
 # The wallet key is the repository secret EVM_PRIVATE_KEY: a dedicated wallet with a
 # few dollars of USDC on Base. Secrets are masked in logs and never given to forks.
 name: Live run (paid)
