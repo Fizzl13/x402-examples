@@ -297,3 +297,59 @@ test("diagnoseOnFailure: a diagnosis not signed by Doctor is dropped, never show
   assert.equal(res.status, 402);
   assert.equal(diagnosisOf(res), null);
 });
+
+// A world that records the outcome reports sent to Doctor.
+function outcomeWorld({ endpointStatus = 200 } = {}) {
+  const log = { reports: [] };
+  const baseFetch = async (url, init = {}) => {
+    if (String(url).endsWith("/api/v1/outcome")) {
+      log.reports.push({ ua: init.headers["user-agent"], body: JSON.parse(init.body) });
+      return Response.json({ accepted: true });
+    }
+    return Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
+  };
+  const createPayingFetch = () => async (url) => {
+    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict: "go", summary: "OK", reasons: [] }, url));
+    return Response.json(endpointStatus === 200 ? { ok: true } : { error: "x" }, { status: endpointStatus });
+  };
+  return { log, baseFetch, createPayingFetch };
+}
+const tick = () => new Promise((r) => setTimeout(r, 10));
+
+test("shareOutcomes off (default): nothing is reported", async () => {
+  const w = outcomeWorld();
+  await make(w)(PAID);
+  await tick();
+  assert.equal(w.log.reports.length, 0);
+});
+
+test("shareOutcomes: after paying, Doctor gets the outcome with the signed preflight and its query, once per preflight", async () => {
+  const w = outcomeWorld();
+  const sf = make(w, { shareOutcomes: true });
+  await sf(PAID);
+  await tick();
+  assert.equal(w.log.reports.length, 1);
+  const { body, ua } = w.log.reports[0];
+  assert.equal(body.outcome, "paid_ok");
+  assert.equal(body.status, 200);
+  assert.equal(body.preflight.verdict, "go");
+  assert.ok(body.preflight.receipt.request_id);
+  assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
+  assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
+  assert.match(ua, /^x402-safe-fetch\/0\.5\.0$/);
+  await sf(PAID); // the cached verdict: same preflight, not reported twice
+  await tick();
+  assert.equal(w.log.reports.length, 1);
+});
+
+test("shareOutcomes: a payment answered with 402 again is paid_failed, a 500 is paid_error", async () => {
+  const failed = outcomeWorld({ endpointStatus: 402 });
+  const res = await make(failed, { shareOutcomes: true })(PAID);
+  assert.equal(res.status, 402);
+  await tick();
+  assert.equal(failed.log.reports[0].body.outcome, "paid_failed");
+  const error = outcomeWorld({ endpointStatus: 500 });
+  await make(error, { shareOutcomes: true })(PAID);
+  await tick();
+  assert.equal(error.log.reports[0].body.outcome, "paid_error");
+});

@@ -55,6 +55,8 @@ export interface SafeFetchOptions {
   /** When a payment still fails (402 again, or paying throws), buy a $0.01 Doctor diagnosis of why. Default false. */
   diagnoseOnFailure?: boolean;
   onDiagnosis?: (report: Diagnosis, info: { url: string; method: string; status: number | null; error: Error | null }) => void;
+  /** After paying, tell Doctor whether the payment worked (with the signed preflight as proof), so later preflights learn from it. Default false. */
+  shareOutcomes?: boolean;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;

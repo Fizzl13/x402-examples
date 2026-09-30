@@ -59,6 +59,7 @@ Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` 
 | `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
 | `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
 | `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
+| `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it (see below) |
 | `onDiagnosis` | | `(report, { url, method, status, error }) => void`, e.g. for logging or alerting |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
@@ -87,6 +88,14 @@ if (res.status === 402) {
 - Off by default: nothing extra is paid unless you turn it on.
 
 Doctor's requests carry `user-agent: x402-safe-fetch/<version>` so the service can count how often the package is used; nothing about your agent or wallet is sent beyond the payment itself.
+
+## Helping the preflight learn
+
+With `shareOutcomes: true`, safe-fetch tells x402 Doctor what happened after it paid an endpoint that a preflight approved: `paid_ok` (2xx), `paid_failed` (402 again: the payment was not accepted) or `paid_error` (another error). Doctor counts these reports per endpoint over 30 days, from every agent that shares them. When most payments to an endpoint failed, reported by at least three different wallets, later preflights for it answer `caution` (`payments_fail_after_preflight`), so the next agent does not pay into the same wall.
+
+- What is sent: the outcome, the HTTP status, the signed preflight you already received and its query (endpoint, method, budget, network). No keys, no response content.
+- A report only counts with a real, paid preflight for that endpoint, once per preflight, so reports cannot be made up for free.
+- It is sent after the answer and never delays or changes it. Off by default.
 
 ## Signed verdicts
 
