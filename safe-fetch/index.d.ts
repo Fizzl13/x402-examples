@@ -2,6 +2,8 @@ import type { x402Client } from "@x402/fetch";
 
 export declare const DOCTOR_URL: string;
 export declare const PREFLIGHT_CAP: string;
+export declare const DIAGNOSE_CAP: string;
+export declare const VERSION: string;
 export declare const BASE: "eip155:8453";
 export declare const SOLANA: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
@@ -14,10 +16,19 @@ export interface Preflight {
   [key: string]: unknown;
 }
 
+/** The x402 Doctor diagnosis of an endpoint: every check with a fix hint (GET /api/v1/diagnose). */
+export interface Diagnosis {
+  overall: "pass" | "warn" | "fail";
+  checks: Array<{ id: string; status: "pass" | "warn" | "fail" | "info"; message: string; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
 export declare class SafePayError extends Error {
   code: "no_go" | "caution" | "preflight_failed" | "bad_receipt" | "no_option";
   preflight: Preflight | null;
   url: string | null;
+  /** Set when diagnoseOnFailure diagnosed a payment that failed. */
+  diagnosis?: Diagnosis;
 }
 
 export interface SafeFetchOptions {
@@ -41,6 +52,9 @@ export interface SafeFetchOptions {
   doctorSigners?: string[];
   /** Wallet whose certificates (receipt.cert) also make a signer trusted, so a rotated Doctor key keeps working. Default: the Fizzl payout wallet; null accepts only doctorSigners. */
   authority?: string | null;
+  /** When a payment still fails (402 again, or paying throws), buy a $0.01 Doctor diagnosis of why. Default false. */
+  diagnoseOnFailure?: boolean;
+  onDiagnosis?: (report: Diagnosis, info: { url: string; method: string; status: number | null; error: Error | null }) => void;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;
@@ -50,6 +64,9 @@ export interface SafeFetchOptions {
 export declare function createSafeFetch(options: SafeFetchOptions): (input: string | URL, init?: RequestInit) => Promise<Response>;
 export declare function usdCap(maxUsd: number | string): string;
 export declare function preflightUrl(target: string, options?: { method?: string; maxUsd?: number | string; network?: string; doctorUrl?: string }): string;
+export declare function diagnoseUrl(target: string, options?: { method?: string; doctorUrl?: string }): string;
+/** The Doctor diagnosis attached to a response whose payment failed (diagnoseOnFailure), or null. */
+export declare function diagnosisOf(response: Response): Diagnosis | null;
 export declare function receiptOf(response: Response): { transaction?: string; network?: string; success?: boolean; [key: string]: unknown } | null;
 
 export declare const DOCTOR_SIGNERS: string[];

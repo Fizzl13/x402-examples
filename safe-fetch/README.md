@@ -58,9 +58,35 @@ Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` 
 | `cacheMs` | 10 minutes | How long a verdict is reused per method and URL |
 | `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
 | `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
+| `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
+| `onDiagnosis` | | `(report, { url, method, status, error }) => void`, e.g. for logging or alerting |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
 The preflight itself is capped at $0.002 and paid with the same schemes. `receiptOf(response)` returns the payment receipt (transaction hash) of a paid response.
+
+## When a payment still fails
+
+Sometimes the preflight says `go` and the payment still fails: the endpoint answers 402 again, or paying throws (a facilitator that rejects it, a wrong network). With `diagnoseOnFailure: true`, safe-fetch then buys one **$0.01** [x402 Doctor diagnosis](https://github.com/Fizzl13/x402-doctor#paid-api-for-agents-x402) of that endpoint: every check of its payment flow, with what is wrong and how to fix it.
+
+```js
+import { createSafeFetch, diagnosisOf } from "x402-safe-fetch";
+
+const safeFetch = createSafeFetch({ register, maxUsd: 0.05, diagnoseOnFailure: true });
+
+const res = await safeFetch("https://api.example.com/paid");
+if (res.status === 402) {
+  const report = diagnosisOf(res); // { overall: "fail", checks: [{ id, status, message }, …] }
+  console.log(report?.checks.filter((c) => c.status === "fail").map((c) => c.message));
+}
+// When paying throws, the error carries it: err.diagnosis
+```
+
+- One diagnosis per endpoint per `cacheMs`, capped at $0.02 and paid with the same schemes.
+- Like the preflight, the diagnosis must carry Doctor's signed receipt for exactly this endpoint; an unsigned or forged one is dropped, never shown.
+- A diagnosis that fails never changes the outcome: you get the original response or error.
+- Off by default: nothing extra is paid unless you turn it on.
+
+Doctor's requests carry `user-agent: x402-safe-fetch/<version>` so the service can count how often the package is used; nothing about your agent or wallet is sent beyond the payment itself.
 
 ## Signed verdicts
 
@@ -77,6 +103,7 @@ x402 Doctor signs every paid preflight (EIP-191 over canonical JSON, with the re
 ## Costs and limits
 
 - $0.001 per preflight (once per endpoint per 10 minutes), plus the endpoint's own price.
+- With `diagnoseOnFailure`: $0.01 per diagnosis, only when a payment fails (once per endpoint per 10 minutes).
 - Bodies must be strings, Buffers or `URLSearchParams`: the request is sent once unpaid (to see the 402) and once paid.
 - If Doctor is unreachable, nothing is paid (`SafePayError` with code `preflight_failed`).
 - The preflight checks whether a payment can succeed and is sensible; it does not guarantee what the service delivers after payment.

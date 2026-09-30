@@ -9,6 +9,9 @@
 //             function that decides (e.g. ask the user)
 //   go      → pays the endpoint, never more than maxUsd
 // Trusted hosts skip the preflight; a verdict is reused for 10 minutes.
+// With diagnoseOnFailure, a payment that still fails (the endpoint answers 402
+// again, or paying throws) gets a $0.01 Doctor diagnosis that says why and how
+// to fix it: onDiagnosis(report), diagnosisOf(response) or error.diagnosis.
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:
 // a missing, changed or forged verdict is never a payment (receipt.js).
@@ -23,6 +26,10 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
+export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
+export const VERSION = "0.4.0";
+// Doctor sees which calls come from this package (in its usage counts), nothing more.
+const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 const NETWORK_ALIASES = { base: BASE, solana: SOLANA };
@@ -43,6 +50,17 @@ export function usdCap(maxUsd) {
   const n = Number(String(maxUsd).replace(/^\$/, ""));
   if (!(n > 0) || !Number.isFinite(n)) throw new TypeError("maxUsd must be a positive number of US dollars, e.g. 0.05");
   return `$${Number(n.toFixed(6))}`;
+}
+
+export function diagnoseUrl(target, { method = "GET", doctorUrl = DOCTOR_URL } = {}) {
+  const q = new URLSearchParams({ url: target, method });
+  return `${doctorUrl.replace(/\/$/, "")}/api/v1/diagnose?${q}`;
+}
+
+// The Doctor diagnosis attached to a response whose payment failed, or null.
+const diagnoses = new WeakMap();
+export function diagnosisOf(response) {
+  return (response && diagnoses.get(response)) || null;
 }
 
 export function preflightUrl(target, { method = "GET", maxUsd, network, doctorUrl = DOCTOR_URL } = {}) {
@@ -96,6 +114,8 @@ function requestOf(input, init) {
  * @param {string[]} [options.doctorSigners]  accepted Doctor signer addresses (default: the published signer)
  * @param {string|null} [options.authority]  wallet whose certificates also make a signer trusted (default: the Fizzl payout wallet; null to accept only doctorSigners)
  * @param {typeof fetch} [options.fetch]  the underlying fetch (default globalThis.fetch)
+ * @param {boolean} [options.diagnoseOnFailure]  when a payment still fails, buy a $0.01 Doctor diagnosis of why (default false)
+ * @param {(report: object, info: {url: string, method: string, status: number|null, error: Error|null}) => void} [options.onDiagnosis]
  * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
  * @param {() => number} [options.now]
  */
@@ -111,6 +131,8 @@ export function createSafeFetch({
   verifyReceipts = "require",
   doctorSigners = DOCTOR_SIGNERS,
   authority = AUTHORITY,
+  diagnoseOnFailure = false,
+  onDiagnosis,
   fetch: baseFetch = globalThis.fetch,
   createPayingFetch,
   now = Date.now,
@@ -137,7 +159,9 @@ export function createSafeFetch({
   });
   let preflightFetch;
   let endpointFetch;
+  let diagnoseFetch;
   const payPreflight = (...args) => (preflightFetch ??= makePayingFetch(PREFLIGHT_CAP))(...args);
+  const payDiagnose = (...args) => (diagnoseFetch ??= makePayingFetch(DIAGNOSE_CAP))(...args);
   const payEndpoint = (...args) => (endpointFetch ??= makePayingFetch(budget))(...args);
 
   const verdicts = new Map();
@@ -146,7 +170,7 @@ export function createSafeFetch({
     const hit = verdicts.get(key);
     if (hit && hit.expires > now()) return { preflight: hit.preflight, cached: true };
     const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl });
-    const res = await payPreflight(pfUrl, { headers: { accept: "application/json" } });
+    const res = await payPreflight(pfUrl, { headers: DOCTOR_HEADERS });
     const preflight = await res.json().catch(() => null);
     if (!res.ok || !preflight?.verdict) {
       throw new SafePayError(`preflight failed (HTTP ${res.status}); the endpoint was not paid`, { code: "preflight_failed", preflight, url });
@@ -162,13 +186,62 @@ export function createSafeFetch({
     return { preflight, cached: false };
   }
 
+  // Why did a payment fail? One paid diagnosis per method and URL per cacheMs;
+  // a diagnosis that fails or is not signed by Doctor is dropped, never thrown.
+  const diagnosed = new Map();
+  async function diagnoseFor(url, method) {
+    const key = `${method} ${url}`;
+    const hit = diagnosed.get(key);
+    if (hit && hit.expires > now()) return hit.report;
+    let report = null;
+    try {
+      const dUrl = diagnoseUrl(url, { method, doctorUrl });
+      const res = await payDiagnose(dUrl, { headers: DOCTOR_HEADERS });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.checks) {
+        const input = Object.fromEntries(new URL(dUrl).searchParams);
+        const check = verifyReceipts === "require" ? verifyReceipt(body, { signers: doctorSigners, route: "GET /api/v1/diagnose", input, authority, service: "x402-doctor" }) : { valid: true };
+        if (check.valid) report = body;
+      }
+    } catch {
+      // the original outcome stands; no diagnosis
+    }
+    diagnosed.set(key, { report, expires: now() + cacheMs });
+    if (diagnosed.size > 1000) diagnosed.delete(diagnosed.keys().next().value);
+    return report;
+  }
+
+  async function payAndCheck(url, init, method) {
+    if (!diagnoseOnFailure) return payEndpoint(url, init);
+    let res;
+    try {
+      res = await payEndpoint(url, init);
+    } catch (error) {
+      if (error instanceof SafePayError && error.code !== "no_option") throw error;
+      const report = await diagnoseFor(url, method);
+      if (report) {
+        try { error.diagnosis = report; } catch { /* frozen error */ }
+        onDiagnosis?.(report, { url, method, status: null, error });
+      }
+      throw error;
+    }
+    if (res.status === 402) {
+      const report = await diagnoseFor(url, method);
+      if (report) {
+        diagnoses.set(res, report);
+        onDiagnosis?.(report, { url, method, status: 402, error: null });
+      }
+    }
+    return res;
+  }
+
   return async function safeFetch(input, init = {}) {
     const { url, method } = requestOf(input, init);
     const probe = await baseFetch(url, init);
     if (probe.status !== 402) return probe;
     try { await probe.body?.cancel(); } catch { /* already consumed */ }
 
-    if (trustedHosts.has(hostOf(url))) return payEndpoint(url, init);
+    if (trustedHosts.has(hostOf(url))) return payAndCheck(url, init, method);
 
     const { preflight, cached } = await preflightFor(url, method);
     onPreflight?.(preflight, { url, method, cached });
@@ -180,6 +253,6 @@ export function createSafeFetch({
     } else if (preflight.verdict !== "go") {
       throw new SafePayError(`not paid: unknown verdict ${preflight.verdict}`, { code: "preflight_failed", preflight, url });
     }
-    return payEndpoint(url, init);
+    return payAndCheck(url, init, method);
   };
 }
