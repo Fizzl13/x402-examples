@@ -12,6 +12,10 @@
 // With diagnoseOnFailure, a payment that still fails (the endpoint answers 402
 // again, or paying throws) gets a $0.01 Doctor diagnosis that says why and how
 // to fix it: onDiagnosis(report), diagnosisOf(response) or error.diagnosis.
+// With shareOutcomes, after paying it tells Doctor what happened (paid_ok,
+// paid_failed, paid_error), with the signed preflight as proof, so later
+// preflights for that endpoint learn from what agents ran into. Off by
+// default; no keys, amounts or response content are sent.
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:
 // a missing, changed or forged verdict is never a payment (receipt.js).
@@ -27,7 +31,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -116,6 +120,7 @@ function requestOf(input, init) {
  * @param {typeof fetch} [options.fetch]  the underlying fetch (default globalThis.fetch)
  * @param {boolean} [options.diagnoseOnFailure]  when a payment still fails, buy a $0.01 Doctor diagnosis of why (default false)
  * @param {(report: object, info: {url: string, method: string, status: number|null, error: Error|null}) => void} [options.onDiagnosis]
+ * @param {boolean} [options.shareOutcomes]  after paying, tell Doctor whether the payment worked (default false)
  * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
  * @param {() => number} [options.now]
  */
@@ -133,6 +138,7 @@ export function createSafeFetch({
   authority = AUTHORITY,
   diagnoseOnFailure = false,
   onDiagnosis,
+  shareOutcomes = false,
   fetch: baseFetch = globalThis.fetch,
   createPayingFetch,
   now = Date.now,
@@ -211,6 +217,26 @@ export function createSafeFetch({
     return report;
   }
 
+  // One outcome report per paid preflight: Doctor counts it once anyway.
+  const reported = new Set();
+  function reportOutcome(url, method, preflight, res) {
+    if (!shareOutcomes || !preflight?.receipt?.request_id || reported.has(preflight.receipt.request_id)) return;
+    const outcome = res.ok ? "paid_ok" : res.status === 402 ? "paid_failed" : res.status >= 400 ? "paid_error" : null;
+    if (!outcome) return;
+    reported.add(preflight.receipt.request_id);
+    if (reported.size > 1000) reported.delete(reported.values().next().value);
+    const query = Object.fromEntries(new URL(preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl })).searchParams);
+    // Fire and forget: the report never delays or changes the answer.
+    Promise.resolve()
+      .then(() => baseFetch(`${doctorUrl.replace(/\/$/, "")}/api/v1/outcome`, {
+        method: "POST",
+        headers: { ...DOCTOR_HEADERS, "content-type": "application/json" },
+        body: JSON.stringify({ outcome, status: res.status, preflight, query }),
+      }))
+      .then((r) => r?.body?.cancel?.())
+      .catch(() => {});
+  }
+
   async function payAndCheck(url, init, method) {
     if (!diagnoseOnFailure) return payEndpoint(url, init);
     let res;
@@ -244,6 +270,11 @@ export function createSafeFetch({
     if (trustedHosts.has(hostOf(url))) return payAndCheck(url, init, method);
 
     const { preflight, cached } = await preflightFor(url, method);
+    const payAfterPreflight = async () => {
+      const res = await payAndCheck(url, init, method);
+      reportOutcome(url, method, preflight, res);
+      return res;
+    };
     onPreflight?.(preflight, { url, method, cached });
     const why = preflight.summary || preflight.verdict;
     if (preflight.verdict === "no_go") throw new SafePayError(`not paid: ${why}`, { code: "no_go", preflight, url });
@@ -253,6 +284,6 @@ export function createSafeFetch({
     } else if (preflight.verdict !== "go") {
       throw new SafePayError(`not paid: unknown verdict ${preflight.verdict}`, { code: "preflight_failed", preflight, url });
     }
-    return payAndCheck(url, init, method);
+    return payAfterPreflight();
   };
 }
