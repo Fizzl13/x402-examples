@@ -1,7 +1,7 @@
 // Offline: the endpoint, Doctor and the payment are fakes; nothing is paid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSafeFetch, SafePayError, usdCap, preflightUrl, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
+import { createSafeFetch, SafePayError, usdCap, preflightUrl, diagnosisOf, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 // A stand-in for Doctor's signer: preflights are signed like the live service signs them.
@@ -228,4 +228,72 @@ test("key rotation: a new Doctor key certified by the payout wallet is trusted w
     await assert.rejects(make(w, options)(PAID), (err) => err.code === "bad_receipt" && /unknown key/.test(err.message), name);
     assert.equal(w.log.paid.length, 0, `${name}: nothing paid`);
   }
+});
+
+// Doctor's diagnosis, signed like the live service signs it.
+async function signedDiagnosis(body, url, key = doctorKey) {
+  const route = "GET /api/v1/diagnose";
+  const receipt = { request_id: "d1", route, input_sha256: inputHash(route, Object.fromEntries(new URL(url).searchParams)), signed_at: "2026-09-30T10:00:00.000Z", signer: key.address, algorithm: "eip191-canonical-json-v1" };
+  return { ...body, receipt: { ...receipt, signature: await key.signMessage({ message: canonicalJson({ ...body, receipt }) }) } };
+}
+
+// A world whose endpoint takes the payment but still answers 402 (or throws), with a Doctor that diagnoses.
+function failingWorld({ endpoint = "402", signer = doctorKey } = {}) {
+  const log = { diagnoses: [], caps: [] };
+  const report = { url: PAID, overall: "fail", checks: [{ id: "network", status: "fail", message: "Payment option is on Base Sepolia, not Base mainnet." }] };
+  const baseFetch = async () => Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
+  const createPayingFetch = (cap) => {
+    log.caps.push(cap);
+    return async (url, init = {}) => {
+      if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict: "go", summary: "OK", reasons: [] }, url));
+      if (url.includes("/api/v1/diagnose")) {
+        log.diagnoses.push({ cap, url: new URL(url), ua: init.headers?.["user-agent"] });
+        return Response.json(await signedDiagnosis(report, url, signer));
+      }
+      if (endpoint === "throw") throw new Error("payment rejected by facilitator");
+      return Response.json({ error: "payment invalid" }, { status: 402 });
+    };
+  };
+  return { log, report, baseFetch, createPayingFetch };
+}
+
+test("diagnoseOnFailure off (default): a failed payment is not diagnosed", async () => {
+  const w = failingWorld();
+  const res = await make(w)(PAID);
+  assert.equal(res.status, 402);
+  assert.equal(w.log.diagnoses.length, 0);
+});
+
+test("diagnoseOnFailure: a payment answered with 402 again gets one signed Doctor diagnosis, capped at $0.02 and reused", async () => {
+  const w = failingWorld();
+  const seen = [];
+  const sf = make(w, { diagnoseOnFailure: true, onDiagnosis: (r, info) => seen.push([r.overall, info.status]) });
+  const res = await sf(PAID);
+  assert.equal(res.status, 402);
+  const d = diagnosisOf(res);
+  assert.equal(d.overall, "fail");
+  assert.match(d.checks[0].message, /Base Sepolia/);
+  assert.equal(w.log.diagnoses.length, 1);
+  assert.equal(w.log.diagnoses[0].cap, "$0.02");
+  assert.equal(w.log.diagnoses[0].url.searchParams.get("url"), PAID);
+  assert.match(w.log.diagnoses[0].ua, /^x402-safe-fetch\//);
+  assert.deepEqual(seen, [["fail", 402]]);
+  await sf(PAID);
+  assert.equal(w.log.diagnoses.length, 1); // reused within cacheMs
+});
+
+test("diagnoseOnFailure: when paying throws, the error carries the diagnosis and is rethrown", async () => {
+  const w = failingWorld({ endpoint: "throw" });
+  await assert.rejects(make(w, { diagnoseOnFailure: true })(PAID), (err) => {
+    assert.match(err.message, /payment rejected/);
+    assert.equal(err.diagnosis.overall, "fail");
+    return true;
+  });
+});
+
+test("diagnoseOnFailure: a diagnosis not signed by Doctor is dropped, never shown", async () => {
+  const w = failingWorld({ signer: privateKeyToAccount(generatePrivateKey()) });
+  const res = await make(w, { diagnoseOnFailure: true })(PAID);
+  assert.equal(res.status, 402);
+  assert.equal(diagnosisOf(res), null);
 });
