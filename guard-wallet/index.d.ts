@@ -21,9 +21,92 @@ export type CheckRequest =
   | { type: "signature"; chainId: number; typedData: unknown; origin?: string };
 
 export declare class PresignBlockedError extends Error {
-  code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain";
+  code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain" | "over_limit" | "paused" | "limit_unavailable";
   verdict: PresignVerdict | null;
   request: CheckRequest | null;
+  /** With code "over_limit": which limits would be crossed. */
+  reasons?: LimitReason[];
+}
+
+/** A limit in whole tokens, e.g. "5" or "0.002". */
+export type TokenAmount = string | number;
+
+export interface SpendingLimits {
+  /**
+   * Per token: "USDC" (native and bridged USDC on every supported chain), "ETH", "BNB", "POL" (the native coin),
+   * a token address ("0x…", any chain) or "chainId:0x…"; tokens given by address need decimals.
+   * Budgets are shared across chains: { USDC: { perDay: "20" } } is 20 USDC in total.
+   */
+  tokens?: Record<string, { perTx?: TokenAmount; perDay?: TokenAmount; decimals?: number }>;
+  /** Spending of a token without a limit, or a signature whose spending cannot be read. Default "ask" (onOverLimit, else stop). */
+  unknownTokens?: "stop" | "ask" | "allow";
+  /** Only these recipients, spenders and contracts; anything else goes to onOverLimit. */
+  allow?: string[];
+  /** The rolling window perDay applies to. Default "24h". */
+  window?: string | number;
+}
+
+export interface LimitReason {
+  code: "per_tx" | "per_day" | "unknown_token" | "unknown_spend" | "not_allowed";
+  message: string;
+  budget?: string;
+  amount?: string;
+  limit?: string;
+  used?: string;
+  token?: string;
+  to?: string | null;
+}
+
+export interface SpendingRow {
+  token: string;
+  perTx: string | null;
+  perDay: string | null;
+  used: string;
+  left: string | null;
+}
+
+export interface OverLimitInfo {
+  method: string;
+  request: CheckRequest;
+  verdict: PresignVerdict | null;
+  reasons: LimitReason[];
+  /** One line for a human, e.g. "8 USDC is over the limit of 20 per 24h (15 used)". */
+  summary: string;
+  spending: SpendingRow[];
+}
+
+export interface SpendEntry {
+  id: string;
+  at: number;
+  budget: string;
+  /** In whole tokens. */
+  amount: string;
+  method: string;
+  chainId: number;
+  to: string | null;
+  /** What the wallet method returned (transaction hash or signature). */
+  result: unknown;
+  verdict: PresignVerdict | null;
+  receiptId: string | null;
+}
+
+/** Where spending is kept. amount is a decimal string at 18 decimals. */
+export interface SpendingStore {
+  add(entry: { id: string; at: number; budget: string; amount: string; [key: string]: unknown }): Promise<void>;
+  remove(id: string): Promise<void>;
+  list(since: number): Promise<Array<{ id: string; at: number; budget: string; amount: string }>>;
+}
+
+export declare function memoryStore(): SpendingStore;
+
+/** Added to the guarded wallet. */
+export interface GuardControls {
+  /** Stop every checked method (sendTransaction, writeContract, signTypedData) until resume(). */
+  pause(): void;
+  resume(): void;
+  paused(): boolean;
+  /** Per token: the limits, what was spent in the current window and what is left; null without limits. */
+  spending(): Promise<SpendingRow[] | null>;
 }
 
 export interface GuardOptions {
@@ -47,8 +130,16 @@ export interface GuardOptions {
   signers?: string[];
   /** Wallet whose certificates also make a signer trusted (key rotation). Default: the Fizzl payout wallet; null accepts only `signers`. */
   authority?: string | null;
+  /** Spending limits per token, checked after presign-guard's verdict and before signing. */
+  limits?: SpendingLimits;
+  /** Asked when a limit would be crossed (e.g. ask the user on their phone). true = sign anyway. Without it, the wallet stops. */
+  onOverLimit?: (info: OverLimitInfo) => boolean | Promise<boolean>;
+  /** Called after each signed spend, e.g. for a log. */
+  onSpend?: (entry: SpendEntry) => void;
+  /** Where spending is kept. Default in memory (gone on a restart); fileStore from "presign-guard-wallet/file-store" for a file. */
+  store?: SpendingStore;
 }
 
 /** The same wallet client; sendTransaction, writeContract and signTypedData are checked first. */
-export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W;
+export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
 export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string }): CheckRequest | null;
