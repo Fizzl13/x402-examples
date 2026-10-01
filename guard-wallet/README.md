@@ -52,16 +52,31 @@ try {
 
 | Option | Default | |
 |---|---|---|
-| `pay` | required | A fetch that pays x402 (`wrapFetchWithPayment`); cap it with spend controls |
+| `pay` | required (optional with `creditKey`) | A fetch that pays x402 (`wrapFetchWithPayment`); cap it with spend controls |
+| `creditKey` | | A presign-guard credit key (`pgc_…`): checks are paid from prepaid credits first, then with `pay`. See [Prepaid credits](#prepaid-credits) |
+| `fetch` | `globalThis.fetch` | Plain fetch used for credit-paid checks |
 | `onOrange` | `"stop"` | `"stop"`, `"allow"` or `async (verdict, { method, request }) => boolean` |
 | `onError` | `"stop"` | When the check cannot be done (outage, a chain presign-guard does not cover): `"stop"` or `"allow"` |
 | `origin` | | The site asking for the signature: its domain age and phishing lists are checked too |
-| `onVerdict` | | `(verdict, { method, request }) => void`, e.g. for logging |
+| `onVerdict` | | `(verdict, { method, request, paidWith, creditsLeft }) => void`, e.g. for logging; `paidWith` is `"credits"` or `"x402"` |
 | `verifyReceipts` | `"require"` | Check presign-guard's signed receipt on every verdict; `"off"` skips it |
 | `signers` | presign-guard's published signer | Accepted signer addresses |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `signers` |
 
 Chains: Ethereum (1), Optimism (10), BNB Chain (56), Polygon (137), Base (8453), Arbitrum (42161).
+
+## Prepaid credits
+
+Agents that sign a lot can prepay: one x402 payment of **$0.80 for 100 checks** or **$7.00 for 1000** (20% / 30% off), valid for a year.
+
+```js
+// once: buy a pack with your x402 fetch and keep the key somewhere safe
+const { credit_key } = await (await pay("https://presign-guard.fizzl.eu/v1/credits/100")).json();
+
+const wallet = guardWallet(walletClient, { creditKey: credit_key, pay }); // pay = fallback when the credits run out
+```
+
+Each check then sends the key instead of paying. When the credits are used up (or the key is unknown or expired) the wallet pays per check with `pay`; without `pay` it stops, and nothing is signed. Verdicts are signed and checked exactly as with per-check payment. Keep the key secret: anyone who has it can spend the credits.
 
 ## Signed verdicts
 
@@ -73,7 +88,7 @@ presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash
 
 ## Costs and limits
 
-- $0.01 per checked signature, paid with your `pay` fetch. Calls presign-guard does not cover (`signMessage`, contract deployments) are not checked and cost nothing.
+- $0.01 per checked signature, paid with your `pay` fetch, or $0.008 / $0.007 with [prepaid credits](#prepaid-credits). Calls presign-guard does not cover (`signMessage`, contract deployments) are not checked and cost nothing.
 - presign-guard reads public data (GoPlus, RugCheck, DexScreener, OFAC via PG1, phishing lists). A green verdict means no known problem was found, not a guarantee.
 - The requests carry `user-agent: presign-guard-wallet/<version>` so the service can count how often the package is used.
 

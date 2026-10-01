@@ -147,3 +147,51 @@ test("options are validated", () => {
   assert.throws(() => guardWallet(w.wallet, { pay: w.pay, onOrange: "maybe" }), /onOrange/);
   assert.throws(() => guardWallet(null, { pay: w.pay }), /WalletClient/);
 });
+
+// A presign-guard that also takes credit keys: `credits` checks, then 402 with "insufficient".
+function creditWorld({ credits = 2, known = true } = {}) {
+  const w = world();
+  const plain = [];
+  const fetchFn = async (url, init) => {
+    plain.push(init.headers["x-credit-key"]);
+    if (!known) return new Response("{}", { status: 402, headers: { "x-credit-status": "unknown" } });
+    if (credits <= 0) return new Response("{}", { status: 402, headers: { "x-credit-status": "insufficient", "x-credits-remaining": "0" } });
+    credits -= 1;
+    const input = JSON.parse(init.body);
+    const body = await signed({ version: "2", verdict: "green", reasons: [], checkedAt: "2026-09-30T10:00:00.000Z" }, input);
+    return Response.json(body, { headers: { "x-credit-status": "paid", "x-credits-remaining": String(credits) } });
+  };
+  return { ...w, fetchFn, plain };
+}
+const KEY = "pgc_" + "A".repeat(43);
+
+test("credits: checks are paid from the credit key first, then per check when they run out", async () => {
+  const c = creditWorld({ credits: 2 });
+  const seen = [];
+  const g = make(c, { creditKey: KEY, fetch: c.fetchFn, onVerdict: (_v, info) => seen.push([info.paidWith, info.creditsLeft]) });
+  await g.sendTransaction({ to: SPENDER });
+  await g.sendTransaction({ to: SPENDER });
+  await g.sendTransaction({ to: SPENDER }); // 0 left: pays per check without asking with the key
+  assert.deepEqual(seen, [["credits", 1], ["credits", 0], ["x402", 0]]);
+  assert.equal(c.plain.length, 2);
+  assert.equal(c.log.checks.length, 1);
+  assert.equal(c.log.signed.length, 3);
+
+  // Without the remaining count, a 402 "insufficient" falls back to pay too.
+  const d = creditWorld({ credits: 0 });
+  await make(d, { creditKey: KEY, fetch: d.fetchFn }).sendTransaction({ to: SPENDER });
+  assert.equal(d.plain.length, 1);
+  assert.equal(d.log.checks.length, 1);
+});
+
+test("credits: an unknown key falls back to pay; without pay the wallet stops", async () => {
+  const c = creditWorld({ known: false });
+  await make(c, { creditKey: KEY, fetch: c.fetchFn }).sendTransaction({ to: SPENDER });
+  assert.equal(c.log.checks.length, 1);
+
+  const d = creditWorld({ credits: 0 });
+  const g = guardWallet(d.wallet, { creditKey: KEY, fetch: d.fetchFn, signers: [presignKey.address] });
+  await assert.rejects(g.sendTransaction({ to: SPENDER }), { code: "check_failed" });
+  assert.equal(d.log.signed.length, 0);
+  assert.throws(() => guardWallet(d.wallet, { creditKey: "nope" }), /credit key/);
+});
