@@ -10,6 +10,8 @@ Before every `sendTransaction`, `writeContract` and `signTypedData`, the wallet 
 | 🟠 orange | `onOrange`: `"stop"` (default, throws), `"allow"`, or your own function (e.g. ask the user) |
 | 🔴 red | Throws `PresignBlockedError` with the reasons; **nothing is signed** |
 
+On top of that it can keep to **spending limits** you set per token (per transaction and per day), and ask a human for anything over them. See [Spending limits](#spending-limits).
+
 presign-guard decodes approvals, `increaseAllowance`, `setApprovalForAll`, EIP-2612 and Permit2 permits, EIP-3009 transfer authorizations (what an x402 payment signs) and Seaport orders, and screens every spender, recipient and token: known drainers and phishing addresses, sanctions, unlimited approvals to a plain wallet, honeypot tokens, unverified or brand-new contracts, and, with `origin`, new or lookalike domains and phishing sites. See the [reason codes](https://github.com/Fizzl13/presign-guard#reason-codes).
 
 ## Install
@@ -62,6 +64,10 @@ try {
 | `verifyReceipts` | `"require"` | Check presign-guard's signed receipt on every verdict; `"off"` skips it |
 | `signers` | presign-guard's published signer | Accepted signer addresses |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `signers` |
+| `limits` | | Spending limits per token, see [Spending limits](#spending-limits) |
+| `onOverLimit` | | `async (info) => boolean`: asked when a limit would be crossed; `true` signs anyway. Without it the wallet stops |
+| `onSpend` | | `(entry) => void` after each signed spend, e.g. for a log |
+| `store` | in memory | Where spending is kept; `fileStore(path)` from `presign-guard-wallet/file-store`, or your own |
 
 Chains: Ethereum (1), Optimism (10), BNB Chain (56), Polygon (137), Base (8453), Arbitrum (42161).
 
@@ -78,6 +84,50 @@ const wallet = guardWallet(walletClient, { creditKey: credit_key, pay }); // pay
 
 Each check then sends the key instead of paying. When the credits are used up (or the key is unknown or expired) the wallet pays per check with `pay`; without `pay` it stops, and nothing is signed. Verdicts are signed and checked exactly as with per-check payment. Keep the key secret: anyone who has it can spend the credits.
 
+## Spending limits
+
+Give the agent a budget instead of a blank cheque:
+
+```js
+import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
+import { fileStore } from "presign-guard-wallet/file-store";
+
+const wallet = guardWallet(walletClient, {
+  pay,
+  limits: {
+    tokens: {
+      USDC: { perTx: "5", perDay: "20" },     // whole tokens; native and bridged USDC on every chain
+      ETH: { perTx: "0.002", perDay: "0.01" }, // the native coin; also BNB, POL
+      // any other token by address (any chain) or "chainId:0x…", with its decimals:
+      // "8453:0x4200…0006": { perDay: "0.01", decimals: 18 },
+    },
+    unknownTokens: "ask", // a token without a limit: "ask" (default), "stop" or "allow"
+    allow: ["0xShop…", "0xRouter…"], // optional: only these recipients, spenders and contracts
+    window: "24h",          // the rolling window perDay applies to
+  },
+  // over a limit: a human decides (true = sign anyway); without it the wallet stops
+  onOverLimit: async ({ summary }) => askUserOnPhone(`Agent wants to sign: ${summary}. OK?`),
+  onSpend: (e) => console.log(`spent ${e.amount} ${e.budget} → ${e.to} (${e.result})`),
+  store: fileStore("./spending.json"), // survives restarts; default is in memory
+});
+
+await wallet.spending(); // [{ token: "USDC", perTx: "5", perDay: "20", used: "8.5", left: "11.5" }, …]
+wallet.pause();          // emergency stop: nothing is signed until wallet.resume()
+```
+
+The order for every signature: presign-guard's verdict first (red never reaches a human), then `onOrange`, then the limits. Over a limit, the wallet throws `PresignBlockedError` with code `over_limit` and `err.reasons` (`per_tx`, `per_day`, `unknown_token`, `unknown_spend`, `not_allowed`), unless `onOverLimit` returns `true`.
+
+What counts as spending:
+
+- the native value sent with a transaction, also with a contract deployment;
+- an ERC-20 `transfer` or `transferFrom`;
+- an **allowance** (`approve`, `increaseAllowance`, Permit, Permit2): whoever gets it can spend that amount, so it counts when it is given. An unlimited allowance or `setApprovalForAll` is over any limit, and if a human approves one anyway it uses up the rest of the window. Revoking costs nothing;
+- an EIP-3009 payment or Permit2 transfer signature, read from presign-guard's signed verdict. A signature it cannot decode counts as unknown spending (`unknownTokens`).
+
+Other contract calls (a swap that uses an allowance you already gave) spend nothing new: the allowance was counted when it was given. Budgets are shared across chains (`USDC: { perDay: "20" }` is 20 USDC in total), checked one at a time so parallel transactions cannot both fit in the last of a budget, booked before signing and given back when signing fails. A store that cannot be read stops the wallet (`limit_unavailable`).
+
+These limits live in your agent's software: they stop a confused or manipulated agent, not someone who has the private key. For limits the chain enforces, use a smart account with session keys; the same budget can then be set there.
+
 ## Signed verdicts
 
 presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash of your request inside the signed body; see [Signed verdicts](https://github.com/Fizzl13/presign-guard#signed-verdicts)). The wallet checks that signature before it acts:
@@ -86,7 +136,7 @@ presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash
 - the signature must cover exactly the request that was checked;
 - otherwise it throws `PresignBlockedError` with code `bad_receipt`, also with `onError: "allow"`: a forged or changed "green" is never a signature.
 
-## Costs and limits
+## Costs and coverage
 
 - $0.01 per checked signature, paid with your `pay` fetch, or $0.008 / $0.007 with [prepaid credits](#prepaid-credits). Calls presign-guard does not cover (`signMessage`, contract deployments) are not checked and cost nothing.
 - presign-guard reads public data (GoPlus, RugCheck, DexScreener, OFAC via PG1, phishing lists). A green verdict means no known problem was found, not a guarantee.

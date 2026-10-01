@@ -19,19 +19,28 @@
 // from prepaid presign-guard credits (creditKey, 100 checks for $0.80 at
 // https://presign-guard.fizzl.eu/v1/credits/100): with a key the wallet asks
 // with the key first and only pays per check when the credits are used up.
+//
+// Spending limits (limits): per token, per transaction and per rolling window,
+// plus an optional allow list. Anything over a limit goes to onOverLimit (your
+// function, e.g. ask the user on their phone); without it, it stops. These
+// limits live in the agent's software: an agent with the raw key can go around
+// them. See limits.js for what counts as spending.
 
 import { encodeFunctionData } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
+import { createLimiter, memoryStore } from "./limits.js";
+
+export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
 export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
 export class PresignBlockedError extends Error {
-  /** code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain" */
+  /** code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain" | "over_limit" | "paused" | "limit_unavailable" */
   constructor(message, { code, verdict = null, request = null } = {}) {
     super(message);
     this.name = "PresignBlockedError";
@@ -78,6 +87,10 @@ const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData"]);
  * @param {"require"|"off"} [options.verifyReceipts]
  * @param {string[]} [options.signers]
  * @param {string|null} [options.authority]
+ * @param {object} [options.limits]  spending limits: { tokens: { USDC: { perTx, perDay }, … }, unknownTokens, allow, window }
+ * @param {(info: object) => boolean|Promise<boolean>} [options.onOverLimit]  asked when a limit would be crossed; true = sign anyway
+ * @param {(entry: object) => void} [options.onSpend]  after each signed spend
+ * @param {object} [options.store]  where spending is kept (default in memory; fileStore from presign-guard-wallet/file-store)
  */
 export function guardWallet(wallet, {
   pay,
@@ -91,6 +104,10 @@ export function guardWallet(wallet, {
   authority = AUTHORITY,
   creditKey,
   fetch: plainFetch = globalThis.fetch,
+  limits,
+  onOverLimit,
+  onSpend,
+  store,
 } = {}) {
   if (!wallet || typeof wallet !== "object") throw new TypeError("wallet must be a viem WalletClient");
   if (creditKey !== undefined && !/^pgc_[A-Za-z0-9_-]{43}$/.test(String(creditKey))) throw new TypeError("creditKey must be a presign-guard credit key (pgc_…)");
@@ -98,6 +115,10 @@ export function guardWallet(wallet, {
   if (!["stop", "allow"].includes(onOrange) && typeof onOrange !== "function") throw new TypeError('onOrange must be "stop", "allow" or a function');
   if (!["stop", "allow"].includes(onError)) throw new TypeError('onError must be "stop" or "allow"');
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
+
+  if (limits === undefined && (onOverLimit || onSpend || store)) throw new TypeError("onOverLimit, onSpend and store need limits");
+  const limiter = limits === undefined ? null : createLimiter(limits, { store, onOverLimit, onSpend });
+  let paused = false;
 
   let creditsLeft = null;
   async function check(request) {
@@ -133,13 +154,10 @@ export function guardWallet(wallet, {
     return verdict;
   }
 
-  async function guarded(method, original, args, rest) {
-    const chainId = args?.chain?.id ?? wallet.chain?.id;
-    const request = checkRequestFor(method, args, { chainId, origin });
-    if (!request) return original(args, ...rest);
-    const run = () => original(args, ...rest);
+  // The verdict for a request, or null when the check could not be done and onError is "allow".
+  async function verdictFor(method, request, chainId) {
     if (!SUPPORTED_CHAINS.includes(chainId)) {
-      if (onError === "allow") return run();
+      if (onError === "allow") return null;
       throw new PresignBlockedError(`chain ${chainId} is not covered by presign-guard; nothing was signed`, { code: "unsupported_chain", request });
     }
     let verdict;
@@ -147,7 +165,7 @@ export function guardWallet(wallet, {
       verdict = await check(request);
     } catch (err) {
       if (err instanceof PresignBlockedError && err.code === "bad_receipt") throw err;
-      if (onError === "allow") return run();
+      if (onError === "allow") return null;
       if (err instanceof PresignBlockedError) throw err;
       throw new PresignBlockedError(`presign check failed (${err.message}); nothing was signed`, { code: "check_failed", request });
     }
@@ -160,11 +178,61 @@ export function guardWallet(wallet, {
     } else if (verdict.verdict !== "green") {
       throw new PresignBlockedError(`not signed: unknown verdict ${verdict.verdict}`, { code: "check_failed", verdict, request });
     }
-    return run();
+    return verdict;
   }
+
+  // Within the limits (or approved by onOverLimit): book, sign, and give it back if signing fails.
+  async function withinLimits(method, request, verdict, run) {
+    let booked;
+    try {
+      booked = await limiter.reserve({ method, request, verdict });
+    } catch (err) {
+      throw new PresignBlockedError(`spending limits could not be checked (${err.message}); nothing was signed`, { code: "limit_unavailable", verdict, request });
+    }
+    if (!booked.ok) {
+      const err = new PresignBlockedError(`not signed: ${booked.summary}`, { code: "over_limit", verdict, request });
+      err.reasons = booked.reasons;
+      throw err;
+    }
+    let result;
+    try {
+      result = await run();
+    } catch (err) {
+      await limiter.release(booked.entries).catch((e) => console.warn(`[presign-guard-wallet] could not give back spending: ${e.message}`));
+      throw err;
+    }
+    limiter.spent(booked.entries, result, { verdict });
+    return result;
+  }
+
+  async function guarded(method, original, args, rest) {
+    if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
+    const chainId = args?.chain?.id ?? wallet.chain?.id;
+    const run = () => original(args, ...rest);
+    const request = checkRequestFor(method, args, { chainId, origin });
+    if (!request) {
+      // A contract deployment is not checked, but the value it sends still counts.
+      if (limiter && method === "sendTransaction") {
+        return withinLimits(method, { type: "transaction", chainId, to: null, data: args?.data ?? "0x", value: String(args?.value ?? 0n) }, null, run);
+      }
+      return run();
+    }
+    const verdict = await verdictFor(method, request, chainId);
+    return limiter ? withinLimits(method, request, verdict, run) : run();
+  }
+
+  const extras = {
+    /** Stop every checked method until resume(). */
+    pause: () => { paused = true; },
+    resume: () => { paused = false; },
+    paused: () => paused,
+    /** Per token: the limits, what was spent in the current window and what is left (null without limits). */
+    spending: async () => (limiter ? limiter.spending() : null),
+  };
 
   return new Proxy(wallet, {
     get(target, prop, receiver) {
+      if (Object.hasOwn(extras, prop) && !(prop in target)) return extras[prop];
       const value = Reflect.get(target, prop, receiver);
       if (typeof prop !== "string" || !GUARDED.has(prop) || typeof value !== "function") return value;
       return (args, ...rest) => guarded(prop, value.bind(target), args, rest);
