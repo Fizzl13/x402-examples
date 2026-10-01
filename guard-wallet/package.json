@@ -1,6 +1,6 @@
 {
   "name": "presign-guard-wallet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A viem wallet for AI agents that asks presign-guard ($0.01 over x402) before every transaction, contract write and typed-data signature, and refuses to sign red.",
   "type": "module",
   "exports": {

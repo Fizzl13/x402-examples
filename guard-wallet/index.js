@@ -15,7 +15,10 @@
 // (default) or "allow".
 //
 // Your keys stay in your wallet client; the check is paid with the x402 fetch
-// you pass in (wrapFetchWithPayment from @x402/fetch, with spend controls).
+// you pass in (wrapFetchWithPayment from @x402/fetch, with spend controls), or
+// from prepaid presign-guard credits (creditKey, 100 checks for $0.80 at
+// https://presign-guard.fizzl.eu/v1/credits/100): with a key the wallet asks
+// with the key first and only pays per check when the credits are used up.
 
 import { encodeFunctionData } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
@@ -23,7 +26,8 @@ import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
 export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
+export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
 export class PresignBlockedError extends Error {
@@ -63,7 +67,9 @@ const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData"]);
 /**
  * @param {object} wallet  a viem WalletClient
  * @param {object} options
- * @param {typeof fetch} options.pay  a fetch that pays x402 (e.g. wrapFetchWithPayment(fetch, client))
+ * @param {typeof fetch} [options.pay]  a fetch that pays x402 (e.g. wrapFetchWithPayment(fetch, client)); optional with creditKey
+ * @param {string} [options.creditKey]  a presign-guard credit key (pgc_…): checks are paid from prepaid credits first
+ * @param {typeof fetch} [options.fetch]  plain fetch for credit-paid checks (default globalThis.fetch)
  * @param {"stop"|"allow"|((verdict: object, info: object) => boolean|Promise<boolean>)} [options.onOrange]
  * @param {"stop"|"allow"} [options.onError]  when the check cannot be done (default "stop")
  * @param {string} [options.origin]  the site asking for the signature, if any (domain age, phishing lists)
@@ -83,21 +89,39 @@ export function guardWallet(wallet, {
   verifyReceipts = "require",
   signers = PRESIGN_SIGNERS,
   authority = AUTHORITY,
+  creditKey,
+  fetch: plainFetch = globalThis.fetch,
 } = {}) {
   if (!wallet || typeof wallet !== "object") throw new TypeError("wallet must be a viem WalletClient");
-  if (typeof pay !== "function") throw new TypeError("pay is required: a fetch that pays x402, e.g. wrapFetchWithPayment(fetch, client)");
+  if (creditKey !== undefined && !/^pgc_[A-Za-z0-9_-]{43}$/.test(String(creditKey))) throw new TypeError("creditKey must be a presign-guard credit key (pgc_…)");
+  if (typeof pay !== "function" && !creditKey) throw new TypeError("pay is required: a fetch that pays x402, e.g. wrapFetchWithPayment(fetch, client), or a creditKey");
   if (!["stop", "allow"].includes(onOrange) && typeof onOrange !== "function") throw new TypeError('onOrange must be "stop", "allow" or a function');
   if (!["stop", "allow"].includes(onError)) throw new TypeError('onError must be "stop" or "allow"');
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
 
+  let creditsLeft = null;
   async function check(request) {
     const body = toJson(request);
-    const res = await pay(`${presignUrl.replace(/\/$/, "")}/v1/check`, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json", "user-agent": `presign-guard-wallet/${VERSION}` },
-      body,
-    });
+    const url = `${presignUrl.replace(/\/$/, "")}/v1/check`;
+    const headers = { "content-type": "application/json", accept: "application/json", "user-agent": `presign-guard-wallet/${VERSION}` };
+    let res = null;
+    let paidWith = "x402";
+    // Prepaid credits first: a 402 means they are used up (or the key is unknown), then pay per check.
+    if (creditKey && creditsLeft !== 0) {
+      res = await plainFetch(url, { method: "POST", headers: { ...headers, [CREDIT_HEADER]: creditKey }, body });
+      const left = res.headers?.get?.("x-credits-remaining");
+      if (left !== null && left !== undefined && left !== "") creditsLeft = Number(left);
+      if (res.status === 402) {
+        if (res.headers?.get?.("x-credit-status") !== "insufficient") creditsLeft = 0; // unknown or expired key
+        res = null;
+      } else paidWith = "credits";
+    }
+    if (!res) {
+      if (typeof pay !== "function") throw new PresignBlockedError("presign check failed (no credits left and no pay function); nothing was signed", { code: "check_failed", request });
+      res = await pay(url, { method: "POST", headers, body });
+    }
     const verdict = await res.json().catch(() => null);
+    if (verdict && typeof verdict === "object") Object.defineProperty(verdict, "paidWith", { value: paidWith, enumerable: false });
     if (!res.ok || !verdict?.verdict) {
       const why = verdict?.error || `HTTP ${res.status}`;
       throw new PresignBlockedError(`presign check failed (${why}); nothing was signed`, { code: "check_failed", verdict, request });
@@ -127,7 +151,7 @@ export function guardWallet(wallet, {
       if (err instanceof PresignBlockedError) throw err;
       throw new PresignBlockedError(`presign check failed (${err.message}); nothing was signed`, { code: "check_failed", request });
     }
-    onVerdict?.(verdict, { method, request });
+    onVerdict?.(verdict, { method, request, paidWith: verdict.paidWith, creditsLeft });
     const why = (verdict.reasons || []).filter((r) => r.severity !== "info").map((r) => r.code).join(", ") || verdict.verdict;
     if (verdict.verdict === "red") throw new PresignBlockedError(`not signed: red (${why})`, { code: "red", verdict, request });
     if (verdict.verdict === "orange") {
