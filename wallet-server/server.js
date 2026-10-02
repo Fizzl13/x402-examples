@@ -33,7 +33,7 @@ import { createAuth } from "./src/auth.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
-import { createCatalog } from "./src/catalog.js";
+import { createCatalog, createSkillChecker } from "./src/catalog.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -71,7 +71,7 @@ const accounts = createAccounts({
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])] },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
-const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global });
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker() });
 const app = createApp({ accounts, auth, telegram, catalog, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
