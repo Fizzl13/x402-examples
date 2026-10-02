@@ -17,7 +17,8 @@ test("redis store: agents, entries, approvals and events survive a reconnect", {
     const { agent, key } = await wallet.addAgent("bot-1");
     const full = await wallet.agentForKey(key);
     const req = { type: "transaction", chainId: 8453, to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", value: "0", data: "0xa9059cbb0000000000000000000000001111111111111111111111111111111111111111000000000000000000000000000000000000000000000000000000000016e360" };
-    assert.equal((await wallet.reserve(full, { method: "sendTransaction", request: req })).status, "ok");
+    const ok = await wallet.reserve(full, { method: "sendTransaction", request: req, purchase: { description: "a test purchase" } });
+    assert.equal(ok.status, "ok");
     const pending = await wallet.reserve(full, { method: "sendTransaction", request: { ...req, data: req.data.replace("16e360", "7a1200") } });
     assert.equal(pending.status, "pending");
     await store.close();
@@ -28,6 +29,9 @@ test("redis store: agents, entries, approvals and events survive a reconnect", {
     assert.equal(st.agents[0].name, agent.name);
     assert.equal(st.spending[0].used, "1.5");
     assert.equal(st.approvals[0].status, "pending");
+    const receipt = await wallet.purchase(ok.purchaseId);
+    assert.equal(receipt.what.description, "a test purchase");
+    assert.deepEqual(receipt.amounts, ["1.5 USDC"]);
     assert.ok(st.events.length >= 3);
     assert.equal((await wallet.decide(pending.approvalId, "approve")).status, "approved");
     assert.equal((await wallet.spending())[0].used, "9.5");

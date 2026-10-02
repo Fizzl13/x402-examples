@@ -30,13 +30,14 @@ import { encodeFunctionData } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { createLimiter, memoryStore } from "./limits.js";
 import { createRemoteLimiter } from "./remote.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
 export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -73,6 +74,20 @@ export function checkRequestFor(method, args, { chainId, origin } = {}) {
 }
 
 const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData"]);
+
+// What the agent says it is buying, for the signatures made inside withPurchase().
+const purchases = new AsyncLocalStorage();
+function cleanPurchase(info) {
+  if (!info || typeof info !== "object") throw new TypeError("withPurchase(info, fn): info must be { url?, description? }");
+  const out = {};
+  if (info.url !== undefined && info.url !== null) {
+    const url = String(info.url);
+    if (!/^https?:\/\//.test(url)) throw new TypeError("purchase url must start with https:// or http://");
+    out.url = url.slice(0, 500);
+  }
+  if (info.description !== undefined && info.description !== null) out.description = String(info.description).slice(0, 300);
+  return out;
+}
 
 /**
  * @param {object} wallet  a viem WalletClient
@@ -188,9 +203,11 @@ export function guardWallet(wallet, {
 
   // Within the limits (or approved by onOverLimit): book, sign, and give it back if signing fails.
   async function withinLimits(method, request, verdict, run) {
+    const ctx = purchases.getStore();
+    const purchase = ctx?.info ?? null;
     let booked;
     try {
-      booked = await limiter.reserve({ method, request, verdict });
+      booked = await limiter.reserve({ method, request, verdict, purchase });
     } catch (err) {
       throw new PresignBlockedError(`spending limits could not be checked (${err.message}); nothing was signed`, { code: "limit_unavailable", verdict, request });
     }
@@ -199,14 +216,15 @@ export function guardWallet(wallet, {
       err.reasons = booked.reasons;
       throw err;
     }
+    if (booked.purchaseId) ctx?.purchaseIds.push(booked.purchaseId);
     let result;
     try {
       result = await run();
     } catch (err) {
-      await limiter.release(booked.entries).catch((e) => console.warn(`[presign-guard-wallet] could not give back spending: ${e.message}`));
+      await limiter.release(booked.entries, { purchaseId: booked.purchaseId, error: err.message }).catch((e) => console.warn(`[presign-guard-wallet] could not give back spending: ${e.message}`));
       throw err;
     }
-    limiter.spent(booked.entries, result, { verdict });
+    limiter.spent(booked.entries, result, { verdict, purchase, purchaseId: booked.purchaseId });
     return result;
   }
 
@@ -233,6 +251,29 @@ export function guardWallet(wallet, {
     paused: () => paused,
     /** Per token: the limits, what was spent in the current window and what is left (null without limits). */
     spending: async () => (limiter ? limiter.spending() : null),
+    /**
+     * Say what is being bought: every signature fn makes is recorded with { url, description }
+     * (onSpend, the wallet server's receipts, its Telegram approval messages). fn gets a
+     * report(outcome) function for what happened afterwards, e.g. { httpStatus, settlement }.
+     */
+    withPurchase: async (info, fn) => {
+      if (typeof fn !== "function") throw new TypeError("withPurchase(info, fn): fn must be a function");
+      const ctx = { info: cleanPurchase(info), purchaseIds: [], outcome: null };
+      const report = (outcome) => { ctx.outcome = outcome && typeof outcome === "object" ? outcome : null; };
+      const annotate = async (extra) => {
+        if (!limiter?.annotate || !ctx.purchaseIds.length || (!ctx.outcome && !extra)) return;
+        await limiter.annotate(ctx.purchaseIds, { ...(ctx.outcome ?? {}), ...(extra ?? {}) }).catch((e) => console.warn(`[presign-guard-wallet] could not record the outcome: ${e.message}`));
+      };
+      let out;
+      try {
+        out = await purchases.run(ctx, () => fn(report));
+      } catch (err) {
+        await annotate({ error: String(err?.message ?? err).slice(0, 300) });
+        throw err;
+      }
+      await annotate();
+      return out;
+    },
   };
 
   return new Proxy(wallet, {

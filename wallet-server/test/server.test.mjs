@@ -225,3 +225,64 @@ test("end to end: presign-guard-wallet with `server` signs, asks, waits, stops",
     assert.throws(() => guardWallet(stub, { pay, server: { url: base, key }, limits: {} }), /leave out limits/);
   } finally { server.close(); }
 });
+
+test("receipts: what was bought, verdict, approval, result and outcome, per payment", async () => {
+  const { owner, key, base, server, tg, agent } = await boot();
+  try {
+    let fail = false;
+    const stub = { chain: { id: 8453 }, account: { address: "0x2222222222222222222222222222222222222222" }, sendTransaction: async () => { if (fail) throw new Error("rpc down"); return "0xabc123"; } };
+    const pay = async (_u, init) => Response.json(await signedVerdict(JSON.parse(init.body)));
+    const wallet = guardWallet(stub, { pay, signers: [presignKey.address], server: { url: base, key } });
+    const receiptFor = async (type) => {
+      const ev = (await owner("GET", "/api/state")).body.events.find((e) => e.type === type && e.purchase);
+      return (await owner("GET", `/api/purchases/${ev.purchase}`)).body.purchase;
+    };
+
+    // Within the rules, with what it is for and what happened afterwards.
+    await wallet.withPurchase({ url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "BTC signal" }, async (report) => {
+      await wallet.sendTransaction(transfer(2));
+      report({ httpStatus: 200, settlement: { transaction: "0xsettled", network: "eip155:8453" } });
+    });
+    await new Promise((ok) => setTimeout(ok, 50)); // spent is reported in the background
+    const r = await receiptFor("signed");
+    assert.deepEqual(r.what, { url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "BTC signal" });
+    assert.deepEqual(r.amounts, ["2 USDC"]);
+    assert.equal(r.to, SHOP.toLowerCase());
+    assert.equal(r.chainId, 8453);
+    assert.equal(r.verdict.verdict, "green");
+    assert.equal(r.verdict.receiptId, "p1");
+    assert.equal(r.verdict.signer, presignKey.address);
+    assert.equal(r.status, "signed");
+    assert.equal(r.result, "0xabc123");
+    assert.deepEqual(r.outcome, { httpStatus: 200, settlement: { transaction: "0xsettled", network: "eip155:8453" } });
+    assert.equal(r.approval, null);
+
+    // Over the limit: Telegram says what it is for; the receipt shows who approved.
+    const sending = wallet.withPurchase({ description: "full market report" }, () => wallet.sendTransaction(transfer(8)));
+    let pending;
+    for (let i = 0; i < 100 && !pending; i++) { await new Promise((ok) => setTimeout(ok, 20)); pending = (await owner("GET", "/api/state")).body.approvals.find((a) => a.status === "pending"); }
+    assert.match(tg.calls.find((c) => c.method === "sendMessage").body.text, /for: full market report/);
+    await owner("POST", `/api/approvals/${pending.id}`, { decision: "approve" });
+    await sending;
+    await new Promise((ok) => setTimeout(ok, 50));
+    const a = await receiptFor("approved");
+    assert.equal(a.what.description, "full market report");
+    assert.equal(a.approval.by, "dashboard");
+    assert.match(a.approval.summary, /8 USDC/);
+    assert.equal(a.status, "signed");
+
+    // Signing failed: the receipt says so and the spending is given back.
+    fail = true;
+    await assert.rejects(wallet.withPurchase({ description: "doomed" }, () => wallet.sendTransaction(transfer(1))), /rpc down/);
+    const f = await receiptFor("released");
+    assert.equal(f.status, "failed");
+    assert.match(f.outcome.error, /rpc down/);
+
+    // Another agent can't touch these receipts; unknown ids are a 404; owners only.
+    const other = (await owner("POST", "/api/agents", { name: "other" })).body.key;
+    const r2 = await fetch(`${base}/v1/purchases/annotate`, { method: "POST", headers: { authorization: `Bearer ${other}`, "content-type": "application/json" }, body: JSON.stringify({ ids: [r.id], outcome: { error: "forged" } }) });
+    assert.deepEqual(await r2.json(), { updated: 0 });
+    assert.equal((await owner("GET", "/api/purchases/pu_nope")).status, 404);
+    assert.equal((await agent("GET", `/api/purchases/${r.id}`)).status, 401);
+  } finally { server.close(); }
+});

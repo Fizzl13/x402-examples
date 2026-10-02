@@ -80,6 +80,11 @@ function poller(token, call) {
 function messageFor(info, label) {
   const lines = [`<b>${escape(label)} wants to sign something over your limit</b>`, ""];
   lines.push(escape(info.summary));
+  if (info.purchase?.description || info.purchase?.url) {
+    lines.push("");
+    if (info.purchase.description) lines.push(`for: ${escape(info.purchase.description)}`);
+    if (info.purchase.url) lines.push(`<code>${escape(info.purchase.url)}</code>`);
+  }
   const r = info.request ?? {};
   lines.push("", `<code>${escape(info.method)}</code> · chain ${escape(r.chainId)}${r.to ? ` · to <code>${escape(r.to)}</code>` : ""}`);
   const v = info.verdict?.verdict;

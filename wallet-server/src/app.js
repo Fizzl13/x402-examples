@@ -44,8 +44,10 @@ export function createApp({ wallet, auth, telegram = null }) {
     const wait = Math.min(25_000, Math.max(0, Number(req.query.wait ?? 0) * 1000 || 0));
     res.json(await wallet.waitForApproval(req.agent, req.params.id, wait));
   }));
-  v1.post("/release", wrap(async (req, res) => res.json(await wallet.release(req.agent, Array.isArray(req.body?.entries) ? req.body.entries.map(String) : []))));
-  v1.post("/spent", wrap(async (req, res) => res.json(await wallet.spent(req.agent, Array.isArray(req.body?.entries) ? req.body.entries.map(String) : [], req.body?.result))));
+  const ids = (v) => (Array.isArray(v) ? v.map(String) : []);
+  v1.post("/release", wrap(async (req, res) => res.json(await wallet.release(req.agent, ids(req.body?.entries), { purchaseId: req.body?.purchaseId, error: req.body?.error }))));
+  v1.post("/spent", wrap(async (req, res) => res.json(await wallet.spent(req.agent, ids(req.body?.entries), req.body?.result, { purchaseId: req.body?.purchaseId }))));
+  v1.post("/purchases/annotate", wrap(async (req, res) => res.json(await wallet.annotate(req.agent, ids(req.body?.ids), req.body?.outcome))));
   v1.get("/spending", wrap(async (_req, res) => res.json({ spending: await wallet.spending() })));
   app.use("/v1", v1);
 
@@ -64,6 +66,7 @@ export function createApp({ wallet, auth, telegram = null }) {
   const owner = express.Router();
   owner.use(ownerOnly);
   owner.get("/state", wrap(async (_req, res) => res.json(await wallet.state())));
+  owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await wallet.purchase(req.params.id) })));
   owner.put("/policy", wrap(async (req, res) => res.json({ policy: await wallet.setPolicy(req.body?.policy) })));
   owner.post("/pause", wrap(async (req, res) => { await wallet.setPaused(!!req.body?.paused); res.json({ ok: true }); }));
   owner.post("/agents", wrap(async (req, res) => res.json(await wallet.addAgent(req.body?.name))));
