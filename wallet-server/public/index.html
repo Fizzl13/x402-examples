@@ -151,6 +151,12 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .demo-banner a { text-decoration: underline; }
 footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-top: 30px; }
 @media (max-width: 860px) { .hero, .rule { grid-template-columns: 1fr; } }
+#addAgentTop .short { display: none; }
+.topbar .button, .who > * { white-space: nowrap; }
+#agentsSec { scroll-margin-top: 84px; }
+@media (max-width: 600px) { #addAgentTop .long { display: none; } #addAgentTop .short { display: inline; } #addAgentTop, #logout { padding: 0 10px; letter-spacing: 1px; } .topbar .wrap { gap: 8px; } .topbar .wrap > div { gap: 8px !important; } .brand { flex-shrink: 0; } }
+@media (max-width: 420px) { .brand span { display: none; } }
+@media (max-width: 350px) { #live { display: none; } #addAgentTop, #logout { padding: 0 8px; letter-spacing: 0; } }
 @media (max-width: 600px) { #liveText { display: none; } .who { font-size: 11px; display: grid; justify-items: end; gap: 3px; } .brand { font-size: 20px; } }
 @media (max-width: 600px) { .asked { grid-template-columns: 1fr; } .asked .btns { justify-content: flex-start; } }
 @media (prefers-reduced-motion: reduce) { .bar b { transition: none; } }
@@ -163,6 +169,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   <div style="display:flex;gap:12px;align-items:center">
     <span class="who" id="who" hidden></span>
     <span class="live" id="live"><i></i><span id="liveText">connecting</span></span>
+    <button class="button primary small" id="addAgentTop" type="button" hidden aria-label="Add agent">+ <span class="long">Add agent</span><span class="short">Agent</span></button>
     <button class="button ghost small" id="logout" hidden>Log out</button>
   </div>
 </div></header>
@@ -396,7 +403,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
 
   function showLogin() {
-    $("#app").hidden = true; $("#logout").hidden = true; $("#who").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out");
+    $("#app").hidden = true; $("#logout").hidden = true; $("#addAgentTop").hidden = true; $("#who").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out");
     fetch("/api/config").then((r) => r.json()).then((c) => {
       $("#walletLogin").hidden = !c.wallet;
       $("#showPassword").hidden = !c.password || !c.wallet;
@@ -564,7 +571,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!me) return;
     const short = me.address ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "server owner";
     $("#who").hidden = false;
-    $("#who").innerHTML = `${esc(short)} <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
+    $("#who").innerHTML = `<span>${esc(short)}</span> <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
     $("#accountSec").hidden = false;
     $("#deleteBox").hidden = me.admin || DEMO;
     if (me.admin) {
@@ -686,6 +693,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const d = await res.json().catch(() => ({}));
     $("#loginErr").textContent = d.retryAfter ? `Too many tries. Wait ${d.retryAfter} seconds.` : "Wrong password.";
   });
+  // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
+  $("#addAgentTop").addEventListener("click", () => {
+    $("#agentsSec").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    setTimeout(() => $("#agentName").focus({ preventScroll: true }), 400);
+  });
   $("#logout").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); showLogin(); });
 
   async function refresh() {
@@ -693,7 +705,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     catch (err) { if (err.message !== "login") setLive(false, "can't reach the server"); }
   }
   function start() {
-    $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false;
+    $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false; $("#addAgentTop").hidden = false;
     api("GET", "/api/me").then((m) => { me = m; renderAccount(); }, () => {});
     refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
   }
