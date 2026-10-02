@@ -2,7 +2,7 @@
 
 One budget and one set of rules for all your AI agents. Your agents buy on their own up to the price you set; above it they ask you, on the dashboard or on Telegram. Every purchase lands in an activity log.
 
-**[Live demo with example data →](https://fizzl-wallet-server.onrender.com/demo)**
+**[Live demo with example data →](https://wallet.fizzl.eu/demo)**
 
 The server **never holds keys or funds**: each agent signs and pays itself with [presign-guard-wallet](../guard-wallet), and only asks this server "may I?" first. If the server can't be reached, the agent stops instead of signing.
 

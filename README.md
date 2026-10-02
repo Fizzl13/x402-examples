@@ -7,7 +7,7 @@ Give your agents a wallet without giving them a blank cheque:
 - **[presign-guard-wallet](guard-wallet)** (npm): a viem wallet that checks every signature with presign-guard first (drainers, sanctions, unlimited approvals), keeps to your **price per purchase and daily budget**, and asks you on **Telegram** for anything above them. `npm i presign-guard-wallet`
 - **[wallet-server](wallet-server)**: one budget and one set of rules for **all** your agents, a live dashboard, approvals on the dashboard or Telegram, pause one agent or all, an activity log. It never holds keys or funds: agents still sign and pay themselves.
 
-**[See the dashboard live (demo, example data) →](https://fizzl-wallet-server.onrender.com/demo)**
+**[See the dashboard live (demo, example data) →](https://wallet.fizzl.eu/demo)**
 
 ```js
 import { guardWallet } from "presign-guard-wallet";
