@@ -1,0 +1,57 @@
+{
+  "name": "presign-guard-wallet-mcp",
+  "version": "0.1.0",
+  "description": "An MCP server that gives AI agents (Claude, Cursor, …) a wallet with spending limits: pay x402 APIs and send USDC, every signature checked by presign-guard, approval on your phone over the limit.",
+  "mcpName": "io.github.Fizzl13/presign-guard-wallet",
+  "type": "module",
+  "bin": {
+    "presign-guard-wallet-mcp": "./server.js"
+  },
+  "main": "./lib.js",
+  "exports": {
+    ".": "./lib.js"
+  },
+  "files": [
+    "server.js",
+    "lib.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@x402/evm": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "presign-guard-wallet": "^0.5.0",
+    "viem": "^2.57.2",
+    "zod": "^4.6.5"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "x402",
+    "agents",
+    "wallet",
+    "spending-limits",
+    "budget",
+    "usdc",
+    "presign",
+    "security",
+    "telegram",
+    "human-in-the-loop",
+    "claude",
+    "cursor"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fizzl13/x402-examples.git",
+    "directory": "wallet-mcp"
+  },
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#readme",
+  "license": "MIT"
+}

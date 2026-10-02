@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Fizzl13/presign-guard-wallet",
+  "title": "presign-guard wallet",
+  "description": "A wallet with spending limits for agents: pay x402 APIs, send USDC, phone approval over the limit.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/Fizzl13/x402-examples",
+    "source": "github",
+    "subfolder": "wallet-mcp"
+  },
+  "websiteUrl": "https://wallet.fizzl.eu/demo",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "presign-guard-wallet-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "AGENT_KEY", "description": "Private key of the agent's own wallet (a separate wallet holding only what the agent may spend)", "isRequired": true, "isSecret": true },
+        { "name": "LIMIT_USDC_PER_TX", "description": "Most USDC per payment or transfer without asking you, e.g. 5" },
+        { "name": "LIMIT_USDC_PER_DAY", "description": "Daily USDC budget, e.g. 20" },
+        { "name": "TELEGRAM_BOT_TOKEN", "description": "Telegram bot that asks you to approve anything over a limit", "isSecret": true },
+        { "name": "TELEGRAM_CHAT_ID", "description": "Your Telegram chat id (approvals go only there)" },
+        { "name": "WALLET_SERVER_URL", "description": "Instead of LIMIT_* and TELEGRAM_*: a wallet server keeping one budget for all your agents" },
+        { "name": "WALLET_SERVER_KEY", "description": "The agent key (awk_…) from the wallet server's dashboard", "isSecret": true },
+        { "name": "CHAIN", "description": "base (default), ethereum, optimism, arbitrum, polygon or bsc" },
+        { "name": "MAX_PAYMENT_USD", "description": "Most a single x402 API call may cost, in dollars (default 1)" },
+        { "name": "PRESIGN_CREDIT_KEY", "description": "Optional presign-guard credit key (pgc_…) to pay the $0.01 checks from prepaid credits", "isSecret": true },
+        { "name": "RPC_URL", "description": "Optional RPC URL for the chain" }
+      ]
+    }
+  ]
+}
