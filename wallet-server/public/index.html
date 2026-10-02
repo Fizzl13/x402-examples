@@ -135,6 +135,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .cats button.on { border-color: var(--mint); background: rgba(97,245,195,.1); box-shadow: 0 0 0 1px var(--mint) inset; }
 .catbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .catbar button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; }
+.skilltag { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--mint); border: 1px solid var(--mint); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
 .newtag { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #021; background: var(--amber); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
 .chips .newchip { border-color: var(--amber); color: var(--amber); }
 .hit .url { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
@@ -541,7 +542,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         ];
         const catOf = (r) => (/ichimoku/.test(r.url) ? "crypto" : /presign|check-wallet/.test(r.url) ? "security" : /doctor/.test(r.url) ? "dev" : /weather/.test(r.url) ? "weather" : /search/.test(r.url) ? "search" : /translate/.test(r.url) ? "language" : "other");
         const cat = p.get("cat");
-        const results = all.filter((r) => !cat || catOf(r) === cat).map((r) => ({ ...r, host: new URL(r.url).hostname, isNew: /weather|translate/.test(r.url), cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.length ? terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length : 1 }))
+        const results = all.filter((r) => !cat || catOf(r) === cat).map((r) => ({ ...r, skill: /fizzl\.eu/.test(r.url) ? `${new URL(r.url).origin}/skill.md` : null, host: new URL(r.url).hostname, isNew: /weather|translate/.test(r.url), cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.length ? terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length : 1 }))
           .filter((r) => r.score && r.cheapest <= max).sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
         return { query: p.get("q"), results };
       }
@@ -988,13 +989,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     try {
       const { results } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}`);
       if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price.</p>`; return; }
-      out.innerHTML = `${catBar}<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} ${what}${!q && cat ? " (new providers first, then cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.</p>
+      out.innerHTML = `${catBar}<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} ${what}${!q && cat ? " (new providers first, then cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
-          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
+          const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
+          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
             <span class="url">${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
-            <div class="btns"><button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button><a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
+            <div class="btns">${connect ? `<button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button>`}<a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
         }).join("")}</div>`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
@@ -1028,10 +1030,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const since = trackingSince && trackingSince > Date.now() - days * 86_400_000 ? ` (tracking since ${esc(new Date(trackingSince).toLocaleDateString())})` : "";
       if (!providers.length) { out.innerHTML = `<p class="note" style="margin:0">No new providers in the last ${days} days${since}. New sellers in the x402 catalog show up here, and get a NEW label in search results.</p>`; return; }
       out.innerHTML = `<p class="note" style="margin:0">${providers.length} new provider${providers.length === 1 ? "" : "s"} in the x402 catalog in the last ${days} days${since}. Listings written by the sellers: not recommendations.</p>
-        <div class="hits">${providers.map((p) => `<article class="card hit"><header><span class="host">${esc(p.host)}<span class="newtag">NEW</span></span><span class="prices"><span>from ${esc(usd(p.cheapest))}</span>${p.networks.map((n) => `<span>${esc(n)}</span>`).join("")}</span></header>
+        <div class="hits">${providers.map((p) => `<article class="card hit"><header><span class="host">${esc(p.host)}<span class="newtag">NEW</span>${p.skill ? `<span class="skilltag">🤖 skill.md</span>` : ""}</span><span class="prices"><span>from ${esc(usd(p.cheapest))}</span>${p.networks.map((n) => `<span>${esc(n)}</span>`).join("")}</span></header>
           ${p.description ? `<p class="note" style="margin:0">${esc(p.description)}</p>` : ""}
           <span class="url">first seen ${esc(new Date(p.firstSeen).toLocaleDateString())} · ${esc(p.listings)} paid endpoint${p.listings === 1 ? "" : "s"}</span>
-          <div class="btns"><button class="button primary small" type="button" data-q-host="${esc(p.host)}">Show its services</button><a class="button ghost small" href="https://${esc(p.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`).join("")}</div>`;
+          <div class="btns"><button class="button primary small" type="button" data-q-host="${esc(p.host)}">Show its services</button>${p.skill ? `<button class="button ghost small" type="button" data-copy="${esc(`Connect to ${p.skill.replace(/^https:\/\//, "")}`)}">Copy "Connect to …/skill.md"</button>` : ""}<a class="button ghost small" href="https://${esc(p.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`).join("")}</div>`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
   $("#newBtn").addEventListener("click", showNew);

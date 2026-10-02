@@ -2,6 +2,9 @@
 // search bar: the same catalog presign-guard-wallet-mcp's find_services searches. Listings are
 // what sellers say about themselves, so everything here is shown as data, never as a
 // recommendation, and only USDC prices on networks agents commonly pay on are kept.
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
 export const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
 const TTL_MS = 60 * 60 * 1000;
 const PAGES = 20;
@@ -42,6 +45,40 @@ export function categorize(textOf) {
 
 const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need"]);
 export const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+// ---------- skill.md: does a seller publish instructions agents can follow? ----------
+// Checked for the sellers in search results only, from the server, so carefully: https on the
+// standard port, a public hostname (no IP literals, nothing resolving to a private address), no
+// redirects, 3 seconds, and only a small text answer that looks like markdown. Cached per origin.
+const PRIVATE = [/^0\./, /^10\./, /^127\./, /^169\.254\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, /^::1$/, /^::$/, /^f[cd]/i, /^fe80/i, /^::ffff:(0|10|127|169\.254|192\.168)\./i];
+export const isPrivateAddress = (a) => PRIVATE.some((r) => r.test(a));
+export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now() } = {}) {
+  const cache = new Map(); // origin -> { has, at }
+  async function probe(origin) {
+    const u = new URL(origin);
+    if (u.protocol !== "https:" || u.port || isIP(u.hostname) || !u.hostname.includes(".") || /(^|\.)(localhost|local|internal)$/i.test(u.hostname)) return false;
+    const addrs = await lookup(u.hostname).catch(() => []);
+    if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address ?? a))) return false;
+    const res = await fetchImpl(`${u.origin}/skill.md`, { redirect: "manual", signal: AbortSignal.timeout(3000), headers: { accept: "text/markdown, text/plain" } }).catch(() => null);
+    if (!res || res.status !== 200 || !/^text\/(markdown|plain|x-markdown)/i.test(res.headers.get("content-type") ?? "")) return false;
+    const reader = res.body?.getReader?.();
+    let text = "";
+    if (reader) {
+      for (let total = 0; total < 65536;) { const { done, value } = await reader.read(); if (done) break; total += value.length; text += new TextDecoder().decode(value, { stream: true }); if (text.length > 512) break; }
+      reader.cancel().catch(() => {});
+    } else text = (await res.text()).slice(0, 512);
+    return /^\s*(---|#)/.test(text);
+  }
+  return {
+    known: (origin) => cache.get(origin)?.has ?? null,
+    // Check these origins (in parallel, waiting at most `waitMs`); later calls use the cache.
+    async check(origins, { waitMs = 3500 } = {}) {
+      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !c || now() - c.at > (c.has ? 86_400_000 : 6 * 3_600_000); });
+      const runs = todo.map((o) => probe(o).catch(() => false).then((has) => { cache.set(o, { has, at: now() }); if (cache.size > 5000) cache.delete(cache.keys().next().value); }));
+      await Promise.race([Promise.all(runs), new Promise((ok) => setTimeout(ok, waitMs))]);
+    },
+  };
+}
+
 // The USDC prices of a listing, one per network we know (checked against that network's USDC).
 function pricesOf(item) {
   const prices = [];
@@ -57,7 +94,7 @@ const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().sl
 
 // `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null } = {}) {
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null } = {}) {
   let items = null, at = 0, loading = null, firstSeen = {};
   async function load() {
     if (items && now() - at < TTL_MS) return items;
@@ -108,6 +145,10 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         by.set(u.origin, p);
       }
       const providers = [...by.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, limit).map((p) => ({ ...p, networks: [...p.networks] }));
+      if (skills && providers.length) {
+        await skills.check(providers.map((p) => p.origin));
+        for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null;
+      }
       return { days, providers, trackingSince: Math.min(...Object.values(firstSeen).filter((v) => v > 0), now()) };
     },
     // Best matches for a request: { results: [{ url, host, description, method, prices: [{ network, usd }], cheapest }] }.
@@ -152,6 +193,12 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
       }
       const results = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest).slice(0, Math.min(30, Math.max(1, limit))).map(({ score, ...r }) => r);
+      // Which of these sellers publish a skill.md (cached; unknown ones are checked now, briefly).
+      if (skills && results.length) {
+        const origins = results.map((r) => new URL(r.url).origin);
+        await skills.check(origins);
+        for (const r of results) r.skill = skills.known(new URL(r.url).origin) ? `${new URL(r.url).origin}/skill.md` : null;
+      }
       return { query: String(query ?? ""), category, results };
     },
   };

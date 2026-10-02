@@ -838,3 +838,36 @@ test("skill.md: instructions an agent can follow, with this server's address", a
     assert.ok(viaProxy.includes('"WALLET_SERVER_URL": "https://wallet.example"'));
   } finally { server.close(); }
 });
+
+test("skill.md check: only public https sellers, no redirects, small markdown; cached; shown in search results", async () => {
+  const { createCatalog, createSkillChecker, isPrivateAddress } = await import("../src/catalog.js");
+  for (const a of ["10.0.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.5", "192.168.1.1", "100.64.0.1", "::1", "fd00::1", "fe80::1"]) assert.ok(isPrivateAddress(a), a);
+  for (const a of ["8.8.8.8", "172.32.0.1", "2606:4700::1111"]) assert.ok(!isPrivateAddress(a), a);
+  const fetched = [];
+  const answers = {
+    "https://good.example/skill.md": () => new Response("---\nname: good\n---\n# Good", { headers: { "content-type": "text/markdown" } }),
+    "https://html.example/skill.md": () => new Response("<html>not found page</html>", { headers: { "content-type": "text/html" } }),
+    "https://text-html.example/skill.md": () => new Response("<!doctype html>", { headers: { "content-type": "text/plain" } }),
+    "https://redirect.example/skill.md": () => new Response("", { status: 301, headers: { location: "http://169.254.169.254/" } }),
+    "https://missing.example/skill.md": () => new Response("nope", { status: 404 }),
+  };
+  const fetchImpl = async (url, init) => { fetched.push(url); assert.equal(init.redirect, "manual"); return (answers[url] ?? (() => new Response("", { status: 404 })))(); };
+  const lookup = async (host) => (host === "internal.example" ? [{ address: "10.1.2.3" }] : [{ address: "93.184.216.34" }]);
+  const checker = createSkillChecker({ fetch: fetchImpl, lookup });
+  const origins = ["https://good.example", "https://html.example", "https://text-html.example", "https://redirect.example", "https://missing.example", "https://internal.example", "https://93.184.216.34", "https://port.example:8443", "http://plain.example"];
+  await checker.check(origins);
+  assert.deepEqual(origins.map((o) => checker.known(o)), [true, false, false, false, false, false, false, false, false]);
+  assert.ok(!fetched.some((u) => /internal|93\.184|8443|plain/.test(u))); // never asked
+  const before = fetched.length;
+  await checker.check(["https://good.example"]);
+  assert.equal(fetched.length, before); // cached
+
+  // In search results.
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  const catalog = createCatalog({ url: "https://catalog.test/d", skills: checker, fetch: async () => Response.json({ items: [
+    { resource: "https://good.example/signal", description: "Crypto trend signal", accepts: [usdc("10000")] },
+    { resource: "https://missing.example/signal", description: "Crypto trend signal too", accepts: [usdc("20000")] },
+  ] }) });
+  const r = await catalog.search("crypto signal");
+  assert.deepEqual(r.results.map((x) => [x.host, x.skill]), [["good.example", "https://good.example/skill.md"], ["missing.example", null]]);
+});
