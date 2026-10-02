@@ -1,8 +1,9 @@
 // Records the wallet video's picture: a real browser on the wallet's live demo
 // (example data, nothing moves money) plus a few drawn scenes that show how it
-// stays safe, timed to the narration (out/durations.json), with burned-in
-// captions. Writes out/screen.webm and out/timeline.json (when each segment
-// starts, so build.py can place the voice exactly there).
+// stays safe, timed to the narration (out/durations.json). No burned-in
+// captions: they were too small on phones (CAPTIONS=1 adds them back); build.py
+// writes an .srt instead. Writes out/screen.webm and out/timeline.json (when
+// each segment starts, so build.py can place the voice exactly there).
 //
 //   node record.js                                          # the live demo (GitHub Actions)
 //   DEMO_URL=http://127.0.0.1:3000/demo node record.js      # a local server
@@ -17,7 +18,7 @@ const OUT = process.env.OUT || path.join(HERE, "out");
 const DEMO = process.env.DEMO_URL || "https://wallet.fizzl.eu/demo";
 const W = 1920;
 const H = 1080;
-const ZOOM = 1.8;
+const ZOOM = 2.2;
 // The price rule's slider positions (index -> dollars), as on the dashboard: index 8 is $1, 14 is $5.
 const PER_TX_START = 8, PER_TX_FIVE = 14;
 
@@ -30,7 +31,7 @@ const THEME = `
   :root { --bg:#020708; --panel:#061816; --line:rgba(97,245,195,.22); --text:#f4f8f7; --soft:#a8b5b2; --mint:#61f5c3; --rose:#ff7a90; --amber:#f5c361; }
   * { box-sizing: border-box; }
   html, body { margin:0; height:100%; background: radial-gradient(1200px 700px at 50% 30%, #062520 0%, var(--bg) 70%); color:var(--text); font-family:'DM Sans',system-ui,sans-serif; }
-  body { display:flex; align-items:center; justify-content:center; overflow:hidden; padding-bottom: 190px; }
+  body { display:flex; align-items:center; justify-content:center; overflow:hidden; }
   h1, h2 { font-family:'Space Grotesk','DM Sans',sans-serif; letter-spacing:-0.02em; margin:0; }
   .fade { opacity:0; transform: translateY(18px); transition: opacity .55s ease, transform .55s ease; }
   .fade.on { opacity:1; transform:none; }
@@ -64,7 +65,7 @@ const phoneHtml = () => `<!doctype html><html><head><style>${THEME}
   .phone .bar { height: 70px; display:flex; align-items:center; gap:16px; padding: 0 12px; border-bottom: 1px solid #1d2f2c; }
   .phone .av { width:48px; height:48px; border-radius:50%; background: var(--mint); color:#021; font: 700 26px 'Space Grotesk'; display:grid; place-items:center; }
   .phone .nm { font: 700 26px 'DM Sans'; } .phone .nm small { display:block; font: 400 18px 'DM Sans'; color: var(--soft); }
-  .msg { margin: 34px 8px 0; background: #13262a; border-radius: 26px 26px 26px 8px; padding: 26px 28px; font-size: 25px; line-height: 1.45; }
+  .msg { margin: 30px 8px 0; background: #13262a; border-radius: 26px 26px 26px 8px; padding: 24px 26px; font-size: 29px; line-height: 1.45; }
   .msg b { color: #fff; } .msg .amt { color: var(--amber); font-weight: 700; }
   .btns { display:flex; gap: 12px; margin: 14px 8px 0; }
   .btns div { flex:1; text-align:center; padding: 20px; border-radius: 18px; background: #1a3236; font: 700 26px 'DM Sans'; transition: all .3s; }
@@ -84,14 +85,14 @@ const phoneHtml = () => `<!doctype html><html><head><style>${THEME}
 
 // How a payment flows: the key stays with the agent; the wallet only answers yes or no.
 const flowHtml = () => `<!doctype html><html><head><style>${THEME}
-  .f { display:flex; align-items:center; gap: 26px; }
-  .box { width: 330px; min-height: 300px; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 34px 30px; text-align:center; }
+  .f { display:flex; align-items:center; gap: 18px; }
+  .box { width: 350px; min-height: 340px; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 34px 30px; text-align:center; }
   .box .ic { font-size: 74px; margin-bottom: 14px; }
-  .box h2 { font-size: 40px; margin-bottom: 14px; }
-  .box p { font-size: 26px; color: var(--soft); margin: 0; line-height: 1.4; }
+  .box h2 { font-size: 46px; margin-bottom: 14px; }
+  .box p { font-size: 32px; color: var(--soft); margin: 0; line-height: 1.4; }
   .box.key { border-color: var(--mint); }
   .arrow { font-size: 64px; color: var(--mint); }
-  .under { position:absolute; bottom: 230px; left: 0; right: 0; text-align:center; font-size: 38px; color: var(--mint); }
+  .under { position:absolute; bottom: 150px; left: 0; right: 0; text-align:center; font-size: 38px; color: var(--mint); }
 </style></head><body><div class="f">
   <div class="box key fade" data-step="0"><div class="ic">🤖🔑</div><h2>Your agent</h2><p>keeps its own key, on your machine</p></div>
   <div class="arrow fade" data-step="1">→</div>
@@ -189,7 +190,7 @@ async function main() {
   const scenes = {
     async card(seg) { await setPage(page, cardHtml(seg.card)); },
 
-    async "prepare:rule"() { await openDemo(page); await page.evaluate((start) => { document.querySelector("#perTx").value = String(start); document.querySelector("#perTx").dispatchEvent(new Event("input", { bubbles: true })); }, PER_TX_START); await scrollTo(page, "#rule"); },
+    async "prepare:rule"() { await openDemo(page); await page.evaluate((start) => { document.querySelector("#perTx").value = String(start); document.querySelector("#perTx").dispatchEvent(new Event("input", { bubbles: true })); }, PER_TX_START); await scrollTo(page, "#rule .rule", "center"); },
     async rule(seg, ms) {
       await glow(page, "#rule .rule .card:first-child");
       await slide(page, "#perTx", PER_TX_FIVE, ms * 0.35);
@@ -253,7 +254,7 @@ async function main() {
     let action = null;
     if (seg.scene === "card") await scene(seg, ms);
     else action = scene(seg, ms);
-    await caption(page, seg.text);
+    if (process.env.CAPTIONS === "1") await caption(page, seg.text);
     const start = (Date.now() - t0) / 1000;
     timeline.push({ id: seg.id, start, duration: ms / 1000 });
     const minEnd = Date.now() + ms + 450;
@@ -262,7 +263,6 @@ async function main() {
     if (rest > 0) await sleep(rest);
     console.log(`${seg.id}: ${start.toFixed(2)} s`);
   }
-  await caption(page, "").catch(() => {});
   await sleep(1200);
   const total = (Date.now() - t0) / 1000;
 
