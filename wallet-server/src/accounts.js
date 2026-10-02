@@ -49,6 +49,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const queues = new Map(); // account -> promise: account changes run one at a time
   const serial = (id, fn) => { const run = (queues.get(id) ?? Promise.resolve()).then(fn, fn); queues.set(id, run.catch(() => {})); return run; };
   const site = new URL(publicUrl || "http://localhost");
+  // An origin from the request (scheme + Host), if it looks like one; otherwise PUBLIC_URL.
+  const siteFor = (origin) => {
+    try {
+      const u = new URL(origin);
+      if (/^https?:$/.test(u.protocol) && /^[a-z0-9.-]+(:\d{1,5})?$/i.test(u.host) && u.pathname === "/" && !u.username) return u;
+    } catch {}
+    return site;
+  };
   if (!billing?.payTo || !isAddress(billing.payTo)) throw new Error("billing.payTo must be the address that receives Pro payments");
   const payTo = getAddress(billing.payTo);
   const priceUnits = BigInt(Math.round(Number(billing.priceUsdc ?? 5) * 1e6));
@@ -111,12 +119,15 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     planOf,
 
     // ---------- sign-in with Ethereum (EIP-4361) ----------
-    async signInMessage(address) {
+    // The domain in the message is the one the visitor actually opened (wallet.fizzl.eu, or the
+    // onrender.com address): wallets compare it with the address bar and warn when they differ.
+    async signInMessage(address, origin) {
       if (!isAddress(address ?? "", { strict: false })) throw Object.assign(new Error("address must be an 0x… address"), { status: 400 });
       const addr = getAddress(address);
       const nonce = rand(12);
       const issued = new Date(now()).toISOString(), expires = new Date(now() + NONCE_TTL_S * 1000).toISOString();
-      const message = `${site.host} wants you to sign in with your Ethereum account:\n${addr}\n\nSign in to Fizzl Agent Wallet. This is free: it is not a transaction and moves no money.\n\nURI: ${site.origin}\nVersion: 1\nChain ID: 8453\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
+      const where = siteFor(origin);
+      const message = `${where.host} wants you to sign in with your Ethereum account:\n${addr}\n\nSign in to Fizzl Agent Wallet. This is free: it is not a transaction and moves no money.\n\nURI: ${where.origin}\nVersion: 1\nChain ID: 8453\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
       await g.putOnce("siwe", nonce, { address: addr, message }, NONCE_TTL_S);
       return { nonce, message };
     },
