@@ -47,7 +47,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <div class="table"><table>
     <thead><tr><th>Data</th><th>Why</th><th>Legal basis (GDPR)</th></tr></thead>
     <tbody>
-      <tr><td><b>Your wallet address</b> and the date you signed up</td><td>It is your account: you sign in by signing a message with your wallet. No password, no e-mail.</td><td>Contract (art. 6(1)(b))</td></tr>
+      <tr><td><b>Your wallet address</b> (Ethereum or Solana) and the date you signed up</td><td>It is your account: you sign in by signing a message with your wallet. No password, no e-mail.</td><td>Contract (art. 6(1)(b))</td></tr>
       <tr><td><b>Your agents</b>: the names you give them, a SHA-256 hash of each agent key (never the key itself), when each was last seen</td><td>So your agents can use the service and you can manage them</td><td>Contract</td></tr>
       <tr><td><b>Your rules</b>: limits, allow list, paused or not</td><td>To apply your spending rules</td><td>Contract</td></tr>
       <tr><td><b>What your agents ask to sign</b>: method, network, recipient address, amounts, the safety verdict from presign-guard, what the agent says it is buying (a URL and a description, if your agent sends them), and what it got back (the paid service's answer, up to 16,000 characters, if your agent sends it); your approvals and denials</td><td>To check requests against your rules, ask you for approval, and show you receipts (including what was bought) and an activity log</td><td>Contract</td></tr>
@@ -76,12 +76,12 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
     <li><b>Render</b> (hosting, EU region Frankfurt). Render may keep server logs, including IP addresses, for a limited time.</li>
     <li><b>Upstash</b> (the database that stores the data above).</li>
     <li><b>Telegram</b>, only if you connect it. Messages go through Telegram, under <a href="https://telegram.org/privacy" rel="noopener noreferrer">Telegram's privacy policy</a>.</li>
-    <li>A <b>Base RPC provider</b>, to read public blockchain data about payments.</li>
+    <li>A <b>Base RPC provider</b> and a <b>Solana RPC provider</b>, to read public blockchain data about payments.</li>
   </ul>
   <p>Render and Upstash are companies based in the United States. Where data is processed outside the European Economic Area, this happens under the safeguards these providers offer, such as the EU standard contractual clauses.</p>
 
   <h2>6. The blockchain is public</h2>
-  <p>Pro payments and automatic payment happen on the Base blockchain. Your address, the amounts and the times are public there and permanent. That is how blockchains work, and nobody, including us, can delete them.</p>
+  <p>Pro payments happen on the Base or Solana blockchain, automatic payment on Base. Your address, the amounts and the times are public there and permanent. That is how blockchains work, and nobody, including us, can delete them.</p>
 
   <h2>7. How long we keep it</h2>
   <div class="table"><table>

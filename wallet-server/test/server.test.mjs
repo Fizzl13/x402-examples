@@ -38,14 +38,14 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
   const rpcFetch = async (_url, init) => { const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) }); };
   const accounts = createAccounts({
     store, telegram, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
-    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch },
+    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
   });
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator });
@@ -580,3 +580,92 @@ test("privacy statement, served with the operator from the environment; fonts fr
     assert.equal((await fetch(`${on.base}/fonts/../server.js`)).status, 404);
   } finally { on.server.close(); }
 });
+
+// ---------- Solana: sign in with Phantom, pay Pro in USDC on Solana ----------
+
+test("Solana: sign in with a Solana wallet, pay Pro in USDC on Solana, checked on-chain", async () => {
+  const { ed25519 } = await import("@noble/curves/ed25519");
+  const sol = await import("../src/solana.js");
+  const key = () => { const priv = ed25519.utils.randomPrivateKey(); return { priv, address: sol.b58encode(ed25519.getPublicKey(priv)) }; };
+  const SOL_PAY_TO = key().address, alice = key(), mallory = key();
+  const sign = (k, message) => sol.b58encode(ed25519.sign(new TextEncoder().encode(message), k.priv));
+  const blockhash = key().address;
+  const txs = new Map();
+  // A parsed Solana transaction in which `from` sends `usdc` to `to` (token balances before and after).
+  const solPay = (from, usdc, { to = SOL_PAY_TO, err = null, ageDays = 0, mint = sol.USDC_MINT } = {}) => {
+    const sig = sol.b58encode(randomBytes(64));
+    const units = String(Math.round(usdc * 1e6));
+    txs.set(sig, {
+      blockTime: Math.floor(Date.now() / 1000) - ageDays * 86400,
+      meta: { err, preTokenBalances: [{ mint, owner: from.address, uiTokenAmount: { amount: "100000000" } }, { mint, owner: to, uiTokenAmount: { amount: "0" } }],
+        postTokenBalances: [{ mint, owner: from.address, uiTokenAmount: { amount: String(100000000 - Number(units)) } }, { mint, owner: to, uiTokenAmount: { amount: units } }] },
+      transaction: { message: { accountKeys: [{ pubkey: from.address, signer: true }, { pubkey: to, signer: false }] } },
+    });
+    return sig;
+  };
+  const rpc = async (method, params) => {
+    if (method === "getLatestBlockhash") return { value: { blockhash, lastValidBlockHeight: 1 } };
+    if (method === "getTransaction") return txs.get(params[0]) ?? null;
+    return null;
+  };
+  const { base, server } = await boot({ rpc, solana: { payTo: SOL_PAY_TO, rpcUrl: "https://sol.test" } });
+  const post = (path, body, cookie) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).solana, true);
+    assert.equal((await post("/api/signin/message", { address: "0x1234", chain: "solana" })).status, 400);
+    const m = await (await post("/api/signin/message", { address: alice.address, chain: "solana" })).json();
+    assert.match(m.message, /^127\.0\.0\.1:\d+ wants you to sign in with your Solana account:\n/);
+    assert.ok(m.message.includes(alice.address));
+    // Someone else's signature, or a signature over another text, doesn't sign in.
+    assert.equal((await post("/api/signin", { nonce: m.nonce, signature: sign(mallory, m.message) })).status, 401);
+    const m2 = await (await post("/api/signin/message", { address: alice.address, chain: "solana" })).json();
+    const r = await post("/api/signin", { nonce: m2.nonce, signature: sign(alice, m2.message) });
+    assert.equal(r.status, 200);
+    const cookie = r.headers.get("set-cookie").split(";")[0];
+    const call = async (method, path, body) => { const res = await fetch(base + path, { method, headers: { cookie, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: res.status, body: await res.json().catch(() => null) }; };
+
+    const me = (await call("GET", "/api/me")).body;
+    assert.equal(me.id, `sol:${alice.address}`);
+    assert.equal(me.chain, "solana");
+    assert.equal(me.plan, "free");
+    assert.equal(me.auto, null);
+    assert.deepEqual({ chain: me.billing.chain, payTo: me.billing.payTo, mint: me.billing.mint, priceUsdc: me.billing.priceUsdc }, { chain: "solana", payTo: SOL_PAY_TO, mint: sol.USDC_MINT, priceUsdc: 5 });
+
+    // The transaction to sign: USDC from alice to the owner, the right amount, the latest blockhash.
+    const { body: tx } = await call("POST", "/api/billing/solana", { months: 12 });
+    assert.equal(tx.amountUsdc, 60);
+    assert.equal(tx.message, sol.usdcTransferMessage({ from: alice.address, to: SOL_PAY_TO, amount: 60_000_000n, blockhash }));
+
+    // Claims: not a signature, not confirmed, failed, too little, someone else's payment, wrong token, too old.
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: "0xabc" })).status, 400);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: sol.b58encode(randomBytes(64)) })).status, 409);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: solPay(alice, 5, { err: { InstructionError: [1, "x"] } }) })).status, 400);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: solPay(alice, 4) })).status, 400);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: solPay(mallory, 5) })).status, 400);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: solPay(alice, 5, { mint: key().address }) })).status, 400);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: solPay(alice, 5, { to: key().address }) })).status, 400);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: solPay(alice, 5, { ageDays: 8 }) })).status, 400);
+    assert.equal((await call("GET", "/api/me")).body.plan, "free");
+
+    // A real payment: Pro for a month, once.
+    const good = solPay(alice, 5);
+    const paid = (await call("POST", "/api/billing/claim", { txHash: good })).body;
+    assert.equal(paid.plan, "pro");
+    assert.equal(paid.payments[0].chain, "solana");
+    assert.equal(paid.payments[0].months, 1);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: good })).body.payments.length, 1); // the same claim again changes nothing
+
+    // An Ethereum account can't use the Solana payment route.
+    const eth = await signInAs(base, customer());
+    assert.equal((await eth.call("POST", "/api/billing/solana", { months: 1 })).status, 400);
+    assert.equal((await eth.call("GET", "/api/me")).body.billing.chain, "base");
+  } finally { server.close(); }
+});
+
+test("Solana: off unless SOLANA_PAY_TO is set", async () => {
+  const { base, server } = await boot();
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).solana, false);
+  } finally { server.close(); }
+});
+

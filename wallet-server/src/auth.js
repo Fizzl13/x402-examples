@@ -9,7 +9,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes } from "node:crypt
 const COOKIE = "aw_session";
 const WEEK_MS = 7 * 86_400_000;
 const sha = (s) => createHash("sha256").update(String(s)).digest();
-const SUBJECT = /^(admin|0x[0-9a-f]{40})$/;
+const SUBJECT = /^(admin|0x[0-9a-f]{40}|sol:[1-9A-HJ-NP-Za-km-z]{32,44})$/; // the owner, an Ethereum or a Solana account
 
 export function createAuth({ password, secret, now = () => Date.now(), secure = true }) {
   if (password !== undefined && password !== null && password !== "" && (typeof password !== "string" || password.length < 12)) throw new Error("ADMIN_PASSWORD must be at least 12 characters");

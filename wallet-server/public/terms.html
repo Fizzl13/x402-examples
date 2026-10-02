@@ -66,19 +66,19 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <h2>4. Plans and prices</h2>
   <ul>
     <li><b>Free:</b> one agent; receipts kept 7 days.</li>
-    <li><b>Pro:</b> unlimited agents (up to 50); receipts kept 90 days. It costs <b>$5 per 30 days</b>, paid in USDC on the Base network, straight from your wallet. Paying again adds 30 days. Prices include any taxes we have to charge.</li>
+    <li><b>Pro:</b> unlimited agents (up to 50); receipts kept 90 days. It costs <b>$5 per 30 days</b>, paid in USDC on the Base or Solana network, straight from your wallet. Paying again adds 30 days. Prices include any taxes we have to charge.</li>
     <li>We may change the price of Pro. You'll hear about it at least 30 days in advance on the dashboard (and on Telegram, if connected). Time you already paid for keeps its price. Automatic payment runs on a contract with a fixed price, so a new price needs you to turn automatic payment on again.</li>
   </ul>
 
   <h2>5. Paying</h2>
   <ul>
-    <li>Payments are blockchain transactions. <b>They can't be reversed by us or anyone else.</b> Pay from the wallet you signed in with, on Base, in USDC, to the address the dashboard shows. Network fees (gas) are yours.</li>
-    <li>A payment counts once it is confirmed on Base and our server has checked it. If a payment doesn't show up, use "Paid, but it didn't show up?" on the dashboard or contact us with the transaction hash. Payments sent to the wrong address, on the wrong network or in the wrong token can't be recovered by us.</li>
+    <li>Payments are blockchain transactions. <b>They can't be reversed by us or anyone else.</b> Pay from the wallet you signed in with, in USDC, on the network of that wallet (Base for an Ethereum wallet, Solana for a Solana wallet), to the address the dashboard shows. Network fees (gas) are yours.</li>
+    <li>A payment counts once it is confirmed on-chain and our server has checked it. If a payment doesn't show up, use "Paid, but it didn't show up?" on the dashboard or contact us with the transaction hash. Payments sent to the wrong address, on the wrong network or in the wrong token can't be recovered by us.</li>
   </ul>
 
   <h2>6. Automatic payment</h2>
   <ul>
-    <li>If you turn it on, you approve our subscription contract on Base for at most 12 months of Pro ($60). After that, $5 is taken from your wallet every 30 days. The contract can only send $5 per 30 days, only to our address. Its code is public.</li>
+    <li>Automatic payment is available for Ethereum wallets, on Base. If you turn it on, you approve our subscription contract on Base for at most 12 months of Pro ($60). After that, $5 is taken from your wallet every 30 days. The contract can only send $5 per 30 days, only to our address. Its code is public.</li>
     <li>We remind you on Telegram (if connected) 3 days before each payment.</li>
     <li>If a payment can't go through, for example because your approval is used up or you don't have enough USDC on Base, Pro keeps working for 3 days. After that you're on Free. Nothing is deleted, and extra agents are paused.</li>
     <li>You can turn automatic payment off at any time on the dashboard, or by setting your approval to 0 in your wallet. Time you already paid for stays.</li>

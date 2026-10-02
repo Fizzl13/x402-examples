@@ -11,6 +11,7 @@
 // single-owner setup, unchanged.
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransferMessage, usdcPaid, USDC_MINT } from "./solana.js";
 import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decodeFunctionResult, encodeDeployData, erc20Abi } from "viem";
 import { createWallet, hashKey } from "./wallet.js";
 import { ADMIN } from "./store.js";
@@ -40,7 +41,8 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  * @param {object} o.store  memoryStore() or redisStore(): .scope(account) and .global
  * @param {object} [o.telegram]  createTelegram(): sends to any chat
  * @param {string} [o.adminChatId]  the owner's Telegram chat (TELEGRAM_CHAT_ID)
- * @param {object} o.billing  { payTo, priceUsdc, rpcUrl, fetch, subscription?: contract address, charger?: { address, send(to, data) -> tx hash } }
+ * @param {object} o.billing  { payTo, priceUsdc, rpcUrl, fetch, subscription?: contract address, charger?: { address, send(to, data) -> tx hash },
+ *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
 export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {} }) {
@@ -62,6 +64,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const priceUnits = BigInt(Math.round(Number(billing.priceUsdc ?? 5) * 1e6));
   const token = billing.token ? getAddress(billing.token) : USDC_BASE; // USDC on Base (another token only in tests)
   const rpcFetch = billing.fetch ?? globalThis.fetch;
+  // Optional: Solana accounts (sign in with Phantom) and Pro paid in USDC on Solana.
+  if (billing.solana?.payTo && !isSolanaAddress(billing.solana.payTo)) throw new Error("billing.solana.payTo must be a Solana address");
+  const solPayTo = billing.solana?.payTo ?? null;
+  const isSol = (a) => a?.chain === "solana";
 
   async function account(id) {
     if (id === ADMIN) return { id: ADMIN, admin: true, telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null };
@@ -78,7 +84,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   // The account's state in the subscription contract (and what its approval still allows), cached on the account.
   async function syncAuto(a, { maxAgeMs = 60_000 } = {}) {
-    if (!subscription || !a?.address || a.admin) return a;
+    if (!subscription || !a?.address || a.admin || isSol(a)) return a;
     if (a.auto?.checkedAt && now() - a.auto.checkedAt < maxAgeMs) return a;
     const [dueAt, paidThrough] = await Promise.all(["dueAt", "paidThrough"].map((fn) => call(subscription, SUBSCRIPTION.abi, fn, [a.address])));
     const [allowance, balance] = await Promise.all([call(token, erc20Abi, "allowance", [a.address, subscription]), call(token, erc20Abi, "balanceOf", [a.address])]);
@@ -115,13 +121,15 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   const api = {
     walletFor,
+    solanaEnabled: !!solPayTo,
     account,
     planOf,
 
     // ---------- sign-in with Ethereum (EIP-4361) ----------
     // The domain in the message is the one the visitor actually opened (wallet.fizzl.eu, or the
     // onrender.com address): wallets compare it with the address bar and warn when they differ.
-    async signInMessage(address, origin) {
+    async signInMessage(address, origin, chain = "ethereum") {
+      if (chain === "solana") return solanaSignInMessage(address, origin);
       if (!isAddress(address ?? "", { strict: false })) throw Object.assign(new Error("address must be an 0x… address"), { status: 400 });
       const addr = getAddress(address);
       const nonce = rand(12);
@@ -135,6 +143,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async signIn(nonce, signature) {
       const pending = typeof nonce === "string" ? await g.takeOnce("siwe", nonce) : null;
       if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
+      if (pending.chain === "solana") return solanaSignIn(pending, signature);
       let ok = false;
       try { ok = await verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; }
       if (!ok && billing.publicClient) { try { ok = await billing.publicClient.verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; } }
@@ -154,10 +163,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
-        auto: subscription && !a.admin ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
+        chain: a.admin ? null : isSol(a) ? "solana" : "ethereum",
+        auto: subscription && !a.admin && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
-        billing: a.admin ? null : { payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY },
+        billing: a.admin ? null : isSol(a)
+          ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
+          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY },
       };
     },
 
@@ -225,6 +237,15 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // ---------- billing: Pro, paid straight from the customer's wallet ----------
     // One payment at a time per account, so two claims can't overwrite each other's months.
     claimPayment: (id, txHash) => serial(id, () => claim(id, txHash)),
+    // A Solana account paying for Pro: the transaction for its wallet to sign and send (USDC to the owner).
+    async solanaPayment(id, months = 1) {
+      const a = await account(id);
+      if (!a || !isSol(a)) throw Object.assign(new Error("only for accounts signed in with a Solana wallet"), { status: 400 });
+      if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
+      const m = Math.min(12, Math.max(1, Math.floor(Number(months) || 1)));
+      const { value } = await solRpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
+      return { message: usdcTransferMessage({ from: a.address, to: solPayTo, amount: priceUnits * BigInt(m), blockhash: value.blockhash }), amountUsdc: (Number(priceUnits) * m) / 1e6, months: m, payTo: solPayTo };
+    },
 
     // Hourly: remind before Pro ends, and say so when it has ended. Each message once per period.
     async remind() {
@@ -307,8 +328,56 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     },
   };
 
+  // ---------- Solana: sign in (a message signed by the wallet) and Pro paid in USDC on Solana ----------
+  async function solanaSignInMessage(address, origin) {
+    if (!isSolanaAddress(address)) throw Object.assign(new Error("address must be a Solana address"), { status: 400 });
+    const nonce = rand(12);
+    const issued = new Date(now()).toISOString(), expires = new Date(now() + NONCE_TTL_S * 1000).toISOString();
+    const where = siteFor(origin);
+    const message = `${where.host} wants you to sign in with your Solana account:\n${address}\n\nSign in to Fizzl Agent Wallet. This is free: it is not a transaction and moves no money.\n\nURI: ${where.origin}\nVersion: 1\nChain ID: mainnet\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
+    await g.putOnce("siwe", nonce, { address, message, chain: "solana" }, NONCE_TTL_S);
+    return { nonce, message };
+  }
+  async function solanaSignIn(pending, signature) {
+    if (!verifySolanaSignature(pending.address, pending.message, signature)) throw Object.assign(new Error("that signature does not match"), { status: 401 });
+    const id = `sol:${pending.address}`;
+    const existing = await g.getAccount(id);
+    if (!existing || existing.deletedAt) await g.putAccount({ id, chain: "solana", address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null });
+    return id;
+  }
+  async function claimSolana(a, signature) {
+    if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
+    if (!isSolanaSignature(signature)) throw Object.assign(new Error("that is not a Solana transaction signature"), { status: 400 });
+    if ((a.payments ?? []).some((p) => p.tx === signature)) return api.me(a.id);
+    const tx = await solRpc("getTransaction", [signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]);
+    if (!tx) throw Object.assign(new Error("not confirmed yet: try again in a few seconds"), { status: 409 });
+    if (tx.meta?.err) throw Object.assign(new Error("that transaction failed on-chain"), { status: 400 });
+    const paid = usdcPaid(tx, { payer: a.address, payee: solPayTo }) ?? 0n;
+    if (paid < priceUnits) throw Object.assign(new Error(`no payment of ${Number(priceUnits) / 1e6} USDC from ${short(a.address)} to ${short(solPayTo)} in that transaction`), { status: 400 });
+    if ((tx.blockTime ?? 0) * 1000 < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
+    if (!(await g.claimTx(`sol:${signature}`))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
+    return credit(a, signature, paid);
+  }
+  async function solRpc(method, params) {
+    const res = await rpcFetch(billing.solana?.rpcUrl ?? "https://api.mainnet-beta.solana.com", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+    const data = await res.json().catch(() => null);
+    if (!data || data.error) throw Object.assign(new Error(`Solana RPC ${method}: ${data?.error?.message ?? `HTTP ${res.status}`}`), { status: 502 });
+    return data.result;
+  }
+  // Pro for what was paid (whole months, at most 12), after any time already paid for.
+  async function credit(a, tx, paid) {
+    const months = Math.min(12, Number(paid / priceUnits));
+    const start = Math.max(now(), proUntil(a));
+    const paidUntil = start + months * PERIOD_MS;
+    await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(isSol(a) ? { chain: "solana" } : {}) }], reminded: null });
+    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
+    return api.me(a.id);
+  }
+
   async function claim(id, txHash) {
     if (id === ADMIN) throw Object.assign(new Error("the owner's server has no plan to pay for"), { status: 400 });
+    const sa = await account(id);
+    if (isSol(sa)) return claimSolana(sa, txHash);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
     const hash = txHash.toLowerCase();
     const a = await account(id);
@@ -328,12 +397,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const at = Number(BigInt(block?.timestamp ?? "0x0")) * 1000;
     if (at < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
     if (!(await g.claimTx(hash))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
-    const months = Math.min(12, Number(paid / priceUnits));
-    const start = Math.max(now(), proUntil(a));
-    const paidUntil = start + months * PERIOD_MS;
-    await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx: hash, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil }], reminded: null });
-    await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
-    return api.me(id);
+    return credit(a, hash, paid);
   }
 
   async function rpc(method, params) {
