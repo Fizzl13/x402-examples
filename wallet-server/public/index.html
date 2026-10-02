@@ -526,13 +526,23 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       pollMe();
     } catch (err) { $("#tgMsg").textContent = err.message; }
   }
+  // Wallet apps' own browsers (MetaMask, Phantom… on a phone) usually can't open another app, so there
+  // the /start command to copy comes first and the app link is only a try.
+  const inWalletApp = /MetaMaskMobile|Phantom|Trust|CoinbaseWallet|Rabby/i.test(navigator.userAgent) || (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) && !!(window.ethereum || window.phantom));
   function tgPendingHtml() {
     if (!tgPending || tgPending.until < Date.now()) return "";
+    const paste = `<div class="paste"><input id="tgCommand" readonly value="${esc(tgPending.command)}" aria-label="Message to send to the bot"><button class="button ${inWalletApp ? "primary" : "ghost"} small" type="button" id="tgCopy">Copy</button></div>`;
+    if (inWalletApp) return `<div style="display:grid;gap:8px;border-top:1px dashed var(--line);padding-top:12px">
+      <p class="note" style="margin:0">Your wallet app's browser can't open Telegram, so it takes three steps (the code is valid 15 minutes):</p>
+      <ol class="note" style="margin:0;padding-left:20px"><li><b>Copy</b> this message.</li><li>Open <b>Telegram</b> and find <b>@${esc(tgPending.bot)}</b>.</li><li>Paste it and send it.</li></ol>
+      ${paste}
+      <p class="note" style="margin:0">This page updates by itself. <a href="${esc(tgPending.app)}" style="text-decoration:underline">Try opening Telegram</a></p>
+    </div>`;
     return `<div style="display:grid;gap:8px;border-top:1px dashed var(--line);padding-top:12px">
       <div class="btns"><a class="button primary small" href="${esc(tgPending.app)}">Open the Telegram app</a><a class="button ghost small" href="${esc(tgPending.url)}" target="_blank" rel="noopener noreferrer">Open in the browser</a></div>
       <p class="note" style="margin:0">Tap it, then press <b>Start</b> in the chat with @${esc(tgPending.bot)}. This page updates by itself.</p>
       <p class="note" style="margin:0">Nothing happens? In Telegram, find <b>@${esc(tgPending.bot)}</b> and send it this message (valid 15 minutes):</p>
-      <div class="paste"><input id="tgCommand" readonly value="${esc(tgPending.command)}" aria-label="Message to send to the bot"><button class="button ghost small" type="button" id="tgCopy">Copy</button></div>
+      ${paste}
     </div>`;
   }
   async function pollMe() { for (let i = 0; i < 100; i++) { await sleep(3000); try { me = await api("GET", "/api/me"); if (me.telegram.linked) tgPending = null; renderAccount(); if (me.telegram.linked) return; } catch { return; } } }
@@ -652,7 +662,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
-    if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); navigator.clipboard?.writeText(i.value).then(() => { $("#tgCopy").textContent = "Copied"; }, () => {}); return; }
+    if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
     const del = e.target.closest("#deleteAccount");
     if (del) {
       if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = "Sure? Agents, rules, receipts and the Telegram link are deleted. Click again to delete."; return; }
