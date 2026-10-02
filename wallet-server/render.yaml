@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: fizzl-wallet-server
+    runtime: node
+    rootDir: wallet-server
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: WALLET_REDIS_URL
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false

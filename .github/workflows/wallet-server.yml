@@ -1,0 +1,24 @@
+# Agent wallet server: offline tests on every change (in-memory store, a real
+# redis-server, and presign-guard-wallet as an agent against it).
+name: wallet-server
+on:
+  push:
+    branches: [main]
+    paths: ["wallet-server/**", "guard-wallet/**", ".github/workflows/wallet-server.yml"]
+  pull_request:
+    paths: ["wallet-server/**", "guard-wallet/**", ".github/workflows/wallet-server.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wallet-server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: sudo apt-get install -y -qq redis-server
+      - run: npm ci
+      - run: npm test

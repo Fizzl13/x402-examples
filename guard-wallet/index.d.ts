@@ -138,6 +138,8 @@ export interface GuardOptions {
   onSpend?: (entry: SpendEntry) => void;
   /** Where spending is kept. Default in memory (gone on a restart); fileStore from "presign-guard-wallet/file-store" for a file. */
   store?: SpendingStore;
+  /** A wallet server keeps the limits, the shared budget and the approvals for all your agents (instead of limits, onOverLimit and store). */
+  server?: { url: string; key: string; fetch?: typeof globalThis.fetch; requestTimeoutMs?: number };
 }
 
 /** The same wallet client; sendTransaction, writeContract and signTypedData are checked first. */
