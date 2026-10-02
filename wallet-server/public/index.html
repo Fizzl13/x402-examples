@@ -234,6 +234,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
 .who { color: var(--soft); font-size: 12px; font-variant-numeric: tabular-nums; }
 .plan-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--mint); color: var(--mint); font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
+.plan-badge.buy { background: var(--mint); color: #02100c; cursor: pointer; padding: 5px 10px; box-shadow: 0 0 14px rgba(97,245,195,.35); }
 .plan-badge.free { border-color: rgba(244,248,247,.3); color: var(--soft); }
 .account { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
 .account .card { padding: 22px; display: grid; gap: 12px; align-content: start; }
@@ -260,7 +261,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 .topbar .button, .who > * { white-space: nowrap; }
 #agentsSec { scroll-margin-top: 84px; }
 @media (max-width: 600px) { #addAgentTop .long { display: none; } #addAgentTop .short { display: inline; } #addAgentTop, #logout { padding: 0 10px; letter-spacing: 1px; } .topbar .wrap { gap: 8px; } .topbar .wrap > div { gap: 8px !important; } .brand { flex-shrink: 0; } }
-@media (max-width: 420px) { .brand span { display: none; } }
+@media (max-width: 420px) { .brand span { display: none; } .plan-badge.buy .long { display: none; } }
 @media (max-width: 350px) { #live { display: none; } #addAgentTop, #logout { padding: 0 8px; letter-spacing: 0; } }
 @media (max-width: 600px) { #liveText { display: none; } .who { font-size: 11px; display: grid; justify-items: end; gap: 3px; } .brand { font-size: 20px; } }
 @media (max-width: 600px) { .asked { grid-template-columns: 1fr; } .asked .btns { justify-content: flex-start; } }
@@ -869,7 +870,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#who").hidden = false;
     const max = me.limits?.maxAgents;
     $("#agentPlanNote").textContent = max ? `Your ${me.plan} plan: ${max} agent${max === 1 ? "" : "s"}, enough to use all the services below. Pro: unlimited agents.` : "Unlimited agents on your plan.";
-    $("#who").innerHTML = `<a href="#accountSec" title="Your account and plan" style="color:inherit;text-decoration:none"><span>${esc(short)}</span> <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span></a>`;
+    // On the free plan (where Pro can be paid) the plan label is the buy button, next to + Agent.
+    const buyTop = me.plan === "free" && !me.admin && !!me.billing;
+    $("#who").innerHTML = `<a href="#accountSec" title="Your account and plan" style="color:inherit;text-decoration:none">${esc(short)}</a> ${buyTop
+      ? `<button type="button" class="plan-badge buy" data-buy title="Free plan: upgrade to Pro for $${esc(me.billing.priceUsdc)} per 30 days">★ <span class="long">Go </span>Pro</button>`
+      : `<a href="#accountSec" class="plan-badge ${me.plan === "free" ? "free" : ""}" style="text-decoration:none">${esc(me.plan)}</a>`}`;
     $("#accountSec").hidden = false;
     $("#footAccount").hidden = false;
     // The buy button in the footer (like + Add agent at the top): Pro for $5, or 30 more days.
@@ -1134,11 +1139,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   $("#addAgentTop").addEventListener("click", goAdd);
   // The footer's buy button goes to the plan card, with "Pay 1 month" ready.
-  $("#buyFoot").addEventListener("click", () => {
+  // (So does "★ Go Pro" in the top bar on the free plan.)
+  function goBuy() {
     $("#planCard").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     const b = $('#planCard [data-pay="1"]');
     if (b) { b.classList.remove("flash"); void b.offsetWidth; b.classList.add("flash"); setTimeout(() => b.focus({ preventScroll: true }), 500); }
-  });
+  }
+  $("#buyFoot").addEventListener("click", goBuy);
+  $("#who").addEventListener("click", (e) => { if (e.target.closest("[data-buy]")) goBuy(); });
   $("#logout").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); showLogin(); });
 
   // ---------- "Test my setup": the server checks key, contact, rules, balance and Telegram; nothing is paid ----------
