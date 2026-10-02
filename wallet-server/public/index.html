@@ -141,6 +141,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .pager .cur { display: inline-flex; align-items: center; justify-content: center; background: var(--mint); border-color: var(--mint); color: #02100c; font-weight: 700; cursor: default; }
 .pager .step { color: var(--mint); }
 .pager .gap { color: var(--dim); padding: 0 2px; }
+.skilltag.warn { color: var(--amber); border-color: var(--amber); }
+.fromfizzl { display: grid; gap: 10px; padding: 14px; border: 1px dashed var(--mint); border-radius: 18px; background: rgba(97,245,195,.04); }
 .skilltag { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--mint); border: 1px solid var(--mint); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
 .setup { padding: 20px; display: grid; gap: 12px; margin-top: 16px; }
 .setup .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -1021,10 +1023,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // Fizzl's own paid agents, to connect: the MCP address for any MCP client, and a first request to
   // ask an agent that has the wallet MCP (presign-guard-wallet-mcp) with its key from this dashboard.
   const FIZZL_AGENTS = [
-    { name: "Ichimoku Signal", site: "https://ichimoku-signal.fizzl.eu", price: "$0.02 to $0.50 per call", what: "Crypto trend signals: the Ichimoku cloud, a six-indicator confluence, support and resistance levels, a scan of 148 coins and ranked trade setups.", ask: "Use pay_x402 to get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT (max $0.05)." },
-    { name: "x402 Doctor", site: "https://x402-doctor.fizzl.eu", price: "$0.001 to $0.05 per call", what: "Checks x402 endpoints like a paying agent: diagnoses what's broken, gives a fix plan, and tells your agent before it pays whether an endpoint is safe to pay.", ask: "Use pay_x402 to diagnose my endpoint with https://x402-doctor.fizzl.eu/api/v1/diagnose?url=<your endpoint> (max $0.02)." },
-    { name: "presign-guard", site: "https://presign-guard.fizzl.eu", price: "$0.01 to $0.03 per call", what: "Checks before your agent signs or buys: green, orange or red for signatures, approvals and tokens, and an audit of a wallet's open approvals.", ask: "Use pay_x402 to check this token before buying it: https://presign-guard.fizzl.eu/v1/token?chain=base&address=<token address> (max $0.02)." },
-    { name: "PlainText", site: "https://plaintext.fizzl.eu", price: "$0.03 to $0.04 per call", what: "Explains in plain language what a wallet's token and NFT approvals mean, which are risky, and what a transaction or signature request really does.", ask: "Use pay_x402 to POST {\"address\": \"<wallet address>\"} to https://plaintext.fizzl.eu/api/check-wallet and explain my approvals (max $0.05)." },
+    { name: "Ichimoku Signal", cats: ["crypto", "finance"], site: "https://ichimoku-signal.fizzl.eu", price: "$0.02 to $0.50 per call", what: "Crypto trend signals: the Ichimoku cloud, a six-indicator confluence, support and resistance levels, a scan of 148 coins and ranked trade setups.", ask: "Use pay_x402 to get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT (max $0.05)." },
+    { name: "x402 Doctor", cats: ["dev", "onchain"], site: "https://x402-doctor.fizzl.eu", price: "$0.001 to $0.05 per call", what: "Checks x402 endpoints like a paying agent: diagnoses what's broken, gives a fix plan, and tells your agent before it pays whether an endpoint is safe to pay.", ask: "Use pay_x402 to diagnose my endpoint with https://x402-doctor.fizzl.eu/api/v1/diagnose?url=<your endpoint> (max $0.02)." },
+    { name: "presign-guard", cats: ["security", "onchain", "crypto"], site: "https://presign-guard.fizzl.eu", price: "$0.01 to $0.03 per call", what: "Checks before your agent signs or buys: green, orange or red for signatures, approvals and tokens, and an audit of a wallet's open approvals.", ask: "Use pay_x402 to check this token before buying it: https://presign-guard.fizzl.eu/v1/token?chain=base&address=<token address> (max $0.02)." },
+    { name: "PlainText", cats: ["security", "onchain"], site: "https://plaintext.fizzl.eu", price: "$0.03 to $0.04 per call", what: "Explains in plain language what a wallet's token and NFT approvals mean, which are risky, and what a transaction or signature request really does.", ask: "Use pay_x402 to POST {\"address\": \"<wallet address>\"} to https://plaintext.fizzl.eu/api/check-wallet and explain my approvals (max $0.05)." },
   ];
   const copyRow = (text, label) => `<div class="copy"><code>${esc(text)}</code><button class="button ghost small" type="button" data-copy="${esc(text)}" aria-label="Copy ${esc(label)}">Copy</button></div>`;
   $("#fizzlList").innerHTML = FIZZL_AGENTS.map((a) => `<article class="card fz">
@@ -1055,6 +1057,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     });
     return `<nav class="pager" aria-label="Result pages">${page > 1 ? `<button type="button" data-page="${page - 1}" class="step">‹ Previous</button>` : ""}${out.join("")}${page < pages ? `<button type="button" data-page="${page + 1}" class="step">Next ›</button>` : ""}</nav>`;
   }
+  // x402 Doctor checks every catalog endpoint daily like a paying agent (without paying): the seller's record.
+  const recordTag = (rec) => {
+    if (!rec || rec.days < 3) return "";
+    const good = rec.ratio >= 0.9;
+    return `<span class="skilltag ${good ? "" : "warn"}" title="x402 Doctor checks this seller every day like a paying agent would (without paying): it was payable on ${esc(rec.payableDays)} of the last ${esc(rec.days)} days checked.">${good ? "✓" : "⚠"} payable ${esc(rec.payableDays)}/${esc(rec.days)} days</span>`;
+  };
+  // Browsing a category: Fizzl's own services that fit it, in a clearly labelled block above the catalog.
+  function fizzlBlock(cat) {
+    const mine = FIZZL_AGENTS.filter((a) => a.cats?.includes(cat));
+    if (!mine.length) return "";
+    return `<div class="fromfizzl"><span class="tag">FROM FIZZL · THE MAKERS OF THIS WALLET</span><p class="note" style="margin:0">Our own services in this category, shown first because they're ours. The catalog below is ranked the same for everyone.</p>
+      <div class="hits">${mine.map((a) => { const connect = `Connect to ${a.site.replace(/^https:\/\//, "")}/skill.md`; return `<article class="card hit"><header><span class="host">${esc(a.name)}<span class="skilltag">🤖 skill.md</span></span><span class="prices"><span>${esc(a.price)}</span></span></header>
+        <p class="note" style="margin:0">${esc(a.what)}</p>
+        <div class="btns"><button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(a.ask)}">Copy one request</button><a class="button ghost small" href="${esc(a.site)}" target="_blank" rel="noopener noreferrer">All endpoints ↗</a></div></article>`; }).join("")}</div></div>`;
+  }
   async function search(q, page = 1) {
     q = String(q ?? "").trim();
     lastQ = q;
@@ -1069,11 +1086,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const { results, total = results.length, page: at = 1, pages = 1 } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}${page > 1 ? `&page=${page}` : ""}`);
       const from = (at - 1) * 20 + 1, range = pages > 1 ? `Results ${from}–${from + results.length - 1} of ${total}` : `${results.length}`;
       if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price.</p>`; return; }
-      out.innerHTML = `${catBar}<p class="note" style="margin:0">${range} ${!q && cat ? `provider${total === 1 ? "" : "s"}` : `paid service${total === 1 ? "" : "s"}`} ${what}${!q && cat ? " (one card per provider: those with a skill.md first, then new ones, then the cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
+      out.innerHTML = `${catBar}${!q && cat && at === 1 ? fizzlBlock(cat.id) : ""}<p class="note" style="margin:0">${range} ${!q && cat ? `provider${total === 1 ? "" : "s"}` : `paid service${total === 1 ? "" : "s"}`} ${what}${!q && cat ? " (one card per provider: those with a skill.md first, then those x402 Doctor has seen paying out day after day, then new ones, then the cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
-          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
+          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}${recordTag(r.record)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
             <span class="url">${r.endpoints > 1 ? `${esc(r.endpoints)} paid endpoints · cheapest: ` : ""}${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
             <div class="btns">${connect ? `<button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button>`}${r.endpoints > 1 ? `<button class="button ghost small" type="button" data-q-host="${esc(r.host)}">All ${esc(r.endpoints)} services</button>` : ""}<a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;

@@ -1025,3 +1025,42 @@ test("browsing a category: one card per provider; providers with a skill.md firs
     assert.equal((await owner("GET", "/api/services/search?q=token%20price&cat=crypto")).body.total, 51); // 50 flood endpoints + the price feed, one by one
   } finally { server.close(); }
 });
+
+test("x402 Doctor's track records: summed up per seller; proven sellers first within the skill.md group, labelled on the cards", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { createTrustIndex, summarizeIndex } = await import("../src/trust.js");
+  const index = { days: [], resources: {
+    "https://steady.example/a": { h: "----gggggggggg" },          // 10 of 10
+    "https://steady.example/b/:id": { h: "ggggggggcg" },          // caution still pays out
+    "https://flaky.example/a": { h: "gnnxnngnnx" },               // 2 of 10
+    "https://young.example/a": { h: "--------gg" },               // too short to be proven
+    "not a url": { h: "ggg" },
+  } };
+  const s = summarizeIndex(index);
+  assert.deepEqual(s.get("https://steady.example"), { days: 10, payableDays: 10, ratio: 1 });
+  assert.deepEqual(s.get("https://flaky.example"), { days: 10, payableDays: 2, ratio: 0.2 });
+  let fetched = 0;
+  const trust = createTrustIndex({ url: "https://trust.test/index.json", fetch: async () => { fetched++; return Response.json(index); } });
+  await trust.ready();
+  assert.deepEqual([trust.tier("https://steady.example"), trust.tier("https://young.example"), trust.tier("https://unknown.example"), trust.tier("https://flaky.example")], [2, 1, 1, 0]);
+
+  const usdc = (amount) => [{ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO }];
+  const items = [
+    { resource: "https://flaky.example/a", description: "Crypto price", accepts: usdc("1000") },
+    { resource: "https://unknown.example/a", description: "Crypto price", accepts: usdc("1000") },
+    { resource: "https://steady.example/a", description: "Crypto trend signal", accepts: usdc("20000") },
+    { resource: "https://young.example/a", description: "Crypto price", accepts: usdc("2000") },
+    { resource: "https://noskill.example/a", description: "Crypto price", accepts: usdc("500") },
+  ];
+  const skills = { known: (o) => o !== "https://noskill.example", check: async () => {} };
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }), skills, trust });
+  const { server, owner } = await boot({ catalog });
+  try {
+    const r = (await owner("GET", "/api/services/search?cat=crypto")).body;
+    // skill.md group: proven first, then unknown/young (cheapest first), then the often failing one; no skill.md last.
+    assert.deepEqual(r.results.map((x) => x.host), ["steady.example", "unknown.example", "young.example", "flaky.example", "noskill.example"]);
+    assert.deepEqual(r.results[0].record, { days: 10, payableDays: 10, ratio: 1 });
+    assert.equal(r.results[1].record, null);
+    assert.equal(fetched, 1); // loaded once, kept 6 hours
+  } finally { server.close(); }
+});
