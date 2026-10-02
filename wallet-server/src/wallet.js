@@ -295,7 +295,10 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         for (const e of mine) per[e.budget] = (per[e.budget] ?? 0n) + BigInt(e.amount);
         return { ...publicAgent(a), spent: Object.fromEntries(Object.entries(per).map(([b, v]) => [b, fmt(v)])) };
       }).sort((x, y) => x.createdAt - y.createdAt);
-      const approvals = (await store.listApprovals()).map(expire).filter((a) => a.status === "pending" || now() - (a.decidedAt ?? a.createdAt) < 86_400_000).sort((x, y) => y.createdAt - x.createdAt).slice(0, 50);
+      const all = (await store.listApprovals()).map(expire);
+      // Decided requests are shown for a day and deleted after 7 (see the privacy statement).
+      for (const a of all) if (a.status !== "pending" && now() - (a.decidedAt ?? a.createdAt) > 7 * 86_400_000) await store.deleteApproval(a.id);
+      const approvals = all.filter((a) => a.status === "pending" || now() - (a.decidedAt ?? a.createdAt) < 86_400_000).sort((x, y) => y.createdAt - x.createdAt).slice(0, 50);
       return { policy: raw, paused: await store.getPaused(), spending: await summarize(policy, used), agents, approvals, events: await store.listEvents(100), now: now() };
     },
   };

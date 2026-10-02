@@ -62,6 +62,13 @@ test("redis store: accounts are separate scopes; one-time codes and payments wor
     assert.equal(await store.global.claimTx("0xabc"), false);
     await store.global.putAccount({ id: alice, paidUntil: 1 });
     assert.equal((await store.global.listAccounts()).length, 1);
+    // Wiping alice removes her scope and her agent key, and nothing of bob's or the owner's.
+    await wb.addAgent("bob-bot");
+    await store.wipe(alice);
+    assert.equal((await wa.state()).agents.length, 0);
+    assert.equal(await store.global.getKeyOwner(hashKey(key)), null);
+    assert.equal((await wb.state()).agents.length, 1);
+    await assert.rejects(store.wipe("admin"));
     await store.close();
   } finally { proc.kill(); }
 });

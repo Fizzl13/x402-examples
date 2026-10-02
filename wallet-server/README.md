@@ -41,6 +41,10 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `SESSION_SECRET` | optional: signs dashboard sessions (default: derived from `ADMIN_PASSWORD`) |
    | `BASE_RPC_URL` | optional: the Base RPC used to check payments (default `https://mainnet.base.org`) |
    | `WALLET_SIGNIN` | `off` for a private server only you use (no customer sign-in) |
+   | `OPERATOR_NAME` | who runs the service, shown in the privacy statement at `/privacy` |
+   | `CONTACT_EMAIL` | where customers reach you about their data, shown in the privacy statement |
+   | `SUBSCRIPTION_CONTRACT` | optional: the deployed [subscription contract](../subscription) for automatic Pro payments |
+   | `CHARGER_KEY` | optional: private key of a **new, separate** wallet with a little ETH on Base that sends the monthly charges (never your payout wallet) |
 3. Open the URL, log in, set your price rule, add an agent and copy its key.
 
 ## Customers (hosted)
@@ -53,6 +57,14 @@ Anyone can sign in with their wallet: MetaMask, Phantom, Coinbase Wallet, Rabby 
   - Paid in USDC on Base, straight from the customer's wallet to `PRO_PAY_TO`. The server checks each payment on-chain: from the signed-in address, to your address, at least the price, within 7 days, and used once.
   - Paying for 12 months at once adds a year.
   - A Telegram reminder goes out 3 days before Pro ends. After it ends there are 3 days of grace, then the account drops to free. Extra agents are paused, nothing is deleted.
+- **Automatic payment:** with the [subscription contract](../subscription) deployed (one click on your dashboard), customers can turn on automatic payment.
+  - They approve at most 12 months and subscribe. The contract can only pay you $5 per 30 days.
+  - The server charges what is due every hour, reminds them on Telegram 3 days before each payment, and tells them if a charge can't go through (approval used up, not enough USDC).
+  - They can turn it off any time.
+- **Privacy:** a privacy statement at `/privacy` that matches what the server stores.
+  - Customers can delete their account themselves. Payment records stay for 7 years.
+  - Decided approval requests are deleted after 7 days.
+  - Fonts are served by the server, so pages load nothing from third parties.
 - **Bookkeeping:** as the owner, "Download Pro payments (CSV)" on your dashboard lists every payment.
 
 ## Connect an agent
