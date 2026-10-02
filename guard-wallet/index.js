@@ -35,7 +35,7 @@ export { memoryStore };
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
 export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 

@@ -1,0 +1,25 @@
+# Try presign-guard-wallet's Telegram approvals from your phone: Actions →
+# "telegram-demo" → Run workflow, then tap Approve or Deny in Telegram.
+# A pretend agent, a stub wallet and a locally signed verdict: no money moves.
+# Needs the repository secrets TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+name: telegram-demo
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: guard-wallet
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: node examples/telegram-demo.mjs
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
