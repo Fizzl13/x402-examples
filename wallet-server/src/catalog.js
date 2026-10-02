@@ -209,15 +209,20 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       return { categories: [...counts.values()].map(({ words: _w, sellers, ...c }) => ({ ...c, providers: sellers.size })).filter((c) => c.count > 0) };
     },
     // Results come in pages of `limit` (like a search engine): { results, total, page, pages }.
-    async search(query, { maxUsd = Infinity, limit = 20, category = null, page = 1 } = {}) {
+    // Filters: `networks` (names, e.g. ["Base", "Solana"]: only listings payable there, prices shown for those),
+    // `fresh` (new providers only), `skill` (only sellers with a skill.md), `reliable` (only sellers x402 Doctor
+    // has seen paying out on 90%+ of checks over 5+ days). `sort`: "best" (default), "cheap" or "record".
+    async search(query, { maxUsd = Infinity, limit = 20, category = null, page = 1, networks = null, fresh = false, skill = false, reliable = false, sort = "best" } = {}) {
       const terms = words(query);
-      if (!terms.length && !category) return { query: String(query ?? ""), results: [], total: 0, page: 1, pages: 0 };
+      const nets = networks?.length ? new Set(networks) : null;
+      if (!terms.length && !category && !fresh && !skill && !reliable) return { query: String(query ?? ""), results: [], total: 0, page: 1, pages: 0 };
       const found = new Map(); // one result per URL
       for (const item of await load()) {
         let u;
         try { u = new URL(item.resource); } catch { continue; }
         if (u.protocol !== "https:") continue;
-        const prices = pricesOf(item);
+        if (fresh && !isNew(u.origin)) continue;
+        const prices = pricesOf(item).filter((p) => !nets || nets.has(p.network));
         if (!prices.length) continue;
         const cheapest = Math.min(...prices.map((p) => p.usd));
         if (cheapest > maxUsd) continue;
@@ -226,7 +231,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         const cat = categoryOf(item, u);
         if (category && cat !== category) continue;
         const have = new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(info.input ?? {})}`));
-        // In a category without words, everything counts; new providers first, then cheapest.
+        // Without words, everything that passes the filters counts; new providers first, then cheapest.
         const score = terms.length ? terms.filter((t) => have.has(t)).length : 1 + (isNew(u.origin) ? 1 : 0);
         if (!score) continue;
         const key = `${u.origin}${u.pathname}`;
@@ -234,29 +239,36 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
       }
       let all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
-      // Browsing a category (no words): one card per seller, so a seller with fifty near-identical endpoints
+      const origin = (r) => new URL(r.url).origin;
+      // Filters on the seller: its skill.md (checked now for up to 300 sellers, briefly) and its track record.
+      if (skill || reliable) {
+        await Promise.all([skill && skills ? skills.check([...new Set(all.map(origin))].slice(0, 300)) : null, reliable ? trust?.ready() : null]);
+        all = all.filter((r) => (!skill || skills?.known(origin(r))) && (!reliable || trust?.tier(origin(r)) === 2));
+      }
+      // Browsing (no words): one card per seller, so a seller with fifty near-identical endpoints
       // doesn't fill the page. Sellers with a skill.md first (an agent can connect to them at once), then new
       // ones, then the cheapest.
-      const browse = category && !terms.length;
+      const browse = !terms.length;
       if (browse) {
         const by = new Map();
         for (const r of all) {
-          const o = new URL(r.url).origin, seller = by.get(o);
+          const o = origin(r), seller = by.get(o);
           if (!seller) { by.set(o, { ...r, endpoints: 1, prices: [...r.prices] }); continue; }
           seller.endpoints++;
           for (const p of r.prices) { const have = seller.prices.find((x) => x.network === p.network); if (!have) seller.prices.push({ ...p }); else if (p.usd < have.usd) have.usd = p.usd; }
           if (!seller.description && r.description) seller.description = r.description;
         }
         all = [...by.values()];
-        await Promise.all([skills?.check(all.slice(0, 300).map((r) => new URL(r.url).origin)), trust?.ready()]);
-        // Within the same skill.md group: sellers x402 Doctor has seen paying out day after day first (a longer
-        // record first), then unknown ones, then sellers that often fail; then new ones, then the cheapest.
-        const origin = (r) => new URL(r.url).origin;
-        const has = (r) => (skills?.known(origin(r)) ? 1 : 0);
-        const tier = (r) => trust?.tier(origin(r)) ?? 1;
-        const record = (r) => (tier(r) === 2 ? trust.seller(origin(r)).payableDays : 0);
-        all.sort((a, b) => has(b) - has(a) || tier(b) - tier(a) || record(b) - record(a) || Number(b.isNew) - Number(a.isNew) || a.cheapest - b.cheapest);
+        await Promise.all([skills?.check(all.slice(0, 300).map(origin)), trust?.ready()]);
       }
+      // Within the same skill.md group: sellers x402 Doctor has seen paying out day after day first (a longer
+      // record first), then unknown ones, then sellers that often fail; then new ones, then the cheapest.
+      const has = (r) => (skills?.known(origin(r)) ? 1 : 0);
+      const tier = (r) => trust?.tier(origin(r)) ?? 1;
+      const record = (r) => (tier(r) === 2 ? trust.seller(origin(r)).payableDays : 0);
+      if (sort === "cheap") all.sort((a, b) => a.cheapest - b.cheapest || (b.score ?? 0) - (a.score ?? 0));
+      else if (sort === "record") { await trust?.ready(); all.sort((a, b) => tier(b) - tier(a) || record(b) - record(a) || (b.score ?? 0) - (a.score ?? 0) || a.cheapest - b.cheapest); }
+      else if (browse) all.sort((a, b) => has(b) - has(a) || tier(b) - tier(a) || record(b) - record(a) || Number(b.isNew) - Number(a.isNew) || a.cheapest - b.cheapest);
       const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
       const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
       const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => r);

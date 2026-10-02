@@ -97,7 +97,7 @@ Your owner can also search on the dashboard and copy a ready request for you.
 
 You can search the same catalog over plain HTTP, no key needed (read-only, at most 60 requests a minute):
 
-- `GET {{ORIGIN}}/api/public/services/search?q=bitcoin%20signal&max=0.1`: paid APIs that match, best first, each with `url`, `description`, `prices` per network and `cheapest`. 20 per page: the answer says `total` and `pages`; add `&page=2` for the next 20.
+- `GET {{ORIGIN}}/api/public/services/search?q=bitcoin%20signal&max=0.1`: paid APIs that match, best first, each with `url`, `description`, `prices` per network and `cheapest`. 20 per page: the answer says `total` and `pages`; add `&page=2` for the next 20. Filters: `&net=Base,Solana` (only what you can pay on; prices are shown for those networks), `&reliable=1` (only sellers x402 Doctor has seen paying out on 90%+ of its daily checks), `&skill=1` (only sellers with a skill.md), `&new=1`, and `&sort=cheap` or `&sort=record`. Each result has `record` (`days`, `payableDays`) when Doctor has checked the seller.
 - `GET {{ORIGIN}}/api/public/services/categories`: the categories (crypto, security, AI, search, …) with counts; add `&cat=<id>` to a search to stay in one.
 - `GET {{ORIGIN}}/api/public/services/new`: sellers that joined the catalog in the last 7 days.
 

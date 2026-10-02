@@ -74,7 +74,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const max = Number(req.query.max);
     const category = typeof req.query.cat === "string" && /^[a-z]{2,20}$/.test(req.query.cat) ? req.query.cat : null;
     const page = Math.min(500, Math.max(1, Number.parseInt(req.query.page, 10) || 1));
-    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 20, category, page })); } catch (err) { down(res, err); }
+    // Filters: net=Base,Solana · new=1 · skill=1 · reliable=1 · sort=best|cheap|record
+    const NETWORKS = ["Base", "Solana", "Arbitrum", "Optimism", "Polygon", "Ethereum"];
+    const networks = typeof req.query.net === "string" ? req.query.net.split(",").filter((n) => NETWORKS.includes(n)) : null;
+    const flag = (k) => req.query[k] === "1" || req.query[k] === "true";
+    const sort = ["cheap", "record"].includes(req.query.sort) ? req.query.sort : "best";
+    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 20, category, page, networks, fresh: flag("new"), skill: flag("skill"), reliable: flag("reliable"), sort })); } catch (err) { down(res, err); }
   }));
   services.get("/categories", wrap(async (req, res) => {
     if (!catalog) return unavailable(res);
