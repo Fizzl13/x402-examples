@@ -29,13 +29,14 @@
 import { encodeFunctionData } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { createLimiter, memoryStore } from "./limits.js";
+import { createRemoteLimiter } from "./remote.js";
 
 export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
 export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -90,6 +91,7 @@ const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData"]);
  * @param {object} [options.limits]  spending limits: { tokens: { USDC: { perTx, perDay }, … }, unknownTokens, allow, window }
  * @param {(info: object) => boolean|Promise<boolean>} [options.onOverLimit]  asked when a limit would be crossed; true = sign anyway
  * @param {(entry: object) => void} [options.onSpend]  after each signed spend
+ * @param {{url: string, key: string}} [options.server]  a wallet server (fizzl wallet-server) keeps the limits, budget and approvals for all your agents
  * @param {object} [options.store]  where spending is kept (default in memory; fileStore from presign-guard-wallet/file-store)
  */
 export function guardWallet(wallet, {
@@ -108,6 +110,7 @@ export function guardWallet(wallet, {
   onOverLimit,
   onSpend,
   store,
+  server,
 } = {}) {
   if (!wallet || typeof wallet !== "object") throw new TypeError("wallet must be a viem WalletClient");
   if (creditKey !== undefined && !/^pgc_[A-Za-z0-9_-]{43}$/.test(String(creditKey))) throw new TypeError("creditKey must be a presign-guard credit key (pgc_…)");
@@ -116,8 +119,10 @@ export function guardWallet(wallet, {
   if (!["stop", "allow"].includes(onError)) throw new TypeError('onError must be "stop" or "allow"');
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
 
-  if (limits === undefined && (onOverLimit || onSpend || store)) throw new TypeError("onOverLimit, onSpend and store need limits");
-  const limiter = limits === undefined ? null : createLimiter(limits, { store, onOverLimit, onSpend });
+  if (server !== undefined && (limits !== undefined || onOverLimit || store)) throw new TypeError("with server, the limits and approvals live on the wallet server: leave out limits, onOverLimit and store");
+  if (server === undefined && limits === undefined && (onOverLimit || onSpend || store)) throw new TypeError("onOverLimit, onSpend and store need limits");
+  const limiter = server !== undefined ? createRemoteLimiter({ ...server, fetch: server.fetch ?? plainFetch, onSpend })
+    : limits === undefined ? null : createLimiter(limits, { store, onOverLimit, onSpend });
   let paused = false;
 
   let creditsLeft = null;
@@ -190,7 +195,7 @@ export function guardWallet(wallet, {
       throw new PresignBlockedError(`spending limits could not be checked (${err.message}); nothing was signed`, { code: "limit_unavailable", verdict, request });
     }
     if (!booked.ok) {
-      const err = new PresignBlockedError(`not signed: ${booked.summary}`, { code: "over_limit", verdict, request });
+      const err = new PresignBlockedError(`not signed: ${booked.summary}`, { code: booked.paused ? "paused" : "over_limit", verdict, request });
       err.reasons = booked.reasons;
       throw err;
     }

@@ -1,0 +1,21 @@
+{
+  "name": "fizzl-wallet-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "One budget and one set of rules for all your AI agents: limits, approvals on the dashboard and Telegram, an activity log. Never holds keys or funds.",
+  "type": "module",
+  "main": "server.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "presign-guard-wallet": "file:../guard-wallet",
+    "redis": "^5.12.1",
+    "viem": "^2.56.9",
+    "x402-safe-fetch": "^0.4.0"
+  },
+  "license": "MIT"
+}

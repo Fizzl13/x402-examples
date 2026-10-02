@@ -155,6 +155,19 @@ These limits live in your agent's software: they stop a confused or manipulated 
 
 Only the chat you name (or the `allowedUserIds` you list) can answer; anyone else's tap is refused. No server is needed: the wallet asks Telegram for your tap itself (long polling), so the bot must not have a webhook, and one bot serves one agent process at a time (a second process polling the same bot makes Telegram refuse both; the request then fails and nothing is signed). If Telegram cannot be reached, the wallet stops (`limit_unavailable`) rather than signing.
 
+### One budget for all your agents (wallet server)
+
+With several agents, run the [wallet server](../wallet-server): one price rule and daily budget for all of them, approvals on its dashboard and on Telegram, and an activity log. The agent keeps its keys and still signs and pays itself; it only asks the server first.
+
+```js
+const wallet = guardWallet(walletClient, {
+  pay,
+  server: { url: process.env.WALLET_SERVER_URL, key: process.env.WALLET_SERVER_KEY }, // instead of limits / onOverLimit / store
+});
+```
+
+If the server can't be reached the wallet stops (`limit_unavailable`); paused on the dashboard means `paused`.
+
 ## Signed verdicts
 
 presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash of your request inside the signed body; see [Signed verdicts](https://github.com/Fizzl13/presign-guard#signed-verdicts)). The wallet checks that signature before it acts:

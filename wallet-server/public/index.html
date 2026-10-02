@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Agent Wallet | FIZZL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+/* lab.fizzl.eu language: mint on near-black, Space Grotesk uppercase headings with an outlined second line, glass cards. */
+:root {
+  --bg: #020708; --mint: #61f5c3; --amber: #f5c361; --violet: #a78bfa; --cyan: #5ad1ff; --rose: #ff7a90;
+  --text: #f4f8f7; --soft: #d1dbd9; --muted: #a8b5b2; --dim: #82918f; --line: rgba(97,245,195,.28);
+  --display: "Space Grotesk", "DM Sans", Arial, sans-serif; --body: "DM Sans", Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+a { color: inherit; text-decoration: none; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.55 var(--body); overflow-x: hidden; }
+.overlay { position: fixed; inset: 0; z-index: -2; pointer-events: none; background: radial-gradient(900px 520px at 78% 8%, rgba(97,245,195,.10), transparent 70%); }
+.grid-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .08; background-image: linear-gradient(rgba(97,245,195,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(97,245,195,.18) 1px, transparent 1px); background-size: 72px 72px; -webkit-mask-image: linear-gradient(#000, transparent 88%); mask-image: linear-gradient(#000, transparent 88%); }
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+.wrap { width: min(1180px, calc(100% - 32px)); margin-inline: auto; }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; border-bottom: 1px solid var(--line); background: rgba(2,7,8,.75); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.topbar .wrap { height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { font: 700 24px/1 var(--display); letter-spacing: -1.5px; }
+.brand span { color: var(--mint); }
+.live { color: var(--mint); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+.live i, .eyebrow i, .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 12px currentColor; }
+.live.off { color: var(--rose); }
+.eyebrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--mint); letter-spacing: 4px; font-size: 11px; text-transform: uppercase; margin-bottom: 18px; }
+.eyebrow i { color: var(--mint); }
+h1, h2 { font-family: var(--display); text-transform: uppercase; line-height: .9; letter-spacing: -3px; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(48px, 7vw, 96px); }
+h2 { font-size: clamp(36px, 4.5vw, 60px); margin-bottom: 28px; }
+h1 span, h2 span { color: transparent; -webkit-text-stroke: 1.2px rgba(245,248,247,.88); }
+h3 { font: 600 20px/1.2 var(--display); margin: 0; }
+.tag { font: 700 10px/1.4 var(--body); letter-spacing: 2px; text-transform: uppercase; color: var(--mint); }
+.note { color: var(--dim); font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 20px; border: 1px solid var(--mint); border-radius: 999px; background: transparent; font: 800 11px/1 var(--body); letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; }
+.button:hover { box-shadow: 0 0 22px rgba(97,245,195,.25); }
+.button.primary { background: var(--mint); color: #02100c; }
+.button.ghost { border-color: rgba(244,248,247,.25); color: var(--soft); }
+.button.stop { border-color: var(--rose); color: var(--rose); }
+.button.small { min-height: 34px; padding: 0 14px; font-size: 10px; }
+.button:disabled { opacity: .5; cursor: default; }
+.card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(160deg, rgba(6,24,22,.72), rgba(3,12,13,.55)); overflow: hidden; }
+.card::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(420px 160px at 0 0, rgba(97,245,195,.10), transparent 70%); }
+.card > * { position: relative; }
+.section { padding-block: 48px; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .7fr); gap: 40px; align-items: center; padding-block: 56px 32px; }
+.hero p { font-size: 17px; color: var(--soft); max-width: 600px; margin: 20px 0 0; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+.day { padding: 24px; display: grid; gap: 14px; }
+.budget { display: grid; gap: 6px; }
+.budget .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #c8d2d0; }
+.budget .row em { font-style: normal; font-family: var(--display); color: #fff; }
+.big { font: 700 44px/1 var(--display); letter-spacing: -2px; text-shadow: 0 0 22px rgba(97,245,195,.4); }
+.bar { position: relative; height: 8px; border-radius: 99px; background: rgba(97,245,195,.08); overflow: hidden; }
+.bar b { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--mint); box-shadow: 0 0 12px rgba(97,245,195,.6); transition: width .5s; }
+.bar b.hot { background: var(--amber); box-shadow: 0 0 12px rgba(245,195,97,.6); }
+.rule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.rule .card { padding: 22px; }
+.price { font: 700 clamp(52px, 7vw, 88px)/1 var(--display); letter-spacing: -3px; background: linear-gradient(90deg, #fff, var(--mint) 60%, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; margin: 14px 0 4px; font-variant-numeric: tabular-nums; }
+.slider { display: grid; gap: 8px; margin-top: 18px; }
+.slider label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; background: transparent; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 99px; background: linear-gradient(90deg, var(--mint) var(--fill, 50%), rgba(97,245,195,.12) var(--fill, 50%)); }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 99px; background: rgba(97,245,195,.12); }
+input[type=range]::-moz-range-progress { height: 6px; border-radius: 99px; background: var(--mint); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7px; border-radius: 50%; background: #061412; border: 2px solid var(--mint); box-shadow: 0 0 14px rgba(97,245,195,.6); }
+input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #061412; border: 2px solid var(--mint); }
+.save { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+textarea { width: 100%; min-height: 160px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; }
+details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.list { display: grid; gap: 10px; }
+.asked { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 20px; align-items: center; padding: 18px 20px; border-color: rgba(245,195,97,.45); }
+.asked .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+.asked .btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.verdict { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor; font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
+.v-green { color: var(--mint); } .v-orange { color: var(--amber); } .v-red { color: var(--rose); } .v-none { color: var(--dim); }
+.empty { padding: 22px; color: var(--muted); }
+.agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.agent { padding: 20px; display: grid; gap: 10px; align-content: start; }
+.agent header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.agent .state { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; }
+.agent .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
+.newkey code { display: block; padding: 10px 12px; border-radius: 10px; background: rgba(2,10,10,.7); font: 13px/1.4 ui-monospace, Menlo, monospace; overflow-wrap: anywhere; color: var(--mint); }
+.addform { display: flex; gap: 8px; flex-wrap: wrap; }
+.addform input { flex: 1 1 200px; min-height: 42px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
+.rows { display: grid; gap: 6px; }
+.trow { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 2px 12px; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--mint); border-radius: 10px; background: rgba(2,10,10,.4); font-size: 13px; }
+.trow.asked-ev { border-left-color: var(--amber); } .trow.bad { border-left-color: var(--rose); } .trow.info { border-left-color: var(--dim); }
+.trow .t { color: var(--dim); font-size: 11px; grid-row: span 2; font-variant-numeric: tabular-nums; }
+.trow .w { color: #fff; font-weight: 600; overflow-wrap: anywhere; }
+.trow .m { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.login { min-height: 70vh; display: grid; place-items: center; }
+.login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
+.login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
+.err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
+footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-top: 30px; }
+@media (max-width: 860px) { .hero, .rule { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .asked { grid-template-columns: 1fr; } .asked .btns { justify-content: flex-start; } }
+@media (prefers-reduced-motion: reduce) { .bar b { transition: none; } }
+</style>
+</head>
+<body>
+<div class="overlay"></div><div class="grid-bg"></div>
+<header class="topbar"><div class="wrap">
+  <div class="brand">FIZZL<span>.WALLET</span></div>
+  <div style="display:flex;gap:12px;align-items:center">
+    <span class="live" id="live"><i></i><span id="liveText">connecting</span></span>
+    <button class="button ghost small" id="logout" hidden>Log out</button>
+  </div>
+</div></header>
+
+<main class="wrap">
+  <section class="login" id="loginView" hidden>
+    <form class="card" id="loginForm">
+      <span class="tag">Agent Wallet</span>
+      <h3>Log in to your wallet server</h3>
+      <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button class="button primary" type="submit">Log in</button>
+      <div class="err" id="loginErr"></div>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <section class="hero">
+      <div>
+        <div class="eyebrow"><i></i>AGENT WALLET <span style="color:var(--dim)">/</span> YOUR AGENTS, YOUR RULES</div>
+        <h1>SPEND.<br><span>SAFELY.</span></h1>
+        <p>Your agents buy on their own up to your price. Above it they ask you here or on Telegram. They sign and pay themselves; this server only counts, asks and records.</p>
+        <div class="actions">
+          <a class="button" href="#needs">Needs you · <span id="pendingN">0</span></a>
+          <button class="button stop" id="pauseAll">Pause all agents</button>
+        </div>
+      </div>
+      <div class="card day">
+        <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
+        <div id="budgets"></div>
+        <span class="note" id="pausedNote"></span>
+      </div>
+    </section>
+
+    <section class="section" id="rule">
+      <div class="eyebrow"><i></i>01 / YOUR PRICE RULE</div>
+      <h2>FREE UNDER.<br><span>ASK ABOVE.</span></h2>
+      <div class="rule">
+        <div class="card">
+          <span class="tag">AGENTS PAY USDC ON THEIR OWN UP TO</span>
+          <div class="price" id="priceOut">$5</div>
+          <div class="note">per purchase · above that, you're asked</div>
+          <div class="slider"><label for="perTx"><span>Max per purchase</span><span id="perTxLbl"></span></label><input id="perTx" type="range" min="0" max="25" step="1"></div>
+          <div class="slider"><label for="perDay"><span>Daily budget, all agents</span><span id="perDayLbl"></span></label><input id="perDay" type="range" min="1" max="200" step="1"></div>
+          <div class="save"><button class="button primary" id="saveRule">Save rule</button><span class="note" id="saveMsg"></span></div>
+        </div>
+        <div class="card">
+          <span class="tag">ALL RULES</span>
+          <p class="note" style="margin:10px 0 12px">Other tokens (ETH, BNB, POL or any token by address), an allow list and the window. Same format as presign-guard-wallet's <code>limits</code>.</p>
+          <details><summary>Edit as JSON</summary>
+            <textarea id="policyJson" spellcheck="false" aria-label="Policy JSON"></textarea>
+            <div class="save"><button class="button small" id="savePolicy">Save JSON</button><span class="note" id="policyMsg"></span></div>
+          </details>
+          <p class="note" style="margin-top:14px">Unlimited token approvals always ask you. A red presign-guard verdict is never signed.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="needs">
+      <div class="eyebrow"><i></i>02 / NEEDS YOU</div>
+      <h2>YOUR CALL.<br><span>YES OR NO.</span></h2>
+      <div class="list" id="approvals"></div>
+    </section>
+
+    <section class="section" id="agentsSec">
+      <div class="eyebrow"><i></i>03 / AGENTS</div>
+      <h2>YOUR AGENTS.<br><span>ONE BUDGET.</span></h2>
+      <div id="newKey"></div>
+      <div class="agents" id="agents"></div>
+      <form class="addform" id="addForm" style="margin-top:16px">
+        <input id="agentName" placeholder="New agent name, e.g. research-agent" maxlength="40" required aria-label="New agent name">
+        <button class="button" type="submit">Add agent</button>
+      </form>
+    </section>
+
+    <section class="section">
+      <div class="eyebrow"><i></i>04 / ACTIVITY</div>
+      <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
+      <div class="rows" id="events"></div>
+    </section>
+  </div>
+</main>
+<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet</div></footer>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const STEPS = [0, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 100];
+  const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
+  const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  let state = null, editing = false, timer = null;
+
+  async function api(method, path, body) {
+    const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
+    if (res.status === 401) { showLogin(); throw new Error("login"); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  function showLogin() { $("#app").hidden = true; $("#logout").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out"); }
+  function setLive(ok, text) { $("#live").classList.toggle("off", !ok); $("#liveText").textContent = text; }
+
+  $("#loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("#loginErr").textContent = "";
+    const res = await fetch("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: $("#password").value }) });
+    if (res.ok) { $("#password").value = ""; start(); return; }
+    const d = await res.json().catch(() => ({}));
+    $("#loginErr").textContent = d.retryAfter ? `Too many tries. Wait ${d.retryAfter} seconds.` : "Wrong password.";
+  });
+  $("#logout").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); showLogin(); });
+
+  async function refresh() {
+    try { state = await api("GET", "/api/state"); render(); setLive(!state.paused, state.paused ? "all agents paused" : "live"); }
+    catch (err) { if (err.message !== "login") setLive(false, "can't reach the server"); }
+  }
+  function start() { $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false; refresh(); clearInterval(timer); timer = setInterval(refresh, 4000); }
+
+  const usdc = () => state?.policy?.tokens?.USDC ?? {};
+  function setSliders() {
+    const u = usdc();
+    const tx = u.perTx === undefined ? 0 : Number(u.perTx);
+    let i = STEPS.findIndex((s) => s >= tx); if (i < 0) i = STEPS.length - 1;
+    $("#perTx").value = i; $("#perDay").value = Math.min(200, Math.max(1, Math.round(Number(u.perDay ?? 20))));
+    paintSliders();
+  }
+  function paintSliders() {
+    const tx = STEPS[+$("#perTx").value], day = +$("#perDay").value;
+    $("#priceOut").textContent = tx === 0 ? "ask always" : money(tx);
+    $("#perTxLbl").textContent = tx === 0 ? "ask for every purchase" : money(tx);
+    $("#perDayLbl").textContent = money(day);
+    $("#perTx").style.setProperty("--fill", `${$("#perTx").value / 25 * 100}%`);
+    $("#perDay").style.setProperty("--fill", `${(day - 1) / 199 * 100}%`);
+  }
+  ["perTx", "perDay"].forEach((id) => $("#" + id).addEventListener("input", () => { editing = true; $("#saveMsg").textContent = "not saved yet"; paintSliders(); }));
+  $("#saveRule").addEventListener("click", async () => {
+    const policy = structuredClone(state.policy);
+    policy.tokens = policy.tokens || {};
+    const tx = STEPS[+$("#perTx").value];
+    policy.tokens.USDC = { ...(policy.tokens.USDC || {}), perTx: tx === 0 ? "0" : String(tx), perDay: String(+$("#perDay").value) };
+    try { await api("PUT", "/api/policy", { policy }); editing = false; $("#saveMsg").textContent = "saved"; refresh(); }
+    catch (err) { $("#saveMsg").textContent = err.message; }
+  });
+  $("#savePolicy").addEventListener("click", async () => {
+    let policy;
+    try { policy = JSON.parse($("#policyJson").value); } catch { $("#policyMsg").textContent = "That is not valid JSON."; return; }
+    try { await api("PUT", "/api/policy", { policy }); $("#policyMsg").textContent = "saved"; editing = false; refresh(); }
+    catch (err) { $("#policyMsg").textContent = err.message; }
+  });
+  $("#policyJson").addEventListener("focus", () => { editing = true; });
+
+  $("#pauseAll").addEventListener("click", async () => { await api("POST", "/api/pause", { paused: !state.paused }); refresh(); });
+  $("#approvals").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-decision]"); if (!b) return;
+    b.disabled = true;
+    try { await api("POST", `/api/approvals/${encodeURIComponent(b.dataset.id)}`, { decision: b.dataset.decision }); } finally { refresh(); }
+  });
+  $("#agents").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-act]"); if (!b) return;
+    const id = b.dataset.id;
+    if (b.dataset.act === "pause") await api("POST", `/api/agents/${encodeURIComponent(id)}/pause`, { paused: b.dataset.paused !== "true" });
+    if (b.dataset.act === "remove") {
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Sure? Its key stops working"; return; }
+      await api("DELETE", `/api/agents/${encodeURIComponent(id)}`);
+    }
+    refresh();
+  });
+  $("#addForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const { agent, key } = await api("POST", "/api/agents", { name: $("#agentName").value.trim() });
+      $("#agentName").value = "";
+      $("#newKey").innerHTML = `<div class="card newkey"><span class="tag">KEY FOR ${esc(agent.name)} · SHOWN ONCE</span><code id="keyText">${esc(key)}</code><div class="addform"><button class="button small" id="copyKey" type="button">Copy</button><button class="button ghost small" id="hideKey" type="button">I've stored it</button></div><span class="note">Put it in the agent's environment as WALLET_SERVER_KEY. It is not stored here, only its hash: lost means make a new agent.</span></div>`;
+      $("#copyKey").onclick = () => navigator.clipboard?.writeText(key).then(() => { $("#copyKey").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#keyText")); });
+      $("#hideKey").onclick = () => { $("#newKey").innerHTML = ""; };
+      refresh();
+    } catch (err) { alertInline(err.message); }
+  });
+  function alertInline(msg) { $("#newKey").innerHTML = `<p class="err">${esc(msg)}</p>`; }
+
+  function render() {
+    const s = state;
+    // budgets
+    $("#windowLabel").textContent = `SPENT · ROLLING ${String(s.policy.window || "24h").toUpperCase()}`;
+    $("#budgets").innerHTML = s.spending.length ? s.spending.map((b) => {
+      const pct = b.perDay ? Math.min(100, Number(b.used) / Number(b.perDay) * 100) : 0;
+      return `<div class="budget"><div class="big num">${esc(b.token === "USDC" ? money(b.used) : b.used)} <span class="note" style="letter-spacing:0">${esc(b.token)}${b.perDay ? ` of ${esc(b.perDay)}` : ""}</span></div><div class="bar"><b class="${pct > 80 ? "hot" : ""}" style="width:${pct}%"></b></div><div class="row"><span>left</span><em class="num">${esc(b.left ?? "no daily limit")}</em></div></div>`;
+    }).join("") : `<p class="note">No token limits yet. Set your price rule below.</p>`;
+    $("#pausedNote").textContent = s.paused ? "All agents are paused: nothing is signed until you resume." : "";
+    $("#pauseAll").textContent = s.paused ? "Resume all agents" : "Pause all agents";
+    $("#pauseAll").className = s.paused ? "button primary" : "button stop";
+    // rule
+    if (!editing) { setSliders(); $("#policyJson").value = JSON.stringify(s.policy, null, 2); }
+    // approvals
+    const pending = s.approvals.filter((a) => a.status === "pending");
+    $("#pendingN").textContent = pending.length;
+    $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
+      const v = a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
+      const left = Math.max(0, Math.round((a.expiresAt - s.now) / 60000));
+      const right = a.status === "pending"
+        ? `<div class="btns"><button class="button primary small" data-decision="approve" data-id="${esc(a.id)}">Approve</button><button class="button ghost small" data-decision="deny" data-id="${esc(a.id)}">Deny</button></div><span class="note">${left} min left</span>`
+        : `<span class="tag" style="color:${a.status === "approved" ? "var(--mint)" : "var(--rose)"}">${esc(a.status)}${a.decidedBy ? ` · ${esc(a.decidedBy)}` : ""}</span>`;
+      return `<article class="card asked" style="${a.status === "pending" ? "" : "opacity:.6;border-color:var(--line)"}"><div><div class="facts" style="margin:0 0 6px"><span class="tag">${esc(a.agentName)}</span>${v}<span>${time(a.createdAt)}</span></div><h3>${esc(a.summary)}</h3><div class="facts"><span><code>${esc(a.method)}</code> · chain ${esc(a.chainId)}</span>${a.to ? `<span>to ${esc(a.to)}</span>` : ""}</div></div><div style="display:grid;gap:6px;justify-items:end">${right}</div></article>`;
+    }).join("") : `<div class="card empty">Nothing waits for you. Requests over your price show up here and on Telegram.</div>`;
+    // agents
+    $("#agents").innerHTML = s.agents.length ? s.agents.map((a) => {
+      const st = a.paused ? ["paused", "var(--dim)"] : pending.some((p) => p.agent === a.id) ? ["waiting for you", "var(--amber)"] : ["active", "var(--mint)"];
+      const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
+      return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div><div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div></article>`;
+    }).join("") : `<div class="card empty">No agents yet. Add one below and give it its key.</div>`;
+    // events
+    const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
+    const line = (e) => ({
+      signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}`, `${e.method}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · presign-guard ${e.verdict}` : ""}`],
+      spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}`, e.result ? `result ${e.result}` : ""],
+      asked: [`${e.agent} asked you`, e.summary], approved: [`Approved (${e.by})`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
+      expired: ["No answer in time", `${e.agent}: ${e.summary}`], blocked: [`${e.agent} blocked`, e.summary], released: [`${e.agent}: signing failed, spending given back`, ""],
+      policy: ["Rules changed", e.by], paused: ["All agents paused", e.by], resumed: ["All agents resumed", e.by],
+      agent_added: [`Agent added: ${e.agent}`, ""], agent_removed: [`Agent removed: ${e.agent}`, ""], agent_paused: [`${e.agent} paused`, ""], agent_resumed: [`${e.agent} resumed`, ""],
+    }[e.type] ?? [e.type, ""]);
+    $("#events").innerHTML = s.events.length ? s.events.map((e) => { const [w, m] = line(e); return `<div class="trow ${kind[e.type] ?? "info"}"><span class="t">${time(e.at)}</span><span class="w">${esc(w)}</span><span class="m">${esc(m)}</span></div>`; }).join("") : `<div class="card empty">Nothing yet. Activity shows here as your agents work.</div>`;
+  }
+
+  // Start: logged in already?
+  fetch("/api/state", { credentials: "same-origin" }).then((r) => (r.ok ? start() : showLogin()), showLogin);
+})();
+</script>
+</body>
+</html>
