@@ -142,9 +142,11 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .filters button[aria-pressed="true"] { background: var(--mint); border-color: var(--mint); color: #02100c; font-weight: 700; }
 .filters button:hover, .filters button:focus-visible { border-color: var(--mint); }
 .filters select { border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--soft); font: inherit; font-size: 13px; padding: 6px 10px; }
-.filters .ftoggle { display: none; justify-self: start; }
+.filters .ftoggle { display: inline-flex; gap: 6px; align-items: center; justify-self: start; }
+.filters .ftoggle.on { border-color: var(--mint); color: var(--mint); }
+.filters .fbody { display: none; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(2,10,10,.45); }
+.filters.open .fbody { display: flex; }
 .filters .fclear { border-style: dashed; }
-@media (max-width: 600px) { .filters .ftoggle { display: inline-flex; } .filters .fbody { display: none; } .filters.open .fbody { display: flex; } }
 .pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; }
 .pager button, .pager .cur { min-width: 40px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 14px; cursor: pointer; }
 .pager button:hover, .pager button:focus-visible { border-color: var(--mint); color: var(--text); }
@@ -164,6 +166,15 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .checks b { color: var(--text); } .checks .fix { color: var(--soft); } .checks .fix::before { content: "What to do: "; color: var(--amber); font-weight: 700; }
 .verdictline { font: 700 18px/1.3 var(--display); margin: 0; }
 .follow { display: grid; gap: 10px; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 14px; }
+.follow { padding: 10px 16px; }
+.follow summary { display: flex; gap: 10px; align-items: center; cursor: pointer; list-style: none; }
+.follow summary .tag { min-width: 0; }
+.follow summary #followNow { margin-left: auto; white-space: nowrap; }
+.follow summary::-webkit-details-marker { display: none; }
+.follow summary::after { content: "▾"; color: var(--mint); }
+.follow[open] summary::after { content: "▴"; }
+.follow[open] { padding-bottom: 14px; }
+.follow:not([open]) { gap: 0; }
 .follow .chips button.on { border-color: var(--mint); color: #02100c; background: var(--mint); }
 .newtag { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #021; background: var(--amber); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
 .chips .newchip { border-color: var(--amber); color: var(--amber); }
@@ -355,12 +366,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         </div>
         <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
         <div class="cats" id="searchCats" aria-label="Categories"></div>
-        <div class="follow" id="followBox" hidden>
-          <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between"><span class="tag">🔔 NEW PROVIDERS ON TELEGRAM</span><span class="note" id="followNow"></span></div>
+        <details class="follow" id="followBox" hidden>
+          <summary><span class="tag">🔔 NEW PROVIDERS ON TELEGRAM</span><span class="note" id="followNow"></span></summary>
           <p class="note" style="margin:0">Get a Telegram message when a new seller joins the x402 catalog in a category you pick. At most one message an hour, and only when there's something new.</p>
           <div class="chips" id="followChips"></div>
           <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="button primary small" type="button" id="followSave">Save</button><span class="msg" id="followMsg" role="status"></span></div>
-        </div>
+        </details>
         <div id="searchOut" role="status" aria-live="polite"></div>
       </div>
     </section>
@@ -1101,7 +1112,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     document.querySelectorAll("#filters [data-flag]").forEach((b) => b.setAttribute("aria-pressed", String(!!filt[b.dataset.flag])));
     $("#searchSort").value = filt.sort;
     const n = filtCount();
-    $("#filtersToggle").textContent = n ? `Filters (${n})` : "Filters";
+    $("#filtersToggle").textContent = `${$("#filters").classList.contains("open") ? "▴" : "▾"} Filters${n ? ` (${n})` : ""}`;
+    $("#filtersToggle").classList.toggle("on", n > 0);
     $("#filtersClear").hidden = !n;
   }
   function filtersChanged() {
@@ -1114,7 +1126,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (net) { const n = net.dataset.net; filt.net = filt.net.includes(n) ? filt.net.filter((x) => x !== n) : [...filt.net, n]; filtersChanged(); }
     if (flag) { filt[flag.dataset.flag] = !filt[flag.dataset.flag]; filtersChanged(); }
     if (e.target.closest("#filtersClear")) { filt = { net: [], reliable: false, skill: false, fresh: false, sort: "best" }; filtersChanged(); }
-    if (e.target.closest("#filtersToggle")) { const open = $("#filters").classList.toggle("open"); $("#filtersToggle").setAttribute("aria-expanded", String(open)); }
+    if (e.target.closest("#filtersToggle")) { const open = $("#filters").classList.toggle("open"); $("#filtersToggle").setAttribute("aria-expanded", String(open)); renderFilters(); }
   });
   $("#searchSort").addEventListener("change", () => { filt.sort = $("#searchSort").value; filtersChanged(); });
   renderFilters();
