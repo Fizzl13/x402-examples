@@ -5,13 +5,20 @@
     {
       "id": "hook",
       "scene": "card",
-      "card": { "title": "Your AI agent can pay now.", "sub": "Would you hand it your wallet?" },
+      "card": {
+        "title": "Your AI agent can pay now.",
+        "sub": "Would you hand it your wallet?"
+      },
       "text": "AI agents can now pay for things on their own. But would you hand one your wallet?"
     },
     {
       "id": "intro",
       "scene": "card",
-      "card": { "title": "Fizzl Agent Wallet", "sub": "Your agents pay. You set the rules.", "note": "wallet.fizzl.eu" },
+      "card": {
+        "title": "Fizzl Agent Wallet",
+        "sub": "Your agents pay. You set the rules.",
+        "note": "wallet.fizzl.eu"
+      },
       "text": "Meet the Fizzl Agent Wallet. Your agents pay for what they need. You decide the rules."
     },
     {
@@ -65,9 +72,23 @@
       "text": "Connect Claude, Cursor or your own code with one key per agent. Pause or remove any agent with one click."
     },
     {
+      "id": "find",
+      "scene": "find",
+      "text": "Looking for something new? Search the open x402 catalog right from your wallet. Type what your agent should buy, see the price on each network, and copy a ready request for your agent."
+    },
+    {
+      "id": "browse",
+      "scene": "browse",
+      "text": "Or browse by category, and see which new providers joined this week. Every purchase still goes through your rules and the safety check."
+    },
+    {
       "id": "end",
       "scene": "card",
-      "card": { "title": "Free to start.", "sub": "wallet.fizzl.eu", "note": "Sign in with MetaMask or Phantom · never holds your keys or your money" },
+      "card": {
+        "title": "Free to start.",
+        "sub": "wallet.fizzl.eu",
+        "note": "Sign in with MetaMask or Phantom · never holds your keys or your money"
+      },
       "text": "Free to start. Sign in with your wallet at wallet.fizzl.eu. It never holds your keys or your money."
     }
   ]
