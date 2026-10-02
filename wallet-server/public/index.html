@@ -180,7 +180,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="err" id="walletErr"></div>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
-      <p class="note" style="margin:0"><a href="/privacy" style="text-decoration:underline">Privacy statement</a>: no passwords, no e-mail, no tracking.</p>
+      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no e-mail, no tracking.</p>
       <form id="loginForm" hidden style="display:grid;gap:12px">
         <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
         <input id="password" type="password" autocomplete="current-password" required>
@@ -266,7 +266,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </div>
 </main>
 <dialog class="receipt" id="receipt" aria-labelledby="rcTitle"><div id="rcBody"></div></dialog>
-<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/privacy" style="text-decoration:underline">privacy</a></div></footer>
+<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a></div></footer>
 
 <script>
 (() => {
@@ -550,7 +550,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? "Pro" : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
-      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on Base, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends.</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on Base, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
       <div class="msg" id="payMsg" role="status"></div>
       ${autoHtml()}

@@ -61,7 +61,7 @@ Anyone can sign in with their wallet: MetaMask, Phantom, Coinbase Wallet, Rabby 
   - They approve at most 12 months and subscribe. The contract can only pay you $5 per 30 days.
   - The server charges what is due every hour, reminds them on Telegram 3 days before each payment, and tells them if a charge can't go through (approval used up, not enough USDC).
   - They can turn it off any time.
-- **Privacy:** a privacy statement at `/privacy` that matches what the server stores.
+- **Terms and privacy:** terms of service at `/terms` and a privacy statement at `/privacy` that matches what the server stores.
   - Customers can delete their account themselves. Payment records stay for 7 years.
   - Decided approval requests are deleted after 7 days.
   - Fonts are served by the server, so pages load nothing from third parties.
