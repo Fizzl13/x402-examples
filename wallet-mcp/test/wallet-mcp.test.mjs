@@ -39,9 +39,17 @@ function network({ price = "50000" } = {}) {
       const receipt = Buffer.from(JSON.stringify({ success: true, transaction: "0xsettled", network: "eip155:8453", payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" })).toString("base64");
       return new Response(JSON.stringify({ answer: 42 }), { status: 200, headers: { "content-type": "application/json", "payment-response": receipt } });
     }
+    // A wallet server: everything allowed, records what the receipts get.
+    if (url.startsWith("https://wallet.test/v1/")) {
+      const body = init.body ? JSON.parse(init.body) : null;
+      server.push([url.slice("https://wallet.test".length), body]);
+      if (url.endsWith("/v1/reserve")) return Response.json({ status: "ok", entries: ["sp_1"], purchaseId: "pu_1" });
+      return Response.json({ ok: true, updated: 1 });
+    }
     throw new Error(`unexpected fetch ${url}`);
   };
-  return { fetch, checks, paid };
+  const server = [];
+  return { fetch, checks, paid, server };
 }
 
 // A stand-in for the viem wallet: records what it would send or sign.
@@ -207,4 +215,19 @@ test("every payment says what it was for (receipts, approvals)", async () => {
   assert.deepEqual(spends[2].purchase, { description: "refund order 1042" });
   await call("send_usdc", { to: SHOP, amount: "1" });
   assert.equal(spends[3].purchase.description, `Send 1 USDC to ${SHOP}`);
+});
+
+test("pay_x402 with a wallet server: the API's answer goes on the receipt", async () => {
+  const net = network();
+  const fake = fakeWallet();
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const out = await wallet.payX402({ url: API, reason: "the answer" });
+  assert.equal(out.status, 200);
+  await new Promise((ok) => setTimeout(ok, 50));
+  const annotate = net.server.find(([path]) => path === "/v1/purchases/annotate");
+  assert.ok(annotate, "the outcome is sent to the wallet server");
+  assert.deepEqual(annotate[1].ids, ["pu_1"]);
+  assert.equal(annotate[1].outcome.httpStatus, 200);
+  assert.deepEqual(annotate[1].outcome.settlement, { transaction: "0xsettled", network: "eip155:8453" });
+  assert.deepEqual(annotate[1].outcome.content, { contentType: "application/json", body: JSON.stringify({ answer: 42 }) });
 });

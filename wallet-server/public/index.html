@@ -144,10 +144,35 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .receipt dd { margin: 0; color: var(--soft); overflow-wrap: anywhere; }
 .receipt dd a { color: var(--mint); text-decoration: underline; text-underline-offset: 2px; }
 .receipt code { font: 12px/1.5 ui-monospace, Menlo, monospace; }
+.receipt .rc-sec { padding: 16px 22px; border-bottom: 1px dashed var(--line); display: grid; gap: 12px; }
+.receipt .plain { margin: 0; font-size: 15px; line-height: 1.6; color: var(--soft); }
+.receipt .plain b { color: var(--text); }
+.receipt .pill { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; border: 1px solid currentColor; }
+.receipt .p-signed { color: var(--mint); } .receipt .p-signing { color: var(--cyan); } .receipt .p-failed { color: var(--rose); }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.steps li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; font-size: 13px; }
+.steps li > span:last-child { display: grid; gap: 1px; }
+.steps .ic { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 1px solid currentColor; }
+.st-ok .ic { color: var(--mint); background: rgba(97,245,195,.12); } .st-warn .ic { color: var(--amber); } .st-bad .ic { color: var(--rose); } .st-wait .ic { color: var(--cyan); } .st-skip .ic { color: var(--dim); }
+.receipt .headline { display: grid; gap: 2px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: rgba(97,245,195,.05); }
+.receipt .headline .big { font: 700 26px/1.15 var(--display); letter-spacing: -1px; color: var(--text); overflow-wrap: anywhere; }
+.receipt .headline.t-good { border-color: rgba(97,245,195,.6); } .receipt .headline.t-bad { border-color: rgba(255,107,129,.6); background: rgba(255,107,129,.06); } .receipt .headline.t-mid { border-color: rgba(245,195,97,.6); background: rgba(245,195,97,.06); }
+.tone { font-weight: 700; } .t-good .tone, .tone.t-good { color: var(--mint); } .tone.t-bad, .t-bad .tone { color: var(--rose); } .tone.t-mid, .t-mid .tone { color: var(--amber); }
+.receipt dl.facts { padding: 0; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 8px 14px; }
+.receipt dl.facts dt { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--muted); }
+.receipt dl.facts dd { color: var(--text); }
+.receipt .sub { display: grid; gap: 8px; }
+.receipt .sub .item { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.4); font-size: 13px; }
+.receipt .sub .item dl.facts { grid-template-columns: minmax(0, 120px) minmax(0, 1fr); }
+.receipt .textans { white-space: pre-wrap; font-size: 14px; line-height: 1.6; color: var(--text); overflow-wrap: anywhere; }
+.receipt details.raw summary, .receipt details.tech summary { color: var(--muted); font-size: 12px; }
+.receipt details.raw pre { margin: 8px 0 0; padding: 12px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 11px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.receipt details.tech { padding: 14px 22px 4px; }
+.receipt details.tech dl { padding: 12px 0 18px; }
 .receipt .sep { grid-column: 1 / -1; border-top: 1px dashed var(--line); margin: 4px 0; }
 .status { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor; font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
 .s-signed { color: var(--mint); } .s-signing { color: var(--cyan); } .s-failed { color: var(--rose); }
-@media (max-width: 480px) { .receipt dl { grid-template-columns: 1fr; gap: 2px; } .receipt dd { margin-bottom: 10px; } }
+@media (max-width: 480px) { .receipt dl, .receipt dl.facts { grid-template-columns: 1fr; gap: 2px; } .receipt .sub .item dl.facts { grid-template-columns: minmax(0, 84px) minmax(0, 1fr); gap: 4px 10px; } .receipt .sub .item dd { margin-bottom: 0; } .receipt dd { margin-bottom: 10px; } .receipt .headline .big { font-size: 22px; } }
 .login { min-height: 70vh; display: grid; place-items: center; }
 .wallets { display: grid; gap: 8px; }
 .wallets .button { width: 100%; justify-content: flex-start; gap: 12px; min-height: 48px; }
@@ -370,13 +395,23 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       "translate.example": ["https://translate.example/v1/document", "Translate a 40-page contract to Dutch"],
       "Uniswap router": [null, "Swap 2 USDC to ETH for gas"], "Jupiter": [null, "Rebalance: buy SOL exposure"],
     };
+    // What the demo agents got back: example answers, shaped like the real services'.
+    const GOT = {
+      "ichimoku-signal.fizzl.eu": { pair: "BTC-USDT", interval: "1d", timestamp: new Date().toISOString(), signal: "bullish", price: 64210.5, cloud_position: "above_cloud", tenkan_kijun_cross: "bullish_cross", tenkan_sen: 63480.2, kijun_sen: 61920.75, exchange: "Kraken" },
+      "plaintext.fizzl.eu": { summary: "2 of 5 approvals are risky: revoke the unlimited USDC approval to an unknown contract.", risk: "high", approvals: [{ token: "USDC", spender: "Unknown contract 0x9f3c…b21e", amount: "unlimited", risk: "high" }, { token: "WETH", spender: "Uniswap Permit2", amount: "unlimited", risk: "low" }, { token: "PEPE", spender: "Unverified router", amount: "1,000,000", risk: "medium" }] },
+      "presign-guard.fizzl.eu": { verdict: "green", grade: "A", summary: "Known token with deep liquidity; no honeypot or tax found.", token: { symbol: "AERO", name: "Aerodrome", chain: "base" }, liquidity_usd: 48200000, holders: 182340 },
+      "x402-doctor.fizzl.eu": { verdict: "go", safe_to_pay: true, summary: "OK to pay: $0.02 on Base.", reasons: [] },
+      "api.marketdepth.io": { symbol: "ETH-USDC", bids: 500, asks: 500, best_bid: 3120.4, best_ask: 3120.9, spread_bps: 1.6, snapshot_at: new Date().toISOString() },
+      "sentiment.example": { headlines: 500, positive: 212, neutral: 201, negative: 87, overall: "neutral" },
+      "translate.example": "Vertaalde overeenkomst (40 pagina's)\n\nArtikel 1. Definities\nIn deze overeenkomst wordt verstaan onder…",
+    };
     const receipt = ({ agentName, agentId, amt, to, method, approval = null, at = Date.now() }) => {
       const [url, description] = WHAT[to] ?? [null, null];
       const id = "pu_demo_" + Math.random().toString(36).slice(2, 9);
       const isPay = method === "signTypedData";
       D.receipts[id] = { id, demo: true, agent: agentId, agentName, method, chainId: 8453, to: hex(40), amounts: [`${amt} USDC`], what: url || description ? { ...(url ? { url } : {}), ...(description ? { description } : {}) } : null,
         verdict: { verdict: "green", reasons: [], receiptId: "pg_" + Math.random().toString(36).slice(2, 12), signer: "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE", signedAt: new Date(at).toISOString() },
-        approval, status: "signed", result: isPay ? hex(130) : hex(64), outcome: isPay ? { httpStatus: 200, settlement: { transaction: hex(64), network: "eip155:8453" } } : null, createdAt: at, updatedAt: at };
+        approval, status: "signed", result: isPay ? hex(130) : hex(64), outcome: isPay ? { httpStatus: 200, settlement: { transaction: hex(64), network: "eip155:8453" }, ...(GOT[to] ? { content: typeof GOT[to] === "string" ? { contentType: "text/plain", body: GOT[to] } : { contentType: "application/json", body: JSON.stringify(GOT[to]) } } : {}) } : null, createdAt: at, updatedAt: at };
       return id;
     };
     D.events.forEach((e) => { if (e.type === "signed") { const a = D.agents.find((x) => x.name === e.agent); e.purchase = receipt({ agentName: e.agent, agentId: a?.id, amt: parseFloat(e.amounts[0]), to: e.to, method: e.method, at: e.at }); e.what = D.receipts[e.purchase].what?.description ?? null; } });
@@ -911,11 +946,32 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const stChain = p.demo ? null : chainOf(st?.network) ?? chain;
     const settled = st?.transaction ? (isTx(st.transaction) && stChain ? ext(`${stChain[1]}/tx/${st.transaction}`, `${st.transaction.slice(0, 10)}…${st.transaction.slice(-8)}`) : `<code>${esc(short(st.transaction))}</code>`) + (st.network ? ` <span class="note">${esc(chainOf(st.network)?.[0] ?? st.network)}</span>` : "") : null;
     const statusText = { signed: "signed", signing: "signing", failed: "failed" }[p.status] ?? p.status;
+    // For people: who bought what, in one sentence; the steps it went through; what came back.
+    const seller = sellerOf(p);
+    const amount = p.amounts?.join(" + ") || "nothing";
+    const failed = p.status === "failed";
+    const verb = failed ? `tried to pay <b>${esc(amount)}</b> to ${seller}, but it didn't go through. <b>Nothing was paid</b>; the amount was given back to your budget.` : p.status === "signing" ? `is paying <b>${esc(amount)}</b> to ${seller}.` : `paid <b>${esc(amount)}</b> to ${seller}.`;
+    const plain = `<p class="plain"><b>${esc(p.agentName)}</b> ${verb}</p>`;
+    const http = p.outcome?.httpStatus;
+    const steps = [
+      ["ok", "Your agent asked to pay", esc(full(p.createdAt))],
+      v ? (v.verdict === "green" ? ["ok", "Safety check: looks safe", "presign-guard found no known risks"] : ["warn", "Safety check: warning", esc(v.reasons?.join(", ") || "presign-guard found something to look at")]) : ["skip", "Safety check", "not checked by presign-guard"],
+      p.approval ? ["ok", `Approved by you (${esc(p.approval.by)})`, "it was more than your rules allow"] : ["ok", "Within your rules", "no approval needed"],
+      failed ? ["bad", "Payment failed", esc(p.outcome?.error ?? "signing failed")] : p.status === "signing" ? ["wait", "Paying…", ""] : ["ok", "Paid", settled ? "settled on the blockchain" : ""],
+      ...(isApiCall(p) && !failed ? [http ? (http < 400 ? ["ok", "Answer received", p.outcome?.content ? "see below" : ""] : ["bad", "The service answered with an error", `HTTP ${esc(http)}`]) : ["skip", "Answer", "not reported by the agent"]] : []),
+    ];
+    const icon = { ok: "✓", warn: "!", bad: "✕", wait: "…", skip: "–" };
+    const stepsHtml = `<ol class="steps">${steps.map(([k, t, d]) => `<li class="st-${k}"><span class="ic" aria-hidden="true">${icon[k]}</span><span><b>${t}</b>${d ? `<span class="note">${d}</span>` : ""}</span></li>`).join("")}</ol>`;
+    const got = p.outcome?.content ? contentHtml(p.outcome.content)
+      : isApiCall(p) && !failed ? `<p class="note" style="margin:0">Your agent didn't send back what it got. Agents using presign-guard-wallet-mcp 0.3 or newer do, and then it shows here.</p>` : "";
     return `<div class="head">
-      <div class="top"><span class="tag">RECEIPT · ${esc(p.agentName)}</span><button type="button" class="close" data-close>Close</button></div>
-      <h3 id="rcTitle">${esc(what ?? "No description given")}</h3>
-      <div class="top"><span class="amt num">${esc(p.amounts?.join(" + ") || "no amount")}</span><span class="status s-${esc(p.status)}">${esc(statusText)}</span></div>
+      <div class="top"><span class="tag">${esc(p.agentName)} BOUGHT</span><button type="button" class="close" data-close>Close</button></div>
+      <h3 id="rcTitle">${esc(what ?? "A payment without a description")}</h3>
+      <div class="top"><span class="amt num">${esc(amount)}</span><span class="pill p-${esc(p.status)}">${esc({ signed: "Paid", signing: "Paying…", failed: "Not paid" }[p.status] ?? p.status)}</span></div>
     </div>
+    <div class="rc-sec">${plain}${stepsHtml}</div>
+    ${got ? `<div class="rc-sec"><span class="tag">WHAT YOUR AGENT GOT</span>${got}</div>` : ""}
+    <details class="tech"><summary>Technical details</summary>
     <dl>
       ${row("What", p.what?.url ? ext(safeUrl(p.what.url), p.what.url) : (p.what ? "" : `<span class="note">The agent didn't say. Wrap purchases in withPurchase() to record it.</span>`))}
       ${row("When", esc(full(p.createdAt)))}
@@ -932,7 +988,71 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${row("Answer", p.outcome?.httpStatus ? `HTTP ${esc(p.outcome.httpStatus)}` : null)}
       ${p.demo ? `<div class="sep"></div><dd style="grid-column:1/-1" class="note">Demo receipt: example data, made-up hashes.</dd>` : ""}
       ${row("Problem", p.outcome?.error ? `<span style="color:var(--rose)">${esc(p.outcome.error)}</span>${p.status === "failed" ? `<br><span class="note">nothing was paid; the spending was given back</span>` : ""}` : null)}
-    </dl>`;
+    </dl>
+    </details>`;
+  }
+  // Who was paid, in words: a Fizzl service by name, otherwise the website, otherwise the address.
+  function sellerOf(p) {
+    let host = null;
+    try { host = p.what?.url ? new URL(p.what.url).host : null; } catch {}
+    const known = host && FIZZL_AGENTS.find((a) => new URL(a.site).host === host);
+    if (known) return `<b>${esc(known.name)}</b>`;
+    if (host) return `<b>${esc(host)}</b>`;
+    return p.to && isAddr(p.to) ? `the address <code>${esc(p.to.slice(0, 6))}…${esc(p.to.slice(-4))}</code>` : "someone";
+  }
+  const isApiCall = (p) => !!p.what?.url || p.method === "signTypedData";
+
+  // The answer an agent paid for, made readable: the main finding big, then the facts in words,
+  // lists as small cards, and the raw answer for whoever wants it.
+  const HEADLINE = ["summary", "verdict", "signal", "recommendation", "explanation", "answer", "message", "result", "status", "grade", "trend"];
+  const SKIP = /^(_|receipt$|signature$|signed_at$|request_id$|x402|raw$)/i;
+  const tone = (v) => {
+    const t = String(v).toLowerCase();
+    if (/\b(bullish|green|go|safe|ok|low|pass|passed|healthy|buy|up|above.cloud|bullish.cross)\b/.test(t)) return "good";
+    if (/\b(bearish|red|stop|danger|dangerous|high|critical|fail|failed|scam|sell|down|below.cloud|bearish.cross|revoke)\b/.test(t)) return "bad";
+    if (/\b(neutral|orange|caution|medium|warning|in.cloud|flat|hold)\b/.test(t)) return "mid";
+    return "";
+  };
+  const human = (k) => { const w = String(k).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase(); return w.charAt(0).toUpperCase() + w.slice(1); };
+  function pretty(v) {
+    if (v === null || v === undefined || v === "") return `<span class="note">none</span>`;
+    if (typeof v === "boolean") return v ? "Yes" : "No";
+    if (typeof v === "number") return esc(v.toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) < 1 ? 8 : 4 }));
+    const sv = String(v);
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(sv) && !isNaN(Date.parse(sv))) return esc(full(sv));
+    if (safeUrl(sv) && !/\s/.test(sv)) return ext(sv, sv.length > 60 ? sv.slice(0, 57) + "…" : sv);
+    const words = /^[a-z0-9]+(_[a-z0-9]+)+$/.test(sv) ? sv.replace(/_/g, " ") : sv;
+    const t = tone(sv);
+    return t ? `<span class="tone t-${t}">${esc(words)}</span>` : esc(words);
+  }
+  const scalar = (v) => v === null || ["string", "number", "boolean"].includes(typeof v);
+  function factsHtml(obj, depth = 0) {
+    const rows = [], more = [];
+    for (const [k, v] of Object.entries(obj)) {
+      if (SKIP.test(k)) continue;
+      if (scalar(v)) rows.push(`<dt>${esc(human(k))}</dt><dd>${pretty(v)}</dd>`);
+      else if (Array.isArray(v) && v.every(scalar)) rows.push(`<dt>${esc(human(k))}</dt><dd>${v.length ? v.slice(0, 12).map(pretty).join(", ") + (v.length > 12 ? ` <span class="note">and ${v.length - 12} more</span>` : "") : `<span class="note">none</span>`}</dd>`);
+      else if (Array.isArray(v)) more.push(`<div class="sub"><span class="tag">${esc(human(k))} · ${v.length}</span>${v.slice(0, 8).map((x) => `<div class="item">${scalar(x) ? pretty(x) : depth < 2 ? factsHtml(x, depth + 1) : ""}</div>`).join("")}${v.length > 8 ? `<p class="note" style="margin:0">and ${v.length - 8} more in the raw answer</p>` : ""}</div>`);
+      else if (v && typeof v === "object" && depth < 2) more.push(`<div class="sub"><span class="tag">${esc(human(k))}</span>${factsHtml(v, depth + 1)}</div>`);
+    }
+    return (rows.length ? `<dl class="facts">${rows.slice(0, depth ? 8 : 16).join("")}</dl>` : "") + more.join("");
+  }
+  function contentHtml(c) {
+    const body = c.body ?? "";
+    let data = null;
+    if (/json/i.test(c.contentType ?? "") || /^\s*[[{]/.test(body)) { try { data = JSON.parse(body); } catch {} }
+    const raw = `<details class="raw"><summary>Show the raw answer</summary><pre>${esc(data !== null ? JSON.stringify(data, null, 2) : body)}</pre></details>`;
+    if (data !== null && typeof data === "object") {
+      const obj = Array.isArray(data) ? { items: data } : data;
+      const key = HEADLINE.find((k) => scalar(obj[k]) && obj[k] !== "" && obj[k] !== null);
+      const head = key ? `<div class="headline t-${tone(obj[key]) || "plain"}"><span class="note">${esc(human(key))}</span><span class="big">${pretty(obj[key])}</span></div>` : "";
+      const rest = Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key));
+      return head + factsHtml(rest) + raw;
+    }
+    // Text or HTML: shown as text (an HTML answer is read as text only, nothing in it runs).
+    const text = /html/i.test(c.contentType ?? "") ? (new DOMParser().parseFromString(body, "text/html").body?.textContent ?? "") : body;
+    const clean = text.replace(/\n{3,}/g, "\n\n").trim();
+    return `<div class="textans">${esc(clean.length > 1500 ? clean.slice(0, 1500) + "…" : clean)}</div>${clean.length > 1500 || /html/i.test(c.contentType ?? "") ? raw : ""}`;
   }
   async function openReceipt(id, opener) {
     const dlg = $("#receipt");

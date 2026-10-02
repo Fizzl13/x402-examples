@@ -248,7 +248,7 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
     // Within the rules, with what it is for and what happened afterwards.
     await wallet.withPurchase({ url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "BTC signal" }, async (report) => {
       await wallet.sendTransaction(transfer(2));
-      report({ httpStatus: 200, settlement: { transaction: "0xsettled", network: "eip155:8453" } });
+      report({ httpStatus: 200, settlement: { transaction: "0xsettled", network: "eip155:8453" }, content: { contentType: "application/json", body: '{"pair":"BTC-USDT","signal":"bullish"}' } });
     });
     await new Promise((ok) => setTimeout(ok, 50)); // spent is reported in the background
     const r = await receiptFor("signed");
@@ -261,7 +261,7 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
     assert.equal(r.verdict.signer, presignKey.address);
     assert.equal(r.status, "signed");
     assert.equal(r.result, "0xabc123");
-    assert.deepEqual(r.outcome, { httpStatus: 200, settlement: { transaction: "0xsettled", network: "eip155:8453" } });
+    assert.deepEqual(r.outcome, { httpStatus: 200, settlement: { transaction: "0xsettled", network: "eip155:8453" }, content: { contentType: "application/json", body: '{"pair":"BTC-USDT","signal":"bullish"}' } });
     assert.equal(r.approval, null);
 
     // Over the limit: Telegram says what it is for; the receipt shows who approved.
@@ -289,6 +289,14 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
     const other = (await owner("POST", "/api/agents", { name: "other" })).body.key;
     const r2 = await fetch(`${base}/v1/purchases/annotate`, { method: "POST", headers: { authorization: `Bearer ${other}`, "content-type": "application/json" }, body: JSON.stringify({ ids: [r.id], outcome: { error: "forged" } }) });
     assert.deepEqual(await r2.json(), { updated: 0 });
+    // A long answer is kept to 16,000 characters; anything that isn't a text body is dropped.
+    const long = await fetch(`${base}/v1/purchases/annotate`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ids: [f.id], outcome: { content: { contentType: "text/plain", body: "x".repeat(20_000) } } }) });
+    assert.deepEqual(await long.json(), { updated: 1 });
+    const fl = (await owner("GET", `/api/purchases/${f.id}`)).body.purchase;
+    assert.equal(fl.outcome.content.body.length, 16_000 + "\n… (cut)".length);
+    assert.match(fl.outcome.error, /rpc down/);
+    await fetch(`${base}/v1/purchases/annotate`, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ ids: [r.id], outcome: { content: { body: { html: "<b>" } } } }) });
+    assert.equal((await owner("GET", `/api/purchases/${r.id}`)).body.purchase.outcome.content.body, '{"pair":"BTC-USDT","signal":"bullish"}');
     assert.equal((await owner("GET", "/api/purchases/pu_nope")).status, 404);
     assert.equal((await agent("GET", `/api/purchases/${r.id}`)).status, 401);
 

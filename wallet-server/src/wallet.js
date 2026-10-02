@@ -27,6 +27,7 @@ function cleanPurchase(p) {
   return Object.keys(out).length ? out : null;
 }
 const cleanText = (v, n = 300) => (typeof v === "string" && v ? v.slice(0, n) : null);
+const CONTENT_LIMIT = 16_000;
 function cleanOutcome(o) {
   if (!o || typeof o !== "object") return null;
   const out = {};
@@ -37,6 +38,11 @@ function cleanOutcome(o) {
   }
   const err = cleanText(o.error);
   if (err) out.error = err;
+  // What the agent got back (the paid API's answer), shown on the receipt. Kept to 16,000 characters.
+  if (o.content && typeof o.content === "object" && typeof o.content.body === "string" && o.content.body.length) {
+    const body = o.content.body.length > CONTENT_LIMIT ? `${o.content.body.slice(0, CONTENT_LIMIT)}\n… (cut)` : o.content.body;
+    out.content = { contentType: cleanText(o.content.contentType, 100), body };
+  }
   return Object.keys(out).length ? out : null;
 }
 // The parts of a verified presign-guard verdict a receipt shows.
