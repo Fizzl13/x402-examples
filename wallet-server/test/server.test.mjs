@@ -996,3 +996,32 @@ test("search bar: more than 20 results come in pages, like a search engine", asy
     assert.equal((await page("x")).page, 1);
   } finally { server.close(); }
 });
+
+test("browsing a category: one card per provider; providers with a skill.md first, then new ones, then the cheapest", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const usdc = (amount, network = "eip155:8453", asset = USDC) => ({ scheme: "exact", network, asset, amount, payTo: PAY_TO });
+  const items = [
+    ...Array.from({ length: 50 }, (_, i) => ({ resource: `https://flood.example/coin/${i}`, description: "Crypto token price", accepts: [usdc(String(1000 + i))] })),
+    { resource: "https://ichimoku.example/signal", description: "Ichimoku crypto trend signal", accepts: [usdc("20000"), usdc("20000", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")] },
+    { resource: "https://ichimoku.example/setups", description: "Ranked crypto trade setups", accepts: [usdc("500000")] },
+    { resource: "https://mid.example/price", description: "Crypto price feed", accepts: [usdc("3000")] },
+  ];
+  const withSkill = new Set(["https://ichimoku.example"]);
+  const skills = { known: (o) => withSkill.has(o), check: async () => {} };
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }), skills });
+  const { server, owner } = await boot({ catalog });
+  try {
+    const r = (await owner("GET", "/api/services/search?cat=crypto")).body;
+    assert.deepEqual(r.results.map((x) => [x.host, x.endpoints]), [["ichimoku.example", 2], ["flood.example", 50], ["mid.example", 1]]);
+    assert.equal(r.total, 3);
+    const ichi = r.results[0];
+    assert.equal(ichi.skill, "https://ichimoku.example/skill.md");
+    assert.equal(ichi.url, "https://ichimoku.example/signal"); // its cheapest endpoint
+    assert.deepEqual(ichi.prices.map((p) => p.network).sort(), ["Base", "Solana"]);
+    assert.equal(r.results[1].cheapest, 0.001);
+    const cats = (await owner("GET", "/api/services/categories")).body.categories.find((c) => c.id === "crypto");
+    assert.deepEqual([cats.count, cats.providers], [53, 3]);
+    // Words still search every endpoint.
+    assert.equal((await owner("GET", "/api/services/search?q=token%20price&cat=crypto")).body.total, 51); // 50 flood endpoints + the price feed, one by one
+  } finally { server.close(); }
+});

@@ -1069,14 +1069,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const { results, total = results.length, page: at = 1, pages = 1 } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}${page > 1 ? `&page=${page}` : ""}`);
       const from = (at - 1) * 20 + 1, range = pages > 1 ? `Results ${from}–${from + results.length - 1} of ${total}` : `${results.length}`;
       if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price.</p>`; return; }
-      out.innerHTML = `${catBar}<p class="note" style="margin:0">${range} paid service${total === 1 ? "" : "s"} ${what}${!q && cat ? " (new providers first, then cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
+      out.innerHTML = `${catBar}<p class="note" style="margin:0">${range} ${!q && cat ? `provider${total === 1 ? "" : "s"}` : `paid service${total === 1 ? "" : "s"}`} ${what}${!q && cat ? " (one card per provider: those with a skill.md first, then new ones, then the cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
           return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
-            <span class="url">${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
-            <div class="btns">${connect ? `<button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button>`}<a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
+            <span class="url">${r.endpoints > 1 ? `${esc(r.endpoints)} paid endpoints · cheapest: ` : ""}${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
+            <div class="btns">${connect ? `<button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button>`}${r.endpoints > 1 ? `<button class="button ghost small" type="button" data-q-host="${esc(r.host)}">All ${esc(r.endpoints)} services</button>` : ""}<a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
         }).join("")}</div>${pagerHtml(at, pages)}`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
@@ -1092,7 +1092,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   function renderCats() {
     renderFollow();
-    $("#searchCats").innerHTML = catList.map((c) => `<button type="button" data-cat="${esc(c.id)}" class="${c.id === activeCat ? "on" : ""}" aria-pressed="${c.id === activeCat}"><span class="ic" aria-hidden="true">${esc(c.icon)}</span><b>${esc(c.name)}</b><small>${esc(c.count)} service${c.count === 1 ? "" : "s"}${c.fresh ? ` · <i>${esc(c.fresh)} new</i>` : ""}</small></button>`).join("");
+    $("#searchCats").innerHTML = catList.map((c) => `<button type="button" data-cat="${esc(c.id)}" class="${c.id === activeCat ? "on" : ""}" aria-pressed="${c.id === activeCat}"><span class="ic" aria-hidden="true">${esc(c.icon)}</span><b>${esc(c.name)}</b><small>${c.providers ? `${esc(c.providers)} provider${c.providers === 1 ? "" : "s"} · ` : ""}${esc(c.count)} service${c.count === 1 ? "" : "s"}${c.fresh ? ` · <i>${esc(c.fresh)} new</i>` : ""}</small></button>`).join("");
   }
   $("#searchCats").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-cat]"); if (!b) return;
@@ -1123,7 +1123,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
   $("#newBtn").addEventListener("click", showNew);
-  $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
+  $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; activeCat = null; renderCats(); $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
   $("#searchMax").addEventListener("change", () => { loadCats(); if ($("#searchQ").value.trim() || activeCat) search($("#searchQ").value); });
   $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });

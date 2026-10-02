@@ -53,6 +53,7 @@ const PRIVATE = [/^0\./, /^10\./, /^127\./, /^169\.254\./, /^172\.(1[6-9]|2\d|3[
 export const isPrivateAddress = (a) => PRIVATE.some((r) => r.test(a));
 export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now() } = {}) {
   const cache = new Map(); // origin -> { has, at }
+  const pending = new Map(); // origins being checked right now
   async function probe(origin) {
     const u = new URL(origin);
     if (u.protocol !== "https:" || u.port || isIP(u.hostname) || !u.hostname.includes(".") || /(^|\.)(localhost|local|internal)$/i.test(u.hostname)) return false;
@@ -71,9 +72,14 @@ export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup
   return {
     known: (origin) => cache.get(origin)?.has ?? null,
     // Check these origins (in parallel, waiting at most `waitMs`); later calls use the cache.
+    // At most 16 sellers are asked at once, and one that is being asked isn't asked again.
     async check(origins, { waitMs = 3500 } = {}) {
-      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !c || now() - c.at > (c.has ? 86_400_000 : 6 * 3_600_000); });
-      const runs = todo.map((o) => probe(o).catch(() => false).then((has) => { cache.set(o, { has, at: now() }); if (cache.size > 5000) cache.delete(cache.keys().next().value); }));
+      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !pending.has(o) && (!c || now() - c.at > (c.has ? 86_400_000 : 6 * 3_600_000)); });
+      for (const o of todo) pending.set(o, null);
+      const one = (o) => probe(o).catch(() => false).then((has) => { cache.set(o, { has, at: now() }); pending.delete(o); if (cache.size > 5000) cache.delete(cache.keys().next().value); });
+      const queue = [...todo];
+      const worker = async () => { while (queue.length) await one(queue.shift()); };
+      const runs = Array.from({ length: Math.min(16, queue.length) }, worker);
       await Promise.race([Promise.all(runs), new Promise((ok) => setTimeout(ok, waitMs))]);
     },
   };
@@ -185,7 +191,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     // Best matches for a request: { results: [{ url, host, description, method, prices: [{ network, usd }], cheapest }] }.
     // Listing counts per category (and how many from new providers), for the category tiles.
     async categories({ maxUsd = Infinity } = {}) {
-      const counts = new Map([...CATEGORIES.map((c) => [c.id, { ...c, count: 0, fresh: 0 }]), ["other", { id: "other", name: "Other", icon: "✨", count: 0, fresh: 0 }]]);
+      const counts = new Map([...CATEGORIES.map((c) => [c.id, { ...c, count: 0, fresh: 0, sellers: new Set() }]), ["other", { id: "other", name: "Other", icon: "✨", count: 0, fresh: 0, sellers: new Set() }]]);
       const seenUrl = new Set();
       for (const item of await load()) {
         let u; try { u = new URL(item.resource); } catch { continue; }
@@ -195,9 +201,11 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         seenUrl.add(`${u.origin}${u.pathname}`);
         const c = counts.get(categoryOf(item, u));
         c.count++;
+        c.sellers.add(u.origin);
         if (isNew(u.origin)) c.fresh++;
       }
-      return { categories: [...counts.values()].map(({ words: _w, ...c }) => c).filter((c) => c.count > 0) };
+      // count: listings; providers: sellers (browsing a category shows one card per seller).
+      return { categories: [...counts.values()].map(({ words: _w, sellers, ...c }) => ({ ...c, providers: sellers.size })).filter((c) => c.count > 0) };
     },
     // Results come in pages of `limit` (like a search engine): { results, total, page, pages }.
     async search(query, { maxUsd = Infinity, limit = 20, category = null, page = 1 } = {}) {
@@ -224,7 +232,25 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (found.has(key) && found.get(key).score >= score) continue;
         found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
       }
-      const all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
+      let all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
+      // Browsing a category (no words): one card per seller, so a seller with fifty near-identical endpoints
+      // doesn't fill the page. Sellers with a skill.md first (an agent can connect to them at once), then new
+      // ones, then the cheapest.
+      const browse = category && !terms.length;
+      if (browse) {
+        const by = new Map();
+        for (const r of all) {
+          const o = new URL(r.url).origin, seller = by.get(o);
+          if (!seller) { by.set(o, { ...r, endpoints: 1, prices: [...r.prices] }); continue; }
+          seller.endpoints++;
+          for (const p of r.prices) { const have = seller.prices.find((x) => x.network === p.network); if (!have) seller.prices.push({ ...p }); else if (p.usd < have.usd) have.usd = p.usd; }
+          if (!seller.description && r.description) seller.description = r.description;
+        }
+        all = [...by.values()];
+        if (skills) await skills.check(all.slice(0, 300).map((r) => new URL(r.url).origin));
+        const has = (r) => (skills?.known(new URL(r.url).origin) ? 1 : 0);
+        all.sort((a, b) => has(b) - has(a) || Number(b.isNew) - Number(a.isNew) || a.cheapest - b.cheapest);
+      }
       const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
       const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
       const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => r);
