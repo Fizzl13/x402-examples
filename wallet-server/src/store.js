@@ -70,6 +70,11 @@ export function memoryStore() {
       async listEvents(n = 100) { return events.slice(0, n); },
       async getPurchase(id) { const p = purchases.get(id); return p && p.until > Date.now() ? p.value : null; },
       async putPurchase(p, ttlDays = RECEIPT_DAYS) { purchases.set(p.id, { value: p, until: Date.now() + ttlDays * 86_400_000 }); },
+      // The newest receipts first (expired ones left out).
+      async listPurchases(n = 100) {
+        for (const [id, p] of purchases) if (p.until <= Date.now()) purchases.delete(id);
+        return [...purchases.values()].map((p) => p.value).sort((x, y) => y.createdAt - x.createdAt).slice(0, n);
+      },
     };
     scopes.set(account, s);
     return s;
@@ -150,7 +155,19 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
       async addEvent(e) { await client.lPush(k("events"), JSON.stringify(e)); await client.lTrim(k("events"), 0, EVENTS_KEPT - 1); },
       async listEvents(n = 100) { return (await client.lRange(k("events"), 0, n - 1)).map(json); },
       async getPurchase(id) { return json(await client.get(k(`purchase:${id}`))); },
-      async putPurchase(p, ttlDays = RECEIPT_DAYS) { await client.set(k(`purchase:${p.id}`), JSON.stringify(p), { EX: ttlDays * 86_400 }); },
+      async putPurchase(p, ttlDays = RECEIPT_DAYS) {
+        await client.set(k(`purchase:${p.id}`), JSON.stringify(p), { EX: ttlDays * 86_400 });
+        await client.zAdd(k("purchases"), { score: p.createdAt, value: p.id });
+      },
+      // The newest receipts first. The index outlives expired receipts, so those are dropped from it here.
+      async listPurchases(n = 100) {
+        const ids = await client.zRange(k("purchases"), 0, n - 1, { REV: true });
+        if (!ids.length) return [];
+        const vals = await client.mGet(ids.map((id) => k(`purchase:${id}`)));
+        const gone = ids.filter((_, i) => vals[i] == null);
+        if (gone.length) await client.zRem(k("purchases"), gone);
+        return vals.filter((v) => v != null).map(json);
+      },
     };
     scopes.set(account, s);
     return s;

@@ -97,6 +97,15 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .agent .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .explain { padding: 18px 20px; display: grid; gap: 8px; margin-bottom: 16px; color: var(--soft); }
 .explain b { color: var(--text); }
+.buybar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 14px; }
+.buybar select { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 13px; }
+.buy { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 14px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--mint); border-radius: 10px; background: rgba(2,10,10,.4); width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit; font-size: 13px; }
+.buy.failed { border-left-color: var(--rose); } .buy.signing { border-left-color: var(--cyan); }
+.buy:hover, .buy:focus-visible { border-color: var(--mint); }
+.buy .w { color: #fff; font-weight: 600; overflow-wrap: anywhere; }
+.buy .m { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.buy .a { grid-row: 1; grid-column: 2; color: #fff; font-weight: 600; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.buy .s { grid-column: 2; text-align: right; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
 .fizzl { margin-top: 34px; display: grid; gap: 14px; }
 .fizzl > p { margin: 0; }
 .fz { padding: 20px; display: grid; gap: 10px; align-content: start; }
@@ -290,8 +299,19 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       </div>
     </section>
 
+    <section class="section" id="buysSec">
+      <div class="eyebrow"><i></i>04 / PURCHASES</div>
+      <h2>WHAT THEY BOUGHT.<br><span>EVERY RECEIPT.</span></h2>
+      <div class="buybar">
+        <label class="note" for="buyAgent">Agent</label>
+        <select id="buyAgent"><option value="">All agents</option></select>
+        <span class="note" id="buyStats" role="status"></span>
+      </div>
+      <div class="rows" id="buys"></div>
+    </section>
+
     <section class="section">
-      <div class="eyebrow"><i></i>04 / ACTIVITY</div>
+      <div class="eyebrow"><i></i>05 / ACTIVITY</div>
       <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
       <div class="rows" id="events"></div>
     </section>
@@ -388,6 +408,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         return structuredClone({ policy: D.policy, paused: D.paused, now, events: D.events, approvals: D.approvals.slice(0, 12),
           spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
           agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
+      }
+      if (method === "GET" && path.startsWith("/api/purchases?")) {
+        return structuredClone({ purchases: Object.values(D.receipts).sort((x, y) => y.createdAt - x.createdAt).map((r) => ({ ...r, verdict: r.verdict?.verdict ?? null, approvedBy: r.approval?.by ?? null, error: r.outcome?.error ?? null })) });
       }
       if (method === "GET" && (m0 = /^\/api\/purchases\/(.+)$/.exec(path))) {
         const r = D.receipts[decodeURIComponent(m0[1])];
@@ -755,8 +778,36 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#addAgentTop").addEventListener("click", goAdd);
   $("#logout").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); showLogin(); });
 
+  // Purchases: what the agents bought, newest first, each opening its receipt.
+  let buys = [];
+  const when = (t) => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  function boughtWhat(p) {
+    if (p.what?.description) return p.what.description;
+    if (p.what?.url) { try { const u = new URL(p.what.url); return u.host + u.pathname; } catch { return p.what.url; } }
+    return p.method === "signTypedData" ? "A payment (no description sent)" : "A transfer (no description sent)";
+  }
+  async function loadPurchases() {
+    try { buys = (await api("GET", "/api/purchases?limit=200")).purchases; renderPurchases(); } catch {}
+  }
+  function renderPurchases() {
+    const sel = $("#buyAgent"), pick = sel.value;
+    const names = new Map([...(state?.agents ?? []).map((a) => [a.id, a.name]), ...buys.map((p) => [p.agent, p.agentName])]);
+    const opts = `<option value="">All agents</option>` + [...names].map(([id, n]) => `<option value="${esc(id)}"${id === pick ? " selected" : ""}>${esc(n)}</option>`).join("");
+    if (sel.innerHTML !== opts) sel.innerHTML = opts;
+    const list = buys.filter((p) => !pick || p.agent === pick);
+    const usdc = list.filter((p) => p.status !== "failed").flatMap((p) => p.amounts ?? []).map((a) => /^([\d.]+) USDC$/.exec(a)?.[1]).filter(Boolean).reduce((x, y) => x + Number(y), 0);
+    $("#buyStats").textContent = list.length ? `${list.length} purchase${list.length === 1 ? "" : "s"} · ${+usdc.toFixed(4)} USDC paid` : "";
+    const status = { signed: "paid", signing: "paying", failed: "failed" };
+    $("#buys").innerHTML = list.length ? list.map((p) => {
+      const w = boughtWhat(p);
+      const meta = [when(p.createdAt), p.agentName, p.approvedBy ? `approved on ${p.approvedBy}` : null, p.status === "failed" && p.error ? p.error : null].filter(Boolean).join(" · ");
+      return `<button type="button" class="buy ${esc(p.status)}" data-receipt="${esc(p.id)}" aria-label="Open the receipt: ${esc(w)}"><span class="w">${esc(w)}</span><span class="a">${esc(p.amounts?.join(" + ") || "")}</span><span class="m">${esc(meta)}</span><span class="s s-${esc(p.status)}">${esc(status[p.status] ?? p.status)} ›</span></button>`;
+    }).join("") : `<div class="card empty">${pick ? "This agent hasn't bought anything yet." : "Nothing bought yet. When your agents pay for something, it shows up here: what it was, how much, and the full receipt."}</div>`;
+  }
+  $("#buyAgent").addEventListener("change", renderPurchases);
+
   async function refresh() {
-    try { state = await api("GET", "/api/state"); render(); setLive(!state.paused, state.paused ? "all agents paused" : "live"); }
+    try { state = await api("GET", "/api/state"); render(); loadPurchases(); setLive(!state.paused, state.paused ? "all agents paused" : "live"); }
     catch (err) { if (err.message !== "login") setLive(false, "can't reach the server"); }
   }
   function start() {

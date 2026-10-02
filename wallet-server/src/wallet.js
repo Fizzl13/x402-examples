@@ -244,6 +244,22 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       return p;
     },
 
+    // What the agents bought: the newest receipts, for the Purchases screen. Receipts made before the list
+    // existed are found through the activity log.
+    async purchases({ agent = null, limit = 100 } = {}) {
+      const n = Math.min(200, Math.max(1, Number(limit) || 100));
+      const list = await store.listPurchases(n);
+      const seen = new Set(list.map((p) => p.id));
+      for (const e of await store.listEvents(500)) {
+        if (!e.purchase || seen.has(e.purchase)) continue;
+        seen.add(e.purchase);
+        const p = await store.getPurchase(e.purchase);
+        if (p) list.push(p);
+      }
+      return list.filter((p) => !agent || p.agent === agent).sort((x, y) => y.createdAt - x.createdAt).slice(0, n)
+        .map(({ id, agent, agentName, method, chainId, to, amounts, what, verdict, approval, status, outcome, createdAt }) => ({ id, agent, agentName, method, chainId, to, amounts, what, verdict: verdict?.verdict ?? null, approvedBy: approval?.by ?? null, status, error: outcome?.error ?? null, httpStatus: outcome?.httpStatus ?? null, createdAt }));
+    },
+
     async spending() { const { policy } = await policyNow(); return summarize(policy, await usedNow(policy)); },
 
     async getPolicy() { return (await policyNow()).raw; },

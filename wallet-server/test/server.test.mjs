@@ -291,6 +291,19 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
     assert.deepEqual(await r2.json(), { updated: 0 });
     assert.equal((await owner("GET", "/api/purchases/pu_nope")).status, 404);
     assert.equal((await agent("GET", `/api/purchases/${r.id}`)).status, 401);
+
+    // The Purchases screen: newest first, what each was for, filtered per agent, owners only.
+    const list = (await owner("GET", "/api/purchases")).body.purchases;
+    assert.deepEqual(list.map((p) => p.what?.description), ["doomed", "full market report", "BTC signal"]);
+    assert.deepEqual(list.map((p) => p.status), ["failed", "signed", "signed"]);
+    assert.equal(list[1].approvedBy, "dashboard");
+    assert.equal(list[2].verdict, "green");
+    assert.equal(list[0].error.includes("rpc down"), true);
+    assert.equal("result" in list[0] || "entries" in list[0], false);
+    assert.equal((await owner("GET", `/api/purchases?agent=${list[0].agent}`)).body.purchases.length, 3);
+    assert.equal((await owner("GET", "/api/purchases?agent=ag_nobody")).body.purchases.length, 0);
+    assert.equal((await owner("GET", "/api/purchases?limit=1")).body.purchases.length, 1);
+    assert.equal((await agent("GET", "/api/purchases")).status, 401);
   } finally { server.close(); }
 });
 
