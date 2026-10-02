@@ -519,7 +519,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     try {
       const { url } = await post("/api/telegram/link");
       const u = new URL(url);
-      tgPending = { url, bot: u.pathname.slice(1), command: `/start ${u.searchParams.get("start")}`, until: Date.now() + 14 * 60_000 };
+      const bot = u.pathname.slice(1), code = u.searchParams.get("start");
+      // tg:// opens the Telegram app itself; t.me is the web fallback.
+      tgPending = { url, app: `tg://resolve?domain=${encodeURIComponent(bot)}&start=${encodeURIComponent(code)}`, bot, command: `/start ${code}`, until: Date.now() + 14 * 60_000 };
       renderAccount();
       pollMe();
     } catch (err) { $("#tgMsg").textContent = err.message; }
@@ -527,9 +529,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   function tgPendingHtml() {
     if (!tgPending || tgPending.until < Date.now()) return "";
     return `<div style="display:grid;gap:8px;border-top:1px dashed var(--line);padding-top:12px">
-      <a class="button primary small" href="${esc(tgPending.url)}" target="_blank" rel="noopener noreferrer" style="justify-self:start">Open Telegram</a>
+      <div class="btns"><a class="button primary small" href="${esc(tgPending.app)}">Open the Telegram app</a><a class="button ghost small" href="${esc(tgPending.url)}" target="_blank" rel="noopener noreferrer">Open in the browser</a></div>
       <p class="note" style="margin:0">Tap it, then press <b>Start</b> in the chat with @${esc(tgPending.bot)}. This page updates by itself.</p>
-      <p class="note" style="margin:0">Doesn't open? In Telegram, find <b>@${esc(tgPending.bot)}</b> and send it this message (valid 15 minutes):</p>
+      <p class="note" style="margin:0">Nothing happens? In Telegram, find <b>@${esc(tgPending.bot)}</b> and send it this message (valid 15 minutes):</p>
       <div class="paste"><input id="tgCommand" readonly value="${esc(tgPending.command)}" aria-label="Message to send to the bot"><button class="button ghost small" type="button" id="tgCopy">Copy</button></div>
     </div>`;
   }
