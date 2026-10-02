@@ -5,13 +5,21 @@
     {
       "id": "s-hook",
       "scene": "card",
-      "card": { "title": "Give your AI agent a wallet.", "sub": "With your rules." },
+      "card": {
+        "title": "Give your AI agent a wallet.",
+        "sub": "With your rules."
+      },
       "text": "Give your AI agent a wallet. With your rules."
+    },
+    {
+      "id": "s-find",
+      "scene": "find",
+      "text": "Search thousands of paid services, with the price on every network."
     },
     {
       "id": "s-rule",
       "scene": "rule",
-      "text": "It pays for what it needs on its own, up to the limit you set."
+      "text": "It pays on its own, up to the limit you set."
     },
     {
       "id": "s-phone",
@@ -26,12 +34,16 @@
     {
       "id": "s-receipt",
       "scene": "receipt-open",
-      "text": "And every purchase gets a receipt in plain words: what was bought, and what came back."
+      "text": "And every purchase gets a receipt in plain words."
     },
     {
       "id": "s-end",
       "scene": "card",
-      "card": { "title": "Fizzl Agent Wallet", "sub": "Free to start · wallet.fizzl.eu", "note": "Never holds your keys or your money" },
+      "card": {
+        "title": "Fizzl Agent Wallet",
+        "sub": "Free to start · wallet.fizzl.eu",
+        "note": "Never holds your keys or your money"
+      },
       "text": "Fizzl Agent Wallet. Free to start, at wallet.fizzl.eu."
     }
   ]

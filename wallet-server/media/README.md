@@ -1,9 +1,9 @@
 # Intro video
 
-A ~90-second narrated intro to the Fizzl Agent Wallet: what it is, setting a
+A ~2-minute narrated intro to the Fizzl Agent Wallet: what it is, setting a
 price rule, approving on the dashboard and on Telegram, why it is safe (the key
 stays with the agent, presign-guard checks every signature, when in doubt it
-stops), the Purchases list and a plain-words receipt, and connecting agents.
+stops), the Purchases list and a plain-words receipt, connecting agents, and finding paid services with the search bar (by words or category, with new providers).
 
 Made by [`wallet-video.yml`](../../.github/workflows/wallet-video.yml), the same
 pipeline as x402 Doctor's explainer:

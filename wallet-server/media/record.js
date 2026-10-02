@@ -241,6 +241,34 @@ async function main() {
     async "prepare:receipt-open"() { await openDemo(page); await scrollTo(page, "#buysSec"); },
     async "receipt-open"(seg, ms) { await sleep(600); await scenes.receipt(seg, ms - 600); },
 
+    // The search bar: type a request, see the results, copy one for the agent.
+    async "prepare:find"() {
+      if (!page.url().includes("/demo")) await openDemo(page); // the short video comes here straight from a title card
+      await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#finder"); await page.fill("#searchQ", "");
+    },
+    async find(seg, ms) {
+      await glow(page, "#searchForm");
+      await page.type("#searchQ", "bitcoin signal", { delay: 90 });
+      await sleep(300);
+      await page.press("#searchQ", "Enter");
+      await page.waitForSelector("#searchOut .hit", { timeout: 15000 });
+      await glow(page, "#searchForm", false);
+      await sleep(ms * 0.25);
+      await glow(page, "#searchOut .hit:first-of-type");
+      const copy = page.locator("#searchOut .hit button[data-copy]").first();
+      await copy.hover(); await sleep(500); await copy.click().catch(() => {});
+    },
+    // Categories and new providers.
+    async "prepare:browse"() { await glow(page, "#searchOut .hit", false); await page.fill("#searchQ", ""); await scrollTo(page, "#searchCats", "center"); },
+    async browse(seg, ms) {
+      await sleep(ms * 0.15);
+      await page.click('#searchCats button[data-cat="security"]').catch(() => {});
+      await sleep(ms * 0.3);
+      await page.click("#newBtn").catch(() => {});
+      await sleep(400);
+      await scrollTo(page, "#searchOut", "start");
+    },
+
     async "prepare:agents"() { await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#agentsSec"); },
     async agents(seg, ms) {
       await glow(page, "#agents .agent");
