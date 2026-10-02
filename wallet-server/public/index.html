@@ -58,6 +58,38 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .card::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(420px 160px at 0 0, rgba(97,245,195,.10), transparent 70%); }
 .card > * { position: relative; }
 .section { padding-block: 48px; }
+/* tabs: one part of the wallet at a time */
+.tabs { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 68px); z-index: 15; display: flex; gap: 4px; margin: 0 -4px; padding: 10px 4px; background: rgba(2,7,8,.86); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+.tabs button { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--soft); font: 700 11px/1 var(--body); letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; }
+.tabs button:hover, .tabs button:focus-visible { border-color: var(--line); color: var(--text); }
+.tabs button[aria-selected="true"] { border-color: var(--mint); color: var(--mint); background: rgba(97,245,195,.08); }
+.tabs .ti { font-size: 14px; }
+.tbadge { font-style: normal; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--amber); color: #021; font-size: 10px; display: inline-flex; align-items: center; justify-content: center; letter-spacing: 0; }
+#app[data-tab] section[data-tab] { display: none; }
+#app .section { padding-block: 28px; }
+#app h2 { font-size: clamp(28px, 3.4vw, 44px); margin-bottom: 20px; }
+#app[data-tab="overview"] section[data-tab="overview"], #app[data-tab="find"] section[data-tab="find"], #app[data-tab="agents"] section[data-tab="agents"], #app[data-tab="purchases"] section[data-tab="purchases"], #app[data-tab="account"] section[data-tab="account"]:not([hidden]) { display: block; }
+#app[data-tab="overview"] section.overview { display: grid; }
+@media (max-width: 600px) {
+  .tabs { position: fixed; top: auto; bottom: 0; left: 0; right: 0; margin: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)); justify-content: space-around; border-bottom: 0; border-top: 1px solid var(--line); background: rgba(2,7,8,.94); }
+  .tabs button { flex-direction: column; gap: 3px; padding: 6px 4px; font-size: 9px; letter-spacing: .5px; border-radius: 12px; flex: 1; min-width: 0; }
+  .tabs .ti { font-size: 18px; }
+  .tbadge { position: absolute; top: 2px; right: 18%; }
+  body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
+/* the overview: today's spending, what waits for you, your agents, and the two buttons */
+.overview { grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, .8fr); gap: 14px; padding-block: 24px 8px; align-items: stretch; }
+.overview .stat { padding: 20px; display: grid; gap: 6px; align-content: start; text-decoration: none; color: inherit; }
+.overview .stat b { font: 700 40px/1 var(--display); color: #fff; }
+.overview .stat:hover { border-color: var(--mint); }
+.overview .actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 760px) { .overview { grid-template-columns: 1fr 1fr; } .overview .day { grid-column: 1 / -1; } }
+/* agents: the explanation folds away */
+.howto { margin-top: 20px; border: 1px dashed var(--line); border-radius: 16px; padding: 12px 16px; }
+.howto > summary { cursor: pointer; color: var(--mint); font: 700 11px/1.4 var(--body); letter-spacing: 2px; text-transform: uppercase; list-style: none; }
+.howto > summary::-webkit-details-marker { display: none; }
+.howto > summary::after { content: " ▾"; } .howto[open] > summary::after { content: " ▴"; }
+.howto[open] > summary { margin-bottom: 14px; }
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .7fr); gap: 40px; align-items: center; padding-block: 56px 32px; }
 .hero p { font-size: 17px; color: var(--soft); max-width: 600px; margin: 20px 0 0; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
@@ -125,9 +157,9 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .hit .prices { display: flex; flex-wrap: wrap; gap: 6px; }
 .hit .prices span { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; color: var(--soft); white-space: nowrap; }
 .hit .prices span:first-child { border-color: var(--mint); color: var(--mint); }
-.cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
-.cats button { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(2,10,10,.45); color: var(--soft); font: inherit; font-size: 13px; cursor: pointer; }
-.cats button .ic { grid-row: span 2; font-size: 22px; }
+.cats { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.cats button { flex: none; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.45); color: var(--soft); font: inherit; font-size: 13px; cursor: pointer; }
+.cats button .ic { font-size: 15px; }
 .cats button b { color: var(--text); font-weight: 600; }
 .cats button small { color: var(--muted); font-size: 11px; }
 .cats button small i { font-style: normal; color: var(--amber); }
@@ -327,25 +359,29 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </section>
 
   <div id="app" hidden>
-    <section class="hero">
-      <div>
-        <div class="eyebrow"><i></i>AGENT WALLET <span style="color:var(--dim)">/</span> YOUR AGENTS, YOUR RULES</div>
-        <h1>SPEND.<br><span>SAFELY.</span></h1>
-        <p>Your agents buy on their own up to your price. Above it they ask you here or on Telegram. They sign and pay themselves; this server only counts, asks and records.</p>
-        <div class="actions">
-          <a class="button" href="#needs">Needs you · <span id="pendingN">0</span></a>
-          <button class="button stop" id="pauseAll">Pause all agents</button>
-          <button class="button ghost" type="button" id="setupTop">Test my setup</button>
-        </div>
-      </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Wallet sections">
+      <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Overview</span><i class="tbadge" id="tabPending" hidden>0</i></button>
+      <button type="button" role="tab" data-go="find" aria-selected="false"><span class="ti" aria-hidden="true">⌕</span><span>Find</span></button>
+      <button type="button" role="tab" data-go="agents" aria-selected="false"><span class="ti" aria-hidden="true">◎</span><span>Agents</span></button>
+      <button type="button" role="tab" data-go="purchases" aria-selected="false"><span class="ti" aria-hidden="true">≡</span><span>Purchases</span></button>
+      <button type="button" role="tab" data-go="account" aria-selected="false"><span class="ti" aria-hidden="true">◐</span><span>Account</span></button>
+    </nav>
+
+    <section class="overview" id="overviewSec" data-tab="overview">
       <div class="card day">
         <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
         <div id="budgets"></div>
         <span class="note" id="pausedNote"></span>
       </div>
+      <a class="card stat" href="#needs"><span class="tag">NEEDS YOU</span><b id="pendingN">0</b><span class="note">requests over your rule</span></a>
+      <a class="card stat" href="#agentsSec"><span class="tag">AGENTS</span><b id="agentsActive">0</b><span class="note" id="agentsNote">active</span></a>
+      <div class="actions">
+        <button class="button stop small" id="pauseAll">Pause all agents</button>
+        <button class="button ghost small" type="button" id="setupTop">Test my setup</button>
+      </div>
     </section>
 
-    <section class="section" id="findSec">
+    <section class="section" id="findSec" data-tab="find">
       <div class="eyebrow"><i></i>FIND SERVICES</div>
       <h2>WHAT DO YOUR AGENTS NEED?<br><span>FIND IT HERE.</span></h2>
       <div class="finder" id="finder">
@@ -377,7 +413,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
 
-    <section class="section" id="rule">
+    <section class="section" id="needs" data-tab="overview">
+      <div class="eyebrow"><i></i>02 / NEEDS YOU</div>
+      <h2>YOUR CALL.<br><span>YES OR NO.</span></h2>
+      <div class="list" id="approvals"></div>
+    </section>
+
+    <section class="section" id="rule" data-tab="overview">
       <div class="eyebrow"><i></i>01 / YOUR PRICE RULE</div>
       <h2>FREE UNDER.<br><span>ASK ABOVE.</span></h2>
       <div class="rule">
@@ -401,26 +443,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       </div>
     </section>
 
-    <section class="section" id="needs">
-      <div class="eyebrow"><i></i>02 / NEEDS YOU</div>
-      <h2>YOUR CALL.<br><span>YES OR NO.</span></h2>
-      <div class="list" id="approvals"></div>
-    </section>
 
-    <section class="section" id="agentsSec">
+    <section class="section" id="agentsSec" data-tab="agents">
       <div class="eyebrow"><i></i>03 / AGENTS</div>
       <h2>YOUR AGENTS.<br><span>ONE BUDGET.</span></h2>
-      <div class="card skillbox">
-        <span class="tag">THE QUICKEST WAY TO CONNECT AN AGENT</span>
-        <p style="margin:0">Paste this into Claude, Cursor or any agent. It reads the steps and walks you through them:</p>
-        <div class="copy"><code id="skillLine">Connect to wallet.fizzl.eu/skill.md</code><button class="button primary small" type="button" id="skillCopy" data-copy="Connect to wallet.fizzl.eu/skill.md">Copy</button></div>
-        <p class="note" style="margin:0">You stay in charge: it never asks you to paste a private key into the chat. <a href="/skill.md" target="_blank" rel="noopener" style="text-decoration:underline">Read what your agent will read</a></p>
-      </div>
-      <div class="card explain">
-        <p style="margin:0"><b>An agent is your own AI assistant or bot</b>, for example Claude Desktop, Cursor or a script of yours. Add it here and it gets a key: with that key it pays through this wallet, within your rules.</p>
-        <p style="margin:0"><b>One agent can use every service</b>, including all four Fizzl services below. You don't add services as agents. More agents only help to keep assistants apart, so you can pause or remove one on its own.</p>
-        <p class="note" style="margin:0" id="agentPlanNote"></p>
-      </div>
       <div id="newKey"></div>
       <div class="agents" id="agents"></div>
       <form class="addform" id="addForm" style="margin-top:16px">
@@ -433,15 +459,29 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="row"><select id="setupAgent" aria-label="Agent to test" hidden></select><label class="note" id="setupTgWrap"><input type="checkbox" id="setupTg" checked> send me a Telegram test message</label><button class="button primary small" type="button" id="setupRun">Test my setup</button></div>
         <div id="setupOut" role="status" aria-live="polite"></div>
       </div>
+      <p class="note" style="margin:12px 0 0" id="agentPlanNote"></p>
+      <details class="howto" id="howto">
+        <summary>How it works · connect an agent · Fizzl services</summary>
+      <div class="card skillbox">
+        <span class="tag">THE QUICKEST WAY TO CONNECT AN AGENT</span>
+        <p style="margin:0">Paste this into Claude, Cursor or any agent. It reads the steps and walks you through them:</p>
+        <div class="copy"><code id="skillLine">Connect to wallet.fizzl.eu/skill.md</code><button class="button primary small" type="button" id="skillCopy" data-copy="Connect to wallet.fizzl.eu/skill.md">Copy</button></div>
+        <p class="note" style="margin:0">You stay in charge: it never asks you to paste a private key into the chat. <a href="/skill.md" target="_blank" rel="noopener" style="text-decoration:underline">Read what your agent will read</a></p>
+      </div>
+      <div class="card explain">
+        <p style="margin:0"><b>An agent is your own AI assistant or bot</b>, for example Claude Desktop, Cursor or a script of yours. Add it here and it gets a key: with that key it pays through this wallet, within your rules.</p>
+        <p style="margin:0"><b>One agent can use every service</b>, including all four Fizzl services below. You don't add services as agents. More agents only help to keep assistants apart, so you can pause or remove one on its own.</p>
+      </div>
       <div class="fizzl" id="fizzlAgents">
         <span class="tag">FIZZL SERVICES YOUR AGENTS CAN USE</span>
         <p class="note">Paid services, not agents to add. Your agent calls them and pays per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
         <p class="note">Your agent can also find services itself: ask it to <i>"find a paid API for a bitcoin trend signal under $0.10 and buy one"</i>. The wallet MCP (version 0.4 or newer) searches the public x402 catalog, and your rules still apply.</p>
         <div class="agents" id="fizzlList"></div>
       </div>
+      </details>
     </section>
 
-    <section class="section" id="buysSec">
+    <section class="section" id="buysSec" data-tab="purchases">
       <div class="eyebrow"><i></i>04 / PURCHASES</div>
       <h2>WHAT THEY BOUGHT.<br><span>EVERY RECEIPT.</span></h2>
       <div class="buybar">
@@ -452,13 +492,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="rows" id="buys"></div>
     </section>
 
-    <section class="section">
+    <section class="section" id="activitySec" data-tab="purchases">
       <div class="eyebrow"><i></i>05 / ACTIVITY</div>
       <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
       <div class="rows" id="events"></div>
     </section>
 
-    <section class="section" id="accountSec" hidden>
+    <section class="section" id="accountSec" data-tab="account" hidden>
       <div class="eyebrow"><i></i>06 / YOUR ACCOUNT</div>
       <div class="account">
         <article class="card" id="planCard"></article>
@@ -478,7 +518,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const STEPS = [0, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 100];
   const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  let state = null, editing = false, timer = null;
+  let state = null, editing = false, timer = null, howtoSet = false;
 
   let api = async function (method, path, body) {
     const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
@@ -487,6 +527,28 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
     return data;
   };
+
+  // ---------- tabs: Overview · Find · Agents · Purchases · Account (the address bar keeps the tab: #/find) ----------
+  const TABS = ["overview", "find", "agents", "purchases", "account"];
+  function showTab(tab, { push = true } = {}) {
+    if (!TABS.includes(tab)) tab = "overview";
+    $("#app").dataset.tab = tab;
+    document.querySelectorAll("#tabs [data-go]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.go === tab)));
+    if (push && location.hash !== `#/${tab}`) history.replaceState(null, "", `${location.pathname}${location.search}#/${tab}`);
+  }
+  // Show the tab an element lives in (for links like "Needs you", the plan badge, "Test my setup").
+  function reveal(el) { const sec = el?.closest("section[data-tab]"); if (sec) showTab(sec.dataset.tab); }
+  const scrollTo = (el, block = "start") => el?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block });
+  document.addEventListener("click", (e) => {
+    const go = e.target.closest("#tabs [data-go]");
+    if (go) { showTab(go.dataset.go); scrollTo($("#app"), "start"); window.scrollTo({ top: 0 }); return; }
+    const a = e.target.closest('a[href^="#"]');
+    const target = a && a.getAttribute("href").length > 1 && !a.getAttribute("href").startsWith("#/") ? document.querySelector(a.getAttribute("href")) : null;
+    if (target && target.closest("#app")) { e.preventDefault(); reveal(target); setTimeout(() => scrollTo(target), 30); }
+  });
+  const fromHash = () => { const h = location.hash.replace(/^#\/?/, ""); showTab(TABS.includes(h) ? h : document.getElementById(h)?.closest("section[data-tab]")?.dataset.tab ?? "overview", { push: false }); };
+  fromHash();
+  window.addEventListener("hashchange", fromHash);
 
   // ---------- demo mode (/demo): the same page, with example agents and data in the browser ----------
   const DEMO = location.pathname.replace(/\/$/, "") === "/demo";
@@ -1169,7 +1231,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   function renderCats() {
     renderFollow();
-    $("#searchCats").innerHTML = catList.map((c) => `<button type="button" data-cat="${esc(c.id)}" class="${c.id === activeCat ? "on" : ""}" aria-pressed="${c.id === activeCat}"><span class="ic" aria-hidden="true">${esc(c.icon)}</span><b>${esc(c.name)}</b><small>${c.providers ? `${esc(c.providers)} provider${c.providers === 1 ? "" : "s"} · ` : ""}${esc(c.count)} service${c.count === 1 ? "" : "s"}${c.fresh ? ` · <i>${esc(c.fresh)} new</i>` : ""}</small></button>`).join("");
+    $("#searchCats").innerHTML = catList.map((c) => `<button type="button" data-cat="${esc(c.id)}" class="${c.id === activeCat ? "on" : ""}" aria-pressed="${c.id === activeCat}"><span class="ic" aria-hidden="true">${esc(c.icon)}</span><b>${esc(c.name)}</b><small title="${c.providers ? `${esc(c.providers)} providers · ` : ""}${esc(c.count)} services">${esc(c.providers || c.count)}${c.fresh ? ` · <i>${esc(c.fresh)} new</i>` : ""}</small></button>`).join("");
   }
   $("#searchCats").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-cat]"); if (!b) return;
@@ -1212,6 +1274,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
   // (So does "Make my agent key" on the Fizzl agents.)
   function goAdd() {
+    showTab("agents");
     $("#agentsSec").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     setTimeout(() => $("#agentName").focus({ preventScroll: true }), 400);
   }
@@ -1219,6 +1282,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // The footer's buy button goes to the plan card, with "Pay 1 month" ready.
   // (So does "★ Go Pro" in the top bar on the free plan.)
   function goBuy() {
+    showTab("account");
     $("#planCard").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     const b = $('#planCard [data-pay="1"]');
     if (b) { b.classList.remove("flash"); void b.offsetWidth; b.classList.add("flash"); setTimeout(() => b.focus({ preventScroll: true }), 500); }
@@ -1255,6 +1319,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#setupRun").addEventListener("click", runSetup);
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
+    showTab("agents");
     $("#setupCard").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     runSetup();
   });
@@ -1573,6 +1638,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     // approvals
     const pending = s.approvals.filter((a) => a.status === "pending");
     $("#pendingN").textContent = pending.length;
+    $("#tabPending").textContent = pending.length; $("#tabPending").hidden = !pending.length;
+    const active = s.agents.filter((a) => !a.paused).length;
+    $("#agentsActive").textContent = active;
+    $("#agentsNote").textContent = s.agents.length ? `active of ${s.agents.length}${s.paused ? " · all paused" : ""}` : "none yet: add one";
+    // The explanation is open until there is an agent, then folded (the owner can still open it).
+    if (!howtoSet) { $("#howto").open = s.agents.length === 0; howtoSet = true; }
     $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
       const v = a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
       const left = Math.max(0, Math.round((a.expiresAt - s.now) / 60000));
