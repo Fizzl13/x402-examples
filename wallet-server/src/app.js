@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
+const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -181,6 +182,15 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.type("html").send(page);
   });
   // Who runs the service comes from the environment (OPERATOR_NAME, CONTACT_EMAIL), not from the code.
+  // /skill.md: instructions an agent reads and follows ("Connect to wallet.fizzl.eu/skill.md"),
+  // with this server's own address in them.
+  let skill;
+  app.get("/skill.md", (req, res) => {
+    skill ??= readFileSync(SKILL, "utf8");
+    const host = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(req.host ?? "") ? req.host : "wallet.fizzl.eu";
+    const origin = `${req.protocol === "http" && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "https" : req.protocol}://${host}`;
+    res.set("cache-control", "public, max-age=300").type("text/markdown; charset=utf-8").send(skill.replaceAll("{{ORIGIN}}", origin));
+  });
   app.get(Object.keys(LEGAL), (req, res) => {
     if (!legal.has(req.path)) legal.set(req.path, readFileSync(LEGAL[req.path], "utf8"));
     const missing = (what) => `<mark>[${what}: set in Render]</mark>`;

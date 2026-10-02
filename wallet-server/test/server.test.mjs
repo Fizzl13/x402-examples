@@ -820,3 +820,21 @@ test("search bar in the demo: the same catalog without signing in, rate-limited,
     assert.equal(last.status, 429);
   } finally { server.close(); }
 });
+
+test("skill.md: instructions an agent can follow, with this server's address", async () => {
+  const { base, server } = await boot();
+  try {
+    const r = await fetch(`${base}/skill.md`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type"), /^text\/markdown/);
+    const md = await r.text();
+    assert.match(md, /^---\nname: fizzl-agent-wallet\n/);
+    assert.ok(!md.includes("{{ORIGIN}}"));
+    assert.ok(md.includes(`"WALLET_SERVER_URL": "${base}"`)); // this server, here a local one
+    assert.match(md, /Never ask your owner to paste a private key/);
+    for (const tool of ["wallet_status", "find_services", "pay_x402", "send_usdc", "pause_spending"]) assert.ok(md.includes(`\`${tool}\``), tool);
+    // Behind a proxy on a real domain the address is https.
+    const viaProxy = await (await fetch(`${base}/skill.md`, { headers: { "x-forwarded-proto": "https", "x-forwarded-host": "wallet.example" } })).text();
+    assert.ok(viaProxy.includes('"WALLET_SERVER_URL": "https://wallet.example"'));
+  } finally { server.close(); }
+});
