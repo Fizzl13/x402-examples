@@ -66,6 +66,9 @@ test("login: wrong password refused and slowed down; the dashboard needs the coo
     const slowed = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
     assert.equal(slowed.status, 429);
     assert.equal((await fetch(`${base}/`)).status, 200);
+    const demo = await fetch(`${base}/demo`);
+    assert.equal(demo.status, 200);
+    assert.match(await demo.text(), /LIVE DEMO/);
     assert.throws(() => createAuth({ password: "short" }), /12 characters/);
   } finally { server.close(); }
 });

@@ -85,7 +85,7 @@ export function createApp({ wallet, auth, telegram = null }) {
 
   // ---------- dashboard ----------
   let page;
-  app.get(["/", "/index.html"], (_req, res) => {
+  app.get(["/", "/index.html", "/demo"], (_req, res) => {
     page ??= readFileSync(DASHBOARD, "utf8");
     res.set("content-security-policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     res.type("html").send(page);
