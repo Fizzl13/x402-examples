@@ -260,7 +260,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const usdc = state.spending.find((b) => b.token === "USDC");
       if (state.paused) add("rules", "fail", "Your agents may spend", "All agents are paused: nothing is signed.", "Click Resume all agents at the top.");
       else if (agent?.paused) add("rules", "fail", "Your agents may spend", `${agent.name} is paused.`, `Click Resume on ${agent.name} under Your agents.`);
-      else if (agent && !allowed.includes(agent.id)) add("rules", "fail", "Your agents may spend", `The free plan has ${plan.maxAgents} agent; ${agent.name} is paused until you upgrade.`, "Upgrade to Pro under Your account, or remove the other agent.");
+      else if (agent && !allowed.includes(agent.id)) add("rules", "fail", "Your agents may spend", `The free plan has ${plan.maxAgents} agent; ${agent.name} is paused until you upgrade.`, "Upgrade to Pro under Your account (at the bottom of the dashboard), or remove the other agent.");
       else if (!usdc) add("rules", "warn", "Your agents may spend", "There is no USDC rule, so every USDC payment asks you first.", "Set your price rule (section 01).");
       else if (usdc.left !== null && Number(usdc.left) <= 0) add("rules", "warn", "Your agents may spend", `Today's budget of $${usdc.perDay} is used up: purchases ask you until it frees up.`, "Wait, or raise the daily budget (section 01).");
       else add("rules", "ok", "Your agents may spend", `Up to $${usdc.perTx ?? "any amount"} per purchase on their own${usdc.left !== null ? `, $${usdc.left} left today` : ""}. Above that, they ask you.`);
@@ -275,7 +275,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       } else if (agent) add("balance", "warn", "Money to pay with", `The wallet doesn't know ${agent.name}'s address yet, so it can't see its balance.`, "Paste your agent's wallet address (0x…, public, not the private key) below, or it's filled in after its first purchase.");
 
       if (!telegram) add("telegram", "warn", "Approvals on your phone", "Telegram isn't set up on this server; approve on this dashboard.");
-      else if (!a.telegram?.chatId) add("telegram", "warn", "Approvals on your phone", "Telegram isn't connected: purchases over your rule wait for you on this dashboard only.", "Click Connect Telegram under Your account.");
+      else if (!a.telegram?.chatId) add("telegram", "warn", "Approvals on your phone", "Telegram isn't connected: purchases over your rule wait for you on this dashboard only.", "Click Connect Telegram under Your account, at the bottom of the dashboard.");
       else if (!testTelegram) add("telegram", "ok", "Approvals on your phone", "Telegram is connected.");
       else {
         const last = telegramTests.get(id) ?? 0;
