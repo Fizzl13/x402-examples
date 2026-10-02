@@ -90,6 +90,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
   owner.get("/state", wrap(async (req, res) => res.json(await req.wallet.state())));
+  owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
   owner.put("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.setPolicy(req.body?.policy) })));
   owner.post("/pause", wrap(async (req, res) => { await req.wallet.setPaused(!!req.body?.paused); res.json({ ok: true }); }));

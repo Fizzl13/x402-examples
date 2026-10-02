@@ -99,9 +99,10 @@ Every payment carries what it was for: the URL for `pay_x402`, and the agent's `
 - the amount and recipient;
 - presign-guard's signed verdict;
 - the approval;
-- the x402 settlement.
+- the x402 settlement;
+- what the agent got back: the API's answer (up to 16,000 characters), shown in plain form on the receipt.
 
-Telegram approval requests say what the payment is for too. See a receipt in the [demo](https://wallet.fizzl.eu/demo): click a line in the activity log.
+Telegram approval requests say what the payment is for too. See a receipt in the [demo](https://wallet.fizzl.eu/demo): click a purchase under "Purchases".
 
 ## When something is refused
 

@@ -50,7 +50,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
       <tr><td><b>Your wallet address</b> and the date you signed up</td><td>It is your account: you sign in by signing a message with your wallet. No password, no e-mail.</td><td>Contract (art. 6(1)(b))</td></tr>
       <tr><td><b>Your agents</b>: the names you give them, a SHA-256 hash of each agent key (never the key itself), when each was last seen</td><td>So your agents can use the service and you can manage them</td><td>Contract</td></tr>
       <tr><td><b>Your rules</b>: limits, allow list, paused or not</td><td>To apply your spending rules</td><td>Contract</td></tr>
-      <tr><td><b>What your agents ask to sign</b>: method, network, recipient address, amounts, the safety verdict from presign-guard, and what the agent says it is buying (a URL and a description, if your agent sends them); your approvals and denials</td><td>To check requests against your rules, ask you for approval, and show you receipts and an activity log</td><td>Contract</td></tr>
+      <tr><td><b>What your agents ask to sign</b>: method, network, recipient address, amounts, the safety verdict from presign-guard, what the agent says it is buying (a URL and a description, if your agent sends them), and what it got back (the paid service's answer, up to 16,000 characters, if your agent sends it); your approvals and denials</td><td>To check requests against your rules, ask you for approval, and show you receipts (including what was bought) and an activity log</td><td>Contract</td></tr>
       <tr><td><b>Telegram</b> (only if you connect it): your chat id, user id and username</td><td>To send you approval requests and plan reminders, and to accept your taps</td><td>Contract</td></tr>
       <tr><td><b>Payments for Pro</b>: transaction hashes, amounts, dates, until when you paid; for automatic payment, what the subscription contract and USDC show for your address (next payment date, paid-through date, the approval you gave, your USDC balance)</td><td>To give you Pro, remind you before a payment, and keep the records the law requires</td><td>Contract; legal obligation for bookkeeping (art. 6(1)(c))</td></tr>
       <tr><td><b>Your IP address</b>, briefly</td><td>Held in memory only, to slow down repeated wrong logins and sign-in floods. Not stored by us.</td><td>Legitimate interest: security (art. 6(1)(f))</td></tr>
@@ -88,7 +88,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
     <thead><tr><th>Data</th><th>Kept</th></tr></thead>
     <tbody>
       <tr><td>Account, agents, rules, Telegram link</td><td>Until you delete your account (or disconnect Telegram)</td></tr>
-      <tr><td>Receipts (what each payment was for)</td><td>7 days on Free, 90 days on Pro</td></tr>
+      <tr><td>Receipts (what each payment was for and what came back)</td><td>7 days on Free, 90 days on Pro</td></tr>
       <tr><td>Spending records for your limits</td><td>31 days</td></tr>
       <tr><td>Approval requests</td><td>Shown for 24 hours after they are decided, deleted after 7 days</td></tr>
       <tr><td>Activity log</td><td>The latest 500 events</td></tr>

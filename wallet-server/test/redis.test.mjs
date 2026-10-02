@@ -32,6 +32,10 @@ test("redis store: agents, entries, approvals and events survive a reconnect", {
     const receipt = await wallet.purchase(ok.purchaseId);
     assert.equal(receipt.what.description, "a test purchase");
     assert.deepEqual(receipt.amounts, ["1.5 USDC"]);
+    const bought = await wallet.purchases();
+    assert.deepEqual(bought.map((p) => p.what?.description), ["a test purchase"]);
+    assert.equal(bought[0].id, ok.purchaseId);
+    assert.equal((await wallet.purchases({ agent: "ag_other" })).length, 0);
     assert.ok(st.events.length >= 3);
     assert.equal((await wallet.decide(pending.approvalId, "approve")).status, "approved");
     assert.equal((await wallet.spending())[0].used, "9.5");

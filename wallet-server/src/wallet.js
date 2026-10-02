@@ -27,6 +27,7 @@ function cleanPurchase(p) {
   return Object.keys(out).length ? out : null;
 }
 const cleanText = (v, n = 300) => (typeof v === "string" && v ? v.slice(0, n) : null);
+const CONTENT_LIMIT = 16_000;
 function cleanOutcome(o) {
   if (!o || typeof o !== "object") return null;
   const out = {};
@@ -37,6 +38,11 @@ function cleanOutcome(o) {
   }
   const err = cleanText(o.error);
   if (err) out.error = err;
+  // What the agent got back (the paid API's answer), shown on the receipt. Kept to 16,000 characters.
+  if (o.content && typeof o.content === "object" && typeof o.content.body === "string" && o.content.body.length) {
+    const body = o.content.body.length > CONTENT_LIMIT ? `${o.content.body.slice(0, CONTENT_LIMIT)}\n… (cut)` : o.content.body;
+    out.content = { contentType: cleanText(o.content.contentType, 100), body };
+  }
   return Object.keys(out).length ? out : null;
 }
 // The parts of a verified presign-guard verdict a receipt shows.
@@ -242,6 +248,22 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       const p = typeof purchaseId === "string" ? await store.getPurchase(purchaseId) : null;
       if (!p) throw Object.assign(new Error("no such receipt (receipts are kept 90 days)"), { status: 404 });
       return p;
+    },
+
+    // What the agents bought: the newest receipts, for the Purchases screen. Receipts made before the list
+    // existed are found through the activity log.
+    async purchases({ agent = null, limit = 100 } = {}) {
+      const n = Math.min(200, Math.max(1, Number(limit) || 100));
+      const list = await store.listPurchases(n);
+      const seen = new Set(list.map((p) => p.id));
+      for (const e of await store.listEvents(500)) {
+        if (!e.purchase || seen.has(e.purchase)) continue;
+        seen.add(e.purchase);
+        const p = await store.getPurchase(e.purchase);
+        if (p) list.push(p);
+      }
+      return list.filter((p) => !agent || p.agent === agent).sort((x, y) => y.createdAt - x.createdAt).slice(0, n)
+        .map(({ id, agent, agentName, method, chainId, to, amounts, what, verdict, approval, status, outcome, createdAt }) => ({ id, agent, agentName, method, chainId, to, amounts, what, verdict: verdict?.verdict ?? null, approvedBy: approval?.by ?? null, status, error: outcome?.error ?? null, httpStatus: outcome?.httpStatus ?? null, createdAt }));
     },
 
     async spending() { const { policy } = await policyNow(); return summarize(policy, await usedNow(policy)); },

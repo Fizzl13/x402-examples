@@ -176,7 +176,8 @@ export function createWallet(config, overrides = {}) {
       if (!/^https?:\/\//.test(url)) throw new TypeError("url must start with https:// or http://");
       return guarded.withPurchase({ url, description: reason || `${method} ${new URL(url).host}` }, async (report) => {
         const out = await callX402({ url, method, body, headers, maxPriceUsd });
-        report({ httpStatus: out.status, ...(out.payment?.transaction ? { settlement: { transaction: out.payment.transaction, network: out.payment.network } } : {}) });
+        // The answer goes on the owner's receipt too (wallet server), so they can see what was bought.
+        report({ httpStatus: out.status, ...(out.payment?.transaction ? { settlement: { transaction: out.payment.transaction, network: out.payment.network } } : {}), ...(out.body ? { content: { contentType: out.contentType ?? null, body: out.body } } : {}) });
         return out;
       });
     },
