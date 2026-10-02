@@ -144,6 +144,8 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       const charges = result.charges.map((c) => ({ budget: c.budget, amount: c.amount.toString() }));
       const info = { method, chainId: request.chainId, to: spend.items[0]?.to ?? request.to ?? null };
       agent.lastSeen = now();
+      const from = request.type === "signature" ? request.typedData?.message?.from : null;
+      if (typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from)) agent.address = from; // its wallet, learned from what it signs
       await store.putAgent(agent);
       if (!result.reasons.length) {
         const entries = await book(agent, charges, info);
@@ -304,6 +306,22 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       await store.deleteAgent(agentId);
       await log("agent_removed", { agent: a.name });
     },
+    // Any call from an agent counts as contact (written at most once a minute).
+    async seen(agent) {
+      if (agent.lastSeen && now() - agent.lastSeen < 60_000) return;
+      await locked(async () => { const a = await store.getAgent(agent.id); if (a) { a.lastSeen = now(); await store.putAgent(a); } });
+    },
+    // The agent's own wallet address (public), so the setup check can look at its balance. Null clears it.
+    async setAgentAddress(agentId, address) {
+      if (address !== null && !(typeof address === "string" && /^0x[0-9a-fA-F]{40}$/.test(address))) throw Object.assign(new Error("address must be an 0x… address"), { status: 400 });
+      return locked(async () => {
+        const a = await store.getAgent(agentId);
+        if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
+        a.address = address; await store.putAgent(a);
+        return publicAgent(a);
+      });
+    },
+    async agents() { return (await store.listAgents()).map(publicAgent).sort((x, y) => x.createdAt - y.createdAt); },
     async agentForKey(key) { return typeof key === "string" && key.startsWith("awk_") ? store.agentByKeyHash(hashKey(key)) : null; },
 
     // Everything the dashboard shows.

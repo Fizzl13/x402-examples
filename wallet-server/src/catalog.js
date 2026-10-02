@@ -94,7 +94,8 @@ const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().sl
 
 // `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null } = {}) {
+// `onNew(providers)` is called once with the sellers that appeared since the last load (never for the baseline).
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null } = {}) {
   let items = null, at = 0, loading = null, firstSeen = {};
   async function load() {
     if (items && now() - at < TTL_MS) return items;
@@ -108,7 +109,8 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (batch.length < 500) break;
       }
       items = all; at = now();
-      await track(all).catch((err) => console.warn(`[catalog] tracking new providers: ${err.message}`));
+      const fresh = await track(all).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
+      if (fresh.length && onNew) announce(all, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
       return all;
     })().finally(() => { loading = null; });
     return loading;
@@ -123,11 +125,40 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     for (const o of origins) if (!(o in known)) fresh[o] = baseline ? 0 : now();
     if (seen && Object.keys(fresh).length) await seen.addSeen(fresh);
     firstSeen = { ...known, ...fresh };
+    return baseline ? [] : Object.keys(fresh);
+  }
+  // What each new seller offers, for onNew: one summary per origin (sellers without a USDC price are left out).
+  function summarize(all, origins) {
+    const by = new Map();
+    for (const item of all) {
+      let u; try { u = new URL(item.resource); } catch { continue; }
+      if (!origins.has(u.origin)) continue;
+      const prices = pricesOf(item);
+      if (!prices.length) continue;
+      const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", cats: new Map() };
+      p.listings++;
+      p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
+      prices.forEach((x) => p.networks.add(x.network));
+      if (!p.description) p.description = text(item.description, 300) || text(item.accepts?.[0]?.description, 300);
+      const c = categoryOf(item, u);
+      p.cats.set(c, (p.cats.get(c) ?? 0) + 1);
+      by.set(u.origin, p);
+    }
+    // A seller's category: the one most of its listings fall in.
+    return [...by.values()].map(({ cats, networks, ...p }) => ({ ...p, networks: [...networks], category: [...cats].sort((a, b) => b[1] - a[1])[0][0] }));
+  }
+  async function announce(all, origins) {
+    const providers = summarize(all, origins);
+    if (!providers.length) return;
+    if (skills) { await skills.check(providers.map((p) => p.origin)); for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null; }
+    await onNew(providers);
   }
   const categoryOf = (item, u) => categorize(`${item.description ?? ""} ${item.accepts?.[0]?.description ?? ""} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`);
   const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
 
   return {
+    // Load the catalog now if the cached copy is old (the server does this hourly, so new sellers are noticed).
+    async refresh() { await load(); },
     // Sellers that appeared in the last `days` days, newest first, with what they offer.
     async newProviders({ days = 7, limit = 30 } = {}) {
       const list = await load();

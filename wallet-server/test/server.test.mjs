@@ -871,3 +871,108 @@ test("skill.md check: only public https sellers, no redirects, small markdown; c
   const r = await catalog.search("crypto signal");
   assert.deepEqual(r.results.map((x) => [x.host, x.skill]), [["good.example", "https://good.example/skill.md"], ["missing.example", null]]);
 });
+
+test("test my setup: key, contact, rules, balance and Telegram, checked without paying anything", async () => {
+  const AGENT = privateKeyToAccount(generatePrivateKey()).address;
+  let balance = 0n;
+  const { server, owner, agent, tg } = await boot({ rpc: async (method, params) => (method === "eth_call" && params[0].to === USDC ? `0x${balance.toString(16).padStart(64, "0")}` : null) });
+  try {
+    const check = async (body = {}) => { const r = await owner("POST", "/api/setup/check", body); assert.equal(r.status, 200); return { ...r.body, by: Object.fromEntries(r.body.checks.map((c) => [c.id, c])) }; };
+    let r = await check();
+    assert.equal(r.by.agent.status, "ok");
+    assert.equal(r.by.contact.status, "fail"); // never reached the wallet
+    assert.match(r.by.contact.fix, /WALLET_SERVER_URL/);
+    assert.equal(r.by.rules.status, "ok");
+    assert.equal(r.by.balance.status, "warn"); // address unknown
+    assert.equal(r.by.telegram.status, "ok");
+    assert.equal(r.ready, false);
+
+    // Any agent call counts as contact.
+    assert.equal((await agent("GET", "/v1/spending")).status, 200);
+    await new Promise((ok) => setTimeout(ok, 20));
+    r = await check();
+    assert.equal(r.by.contact.status, "ok");
+    assert.match(r.by.contact.detail, /just now/);
+
+    // The agent's address: pasted by the owner (validated), then its USDC on Base is read.
+    assert.equal((await owner("PUT", `/api/agents/${r.agent.id}/address`, { address: "not-an-address" })).status, 400);
+    assert.equal((await owner("PUT", `/api/agents/${r.agent.id}/address`, { address: AGENT })).body.address, AGENT);
+    r = await check();
+    assert.equal(r.by.balance.status, "fail");
+    assert.match(r.by.balance.fix, /USDC on Base/);
+    balance = 2_500_000n;
+    r = await check();
+    assert.equal(r.by.balance.status, "ok");
+    assert.match(r.by.balance.detail, /2\.50 USDC/);
+    assert.equal(r.ready, true);
+
+    // Telegram: a test message on request, at most once a minute.
+    const before = tg.calls.filter((c) => c.method === "sendMessage").length;
+    r = await check({ telegram: true });
+    assert.match(r.by.telegram.detail, /test message/);
+    await check({ telegram: true });
+    const sent = tg.calls.filter((c) => c.method === "sendMessage");
+    assert.equal(sent.length, before + 1);
+    assert.equal(sent.at(-1).body.chat_id, "4242");
+    assert.match(sent.at(-1).body.text, /Nothing was paid/);
+
+    // A paused agent can't spend.
+    await owner("POST", `/api/agents/${r.agent.id}/pause`, { paused: true });
+    r = await check();
+    assert.equal(r.by.rules.status, "fail");
+    assert.equal(r.ready, false);
+  } finally { server.close(); }
+});
+
+test("test my setup: the agent's address is learned from the payment it signs", async () => {
+  const { server, owner, agent } = await boot();
+  try {
+    const from = privateKeyToAccount(generatePrivateKey()).address;
+    const request = { type: "signature", chainId: 8453, typedData: { domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: USDC }, primaryType: "TransferWithAuthorization", types: { TransferWithAuthorization: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" }] }, message: { from, to: SHOP, value: "10000", validAfter: "0", validBefore: "9999999999", nonce: `0x${"1".repeat(64)}` } } };
+    await agent("POST", "/v1/reserve", { method: "signTypedData", request });
+    assert.equal((await owner("GET", "/api/state")).body.agents[0].address, from);
+  } finally { server.close(); }
+});
+
+test("new providers on Telegram: per followed category, once per new seller, never for the baseline", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { server, owner, accounts, tg } = await boot();
+  try {
+    assert.equal((await owner("PUT", "/api/follow", { categories: ["crypto", "nope"] })).status, 400);
+    assert.deepEqual((await owner("PUT", "/api/follow", { categories: ["crypto", "security"] })).body.follow, ["crypto", "security"]);
+    assert.deepEqual((await owner("GET", "/api/me")).body.follow, ["crypto", "security"]);
+
+    let t = Date.parse("2026-10-01T00:00:00Z");
+    const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+    let items = [{ resource: "https://old.example/signal", description: "Crypto trend signal", accepts: [usdc("10000")] }];
+    const alerts = [];
+    const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, seen: memoryStore().global, fetch: async () => Response.json({ items }),
+      onNew: async (p) => { alerts.push(p); await accounts.alertNewProviders(p); } });
+    await catalog.refresh();
+    assert.equal(alerts.length, 0); // the first catalog is the baseline
+
+    const sentBefore = tg.calls.filter((c) => c.method === "sendMessage").length;
+    t += 2 * 3_600_000;
+    items = [...items,
+      { resource: "https://btc.example/signal", description: "Bitcoin trading signal", accepts: [usdc("20000")] },
+      { resource: "https://btc.example/levels", description: "Crypto support levels", accepts: [usdc("50000")] },
+      { resource: "https://rain.example/forecast", description: "Weather forecast for a city", accepts: [usdc("5000")] }];
+    await catalog.refresh();
+    await new Promise((ok) => setTimeout(ok, 30));
+    assert.deepEqual(alerts[0].map((p) => [p.host, p.category, p.listings, p.cheapest]).sort(), [["btc.example", "crypto", 2, 0.02], ["rain.example", "weather", 1, 0.005]]);
+    const sent = tg.calls.filter((c) => c.method === "sendMessage").slice(sentBefore);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].body.chat_id, "4242");
+    assert.match(sent[0].body.text, /A new provider in the x402 catalog/);
+    assert.match(sent[0].body.text, /btc\.example/);
+    assert.doesNotMatch(sent[0].body.text, /rain\.example/); // weather isn't followed
+    assert.match(sent[0].body.text, /not recommendations/);
+
+    // Following nothing: no message. "all": everything.
+    await owner("PUT", "/api/follow", { categories: [] });
+    assert.equal(await accounts.alertNewProviders(alerts[0]), 0);
+    await owner("PUT", "/api/follow", { categories: ["all"] });
+    assert.equal(await accounts.alertNewProviders(alerts[0]), 1);
+    assert.match(tg.calls.at(-1).body.text, /2 new providers/);
+  } finally { server.close(); }
+});

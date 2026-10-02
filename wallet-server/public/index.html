@@ -136,6 +136,17 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .catbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .catbar button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; }
 .skilltag { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--mint); border: 1px solid var(--mint); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
+.setup { padding: 20px; display: grid; gap: 12px; margin-top: 16px; }
+.setup .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.setup select { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 13px; }
+.checks { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.checks li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 10px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--mint); border-radius: 10px; background: rgba(2,10,10,.4); font-size: 13px; }
+.checks li.warn { border-left-color: var(--amber); } .checks li.fail { border-left-color: var(--rose); }
+.checks .ic { grid-row: span 3; font-size: 18px; line-height: 1.2; text-align: center; }
+.checks b { color: var(--text); } .checks .fix { color: var(--soft); } .checks .fix::before { content: "What to do: "; color: var(--amber); font-weight: 700; }
+.verdictline { font: 700 18px/1.3 var(--display); margin: 0; }
+.follow { display: grid; gap: 10px; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 14px; }
+.follow .chips button.on { border-color: var(--mint); color: #02100c; background: var(--mint); }
 .newtag { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #021; background: var(--amber); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
 .chips .newchip { border-color: var(--amber); color: var(--amber); }
 .hit .url { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
@@ -290,6 +301,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="actions">
           <a class="button" href="#needs">Needs you · <span id="pendingN">0</span></a>
           <button class="button stop" id="pauseAll">Pause all agents</button>
+          <button class="button ghost" type="button" id="setupTop">Test my setup</button>
         </div>
       </div>
       <div class="card day">
@@ -311,6 +323,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         </form>
         <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
         <div class="cats" id="searchCats" aria-label="Categories"></div>
+        <div class="follow" id="followBox" hidden>
+          <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between"><span class="tag">🔔 NEW PROVIDERS ON TELEGRAM</span><span class="note" id="followNow"></span></div>
+          <p class="note" style="margin:0">Get a Telegram message when a new seller joins the x402 catalog in a category you pick. At most one message an hour, and only when there's something new.</p>
+          <div class="chips" id="followChips"></div>
+          <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="button primary small" type="button" id="followSave">Save</button><span class="msg" id="followMsg" role="status"></span></div>
+        </div>
         <div id="searchOut" role="status" aria-live="polite"></div>
       </div>
     </section>
@@ -374,6 +392,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="Name your assistant, e.g. claude-desktop" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
+      <div class="card setup" id="setupCard">
+        <span class="tag">IS EVERYTHING READY? TEST IT WITHOUT PAYING</span>
+        <p class="note" style="margin:0">Checks the five things your agent needs: a key, contact with this wallet, rules that let it spend, USDC to pay with, and approvals on your phone. Nothing is paid or signed.</p>
+        <div class="row"><select id="setupAgent" aria-label="Agent to test" hidden></select><label class="note" id="setupTgWrap"><input type="checkbox" id="setupTg" checked> send me a Telegram test message</label><button class="button primary small" type="button" id="setupRun">Test my setup</button></div>
+        <div id="setupOut" role="status" aria-live="polite"></div>
+      </div>
       <div class="fizzl" id="fizzlAgents">
         <span class="tag">FIZZL SERVICES YOUR AGENTS CAN USE</span>
         <p class="note">Paid services, not agents to add. Your agent calls them and pays per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
@@ -425,7 +449,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   if (DEMO) {
     const t0 = Date.now(), min = 60_000;
     const D = {
-      policy: { tokens: { USDC: { perTx: "5", perDay: "20" } }, unknownTokens: "ask", window: "24h" }, paused: false, used: 6.42,
+      policy: { tokens: { USDC: { perTx: "5", perDay: "20" } }, unknownTokens: "ask", window: "24h" }, paused: false, used: 6.42, follow: ["crypto", "security"],
       agents: [
         { id: "ag_r", name: "research-agent", paused: false, createdAt: t0 - 9e6, lastSeen: t0 - 2 * min, spent: 4.3 },
         { id: "ag_t", name: "trading-bot", paused: false, createdAt: t0 - 8e6, lastSeen: t0 - 9 * min, spent: 2.0 },
@@ -557,9 +581,24 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (method === "GET" && path === "/api/me") {
         return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
           proUntil: Date.now() + 23 * 86_400_000, auto: { contract: "0x0000000000000000000000000000000000000000", on: true, nextCharge: Date.now() + 23 * 86_400_000, paidThrough: Date.now() + 23 * 86_400_000, monthsApproved: 11, balanceUsdc: 42 },
-          payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], telegram: { linked: true, username: "you" },
+          payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], telegram: { linked: true, username: "you" }, follow: D.follow,
           billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
             chains: [[8453, "Base", "https://basescan.org"], [42161, "Arbitrum", "https://arbiscan.io"], [10, "Optimism", "https://optimistic.etherscan.io"], [137, "Polygon", "https://polygonscan.com"], [1, "Ethereum", "https://etherscan.io"]].map(([chainId, name, explorer]) => ({ chainId, name, explorer, nativeSymbol: chainId === 137 ? "POL" : "ETH" })) } };
+      }
+      if (method === "PUT" && path === "/api/follow") { D.follow = body.categories; return { follow: D.follow }; }
+      if (method === "PUT" && (m0 = /^\/api\/agents\/(.+)\/address$/.exec(path))) { const a = D.agents.find((x) => x.id === decodeURIComponent(m0[1])); if (a) a.address = body.address; return a; }
+      if (method === "POST" && path === "/api/setup/check") {
+        const a = D.agents.find((x) => x.id === body.agentId) ?? D.agents[0];
+        if (!a) return { agent: null, ready: false, checks: [{ id: "agent", status: "fail", title: "An agent key", detail: "You have no agent yet.", fix: "Type a name under Your agents and click Add agent." }] };
+        const left = Math.max(0, Number(D.policy.tokens?.USDC?.perDay ?? 0) - D.used);
+        const checks = [
+          { id: "agent", status: "ok", title: "An agent key", detail: `${a.name} has a key.` },
+          a.lastSeen ? { id: "contact", status: "ok", title: "Your agent reaches the wallet", detail: `Last contact from ${a.name}: ${Math.max(1, Math.round((Date.now() - a.lastSeen) / 60_000))} minutes ago.` } : { id: "contact", status: "fail", title: "Your agent reaches the wallet", detail: `${a.name} has never contacted the wallet.`, fix: `Check WALLET_SERVER_URL and WALLET_SERVER_KEY, restart your agent, then ask it "what is my wallet status?" and run this test again.` },
+          D.paused || a.paused ? { id: "rules", status: "fail", title: "Your agents may spend", detail: D.paused ? "All agents are paused: nothing is signed." : `${a.name} is paused.`, fix: D.paused ? "Click Resume all agents at the top." : `Click Resume on ${a.name}.` } : { id: "rules", status: "ok", title: "Your agents may spend", detail: `Up to $${D.policy.tokens?.USDC?.perTx ?? "any amount"} per purchase on their own, $${left.toFixed(2)} left today. Above that, they ask you.` },
+          a.address ? { id: "balance", status: "ok", title: "Money to pay with", detail: `${a.name}'s wallet (${a.address.slice(0, 6)}…${a.address.slice(-4)}) has 12.40 USDC on Base (demo number).` } : { id: "balance", status: "warn", title: "Money to pay with", detail: `The wallet doesn't know ${a.name}'s address yet, so it can't see its balance.`, fix: "Paste your agent's wallet address (0x…, public, not the private key) below, or it's filled in after its first purchase." },
+          { id: "telegram", status: "ok", title: "Approvals on your phone", detail: body.telegram ? "Telegram is connected: on your own account we'd send you a test message now (demo: nothing sent)." : "Telegram is connected." },
+        ];
+        return { agent: { id: a.id, name: a.name, address: a.address ?? null }, checks, ready: checks.every((c) => c.status !== "fail") };
       }
       if (method === "PUT" && path === "/api/policy") { D.policy = body.policy; D.events.unshift({ at: Date.now(), type: "policy", by: "you" }); return { policy: D.policy }; }
       if (method === "POST" && path === "/api/pause") { D.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: body.paused ? "paused" : "resumed", by: "you" }); return { ok: true }; }
@@ -821,6 +860,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#who").innerHTML = `<span>${esc(short)}</span> <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
     $("#accountSec").hidden = false;
     $("#deleteBox").hidden = me.admin || DEMO;
+    renderFollow(); setupAgents();
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
       $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
@@ -1011,6 +1051,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     } catch { $("#searchCats").innerHTML = ""; }
   }
   function renderCats() {
+    renderFollow();
     $("#searchCats").innerHTML = catList.map((c) => `<button type="button" data-cat="${esc(c.id)}" class="${c.id === activeCat ? "on" : ""}" aria-pressed="${c.id === activeCat}"><span class="ic" aria-hidden="true">${esc(c.icon)}</span><b>${esc(c.name)}</b><small>${esc(c.count)} service${c.count === 1 ? "" : "s"}${c.fresh ? ` · <i>${esc(c.fresh)} new</i>` : ""}</small></button>`).join("");
   }
   $("#searchCats").addEventListener("click", (e) => {
@@ -1053,6 +1094,77 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   $("#addAgentTop").addEventListener("click", goAdd);
   $("#logout").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); showLogin(); });
+
+  // ---------- "Test my setup": the server checks key, contact, rules, balance and Telegram; nothing is paid ----------
+  let setupAgentId = null;
+  function setupAgents() {
+    const sel = $("#setupAgent"), list = state?.agents ?? [];
+    sel.hidden = list.length < 2;
+    const want = setupAgentId ?? sel.value;
+    sel.innerHTML = list.map((a) => `<option value="${esc(a.id)}"${a.id === want ? " selected" : ""}>${esc(a.name)}</option>`).join("");
+    $("#setupTgWrap").hidden = !me?.telegram?.linked && !me?.admin;
+  }
+  async function runSetup() {
+    const out = $("#setupOut"), btn = $("#setupRun");
+    btn.disabled = true;
+    out.innerHTML = `<p class="note" style="margin:0">Checking…</p>`;
+    try {
+      const r = await api("POST", "/api/setup/check", { agentId: $("#setupAgent").value || null, telegram: !$("#setupTgWrap").hidden && $("#setupTg").checked });
+      setupAgentId = r.agent?.id ?? null;
+      const icon = { ok: "✓", warn: "⚠", fail: "✗" }, fails = r.checks.filter((c) => c.status === "fail").length, warns = r.checks.filter((c) => c.status === "warn").length;
+      const head = fails ? `<p class="verdictline" style="color:var(--rose)">Not ready yet: ${fails} thing${fails === 1 ? "" : "s"} to fix.</p>` : warns ? `<p class="verdictline" style="color:var(--amber)">Ready, with ${warns} tip${warns === 1 ? "" : "s"}.</p>` : `<p class="verdictline" style="color:var(--mint)">All set: your agent can pay.</p>`;
+      const needAddr = r.agent && r.checks.some((c) => c.id === "balance" && c.status === "warn" && !r.agent.address);
+      out.innerHTML = `${head}<ol class="checks">${r.checks.map((c) => `<li class="${esc(c.status)}"><span class="ic" aria-label="${esc(c.status)}">${icon[c.status]}</span><b>${esc(c.title)}</b><span class="note">${esc(c.detail)}</span>${c.fix ? `<span class="fix">${esc(c.fix)}</span>` : ""}</li>`).join("")}</ol>
+        ${needAddr ? `<div class="paste" style="display:flex;gap:8px;flex-wrap:wrap"><input id="setupAddr" placeholder="0x… your agent's wallet address (public)" aria-label="Agent wallet address" style="flex:1;min-width:220px"><button class="button small" type="button" id="setupAddrSave">Save and test again</button></div><p class="note" style="margin:0">Only the address: never paste a private key or recovery phrase anywhere.</p>` : ""}
+        ${r.agent?.address ? `<p class="note" style="margin:0">Agent wallet: <code>${esc(r.agent.address)}</code> <button class="link" type="button" id="setupAddrClear">change</button></p>` : ""}`;
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+    finally { btn.disabled = false; }
+  }
+  $("#setupRun").addEventListener("click", runSetup);
+  $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
+  $("#setupTop").addEventListener("click", () => {
+    $("#setupCard").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    runSetup();
+  });
+  $("#setupOut").addEventListener("click", async (e) => {
+    if (e.target.closest("#setupAddrSave")) {
+      const v = $("#setupAddr").value.trim();
+      if (!/^0x[0-9a-fA-F]{40}$/.test(v)) { $("#setupAddr").setCustomValidity("An 0x… address of 42 characters"); $("#setupAddr").reportValidity(); return; }
+      try { await api("PUT", `/api/agents/${encodeURIComponent(setupAgentId)}/address`, { address: v }); runSetup(); } catch (err) { alert(err.message); }
+    }
+    if (e.target.closest("#setupAddrClear")) { try { await api("PUT", `/api/agents/${encodeURIComponent(setupAgentId)}/address`, { address: null }); runSetup(); } catch {} }
+  });
+
+  // ---------- new providers on Telegram, per category ----------
+  let follow = null; // the choice being edited (null: what's saved)
+  function renderFollow() {
+    if (!me || !catList.length) return;
+    $("#followBox").hidden = false;
+    const linked = me.telegram?.linked || me.admin;
+    const on = new Set(follow ?? me.follow ?? []);
+    const opts = [{ id: "all", icon: "🌍", name: "Everything new" }, ...catList];
+    $("#followChips").innerHTML = opts.map((c) => `<button type="button" data-follow="${esc(c.id)}" class="${on.has(c.id) ? "on" : ""}" aria-pressed="${on.has(c.id)}">${esc(c.icon)} ${esc(c.name)}</button>`).join("");
+    const saved = me.follow ?? [];
+    $("#followNow").textContent = saved.length ? `on · ${saved.includes("all") ? "everything new" : `${saved.length} categor${saved.length === 1 ? "y" : "ies"}`}` : "off";
+    $("#followSave").disabled = !linked;
+    if (!linked) { $("#followMsg").textContent = "Connect Telegram first (under Your account)."; $("#followMsg").className = "msg"; }
+  }
+  $("#followChips").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-follow]"); if (!b) return;
+    const on = new Set(follow ?? me.follow ?? []), id = b.dataset.follow;
+    if (on.has(id)) on.delete(id); else { on.add(id); if (id === "all") [...on].forEach((x) => x !== "all" && on.delete(x)); else on.delete("all"); }
+    follow = [...on];
+    $("#followMsg").textContent = "not saved yet"; $("#followMsg").className = "msg";
+    renderFollow();
+  });
+  $("#followSave").addEventListener("click", async () => {
+    try {
+      const r = await api("PUT", "/api/follow", { categories: follow ?? me.follow ?? [] });
+      me.follow = r.follow; follow = null;
+      $("#followMsg").textContent = r.follow.length ? "Saved: you get a Telegram message when a new provider shows up." : "Saved: alerts are off."; $("#followMsg").className = "msg good";
+      renderFollow();
+    } catch (err) { $("#followMsg").textContent = err.message; $("#followMsg").className = "msg bad"; }
+  });
 
   // Purchases: what the agents bought, newest first, each opening its receipt.
   let buys = [];
@@ -1343,6 +1455,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div><div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div></article>`;
     }).join("") : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
+    setupAgents();
     // events
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
     const line = (e) => ({

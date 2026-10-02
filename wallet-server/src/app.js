@@ -43,6 +43,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       if (!found) return res.status(401).json({ error: "unauthorized", message: "Send Authorization: Bearer <agent key>. Keys are made on the dashboard." });
       req.agent = found.agent;
       req.wallet = accounts.walletFor(found.account);
+      req.wallet.seen(found.agent).catch(() => {}); // for "Test my setup": the agent got through
       next();
     } catch (err) { console.error(err); res.status(500).json({ error: "server_error" }); }
   };
@@ -132,6 +133,9 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/pause", wrap(async (req, res) => { await req.wallet.setPaused(!!req.body?.paused); res.json({ ok: true }); }));
   owner.post("/agents", wrap(async (req, res) => res.json(await req.wallet.addAgent(req.body?.name))));
   owner.post("/agents/:id/pause", wrap(async (req, res) => res.json(await req.wallet.setAgentPaused(req.params.id, !!req.body?.paused))));
+  owner.put("/agents/:id/address", wrap(async (req, res) => res.json(await req.wallet.setAgentAddress(req.params.id, req.body?.address || null))));
+  owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
+  owner.put("/follow", wrap(async (req, res) => res.json(await accounts.setFollow(req.account, req.body?.categories))));
   owner.delete("/agents/:id", wrap(async (req, res) => { await req.wallet.removeAgent(req.params.id); res.json({ ok: true }); }));
   owner.post("/approvals/:id", wrap(async (req, res) => {
     const d = req.body?.decision;

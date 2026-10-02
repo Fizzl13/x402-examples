@@ -71,15 +71,18 @@ const accounts = createAccounts({
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])] },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
-const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker() });
+// New sellers in the catalog go to the Telegram of accounts that follow their category.
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(),
+  onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const app = createApp({ accounts, auth, telegram, catalog, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 
-// Every hour: take automatic payments that are due, then send Pro reminders on Telegram.
+// Every hour: take automatic payments that are due, send Pro reminders on Telegram, and look for new sellers in the catalog.
 const hourly = async () => {
   try { const r = await accounts.chargeDue(); if (r.charged || r.failed) console.log(`[subscription] charged ${r.charged}, failed ${r.failed}`); } catch (err) { console.warn(`[subscription] ${err.message}`); }
   try { await accounts.remind(); } catch (err) { console.warn(`[remind] ${err.message}`); }
+  try { await catalog.refresh(); } catch (err) { console.warn(`[catalog] ${err.message}`); }
 };
 setTimeout(hourly, 60_000).unref();
 setInterval(hourly, 3_600_000).unref();

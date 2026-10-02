@@ -15,6 +15,10 @@ import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransfer
 import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decodeFunctionResult, encodeDeployData, erc20Abi } from "viem";
 import { createWallet, hashKey } from "./wallet.js";
 import { ADMIN } from "./store.js";
+import { CATEGORIES } from "./catalog.js";
+
+// Categories an account can follow for new-provider alerts ("all" = every new seller).
+const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
 
 export const PLANS = {
   free: { name: "free", maxAgents: 1, receiptDays: 7 },
@@ -58,6 +62,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
+  const telegramTests = new Map(); // account -> when the last setup-check message went out
   const serial = (id, fn) => { const run = (queues.get(id) ?? Promise.resolve()).then(fn, fn); queues.set(id, run.catch(() => {})); return run; };
   const site = new URL(publicUrl || "http://localhost");
   // An origin from the request (scheme + Host), if it looks like one; otherwise PUBLIC_URL.
@@ -83,7 +88,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const isSol = (a) => a?.chain === "solana";
 
   async function account(id) {
-    if (id === ADMIN) return { id: ADMIN, admin: true, telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null };
+    if (id === ADMIN) return { id: ADMIN, admin: true, follow: (await g.getAccount(ADMIN))?.follow ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null };
     return g.getAccount(id);
   }
   // Pro lasts until the later of what was paid by hand and what the subscription contract took.
@@ -180,6 +185,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         auto: subscription && !a.admin && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
+        follow: a.follow ?? [],
         billing: a.admin ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
@@ -227,6 +233,96 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!a?.telegram || String(from?.id) !== String(a.telegram.userId)) return { refused: true };
       const who = from.username ? `@${from.username}` : "Telegram";
       return walletFor(owner).decide(approvalId, decision, who);
+    },
+
+    // ---------- "Test my setup": everything an agent needs, checked without paying anything ----------
+    // Returns { checks: [{ id, status: "ok" | "warn" | "fail", title, detail, fix? }] } in the order a
+    // newcomer sets things up. Sends one Telegram test message when `telegram` is true (once a minute).
+    async setupCheck(id, { agentId = null, telegram: testTelegram = false } = {}) {
+      const a = await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      const w = walletFor(id), plan = planOf(a), checks = [];
+      const add = (cid, status, title, detail, fix = null) => checks.push({ id: cid, status, title, detail, ...(fix ? { fix } : {}) });
+      const agents = await w.agents();
+      const allowed = plan.maxAgents ? agents.slice(0, plan.maxAgents).map((x) => x.id) : agents.map((x) => x.id);
+      const agent = agents.find((x) => x.id === agentId) ?? agents.find((x) => x.lastSeen) ?? agents[0] ?? null;
+
+      if (!agent) add("agent", "fail", "An agent key", "You have no agent yet.", "Type a name under Your agents and click Add agent. Put the key it shows in your agent's settings as WALLET_SERVER_KEY.");
+      else add("agent", "ok", "An agent key", `${agent.name} has a key.${agents.length > 1 ? ` (${agents.length} agents; this test looks at ${agent.name}.)` : ""}`);
+
+      if (agent) {
+        const ago = agent.lastSeen ? now() - agent.lastSeen : null;
+        if (ago === null) add("contact", "fail", "Your agent reaches the wallet", `${agent.name} has never contacted the wallet.`, `Check that WALLET_SERVER_URL is ${site.origin} and WALLET_SERVER_KEY is the key of ${agent.name}, restart your agent (for Claude Desktop: quit and open it again), then ask it "what is my wallet status?" and run this test again.`);
+        else add("contact", ago < 7 * DAY ? "ok" : "warn", "Your agent reaches the wallet", `Last contact from ${agent.name}: ${ago < 120_000 ? "just now" : ago < 2 * 3_600_000 ? `${Math.round(ago / 60_000)} minutes ago` : ago < 2 * DAY ? `${Math.round(ago / 3_600_000)} hours ago` : `${Math.round(ago / DAY)} days ago`}.`, ago < 7 * DAY ? null : `Ask your agent "what is my wallet status?" and run this test again.`);
+      }
+
+      const state = await w.state();
+      const usdc = state.spending.find((b) => b.token === "USDC");
+      if (state.paused) add("rules", "fail", "Your agents may spend", "All agents are paused: nothing is signed.", "Click Resume all agents at the top.");
+      else if (agent?.paused) add("rules", "fail", "Your agents may spend", `${agent.name} is paused.`, `Click Resume on ${agent.name} under Your agents.`);
+      else if (agent && !allowed.includes(agent.id)) add("rules", "fail", "Your agents may spend", `The free plan has ${plan.maxAgents} agent; ${agent.name} is paused until you upgrade.`, "Upgrade to Pro under Your account, or remove the other agent.");
+      else if (!usdc) add("rules", "warn", "Your agents may spend", "There is no USDC rule, so every USDC payment asks you first.", "Set your price rule (section 01).");
+      else if (usdc.left !== null && Number(usdc.left) <= 0) add("rules", "warn", "Your agents may spend", `Today's budget of $${usdc.perDay} is used up: purchases ask you until it frees up.`, "Wait, or raise the daily budget (section 01).");
+      else add("rules", "ok", "Your agents may spend", `Up to $${usdc.perTx ?? "any amount"} per purchase on their own${usdc.left !== null ? `, $${usdc.left} left today` : ""}. Above that, they ask you.`);
+
+      if (agent?.address) {
+        try {
+          const bal = Number(await call(token, erc20Abi, "balanceOf", [agent.address])) / 1e6;
+          const where = `${agent.address.slice(0, 6)}…${agent.address.slice(-4)}`;
+          if (bal <= 0) add("balance", "fail", "Money to pay with", `${agent.name}'s wallet (${where}) has no USDC on Base.`, `Send a few dollars of USDC on Base to ${agent.address}. Only what it may spend: it's your agent's wallet, not your main one.`);
+          else add("balance", bal < 1 ? "warn" : "ok", "Money to pay with", `${agent.name}'s wallet (${where}) has ${bal.toFixed(2)} USDC on Base.`, bal < 1 ? "That's enough for small calls only. Add a few dollars of USDC on Base if your agent needs more." : null);
+        } catch (err) { add("balance", "warn", "Money to pay with", `The balance couldn't be read right now (${err.message}).`, "Try again in a minute."); }
+      } else if (agent) add("balance", "warn", "Money to pay with", `The wallet doesn't know ${agent.name}'s address yet, so it can't see its balance.`, "Paste your agent's wallet address (0x…, public, not the private key) below, or it's filled in after its first purchase.");
+
+      if (!telegram) add("telegram", "warn", "Approvals on your phone", "Telegram isn't set up on this server; approve on this dashboard.");
+      else if (!a.telegram?.chatId) add("telegram", "warn", "Approvals on your phone", "Telegram isn't connected: purchases over your rule wait for you on this dashboard only.", "Click Connect Telegram under Your account.");
+      else if (!testTelegram) add("telegram", "ok", "Approvals on your phone", "Telegram is connected.");
+      else {
+        const last = telegramTests.get(id) ?? 0;
+        if (now() - last < 60_000) add("telegram", "ok", "Approvals on your phone", "Telegram is connected (a test message was sent less than a minute ago).");
+        else {
+          telegramTests.set(id, now());
+          try { await telegram.send(a.telegram.chatId, "✓ Test from your Fizzl Agent Wallet: approval requests over your rule come here, with Approve and Deny buttons. Nothing was paid."); add("telegram", "ok", "Approvals on your phone", "Telegram is connected: we just sent you a test message."); }
+          catch (err) { add("telegram", "fail", "Approvals on your phone", `The test message didn't arrive (${err.message}).`, "Did you block the bot? Disconnect Telegram and connect it again."); }
+        }
+      }
+      return { agent: agent ? { id: agent.id, name: agent.name, address: agent.address ?? null } : null, checks, ready: checks.every((c) => c.status !== "fail") };
+    },
+
+    // ---------- new providers in the x402 catalog, on Telegram, for the categories an account follows ----------
+    async setFollow(id, categories) {
+      if (!Array.isArray(categories) || categories.length > 20 || categories.some((c) => !FOLLOWABLE.has(c))) throw Object.assign(new Error(`categories: a list of ${[...FOLLOWABLE].join(", ")}`), { status: 400 });
+      const follow = [...new Set(categories)];
+      if (id === ADMIN) { await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), follow }); return { follow }; }
+      const a = await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      await serial(id, async () => touch((await g.getAccount(id)) ?? a, { follow }));
+      return { follow };
+    },
+    // `providers`: sellers that just appeared ({ origin, host, category, description, cheapest, networks, skill }).
+    // One message per account, with the ones in the categories it follows. Returns how many messages went out.
+    async alertNewProviders(providers) {
+      if (!telegram || !providers?.length) return 0;
+      const names = Object.fromEntries([...CATEGORIES.map((c) => [c.id, `${c.icon} ${c.name}`]), ["other", "✨ Other"]]);
+      const money = (n) => (n < 0.01 ? `$${+n.toFixed(4)}` : `$${n.toFixed(2)}`);
+      const list = [...(await g.listAccounts()).filter((a) => a.id !== ADMIN && !a.deletedAt), await account(ADMIN)];
+      let sent = 0;
+      for (const a of list) {
+        const follow = new Set(a?.follow ?? []);
+        if (!follow.size || !a.telegram?.chatId) continue;
+        const mine = providers.filter((p) => follow.has("all") || follow.has(p.category));
+        if (!mine.length) continue;
+        const lines = [`🆕 ${mine.length === 1 ? "A new provider" : `${mine.length} new providers`} in the x402 catalog`, ""];
+        for (const p of mine.slice(0, 8)) {
+          lines.push(`${names[p.category] ?? names.other} · ${p.host}`);
+          if (p.description) lines.push(p.description.length > 160 ? `${p.description.slice(0, 157)}…` : p.description);
+          lines.push(`from ${money(p.cheapest)} · ${p.networks.join(", ")}${p.skill ? ` · skill.md: ${p.skill.replace(/^https:\/\//, "")}` : ""}`, "");
+        }
+        if (mine.length > 8) lines.push(`…and ${mine.length - 8} more.`, "");
+        lines.push(`Listings are written by the sellers, not recommendations. Search them in your wallet: ${site.origin}`, "Change which categories you follow there, under Find services.");
+        try { await telegram.send(a.telegram.chatId, lines.join("\n")); sent++; } catch (err) { console.warn(`[alerts] ${err.message}`); }
+      }
+      return sent;
     },
 
     // ---------- deleting an account (GDPR erasure) ----------
