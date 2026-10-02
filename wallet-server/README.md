@@ -44,6 +44,7 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `OPERATOR_NAME` | who runs the service, shown in the privacy statement at `/privacy` |
    | `CONTACT_EMAIL` | where customers reach you about their data, shown in the privacy statement |
    | `SUBSCRIPTION_CONTRACT` | optional: the deployed [subscription contract](../subscription) for automatic Pro payments |
+   | `ETHEREUM_RPC_URL`, `ARBITRUM_RPC_URL`, `OPTIMISM_RPC_URL`, `POLYGON_RPC_URL` | optional: RPCs to check Pro payments made on those networks (public RPCs by default). Pro can be paid in USDC on Base, Arbitrum, Optimism, Polygon or Ethereum, to `PRO_PAY_TO` on each |
    | `SOLANA_PAY_TO` | optional: the Solana address that receives Pro payments. Turns on signing in with Phantom on Solana and paying Pro in USDC on Solana |
    | `SOLANA_RPC_URL` | optional: a Solana RPC to build and check those payments (default `https://api.mainnet-beta.solana.com`) |
    | `CHARGER_KEY` | optional: private key of a **new, separate** wallet with a little ETH on Base that sends the monthly charges (never your payout wallet) |
@@ -56,7 +57,7 @@ Anyone can sign in with their wallet: MetaMask, Phantom, Coinbase Wallet, Rabby 
 - **Telegram:** one bot for everyone. A customer clicks "Connect Telegram", presses Start, and their approval requests go to their chat. Only that Telegram user can tap Approve or Deny on them.
 - **Free:** 1 agent, receipts kept 7 days.
 - **Pro:** unlimited agents, receipts kept 90 days, $5 per 30 days (`PRO_PRICE_USDC`).
-  - Paid in USDC on Base, straight from the customer's wallet to `PRO_PAY_TO`. The server checks each payment on-chain: from the signed-in address, to your address, at least the price, within 7 days, and used once.
+  - Paid in USDC on Base, Arbitrum, Optimism, Polygon or Ethereum (or on Solana with `SOLANA_PAY_TO`), straight from the customer's wallet to `PRO_PAY_TO`. The server checks each payment on-chain: from the signed-in address, to your address, at least the price, within 7 days, and used once.
   - Paying for 12 months at once adds a year.
   - A Telegram reminder goes out 3 days before Pro ends. After it ends there are 3 days of grace, then the account drops to free. Extra agents are paused, nothing is deleted.
 - **Automatic payment:** with the [subscription contract](../subscription) deployed (one click on your dashboard), customers can turn on automatic payment.

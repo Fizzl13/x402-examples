@@ -422,6 +422,36 @@ test("free plan: one agent; a second is refused, and paused if it already exists
   } finally { server.close(); }
 });
 
+test("Pro: also paid in USDC on Ethereum, Arbitrum, Optimism or Polygon, each checked against that network's USDC", async () => {
+  const c = chain();
+  const { base, server, accounts } = await boot({ rpc: c.rpc });
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    const claim = (txHash, chainId) => a.call("POST", "/api/billing/claim", { txHash, chainId });
+    const { PAY_CHAINS } = await import("../src/accounts.js");
+    const me = (await a.call("GET", "/api/me")).body;
+    assert.deepEqual(me.billing.chains.map((x) => x.name), ["Base", "Arbitrum", "Optimism", "Polygon", "Ethereum"]);
+
+    // USDC on Arbitrum, claimed as Arbitrum: Pro. The same hash claimed as Base (wrong token) is refused.
+    const arb = c.pay(alice.address, 5, { token: PAY_CHAINS[42161].usdc });
+    assert.match((await claim(arb, 8453)).body.message, /no payment of 5 USDC on Base/);
+    const paid = (await claim(arb, 42161)).body;
+    assert.equal(paid.plan, "pro");
+    assert.equal(paid.payments[0].chainId, 42161);
+    assert.equal((await claim(arb, 42161)).body.payments.length, 1); // once
+    // Polygon's USDC claimed as Optimism is refused; a network we don't take is refused.
+    assert.equal((await claim(c.pay(alice.address, 5, { token: PAY_CHAINS[137].usdc }), 10)).status, 400);
+    assert.match((await claim(c.pay(alice.address, 5), 56)).body.message, /can be paid on/);
+    // Ethereum: 12 months.
+    const eth = (await claim(c.pay(alice.address, 60, { token: PAY_CHAINS[1].usdc }), 1)).body;
+    assert.equal(eth.payments[0].months, 12);
+    assert.equal(eth.payments[0].chainId, 1);
+    const rows = await accounts.allPayments();
+    assert.deepEqual(rows.map((r) => r.chainId), [42161, 1]);
+  } finally { server.close(); }
+});
+
 test("Pro: paid in USDC on Base from the customer's own wallet to the owner, checked on-chain", async () => {
   const c = chain();
   const { base, server, owner } = await boot({ rpc: c.rpc });
@@ -453,7 +483,8 @@ test("Pro: paid in USDC on Base from the customer's own wallet to the owner, che
     assert.equal(two.body.limits.receiptDays, 90);
 
     const csv = await (await fetch(`${base}/api/admin/payments.csv`, { headers: { cookie: (await (await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) })).headers.get("set-cookie")).split(";")[0] } })).text();
-    assert.match(csv, /^date,account,amount_usdc,months,transaction,paid_until,automatic\n/);
+    assert.match(csv, /^date,account,network,amount_usdc,months,transaction,paid_until,automatic\n/);
+    assert.match(csv, /,Base,5,1,/);
     assert.equal(csv.trim().split("\n").length, 3);
     assert.ok(csv.includes(alice.address));
     assert.equal((await owner("GET", "/api/me")).body.plan, "owner");

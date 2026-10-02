@@ -19,6 +19,8 @@
 //   OPERATOR_NAME       who runs the service, shown in the privacy statement (/privacy)
 //   CONTACT_EMAIL       where customers reach you about their data, shown in the privacy statement
 //   SUBSCRIPTION_CONTRACT  optional: the deployed FizzlSubscription address (automatic Pro payments)
+//   ETHEREUM_RPC_URL, ARBITRUM_RPC_URL, OPTIMISM_RPC_URL, POLYGON_RPC_URL
+//                       optional: RPCs to check Pro payments on those networks (public ones by default)
 //   SOLANA_PAY_TO       optional: the Solana address that receives Pro payments; turns on sign-in
 //                       with Phantom on Solana and paying Pro in USDC on Solana
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
@@ -62,6 +64,7 @@ const accounts = createAccounts({
   adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null,
   publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
   billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,
+    chains: Object.fromEntries([[1, env.ETHEREUM_RPC_URL], [42161, env.ARBITRUM_RPC_URL], [10, env.OPTIMISM_RPC_URL], [137, env.POLYGON_RPC_URL]].filter(([, u]) => u).map(([id, rpcUrl]) => [id, { rpcUrl }])),
     solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null },
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])] },
 });
