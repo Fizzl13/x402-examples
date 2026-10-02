@@ -39,6 +39,18 @@ function network({ price = "50000" } = {}) {
       const receipt = Buffer.from(JSON.stringify({ success: true, transaction: "0xsettled", network: "eip155:8453", payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" })).toString("base64");
       return new Response(JSON.stringify({ answer: 42 }), { status: 200, headers: { "content-type": "application/json", "payment-response": receipt } });
     }
+    // The x402 catalog (Bazaar discovery).
+    if (url.startsWith("https://catalog.test/")) {
+      catalogCalls.push(url);
+      const usdcOn = (network, asset, amount) => ({ scheme: "exact", network, asset, amount, payTo: SHOP });
+      return Response.json({ items: [
+        { resource: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "Ichimoku cloud trend signal for a crypto pair (bullish, bearish, neutral)", accepts: [usdcOn("eip155:8453", USDC_BASE, "20000")], extensions: { bazaar: { info: { input: { method: "GET", queryParams: { pair: "BTC-USDT" } } } } } },
+        { resource: "https://pricey.example/signal", description: "Premium crypto trend signal", accepts: [usdcOn("eip155:8453", USDC_BASE, "5000000")] },
+        { resource: "https://solana-only.example/signal", description: "Crypto trend signal", accepts: [usdcOn("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "10000")] },
+        { resource: "https://weather.example/today", description: "Weather forecast for a city", accepts: [usdcOn("eip155:8453", USDC_BASE, "1000")] },
+        { resource: "https://cheap.example/trend", description: "Crypto trend in one word", accepts: [usdcOn("eip155:8453", USDC_BASE, "5000")] },
+      ] });
+    }
     // A wallet server: everything allowed, records what the receipts get.
     if (url.startsWith("https://wallet.test/v1/")) {
       const body = init.body ? JSON.parse(init.body) : null;
@@ -48,8 +60,8 @@ function network({ price = "50000" } = {}) {
     }
     throw new Error(`unexpected fetch ${url}`);
   };
-  const server = [];
-  return { fetch, checks, paid, server };
+  const server = [], catalogCalls = [];
+  return { fetch, checks, paid, server, catalogCalls };
 }
 
 // A stand-in for the viem wallet: records what it would send or sign.
@@ -104,10 +116,10 @@ test("configuration: a budget is required and conflicting setups are refused", (
   assert.equal(s.server.url, "https://wallet.fizzl.eu");
 });
 
-test("the MCP client sees five tools", async () => {
+test("the MCP client sees six tools", async () => {
   const { client } = await setup();
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["find_services", "pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
 });
 
 test("wallet_status: address, balances, limits and what is left", async () => {
@@ -231,3 +243,22 @@ test("pay_x402 with a wallet server: the API's answer goes on the receipt", asyn
   assert.deepEqual(annotate[1].outcome.settlement, { transaction: "0xsettled", network: "eip155:8453" });
   assert.deepEqual(annotate[1].outcome.content, { contentType: "application/json", body: JSON.stringify({ answer: 42 }) });
 });
+
+test("find_services: paid APIs from the x402 catalog this wallet can pay, best match first, within the price cap", async () => {
+  const net = network();
+  const fake = fakeWallet();
+  const wallet = createWallet(configFromEnv({ ...ENV, MAX_PAYMENT_USD: "1", X402_DISCOVERY_URL: "https://catalog.test/discovery" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const r = await wallet.findServices({ query: "bitcoin crypto trend signal" });
+  // Matches on Base in USDC under $1; the $5 one and the Solana-only one are left out, and so is the weather.
+  assert.deepEqual(r.services.map((s) => s.url), ["https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", "https://cheap.example/trend"]);
+  assert.equal(r.services[0].price_usd, 0.02);
+  assert.equal(r.services[0].method, "GET");
+  assert.deepEqual(r.services[0].input_example, { pair: "BTC-USDT" });
+  assert.match(r.note, /pay_x402/);
+  // A lower cap leaves out the $0.02 one; the catalog is fetched once and kept.
+  assert.deepEqual((await wallet.findServices({ query: "crypto trend", maxPriceUsd: 0.01 })).services.map((s) => s.url), ["https://cheap.example/trend"]);
+  assert.equal(net.catalogCalls.length, 1);
+  assert.equal((await wallet.findServices({ query: "quantum chess lessons" })).services.length, 0);
+  await assert.rejects(wallet.findServices({ query: "a" }), /say what you need/);
+});
+

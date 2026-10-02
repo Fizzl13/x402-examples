@@ -12,7 +12,7 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.4.0";
 
 export const CHAINS = {
   base: { chain: base, usdc: ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6] },
@@ -24,9 +24,16 @@ export const CHAINS = {
 };
 
 const BODY_LIMIT = 20_000;
+// The public x402 catalog (Coinbase's x402 Bazaar). Paid APIs list themselves there.
+const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
+const DISCOVERY_TTL_MS = 60 * 60 * 1000;
+const DISCOVERY_PAGES = 20;
 const CHECK_PRICE_CAP = "$0.02"; // a presign-guard check costs $0.01
 
 const amountString = z.string().regex(/^\d+(\.\d+)?$/, "a decimal amount like \"2.5\"");
+// Lowercase words of 3+ letters, for matching a request against catalog listings.
+const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json"]);
+const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
 const address = z.string().refine((a) => isAddress(a, { strict: false }), "an 0x… address");
 
 /**
@@ -66,6 +73,7 @@ export function configFromEnv(env = process.env) {
     telegram,
     label: env.AGENT_LABEL || "mcp-agent",
     maxPaymentUsd: Number(maxPrice),
+    discoveryUrl: env.X402_DISCOVERY_URL || DISCOVERY_URL,
   };
 }
 
@@ -134,6 +142,25 @@ export function createWallet(config, overrides = {}) {
     };
   }
 
+  // The x402 catalog, fetched page by page and kept for an hour.
+  let listed = null, listedAt = 0, loading = null;
+  async function catalog() {
+    if (listed && Date.now() - listedAt < DISCOVERY_TTL_MS) return listed;
+    loading ??= (async () => {
+      const items = [];
+      for (let page = 0; page < DISCOVERY_PAGES; page++) {
+        const res = await plainFetch(`${config.discoveryUrl}?type=http&limit=500&offset=${page * 500}`, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
+        const batch = (await res.json()).items ?? [];
+        items.push(...batch);
+        if (batch.length < 500) break;
+      }
+      listed = items; listedAt = Date.now();
+      return items;
+    })().finally(() => { loading = null; });
+    return loading;
+  }
+
   return {
     address: account.address,
     chain,
@@ -170,6 +197,42 @@ export function createWallet(config, overrides = {}) {
       const symbol = chain.nativeCurrency.symbol;
       const hash = await guarded.withPurchase({ description: reason || `Send ${amount} ${symbol} to ${to}` }, () => guarded.sendTransaction({ to, value: parseEther(amount) }));
       return { hash, sent: `${amount} ${symbol}`, to, chain: config.chainName };
+    },
+
+    // Paid APIs in the public x402 catalog that this wallet can pay (USDC on its chain), best match first.
+    async findServices({ query, maxPriceUsd, limit = 5 }) {
+      const terms = words(query);
+      if (!terms.length) throw new TypeError("say what you need, e.g. \"crypto price signal\" or \"token safety check\"");
+      const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
+      const network = `eip155:${chain.id}`;
+      const found = [];
+      for (const item of await catalog()) {
+        const accept = (item.accepts ?? []).find((a) => a?.network === network && String(a.asset ?? "").toLowerCase() === usdc[0].toLowerCase());
+        if (!accept) continue;
+        const price = Number(accept.amount ?? accept.maxAmountRequired ?? NaN) / 10 ** usdc[1];
+        if (!(price >= 0) || price > cap) continue;
+        const info = item.extensions?.bazaar?.info ?? {};
+        const text = `${item.description ?? ""} ${accept.description ?? ""} ${item.resource} ${JSON.stringify(info.input ?? {})}`;
+        const have = new Set(words(text));
+        const score = terms.filter((t) => have.has(t)).length;
+        if (!score) continue;
+        found.push({ score, price, item, accept, info });
+      }
+      found.sort((a, b) => b.score - a.score || a.price - b.price);
+      const services = found.slice(0, Math.min(10, Math.max(1, limit))).map(({ price, item, accept, info }) => ({
+        url: item.resource,
+        description: String(item.description || accept.description || "").slice(0, 300),
+        price_usd: Number(price.toFixed(6)),
+        method: String(info.input?.method ?? "").toUpperCase() || undefined,
+        input_example: info.input?.queryParams ?? info.input?.body ?? undefined,
+      }));
+      return {
+        query,
+        services,
+        note: services.length
+          ? "From the public x402 catalog: listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply."
+          : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}).`,
+      };
     },
 
     async payX402({ url, method = "GET", body, headers, maxPriceUsd, reason }) {
@@ -216,6 +279,17 @@ export function createServer(wallet) {
     inputSchema: {},
     annotations: { readOnlyHint: true },
   }, result(() => wallet.status()));
+
+  server.registerTool("find_services", {
+    title: "Find paid services",
+    description: "Search the public x402 catalog (Coinbase's x402 Bazaar) for paid APIs this wallet can pay: USDC on its chain, within max_price_usd. Returns url, description, price and how to call each one, best match first. Then call pay_x402 with the one you pick. Listings are not recommendations: prefer a clear description and a fair price, and pay only what the task needs.",
+    inputSchema: {
+      query: z.string().min(2).max(200).describe("What you need, in a few words, e.g. \"bitcoin trend signal\" or \"is this token safe\""),
+      max_price_usd: z.number().positive().optional().describe("Highest price per call to show, in dollars (default and at most the server's MAX_PAYMENT_USD)"),
+      limit: z.number().int().min(1).max(10).optional().describe("How many results (default 5)"),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, result(({ query, max_price_usd, limit }) => wallet.findServices({ query, maxPriceUsd: max_price_usd, limit })));
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
