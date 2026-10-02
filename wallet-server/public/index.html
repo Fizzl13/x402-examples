@@ -95,6 +95,19 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .agent header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .agent .state { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; }
 .agent .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.fizzl { margin-top: 34px; display: grid; gap: 14px; }
+.fizzl > p { margin: 0; }
+.fz { padding: 20px; display: grid; gap: 10px; align-content: start; }
+.fz header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.fz .cost { font-size: 12px; color: var(--soft); white-space: nowrap; }
+#fizzlList { align-items: start; }
+.fz details summary { list-style: none; display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border: 1px solid var(--mint); border-radius: 999px; color: var(--text); font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+.fz details summary::-webkit-details-marker { display: none; }
+.fz details[open] summary { background: var(--mint); color: #021; }
+.fz .how { display: grid; gap: 10px; margin-top: 12px; }
+.fz .how b { color: var(--text); }
+.fz .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
+.fz .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
 .newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
 .newkey code { display: block; padding: 10px 12px; border-radius: 10px; background: rgba(2,10,10,.7); font: 13px/1.4 ui-monospace, Menlo, monospace; overflow-wrap: anywhere; color: var(--mint); }
 .addform { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -263,6 +276,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="New agent name, e.g. research-agent" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
+      <div class="fizzl" id="fizzlAgents">
+        <span class="tag">FIZZL AGENTS TO CONNECT</span>
+        <p class="note">Paid services your agents can use. They pay per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
+        <div class="agents" id="fizzlList"></div>
+      </div>
     </section>
 
     <section class="section">
@@ -669,6 +687,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
+    const cp = e.target.closest("button[data-copy]");
+    if (cp) { const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = "Copy"; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
     if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
     const del = e.target.closest("#deleteAccount");
     if (del) {
@@ -693,6 +713,28 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const d = await res.json().catch(() => ({}));
     $("#loginErr").textContent = d.retryAfter ? `Too many tries. Wait ${d.retryAfter} seconds.` : "Wrong password.";
   });
+  // Fizzl's own paid agents, to connect: the MCP address for any MCP client, and a first request to
+  // ask an agent that has the wallet MCP (presign-guard-wallet-mcp) with its key from this dashboard.
+  const FIZZL_AGENTS = [
+    { name: "Ichimoku Signal", site: "https://ichimoku-signal.fizzl.eu", price: "$0.02 to $0.50 per call", what: "Crypto trend signals: the Ichimoku cloud, a six-indicator confluence, support and resistance levels, a scan of 148 coins and ranked trade setups.", ask: "Use pay_x402 to get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT (max $0.05)." },
+    { name: "x402 Doctor", site: "https://x402-doctor.fizzl.eu", price: "$0.001 to $0.05 per call", what: "Checks x402 endpoints like a paying agent: diagnoses what's broken, gives a fix plan, and tells your agent before it pays whether an endpoint is safe to pay.", ask: "Use pay_x402 to diagnose my endpoint with https://x402-doctor.fizzl.eu/api/v1/diagnose?url=<your endpoint> (max $0.02)." },
+    { name: "presign-guard", site: "https://presign-guard.fizzl.eu", price: "$0.01 to $0.03 per call", what: "Checks before your agent signs or buys: green, orange or red for signatures, approvals and tokens, and an audit of a wallet's open approvals.", ask: "Use pay_x402 to check this token before buying it: https://presign-guard.fizzl.eu/v1/token?chain=base&address=<token address> (max $0.02)." },
+    { name: "PlainText", site: "https://plaintext.fizzl.eu", price: "$0.03 to $0.04 per call", what: "Explains in plain language what a wallet's token and NFT approvals mean, which are risky, and what a transaction or signature request really does.", ask: "Use pay_x402 to POST {\"address\": \"<wallet address>\"} to https://plaintext.fizzl.eu/api/check-wallet and explain my approvals (max $0.05)." },
+  ];
+  const copyRow = (text, label) => `<div class="copy"><code>${esc(text)}</code><button class="button ghost small" type="button" data-copy="${esc(text)}" aria-label="Copy ${esc(label)}">Copy</button></div>`;
+  $("#fizzlList").innerHTML = FIZZL_AGENTS.map((a) => `<article class="card fz">
+    <header><span class="tag">${esc(a.name)}</span><span class="cost">${esc(a.price)}</span></header>
+    <p class="note" style="margin:0">${esc(a.what)}</p>
+    <details><summary>Connect</summary><div class="how">
+      <p class="note" style="margin:0"><b>1. Give an agent a key.</b> Add an agent above and put its key in the wallet MCP (<a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#one-budget-for-all-your-agents" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">how</a>).</p>
+      <p class="note" style="margin:0"><b>2. Optional: add its tools</b> to Claude, Cursor or another MCP client with this address:</p>
+      ${copyRow(`${a.site}/mcp`, `${a.name} MCP address`)}
+      <p class="note" style="margin:0"><b>3. Ask your agent</b>, for example:</p>
+      ${copyRow(a.ask, `example request for ${a.name}`)}
+      <p class="note" style="margin:0"><a href="${esc(a.site)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">All endpoints and prices ↗</a></p>
+    </div></details>
+  </article>`).join("");
+
   // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
   $("#addAgentTop").addEventListener("click", () => {
     $("#agentsSec").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
