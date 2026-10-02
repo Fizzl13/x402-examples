@@ -93,6 +93,16 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 
 One Telegram bot serves one running server at a time, and the bot must not have a webhook. To run several agents on one bot, use the wallet server.
 
+## Receipts
+
+Every payment carries what it was for: the URL for `pay_x402`, and the agent's `reason` if it gives one. With a wallet server, that shows on the receipt for each payment, together with:
+- the amount and recipient;
+- presign-guard's signed verdict;
+- the approval;
+- the x402 settlement.
+
+Telegram approval requests say what the payment is for too. See a receipt in the [demo](https://wallet.fizzl.eu/demo): click a line in the activity log.
+
 ## When something is refused
 
 The tool returns an error the agent can read and pass on to you. Examples:

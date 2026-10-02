@@ -12,7 +12,7 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 export const CHAINS = {
   base: { chain: base, usdc: ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6] },
@@ -115,6 +115,25 @@ export function createWallet(config, overrides = {}) {
     readContract: (args) => publicClient.readContract(args),
   };
 
+  // One x402 call, paid by the guarded signer, capped per call.
+  async function callX402({ url, method, body, headers, maxPriceUsd }) {
+    const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
+    const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
+    client.register(`eip155:${chain.id}`, new ExactEvmScheme(signer));
+    const res = await wrapFetchWithPayment(plainFetch, client)(url, { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) });
+    const text = await res.text();
+    const settled = res.headers.get("payment-response") ?? res.headers.get("x-payment-response");
+    let payment = null;
+    if (settled) { try { payment = decodePaymentResponseHeader(settled); } catch { payment = { raw: settled }; } }
+    return {
+      status: res.status,
+      paid: !!payment,
+      payment,
+      contentType: res.headers.get("content-type"),
+      body: text.length > BODY_LIMIT ? `${text.slice(0, BODY_LIMIT)}\n… (${text.length - BODY_LIMIT} more characters cut)` : text,
+    };
+  }
+
   return {
     address: account.address,
     chain,
@@ -140,34 +159,26 @@ export function createWallet(config, overrides = {}) {
       };
     },
 
-    async sendUsdc({ to, amount }) {
+    // Every payment is recorded with what it is for: on the wallet server's receipts, in Telegram approvals, in onSpend.
+    async sendUsdc({ to, amount, reason }) {
       const value = parseUnits(amount, usdc[1]);
-      const hash = await guarded.writeContract({ address: usdc[0], abi: erc20Abi, functionName: "transfer", args: [to, value] });
+      const hash = await guarded.withPurchase({ description: reason || `Send ${amount} USDC to ${to}` }, () => guarded.writeContract({ address: usdc[0], abi: erc20Abi, functionName: "transfer", args: [to, value] }));
       return { hash, sent: `${amount} USDC`, to, chain: config.chainName };
     },
 
-    async sendNative({ to, amount }) {
-      const hash = await guarded.sendTransaction({ to, value: parseEther(amount) });
-      return { hash, sent: `${amount} ${chain.nativeCurrency.symbol}`, to, chain: config.chainName };
+    async sendNative({ to, amount, reason }) {
+      const symbol = chain.nativeCurrency.symbol;
+      const hash = await guarded.withPurchase({ description: reason || `Send ${amount} ${symbol} to ${to}` }, () => guarded.sendTransaction({ to, value: parseEther(amount) }));
+      return { hash, sent: `${amount} ${symbol}`, to, chain: config.chainName };
     },
 
-    async payX402({ url, method = "GET", body, headers, maxPriceUsd }) {
+    async payX402({ url, method = "GET", body, headers, maxPriceUsd, reason }) {
       if (!/^https?:\/\//.test(url)) throw new TypeError("url must start with https:// or http://");
-      const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
-      const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
-      client.register(`eip155:${chain.id}`, new ExactEvmScheme(signer));
-      const res = await wrapFetchWithPayment(plainFetch, client)(url, { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) });
-      const text = await res.text();
-      const settled = res.headers.get("payment-response") ?? res.headers.get("x-payment-response");
-      let payment = null;
-      if (settled) { try { payment = decodePaymentResponseHeader(settled); } catch { payment = { raw: settled }; } }
-      return {
-        status: res.status,
-        paid: !!payment,
-        payment,
-        contentType: res.headers.get("content-type"),
-        body: text.length > BODY_LIMIT ? `${text.slice(0, BODY_LIMIT)}\n… (${text.length - BODY_LIMIT} more characters cut)` : text,
-      };
+      return guarded.withPurchase({ url, description: reason || `${method} ${new URL(url).host}` }, async (report) => {
+        const out = await callX402({ url, method, body, headers, maxPriceUsd });
+        report({ httpStatus: out.status, ...(out.payment?.transaction ? { settlement: { transaction: out.payment.transaction, network: out.payment.network } } : {}) });
+        return out;
+      });
     },
 
     pause(reason) {
@@ -214,27 +225,28 @@ export function createServer(wallet) {
       body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Request body: a string, or an object sent as JSON"),
       headers: z.record(z.string(), z.string()).optional().describe("Extra request headers, e.g. content-type"),
       max_price_usd: z.number().positive().optional().describe("The most this call may cost, in dollars (never above the server's MAX_PAYMENT_USD)"),
+      reason: z.string().max(300).optional().describe("What this is for, in a few words (shown to the owner on the receipt and in approval requests)"),
     },
     annotations: { openWorldHint: true },
-  }, result(({ url, method, body, headers, max_price_usd }) => {
+  }, result(({ url, method, body, headers, max_price_usd, reason }) => {
     const h = { ...(headers ?? {}) };
     if (body !== undefined && typeof body !== "string" && !Object.keys(h).some((k) => k.toLowerCase() === "content-type")) h["content-type"] = "application/json";
-    return wallet.payX402({ url, method, body, headers: h, maxPriceUsd: max_price_usd });
+    return wallet.payX402({ url, method, body, headers: h, maxPriceUsd: max_price_usd, reason });
   }));
 
   server.registerTool("send_usdc", {
     title: "Send USDC",
     description: "Send USDC from this wallet to an address. Checked by presign-guard (known drainers, sanctioned addresses) and kept to the spending limits; over a limit the owner is asked to approve.",
-    inputSchema: { to: address.describe("Recipient address"), amount: amountString.describe("Amount in USDC, e.g. \"2.50\"") },
+    inputSchema: { to: address.describe("Recipient address"), amount: amountString.describe("Amount in USDC, e.g. \"2.50\""), reason: z.string().max(300).optional().describe("What this payment is for (shown to the owner)") },
     annotations: { destructiveHint: true },
-  }, result(({ to, amount }) => wallet.sendUsdc({ to, amount })));
+  }, result(({ to, amount, reason }) => wallet.sendUsdc({ to, amount, reason })));
 
   server.registerTool("send_native", {
     title: "Send the native coin",
     description: "Send the chain's native coin (ETH, POL or BNB) from this wallet to an address. Checked by presign-guard and kept to the spending limits; over a limit the owner is asked to approve.",
-    inputSchema: { to: address.describe("Recipient address"), amount: amountString.describe("Amount in whole coins, e.g. \"0.001\"") },
+    inputSchema: { to: address.describe("Recipient address"), amount: amountString.describe("Amount in whole coins, e.g. \"0.001\""), reason: z.string().max(300).optional().describe("What this payment is for (shown to the owner)") },
     annotations: { destructiveHint: true },
-  }, result(({ to, amount }) => wallet.sendNative({ to, amount })));
+  }, result(({ to, amount, reason }) => wallet.sendNative({ to, amount, reason })));
 
   server.registerTool("pause_spending", {
     title: "Pause spending",
