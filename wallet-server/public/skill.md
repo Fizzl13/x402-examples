@@ -67,6 +67,8 @@ claude mcp add wallet -e AGENT_KEY=0x… -e WALLET_SERVER_URL={{ORIGIN}} -e WALL
 
 Then the client restarts and you have the tools below.
 
+To check that everything works without paying anything, ask your owner to click **Test my setup** on the dashboard. It checks the agent key, that you reached the wallet (call `wallet_status` once first), the rules, the USDC in your wallet and Telegram, and says what to fix.
+
 ### 4. Optional: approvals on the phone
 
 On the dashboard, under **Your account**, your owner clicks **Connect Telegram** to get approval requests with Approve / Deny buttons.
