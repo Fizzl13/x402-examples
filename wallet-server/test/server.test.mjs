@@ -799,3 +799,24 @@ test("categories: listings sorted by what they say they do, with counts; search 
     assert.equal((await owner("GET", "/api/services/search?q=weather&cat=../../x")).body.results[0].host, "d.example");
   } finally { server.close(); }
 });
+
+test("search bar in the demo: the same catalog without signing in, rate-limited, read-only", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items: [{ resource: "https://a.example/signal", description: "Crypto trend signal", accepts: [usdc("20000")] }] }) });
+  const { base, server } = await boot({ catalog });
+  try {
+    const r = await fetch(`${base}/api/public/services/search?q=crypto%20signal`);
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).results[0].host, "a.example");
+    assert.equal((await fetch(`${base}/api/public/services/categories`)).status, 200);
+    assert.equal((await fetch(`${base}/api/public/services/new`)).status, 200);
+    // Only reads: nothing else is reachable under /api/public.
+    assert.equal((await fetch(`${base}/api/public/services/search`, { method: "POST" })).status, 401); // falls through to the signed-in API
+    assert.equal((await fetch(`${base}/api/public/state`)).status, 401);
+    // At most 60 a minute per address.
+    let last;
+    for (let i = 0; i < 60; i++) last = await fetch(`${base}/api/public/services/search?q=crypto`);
+    assert.equal(last.status, 429);
+  } finally { server.close(); }
+});

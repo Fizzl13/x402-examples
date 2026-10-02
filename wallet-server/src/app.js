@@ -60,6 +60,39 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   v1.get("/spending", wrap(async (req, res) => res.json({ spending: await req.wallet.spending() })));
   app.use("/v1", v1);
 
+  // ---------- the search bar: paid APIs in the public x402 catalog ----------
+  // The same routes for signed-in users (/api/services/…) and, read-only and rate-limited, for the
+  // public demo (/api/public/services/…). Searching never writes anything an outsider could steer.
+  const services = express.Router();
+  const unavailable = (res) => res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
+  const down = (res, err) => { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); };
+  services.get("/search", wrap(async (req, res) => {
+    if (!catalog) return unavailable(res);
+    const q = typeof req.query.q === "string" ? req.query.q.slice(0, 200) : "";
+    const max = Number(req.query.max);
+    const category = typeof req.query.cat === "string" && /^[a-z]{2,20}$/.test(req.query.cat) ? req.query.cat : null;
+    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: category && !q ? 30 : 12, category })); } catch (err) { down(res, err); }
+  }));
+  services.get("/categories", wrap(async (req, res) => {
+    if (!catalog) return unavailable(res);
+    const max = Number(req.query.max);
+    try { res.json(await catalog.categories({ maxUsd: max > 0 ? max : Infinity })); } catch (err) { down(res, err); }
+  }));
+  services.get("/new", wrap(async (req, res) => {
+    if (!catalog) return unavailable(res);
+    const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
+    try { res.json(await catalog.newProviders({ days })); } catch (err) { down(res, err); }
+  }));
+  // The demo: at most 60 searches a minute per address.
+  const hits = new Map();
+  const slowDown = (req, res, next) => {
+    const now = Date.now(), h = hits.get(req.ip);
+    if (!h || now - h.since > 60_000) { hits.set(req.ip, { n: 1, since: now }); if (hits.size > 10_000) hits.clear(); return next(); }
+    if (++h.n > 60) return res.status(429).json({ error: "slow_down", message: "Too many searches. Wait a minute." });
+    next();
+  };
+  app.use("/api/public/services", slowDown, services);
+
   // ---------- sign-in ----------
   app.post("/api/login", (req, res) => {
     const r = auth.login(req.body?.password, req.ip);
@@ -91,27 +124,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
   owner.get("/state", wrap(async (req, res) => res.json(await req.wallet.state())));
-  // The search bar: paid APIs in the public x402 catalog.
-  owner.get("/services/search", wrap(async (req, res) => {
-    if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
-    const q = typeof req.query.q === "string" ? req.query.q.slice(0, 200) : "";
-    const max = Number(req.query.max);
-    const category = typeof req.query.cat === "string" && /^[a-z]{2,20}$/.test(req.query.cat) ? req.query.cat : null;
-    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: category && !q ? 30 : 12, category })); }
-    catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
-  }));
-  owner.get("/services/categories", wrap(async (req, res) => {
-    if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
-    const max = Number(req.query.max);
-    try { res.json(await catalog.categories({ maxUsd: max > 0 ? max : Infinity })); }
-    catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
-  }));
-  owner.get("/services/new", wrap(async (req, res) => {
-    if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
-    const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
-    try { res.json(await catalog.newProviders({ days })); }
-    catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
-  }));
+  owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
   owner.put("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.setPolicy(req.body?.policy) })));

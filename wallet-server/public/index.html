@@ -484,6 +484,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const fmtN = (n) => String(+n.toFixed(2));
     let m0;
     api = async (method, path, body) => {
+      // The search bar searches the real x402 catalog (read-only, rate-limited); the examples below
+      // are only for when it can't be reached.
+      if (method === "GET" && path.startsWith("/api/services/")) {
+        try {
+          const res = await fetch(`/api/public${path.slice(4)}`);
+          if (res.ok) return await res.json();
+        } catch {}
+      }
       if (method === "GET" && path === "/api/state") {
         const now = Date.now();
         D.approvals.forEach((a) => { if (a.status === "pending" && now > a.expiresAt) { a.status = "expired"; a.decidedAt = a.expiresAt; } });
