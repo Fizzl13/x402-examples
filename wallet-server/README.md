@@ -45,7 +45,7 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
 
 ## Customers (hosted)
 
-Anyone can sign in with their wallet (MetaMask, "Sign-In with Ethereum"). It costs one free signature: no password, no transaction. Each customer gets their own space with their own agents, rules, approvals, receipts and log; nobody sees anyone else's. You keep signing in with the password, as the owner.
+Anyone can sign in with their wallet: MetaMask, Phantom, Coinbase Wallet, Rabby or any other EVM wallet in the browser (every installed wallet gets its own button, EIP-6963; "Sign-In with Ethereum"). It costs one free signature: no password, no transaction. Each customer gets their own space with their own agents, rules, approvals, receipts and log; nobody sees anyone else's. You keep signing in with the password, as the owner.
 
 - **Telegram:** one bot for everyone. A customer clicks "Connect Telegram", presses Start, and their approval requests go to their chat. Only that Telegram user can tap Approve or Deny on them.
 - **Free:** 1 agent, receipts kept 7 days.

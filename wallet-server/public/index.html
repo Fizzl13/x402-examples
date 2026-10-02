@@ -120,6 +120,9 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .s-signed { color: var(--mint); } .s-signing { color: var(--cyan); } .s-failed { color: var(--rose); }
 @media (max-width: 480px) { .receipt dl { grid-template-columns: 1fr; gap: 2px; } .receipt dd { margin-bottom: 10px; } }
 .login { min-height: 70vh; display: grid; place-items: center; }
+.wallets { display: grid; gap: 8px; }
+.wallets .button { width: 100%; justify-content: flex-start; gap: 12px; min-height: 48px; }
+.wallets img { width: 24px; height: 24px; border-radius: 6px; }
 .login .or { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
 .login .or::before, .login .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
@@ -166,8 +169,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <span class="tag">Fizzl Agent Wallet</span>
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <div id="walletLogin">
-        <button class="button primary" type="button" id="connectWallet" style="width:100%">Connect MetaMask</button>
-        <p class="note" style="margin:10px 0 0">Sign in with your wallet: one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC.</p>
+        <div class="wallets" id="walletList"></div>
+        <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base.</p>
       </div>
       <div class="err" id="walletErr"></div>
       <div class="or" id="orLine" hidden>or</div>
@@ -395,29 +398,75 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   $("#showPassword").addEventListener("click", () => { $("#loginForm").hidden = false; $("#showPassword").hidden = true; $("#password").focus(); });
 
-  // ---------- wallet (MetaMask) ----------
+  // ---------- wallets (MetaMask, Phantom, Coinbase Wallet, …) ----------
   const hexUtf8 = (t) => "0x" + [...new TextEncoder().encode(t)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const walletError = (err) => (err?.code === 4001 ? "You cancelled it in MetaMask." : err?.message || String(err));
+  const walletError = (err) => (err?.code === 4001 ? `You cancelled it in ${walletName}.` : err?.message || String(err));
   async function post(path, body) {
     const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}), credentials: "same-origin" });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.message || data.error || `HTTP ${res.status}`), { status: res.status });
     return data;
   }
-  $("#connectWallet").addEventListener("click", async () => {
+  // Every installed wallet announces itself (EIP-6963), so each gets its own button.
+  // Wallets that don't yet: whatever is at window.ethereum (and Phantom's own spot).
+  const wallets = new Map(); // rdns -> { info, provider }
+  window.addEventListener("eip6963:announceProvider", (e) => {
+    const { info, provider } = e.detail ?? {};
+    if (!info?.rdns || !provider?.request) return;
+    wallets.set(info.rdns, { info, provider });
+    if (walletsReady) renderWallets();
+  });
+  let walletsReady = false;
+  function fallbackWallets() {
+    const out = [];
+    const announced = (name) => [...wallets.values()].some((w) => w.info.name?.toLowerCase() === name.toLowerCase());
+    const ph = window.phantom?.ethereum;
+    if (ph?.request && !announced("Phantom") && ![...wallets.values()].some((w) => w.provider === ph)) out.push({ info: { rdns: "app.phantom", name: "Phantom" }, provider: ph });
     const eth = window.ethereum;
+    const name = eth?.isPhantom ? "Phantom" : eth?.isMetaMask ? "MetaMask" : eth?.isCoinbaseWallet ? "Coinbase Wallet" : "Browser wallet";
+    if (eth?.request && !wallets.size && eth !== ph && !announced(name)) out.push({ info: { rdns: "injected", name }, provider: eth });
+    return out;
+  }
+  const allWallets = () => [...wallets.values(), ...fallbackWallets()];
+  const safeIcon = (i) => (typeof i === "string" && /^data:image\/(svg\+xml|png|webp|jpeg|gif)[;,]/.test(i) ? i : null);
+  function renderWallets() {
+    const list = allWallets();
+    $("#walletList").innerHTML = list.length
+      ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
+      : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`;
+  }
+  const findWallet = (rdns) => allWallets().find((w) => w.info.rdns === rdns) ?? null;
+  // The wallet the customer signed in with, for paying later (remembered in this browser only).
+  let walletName = "your wallet";
+  function currentWallet() {
+    let rdns = null;
+    try { rdns = localStorage.getItem("aw_wallet"); } catch {}
+    const w = (rdns && findWallet(rdns)) || allWallets()[0] || null;
+    if (w) walletName = w.info.name;
+    return w?.provider ?? null;
+  }
+  $("#walletList").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-wallet]"); if (!b) return;
+    const w = findWallet(b.dataset.wallet); if (!w) return;
+    const eth = w.provider, label = b.innerHTML;
+    walletName = w.info.name;
     $("#walletErr").textContent = "";
-    if (!eth) { $("#walletErr").innerHTML = `No wallet found in this browser. <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Install MetaMask</a>, or open this page in the MetaMask app.`; return; }
-    const b = $("#connectWallet"); b.disabled = true; b.textContent = "Check MetaMask…";
+    b.disabled = true; b.textContent = `Check ${w.info.name}…`;
     try {
       const [address] = await eth.request({ method: "eth_requestAccounts" });
       const { nonce, message } = await post("/api/signin/message", { address });
       const signature = await eth.request({ method: "personal_sign", params: [hexUtf8(message), address] });
       await post("/api/signin", { nonce, signature });
+      try { localStorage.setItem("aw_wallet", w.info.rdns); } catch {}
       start();
     } catch (err) { $("#walletErr").textContent = walletError(err); }
-    finally { b.disabled = false; b.textContent = "Connect MetaMask"; }
+    finally { b.disabled = false; b.innerHTML = label; }
   });
+  walletsReady = true;
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+  renderWallets();
+  setTimeout(renderWallets, 600); // wallets that inject a little late
+
   async function onBase(eth) {
     const id = await eth.request({ method: "eth_chainId" });
     if (id === "0x2105") return;
@@ -437,16 +486,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   async function pay(months) {
     const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
-    if (DEMO) return say("This is the demo: nothing is paid. On your own account this opens MetaMask to send the USDC.", "good");
-    const eth = window.ethereum;
-    if (!eth) return say("Open this page in a browser with MetaMask to pay.", "bad");
+    if (DEMO) return say("This is the demo: nothing is paid. On your own account this opens your wallet to send the USDC.", "good");
+    const eth = currentWallet();
+    if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Phantom, …) to pay.", "bad");
     try {
       const [from] = await eth.request({ method: "eth_requestAccounts" });
-      if (from.toLowerCase() !== me.id) return say(`Switch MetaMask to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
+      if (from.toLowerCase() !== me.id) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
       await onBase(eth);
       const units = BigInt(Math.round(me.billing.priceUsdc * 1e6)) * BigInt(months);
       const data = "0xa9059cbb" + me.billing.payTo.slice(2).toLowerCase().padStart(64, "0") + units.toString(16).padStart(64, "0");
-      say("Confirm the payment in MetaMask…");
+      say(`Confirm the payment in ${walletName}…`);
       const txHash = await eth.request({ method: "eth_sendTransaction", params: [{ from, to: me.billing.tokenAddress, data, value: "0x0" }] });
       say("Sent. Waiting for Base to confirm…");
       for (let i = 0; i < 40; i++) { if (await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] }).catch(() => null)) break; await sleep(2000); }
