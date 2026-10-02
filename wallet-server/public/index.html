@@ -104,6 +104,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
 .err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
+.demo-banner { border-bottom: 1px solid var(--line); background: rgba(97,245,195,.08); color: var(--mint); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding-block: 10px; }
+.demo-banner a { text-decoration: underline; }
 footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-top: 30px; }
 @media (max-width: 860px) { .hero, .rule { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .asked { grid-template-columns: 1fr; } .asked .btns { justify-content: flex-start; } }
@@ -120,6 +122,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </div>
 </div></header>
 
+<div class="demo-banner" id="demoBanner" hidden><div class="wrap">LIVE DEMO · example agents and example data · nothing here moves money · <a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-server">run your own ↗</a></div></div>
 <main class="wrap">
   <section class="login" id="loginView" hidden>
     <form class="card" id="loginForm">
@@ -209,12 +212,81 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let state = null, editing = false, timer = null;
 
-  async function api(method, path, body) {
+  let api = async function (method, path, body) {
     const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
     if (res.status === 401) { showLogin(); throw new Error("login"); }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
     return data;
+  };
+
+  // ---------- demo mode (/demo): the same page, with example agents and data in the browser ----------
+  const DEMO = location.pathname.replace(/\/$/, "") === "/demo";
+  if (DEMO) {
+    const t0 = Date.now(), min = 60_000;
+    const D = {
+      policy: { tokens: { USDC: { perTx: "5", perDay: "20" } }, unknownTokens: "ask", window: "24h" }, paused: false, used: 6.42,
+      agents: [
+        { id: "ag_r", name: "research-agent", paused: false, createdAt: t0 - 9e6, lastSeen: t0 - 2 * min, spent: 4.3 },
+        { id: "ag_t", name: "trading-bot", paused: false, createdAt: t0 - 8e6, lastSeen: t0 - 9 * min, spent: 2.0 },
+        { id: "ag_s", name: "support-agent", paused: false, createdAt: t0 - 7e6, lastSeen: t0 - 4 * min, spent: 0.12 },
+      ],
+      approvals: [{ id: "ap_demo1", status: "pending", agent: "ag_r", agentName: "research-agent", method: "signTypedData", chainId: 8453, to: "api.marketdepth.io", summary: "8 USDC is over the limit of 5 per transaction", verdict: { verdict: "green", reasons: [] }, createdAt: t0 - min, expiresAt: t0 + 9 * min, amount: 8 }],
+      events: [
+        { at: t0 - min, type: "asked", agent: "research-agent", summary: "8 USDC is over the limit of 5 per transaction" },
+        { at: t0 - 2 * min, type: "signed", agent: "research-agent", method: "signTypedData", amounts: ["0.1 USDC"], to: "ichimoku-signal.fizzl.eu", verdict: "green" },
+        { at: t0 - 4 * min, type: "signed", agent: "support-agent", method: "signTypedData", amounts: ["0.03 USDC"], to: "plaintext.fizzl.eu", verdict: "green" },
+        { at: t0 - 9 * min, type: "blocked", agent: "trading-bot", summary: "presign-guard: red (KNOWN_DRAINER) · never signed" },
+        { at: t0 - 12 * min, type: "signed", agent: "trading-bot", method: "sendTransaction", amounts: ["2 USDC"], to: "Uniswap router", verdict: "green" },
+      ],
+    };
+    const BUYS = [["research-agent", "ag_r", 0.10, "ichimoku-signal.fizzl.eu"], ["support-agent", "ag_s", 0.03, "plaintext.fizzl.eu"], ["trading-bot", "ag_t", 0.01, "presign-guard.fizzl.eu"], ["research-agent", "ag_r", 0.05, "x402-doctor.fizzl.eu"]];
+    const BIG = [["trading-bot", "ag_t", 6, "Jupiter", "sendTransaction"], ["research-agent", "ag_r", 12.5, "sentiment.example", "signTypedData"], ["support-agent", "ag_s", 7.5, "translate.example", "signTypedData"]];
+    let tick = 0;
+    const limit = () => Number(D.policy.tokens?.USDC?.perTx ?? Infinity), dayCap = () => Number(D.policy.tokens?.USDC?.perDay ?? Infinity);
+    const book = (agentId, amt) => { D.used = +(D.used + amt).toFixed(2); const a = D.agents.find((x) => x.id === agentId); if (a) { a.spent = +(a.spent + amt).toFixed(2); a.lastSeen = Date.now(); } };
+    const ask = (name, id, amt, to, method, why) => D.approvals.unshift({ id: "ap_" + Math.random().toString(36).slice(2, 8), status: "pending", agent: id, agentName: name, method, chainId: 8453, to, summary: why, verdict: { verdict: "green", reasons: [] }, createdAt: Date.now(), expiresAt: Date.now() + 10 * min, amount: amt });
+    setInterval(() => {
+      if (D.paused) return;
+      tick++;
+      const [name, id, amt, to, method = "signTypedData"] = tick % 6 === 0 ? BIG[(tick / 6) % BIG.length] : BUYS[tick % BUYS.length];
+      if (D.agents.find((a) => a.id === id)?.paused) return;
+      if (amt > limit()) { const why = `${amt} USDC is over the limit of ${limit()} per transaction`; ask(name, id, amt, to, method, why); D.events.unshift({ at: Date.now(), type: "asked", agent: name, summary: why }); }
+      else if (D.used + amt > dayCap()) { const why = `${amt} USDC is over the limit of ${dayCap()} per 24h (${D.used} used)`; ask(name, id, amt, to, method, why); D.events.unshift({ at: Date.now(), type: "asked", agent: name, summary: why }); }
+      else { book(id, amt); D.events.unshift({ at: Date.now(), type: "signed", agent: name, method, amounts: [`${amt} USDC`], to, verdict: "green" }); }
+      D.events = D.events.slice(0, 60);
+    }, 5000);
+    const fmtN = (n) => String(+n.toFixed(2));
+    api = async (method, path, body) => {
+      if (method === "GET" && path === "/api/state") {
+        const now = Date.now();
+        D.approvals.forEach((a) => { if (a.status === "pending" && now > a.expiresAt) { a.status = "expired"; a.decidedAt = a.expiresAt; } });
+        const cap = D.policy.tokens?.USDC?.perDay;
+        return structuredClone({ policy: D.policy, paused: D.paused, now, events: D.events, approvals: D.approvals.slice(0, 12),
+          spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
+          agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
+      }
+      if (method === "PUT" && path === "/api/policy") { D.policy = body.policy; D.events.unshift({ at: Date.now(), type: "policy", by: "you" }); return { policy: D.policy }; }
+      if (method === "POST" && path === "/api/pause") { D.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: body.paused ? "paused" : "resumed", by: "you" }); return { ok: true }; }
+      let m;
+      if (method === "POST" && (m = /^\/api\/approvals\/(.+)$/.exec(path))) {
+        const a = D.approvals.find((x) => x.id === decodeURIComponent(m[1]));
+        if (a && a.status === "pending") {
+          a.status = body.decision === "approve" ? "approved" : "denied"; a.decidedAt = Date.now(); a.decidedBy = "you";
+          if (a.status === "approved") { book(a.agent, a.amount); D.events.unshift({ at: Date.now(), type: "signed", agent: a.agentName, method: a.method, amounts: [`${a.amount} USDC`], to: a.to, verdict: "green" }); }
+          D.events.unshift({ at: Date.now(), type: a.status, agent: a.agentName, summary: a.summary, by: "you" });
+        }
+        return a;
+      }
+      if (method === "POST" && path === "/api/agents") {
+        const agent = { id: "ag_" + Math.random().toString(36).slice(2, 7), name: body.name, paused: false, createdAt: Date.now(), lastSeen: null, spent: 0 };
+        D.agents.push(agent); D.events.unshift({ at: Date.now(), type: "agent_added", agent: body.name });
+        return { agent, key: "awk_demo_" + Math.random().toString(36).slice(2, 14) + " (demo key, works nowhere)" };
+      }
+      if (method === "POST" && (m = /^\/api\/agents\/(.+)\/pause$/.exec(path))) { const a = D.agents.find((x) => x.id === m[1]); if (a) { a.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: a.paused ? "agent_paused" : "agent_resumed", agent: a.name }); } return a; }
+      if (method === "DELETE" && (m = /^\/api\/agents\/(.+)$/.exec(path))) { const a = D.agents.find((x) => x.id === m[1]); D.agents = D.agents.filter((x) => x.id !== m[1]); if (a) D.events.unshift({ at: Date.now(), type: "agent_removed", agent: a.name }); return { ok: true }; }
+      return {};
+    };
   }
 
   function showLogin() { $("#app").hidden = true; $("#logout").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out"); }
@@ -342,7 +414,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
 
   // Start: logged in already?
-  fetch("/api/state", { credentials: "same-origin" }).then((r) => (r.ok ? start() : showLogin()), showLogin);
+  if (DEMO) { $("#demoBanner").hidden = false; document.title = "Agent Wallet demo | FIZZL"; start(); $("#logout").hidden = true; }
+  else fetch("/api/state", { credentials: "same-origin" }).then((r) => (r.ok ? start() : showLogin()), showLogin);
 })();
 </script>
 </body>
