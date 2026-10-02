@@ -740,3 +740,32 @@ test("search bar: a catalog that can't be reached is a clear 502", async () => {
   } finally { server.close(); }
 });
 
+
+test("new providers: the first catalog is the baseline; sellers that appear later are marked NEW and listed, and it survives a restart", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const store = memoryStore();
+  let t = Date.parse("2026-10-01T00:00:00Z");
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  let items = [{ resource: "https://old.example/signal", description: "Crypto trend signal", accepts: [usdc("10000")] }];
+  const make = () => createCatalog({ url: "https://catalog.test/d", now: () => t, seen: store.global, fetch: async () => Response.json({ items }) });
+  let catalog = make();
+  assert.equal((await catalog.search("crypto signal")).results[0].isNew, false); // baseline: not new
+  assert.equal((await catalog.newProviders()).providers.length, 0);
+
+  // Two hours later the catalog is fetched again with a new seller.
+  t += 2 * 3_600_000;
+  items = [...items, { resource: "https://fresh.example/signal", description: "Fresh crypto trend signal", accepts: [usdc("20000")] }, { resource: "https://fresh.example/levels", description: "Support and resistance", accepts: [usdc("50000")] }];
+  const hits = (await catalog.search("crypto signal")).results;
+  assert.deepEqual(hits.map((h) => [h.host, h.isNew]), [["old.example", false], ["fresh.example", true]]); // same match: cheapest first
+  const fresh = (await catalog.newProviders()).providers;
+  assert.deepEqual(fresh.map((p) => [p.host, p.listings, p.cheapest]), [["fresh.example", 2, 0.02]]);
+  assert.equal(fresh[0].firstSeen, t);
+
+  // A restart (new catalog object, same store) keeps when each seller was first seen; after 8 days it isn't new anymore.
+  catalog = make();
+  assert.equal((await catalog.newProviders()).providers[0].host, "fresh.example");
+  t += 8 * 86_400_000;
+  catalog = make();
+  assert.equal((await catalog.newProviders()).providers.length, 0);
+  assert.equal((await catalog.newProviders({ days: 30 })).providers.length, 1);
+});

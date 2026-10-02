@@ -99,6 +99,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 12 })); }
     catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
   }));
+  owner.get("/services/new", wrap(async (req, res) => {
+    if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
+    const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
+    try { res.json(await catalog.newProviders({ days })); }
+    catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
+  }));
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
   owner.put("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.setPolicy(req.body?.policy) })));

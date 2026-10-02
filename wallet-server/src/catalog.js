@@ -17,10 +17,23 @@ const USDC = {
 };
 const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need"]);
 export const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+// The USDC prices of a listing, one per network we know (checked against that network's USDC).
+function pricesOf(item) {
+  const prices = [];
+  for (const a of item.accepts ?? []) {
+    const known = USDC[a?.network];
+    if (!known || String(a.asset ?? "").toLowerCase() !== known[1].toLowerCase()) continue;
+    const usd = Number(a.amount ?? a.maxAmountRequired ?? NaN) / 1e6;
+    if (usd >= 0 && Number.isFinite(usd) && !prices.some((p) => p.network === known[0])) prices.push({ network: known[0], usd: Number(usd.toFixed(6)) });
+  }
+  return prices;
+}
 const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
 
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
-  let items = null, at = 0, loading = null;
+// `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
+// new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null } = {}) {
+  let items = null, at = 0, loading = null, firstSeen = {};
   async function load() {
     if (items && now() - at < TTL_MS) return items;
     loading ??= (async () => {
@@ -33,12 +46,44 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (batch.length < 500) break;
       }
       items = all; at = now();
+      await track(all).catch((err) => console.warn(`[catalog] tracking new providers: ${err.message}`));
       return all;
     })().finally(() => { loading = null; });
     return loading;
   }
 
+  async function track(all) {
+    const origins = new Set();
+    for (const item of all) { try { const u = new URL(item.resource); if (u.protocol === "https:") origins.add(u.origin); } catch {} }
+    const known = seen ? await seen.getSeen() : firstSeen;
+    const baseline = !Object.keys(known).length;
+    const fresh = {};
+    for (const o of origins) if (!(o in known)) fresh[o] = baseline ? 0 : now();
+    if (seen && Object.keys(fresh).length) await seen.addSeen(fresh);
+    firstSeen = { ...known, ...fresh };
+  }
+  const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
+
   return {
+    // Sellers that appeared in the last `days` days, newest first, with what they offer.
+    async newProviders({ days = 7, limit = 30 } = {}) {
+      const list = await load();
+      const by = new Map();
+      for (const item of list) {
+        let u; try { u = new URL(item.resource); } catch { continue; }
+        if (u.protocol !== "https:" || !isNew(u.origin, days)) continue;
+        const prices = pricesOf(item);
+        if (!prices.length) continue;
+        const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", example: u.href };
+        p.listings++;
+        p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
+        prices.forEach((x) => p.networks.add(x.network));
+        if (!p.description) p.description = text(item.description, 300);
+        by.set(u.origin, p);
+      }
+      const providers = [...by.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, limit).map((p) => ({ ...p, networks: [...p.networks] }));
+      return { days, providers, trackingSince: Math.min(...Object.values(firstSeen).filter((v) => v > 0), now()) };
+    },
     // Best matches for a request: { results: [{ url, host, description, method, prices: [{ network, usd }], cheapest }] }.
     async search(query, { maxUsd = Infinity, limit = 12 } = {}) {
       const terms = words(query);
@@ -48,13 +93,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         let u;
         try { u = new URL(item.resource); } catch { continue; }
         if (u.protocol !== "https:") continue;
-        const prices = [];
-        for (const a of item.accepts ?? []) {
-          const known = USDC[a?.network];
-          if (!known || String(a.asset ?? "").toLowerCase() !== known[1].toLowerCase()) continue;
-          const usd = Number(a.amount ?? a.maxAmountRequired ?? NaN) / 1e6;
-          if (usd >= 0 && Number.isFinite(usd) && !prices.some((p) => p.network === known[0])) prices.push({ network: known[0], usd: Number(usd.toFixed(6)) });
-        }
+        const prices = pricesOf(item);
         if (!prices.length) continue;
         const cheapest = Math.min(...prices.map((p) => p.usd));
         if (cheapest > maxUsd) continue;
@@ -65,7 +104,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (!score) continue;
         const key = `${u.origin}${u.pathname}`;
         if (found.has(key) && found.get(key).score >= score) continue;
-        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest });
+        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin) });
       }
       const results = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest).slice(0, Math.min(30, Math.max(1, limit))).map(({ score, ...r }) => r);
       return { query: String(query), results };

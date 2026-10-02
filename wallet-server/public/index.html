@@ -122,6 +122,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .hit .prices { display: flex; flex-wrap: wrap; gap: 6px; }
 .hit .prices span { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; color: var(--soft); white-space: nowrap; }
 .hit .prices span:first-child { border-color: var(--mint); color: var(--mint); }
+.newtag { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #021; background: var(--amber); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
+.chips .newchip { border-color: var(--amber); color: var(--amber); }
 .hit .url { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
 .hit .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 600px) { .searchbar { flex-wrap: wrap; border-radius: 22px; padding: 10px 12px; } .searchbar input { flex-basis: calc(100% - 40px); } .searchbar select, .searchbar .button { flex: 1; } }
@@ -344,7 +346,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <select id="searchMax" aria-label="Highest price per call"><option value="0.05">up to $0.05</option><option value="0.25">up to $0.25</option><option value="1" selected>up to $1</option><option value="">any price</option></select>
           <button class="button primary" type="submit">Search</button>
         </form>
-        <div class="chips" id="searchChips"><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
+        <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
         <div id="searchOut" role="status" aria-live="polite"></div>
       </div>
       <div class="fizzl" id="fizzlAgents">
@@ -475,6 +477,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
           agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
       }
+      if (method === "GET" && path.startsWith("/api/services/new")) {
+        const day = 86_400_000, t = Date.now();
+        return { days: 7, trackingSince: t - 30 * day, providers: [
+          { origin: "https://weather.example", host: "weather.example", firstSeen: t - 1 * day, listings: 3, cheapest: 0.005, networks: ["Base"], description: "Example listing: weather forecast for a city, hourly for 7 days." },
+          { origin: "https://translate.example", host: "translate.example", firstSeen: t - 4 * day, listings: 2, cheapest: 0.02, networks: ["Base", "Polygon"], description: "Example listing: translate text between 40 languages." },
+        ] };
+      }
       if (method === "GET" && path.startsWith("/api/services/search?")) {
         const p = new URLSearchParams(path.split("?")[1]);
         const terms = (p.get("q") ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
@@ -489,7 +498,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           { url: "https://search.example/v1/web", description: "Example listing: web search results as JSON.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Polygon", usd: 0.01 }] },
           { url: "https://translate.example/v1/text", description: "Example listing: translate text between 40 languages.", method: "POST", prices: [{ network: "Base", usd: 0.02 }] },
         ];
-        const results = all.map((r) => ({ ...r, host: new URL(r.url).hostname, cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length }))
+        const results = all.map((r) => ({ ...r, host: new URL(r.url).hostname, isNew: /weather|translate/.test(r.url), cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length }))
           .filter((r) => r.score && r.cheapest <= max).sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
         return { query: p.get("q"), results };
       }
@@ -936,13 +945,30 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       out.innerHTML = `<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} for "${esc(q)}". Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
-          return `<article class="card hit"><header><span class="host">${esc(r.host)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
+          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
             <span class="url">${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
             <div class="btns"><button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button><a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
         }).join("")}</div>`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
+  // New providers: sellers that appeared in the catalog in the last 7 days.
+  async function showNew() {
+    const out = $("#searchOut");
+    out.innerHTML = `<p class="note" style="margin:0">Looking for new providers…</p>`;
+    try {
+      const { providers, days, trackingSince } = await api("GET", "/api/services/new?days=7");
+      const since = trackingSince && trackingSince > Date.now() - days * 86_400_000 ? ` (tracking since ${esc(new Date(trackingSince).toLocaleDateString())})` : "";
+      if (!providers.length) { out.innerHTML = `<p class="note" style="margin:0">No new providers in the last ${days} days${since}. New sellers in the x402 catalog show up here, and get a NEW label in search results.</p>`; return; }
+      out.innerHTML = `<p class="note" style="margin:0">${providers.length} new provider${providers.length === 1 ? "" : "s"} in the x402 catalog in the last ${days} days${since}. Listings written by the sellers: not recommendations.</p>
+        <div class="hits">${providers.map((p) => `<article class="card hit"><header><span class="host">${esc(p.host)}<span class="newtag">NEW</span></span><span class="prices"><span>from ${esc(usd(p.cheapest))}</span>${p.networks.map((n) => `<span>${esc(n)}</span>`).join("")}</span></header>
+          ${p.description ? `<p class="note" style="margin:0">${esc(p.description)}</p>` : ""}
+          <span class="url">first seen ${esc(new Date(p.firstSeen).toLocaleDateString())} · ${esc(p.listings)} paid endpoint${p.listings === 1 ? "" : "s"}</span>
+          <div class="btns"><button class="button primary small" type="button" data-q-host="${esc(p.host)}">Show its services</button><a class="button ghost small" href="https://${esc(p.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`).join("")}</div>`;
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+  }
+  $("#newBtn").addEventListener("click", showNew);
+  $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
   $("#searchMax").addEventListener("change", () => { if ($("#searchQ").value.trim()) search($("#searchQ").value); });
   $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });
