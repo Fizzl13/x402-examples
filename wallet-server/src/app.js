@@ -3,6 +3,7 @@
 // customers with their wallet); Telegram posts button taps and /start links
 // to /telegram/webhook. Every request works only on its own account.
 import express from "express";
+import { PAY_CHAINS } from "./accounts.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -105,7 +106,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
   owner.post("/billing/solana", wrap(async (req, res) => res.json(await accounts.solanaPayment(req.account, req.body?.months))));
-  owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash))));
+  owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash, req.body?.chainId))));
   owner.post("/account/delete", wrap(async (req, res) => {
     if (req.body?.confirm !== "delete") return res.status(400).json({ error: "bad_request", message: 'send { "confirm": "delete" }' });
     await accounts.deleteAccount(req.account);
@@ -120,7 +121,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.get("/admin/payments.csv", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
     const rows = await accounts.allPayments();
-    const csv = ["date,account,amount_usdc,months,transaction,paid_until,automatic", ...rows.map((r) => [new Date(r.at).toISOString(), r.account, r.amount, r.months, r.tx, new Date(r.paidUntil).toISOString(), r.auto ? "yes" : "no"].join(","))].join("\n");
+    const network = (r) => (r.chain === "solana" ? "Solana" : PAY_CHAINS[r.chainId ?? 8453]?.name ?? r.chainId);
+    const csv = ["date,account,network,amount_usdc,months,transaction,paid_until,automatic", ...rows.map((r) => [new Date(r.at).toISOString(), r.account, network(r), r.amount, r.months, r.tx, new Date(r.paidUntil).toISOString(), r.auto ? "yes" : "no"].join(","))].join("\n");
     res.type("text/csv").set("content-disposition", 'attachment; filename="fizzl-wallet-payments.csv"').send(`${csv}\n`);
   }));
   app.use("/api", owner);

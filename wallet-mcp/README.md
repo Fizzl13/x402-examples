@@ -20,6 +20,7 @@ See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 | Tool | What it does |
 |---|---|
 | `wallet_status` | Address, balances, limits, what is left today, how approvals work |
+| `find_services` | Search the public x402 catalog ([Coinbase's x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar)) for paid APIs this wallet can pay (USDC on its chain, within the price cap), best match first |
 | `pay_x402` | Call an API that answers 402 Payment Required, pay it in USDC, return the response (with a price cap per call) |
 | `send_usdc` | Send USDC to an address |
 | `send_native` | Send ETH / POL / BNB to an address |
@@ -59,6 +60,8 @@ claude mcp add wallet -e AGENT_KEY=0x… -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PE
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 
+Or let it find a service itself: *"Find a paid API for a bitcoin trend signal under $0.10 and buy one"*. The agent searches the x402 catalog with `find_services`, picks one and pays it with `pay_x402`, within your limits.
+
 ### One budget for all your agents
 
 Run the [wallet server](https://github.com/Fizzl13/x402-examples/tree/main/wallet-server) and make an agent key on its dashboard. It gives you:
@@ -87,6 +90,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `WALLET_SERVER_URL`, `WALLET_SERVER_KEY` | a wallet server instead of the above |
 | `CHAIN` | `base` (default), `ethereum`, `optimism`, `arbitrum`, `polygon` or `bsc` |
 | `MAX_PAYMENT_USD` | most one `pay_x402` call may cost (default `1`); a cap on top of the limits |
+| `X402_DISCOVERY_URL` | the x402 catalog `find_services` searches (default Coinbase's Bazaar discovery API) |
 | `PRESIGN_CREDIT_KEY` | pay the $0.01 checks from [prepaid credits](https://presign-guard.fizzl.eu) (`pgc_…`) |
 | `RPC_URL` | your own RPC for the chain |
 | `AGENT_LABEL` | the name shown in Telegram approval messages (default `mcp-agent`) |

@@ -28,6 +28,15 @@ export const REMIND_BEFORE_MS = 3 * DAY;
 const NONCE_TTL_S = 600;
 const LINK_TTL_S = 900;
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// The networks Pro can be paid on from an Ethereum wallet: USDC (native, 6 decimals) to the same payout
+// address on each. Base is the default; each RPC can be replaced (billing.chains[id].rpcUrl).
+export const PAY_CHAINS = {
+  8453: { name: "Base", usdc: USDC_BASE, rpcUrl: "https://mainnet.base.org", explorer: "https://basescan.org", nativeSymbol: "ETH" },
+  1: { name: "Ethereum", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", rpcUrl: "https://ethereum-rpc.publicnode.com", explorer: "https://etherscan.io", nativeSymbol: "ETH" },
+  42161: { name: "Arbitrum", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", rpcUrl: "https://arb1.arbitrum.io/rpc", explorer: "https://arbiscan.io", nativeSymbol: "ETH" },
+  10: { name: "Optimism", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", rpcUrl: "https://mainnet.optimism.io", explorer: "https://optimistic.etherscan.io", nativeSymbol: "ETH" },
+  137: { name: "Polygon", usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", rpcUrl: "https://polygon-rpc.com", explorer: "https://polygonscan.com", nativeSymbol: "POL" },
+};
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 // The subscription contract (../subscription): automatic Pro payments.
@@ -64,6 +73,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const priceUnits = BigInt(Math.round(Number(billing.priceUsdc ?? 5) * 1e6));
   const token = billing.token ? getAddress(billing.token) : USDC_BASE; // USDC on Base (another token only in tests)
   const rpcFetch = billing.fetch ?? globalThis.fetch;
+  // Per network: its USDC and RPC. Base keeps billing.token / billing.rpcUrl (tests use another token there).
+  const chains = Object.fromEntries(Object.entries(PAY_CHAINS).map(([id, c]) => [id, { ...c, ...(billing.chains?.[id] ?? {}), ...(Number(id) === 8453 ? { usdc: token, rpcUrl: billing.rpcUrl ?? c.rpcUrl } : {}) }]));
+  // For the dashboard, cheapest fees first and Ethereum last (the RPC is the public one, for adding the network to a wallet).
+  const chainList = [8453, 42161, 10, 137, 1].map((id) => ({ chainId: id, name: chains[id].name, usdc: chains[id].usdc, explorer: chains[id].explorer, nativeSymbol: chains[id].nativeSymbol, rpcUrl: PAY_CHAINS[id].rpcUrl }));
   // Optional: Solana accounts (sign in with Phantom) and Pro paid in USDC on Solana.
   if (billing.solana?.payTo && !isSolanaAddress(billing.solana.payTo)) throw new Error("billing.solana.payTo must be a Solana address");
   const solPayTo = billing.solana?.payTo ?? null;
@@ -169,7 +182,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         billing: a.admin ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
-          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY },
+          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
     },
 
@@ -236,7 +249,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
     // ---------- billing: Pro, paid straight from the customer's wallet ----------
     // One payment at a time per account, so two claims can't overwrite each other's months.
-    claimPayment: (id, txHash) => serial(id, () => claim(id, txHash)),
+    claimPayment: (id, txHash, chainId) => serial(id, () => claim(id, txHash, chainId)),
     // A Solana account paying for Pro: the transaction for its wallet to sign and send (USDC to the owner).
     async solanaPayment(id, months = 1) {
       const a = await account(id);
@@ -365,45 +378,49 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     return data.result;
   }
   // Pro for what was paid (whole months, at most 12), after any time already paid for.
-  async function credit(a, tx, paid) {
+  async function credit(a, tx, paid, chainId = null) {
     const months = Math.min(12, Number(paid / priceUnits));
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
-    await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(isSol(a) ? { chain: "solana" } : {}) }], reminded: null });
-    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
+    await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
+    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
   }
 
-  async function claim(id, txHash) {
+  async function claim(id, txHash, chainId = 8453) {
     if (id === ADMIN) throw Object.assign(new Error("the owner's server has no plan to pay for"), { status: 400 });
     const sa = await account(id);
     if (isSol(sa)) return claimSolana(sa, txHash);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
+    const cid = Number(chainId ?? 8453), net = chains[cid];
+    if (!net) throw Object.assign(new Error(`Pro can be paid on ${Object.values(chains).map((c) => c.name).join(", ")}`), { status: 400 });
     const hash = txHash.toLowerCase();
+    // The same hash can't be claimed twice; on another network than Base it is kept with the network.
+    const claimKey = cid === 8453 ? hash : `${cid}:${hash}`;
     const a = await account(id);
     if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
-    if ((a.payments ?? []).some((p) => p.tx === hash)) return api.me(id);
-    const receipt = await rpc("eth_getTransactionReceipt", [hash]);
+    if ((a.payments ?? []).some((p) => p.tx === hash && (p.chainId ?? 8453) === cid)) return api.me(id);
+    const receipt = await rpc("eth_getTransactionReceipt", [hash], cid);
     if (!receipt) throw Object.assign(new Error("not confirmed yet: try again in a few seconds"), { status: 409 });
     if (receipt.status !== "0x1") throw Object.assign(new Error("that transaction failed on-chain"), { status: 400 });
     const from = padHex(a.address.toLowerCase(), { size: 32 }).toLowerCase(), to = padHex(payTo.toLowerCase(), { size: 32 }).toLowerCase();
     let paid = 0n;
     for (const log of receipt.logs ?? []) {
-      if (log.address?.toLowerCase() !== token.toLowerCase() || log.topics?.[0] !== TRANSFER_TOPIC) continue;
+      if (log.address?.toLowerCase() !== net.usdc.toLowerCase() || log.topics?.[0] !== TRANSFER_TOPIC) continue;
       if (log.topics[1]?.toLowerCase() === from && log.topics[2]?.toLowerCase() === to) paid += BigInt(log.data);
     }
-    if (paid < priceUnits) throw Object.assign(new Error(`no payment of ${Number(priceUnits) / 1e6} USDC from ${short(a.address)} to ${short(payTo)} in that transaction`), { status: 400 });
-    const block = await rpc("eth_getBlockByNumber", [receipt.blockNumber, false]);
+    if (paid < priceUnits) throw Object.assign(new Error(`no payment of ${Number(priceUnits) / 1e6} USDC on ${net.name} from ${short(a.address)} to ${short(payTo)} in that transaction`), { status: 400 });
+    const block = await rpc("eth_getBlockByNumber", [receipt.blockNumber, false], cid);
     const at = Number(BigInt(block?.timestamp ?? "0x0")) * 1000;
     if (at < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
-    if (!(await g.claimTx(hash))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
-    return credit(a, hash, paid);
+    if (!(await g.claimTx(claimKey))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
+    return credit(a, hash, paid, cid);
   }
 
-  async function rpc(method, params) {
-    const res = await rpcFetch(billing.rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  async function rpc(method, params, chainId = 8453) {
+    const res = await rpcFetch(chains[chainId].rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
     const data = await res.json().catch(() => null);
-    if (!data || data.error) throw Object.assign(new Error(`Base RPC ${method}: ${data?.error?.message ?? `HTTP ${res.status}`}`), { status: 502 });
+    if (!data || data.error) throw Object.assign(new Error(`${chains[chainId].name} RPC ${method}: ${data?.error?.message ?? `HTTP ${res.status}`}`), { status: 502 });
     return data.result;
   }
 

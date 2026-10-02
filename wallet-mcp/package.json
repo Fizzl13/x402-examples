@@ -1,6 +1,6 @@
 {
   "name": "presign-guard-wallet-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "An MCP server that gives AI agents (Claude, Cursor, …) a wallet with spending limits: pay x402 APIs and send USDC, every signature checked by presign-guard, approval on your phone over the limit.",
   "mcpName": "io.github.Fizzl13/presign-guard-wallet",
   "type": "module",

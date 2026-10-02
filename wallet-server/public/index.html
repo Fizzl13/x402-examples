@@ -320,6 +320,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="fizzl" id="fizzlAgents">
         <span class="tag">FIZZL SERVICES YOUR AGENTS CAN USE</span>
         <p class="note">Paid services, not agents to add. Your agent calls them and pays per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
+        <p class="note">Your agent can also find services itself: ask it to <i>"find a paid API for a bitcoin trend signal under $0.10 and buy one"</i>. The wallet MCP (version 0.4 or newer) searches the public x402 catalog, and your rules still apply.</p>
         <div class="agents" id="fizzlList"></div>
       </div>
     </section>
@@ -456,7 +457,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
           proUntil: Date.now() + 23 * 86_400_000, auto: { contract: "0x0000000000000000000000000000000000000000", on: true, nextCharge: Date.now() + 23 * 86_400_000, paidThrough: Date.now() + 23 * 86_400_000, monthsApproved: 11, balanceUsdc: 42 },
           payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], telegram: { linked: true, username: "you" },
-          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30 } };
+          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
+            chains: [[8453, "Base", "https://basescan.org"], [42161, "Arbitrum", "https://arbiscan.io"], [10, "Optimism", "https://optimistic.etherscan.io"], [137, "Polygon", "https://polygonscan.com"], [1, "Ethereum", "https://etherscan.io"]].map(([chainId, name, explorer]) => ({ chainId, name, explorer, nativeSymbol: chainId === 137 ? "POL" : "ETH" })) } };
       }
       if (method === "PUT" && path === "/api/policy") { D.policy = body.policy; D.events.unshift({ at: Date.now(), type: "policy", by: "you" }); return { policy: D.policy }; }
       if (method === "POST" && path === "/api/pause") { D.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: body.paused ? "paused" : "resumed", by: "you" }); return { ok: true }; }
@@ -597,20 +599,29 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   renderWallets();
   setTimeout(renderWallets, 600); // wallets that inject a little late
 
-  async function onBase(eth) {
-    const id = await eth.request({ method: "eth_chainId" });
-    if (id === "0x2105") return;
-    try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }); }
+  const BASE_NET = { chainId: 8453, name: "Base", nativeSymbol: "ETH", rpcUrl: "https://mainnet.base.org", explorer: "https://basescan.org" };
+  // Switch the wallet to a network (adding it first if the wallet doesn't know it).
+  async function onChain(eth, net = BASE_NET) {
+    const hex = `0x${net.chainId.toString(16)}`;
+    if ((await eth.request({ method: "eth_chainId" })) === hex) return;
+    try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] }); }
     catch (err) {
       if (err?.code !== 4902) throw err;
-      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
+      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: net.name, nativeCurrency: { name: net.nativeSymbol, symbol: net.nativeSymbol, decimals: 18 }, rpcUrls: [net.rpcUrl], blockExplorerUrls: [net.explorer] }] });
     }
   }
+  const onBase = (eth) => onChain(eth, BASE_NET);
+  // The network the customer picked to pay on (remembered in this browser).
+  function payNet() {
+    const list = me?.billing?.chains ?? [];
+    const id = Number($("#payChain")?.value ?? 8453);
+    return list.find((c) => c.chainId === id) ?? list[0] ?? BASE_NET;
+  }
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
-  async function claim(txHash, say) {
-    const net = me?.chain === "solana" ? "Solana" : "Base";
+  async function claim(txHash, say, chainId) {
+    const net = me?.chain === "solana" ? "Solana" : payNet().name;
     for (let i = 0; i < 20; i++) {
-      try { me = await post("/api/billing/claim", { txHash }); renderAccount(); return true; }
+      try { me = await post("/api/billing/claim", { txHash, ...(chainId ? { chainId } : {}) }); renderAccount(); return true; }
       catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say(`Waiting for ${net} to confirm the payment…`); await sleep(3000); }
     }
     throw new Error(`${net} hasn't confirmed it yet. Paste the transaction ${net === "Solana" ? "signature" : "hash"} below in a minute.`);
@@ -639,14 +650,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     try {
       const [from] = await eth.request({ method: "eth_requestAccounts" });
       if (from.toLowerCase() !== me.id) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
-      await onBase(eth);
+      const net = payNet();
+      await onChain(eth, net);
       const units = BigInt(Math.round(me.billing.priceUsdc * 1e6)) * BigInt(months);
       const data = "0xa9059cbb" + me.billing.payTo.slice(2).toLowerCase().padStart(64, "0") + units.toString(16).padStart(64, "0");
-      say(`Confirm the payment in ${walletName}…`);
-      const txHash = await eth.request({ method: "eth_sendTransaction", params: [{ from, to: me.billing.tokenAddress, data, value: "0x0" }] });
-      say("Sent. Waiting for Base to confirm…");
+      say(`Confirm the payment on ${net.name} in ${walletName}…`);
+      const txHash = await eth.request({ method: "eth_sendTransaction", params: [{ from, to: net.usdc ?? me.billing.tokenAddress, data, value: "0x0" }] });
+      say(`Sent. Waiting for ${net.name} to confirm…`);
       for (let i = 0; i < 40; i++) { if (await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] }).catch(() => null)) break; await sleep(2000); }
-      await claim(txHash, say);
+      await claim(txHash, say, net.chainId);
       say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
@@ -720,11 +732,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Paying for Pro from a Solana wallet isn't open on this server yet.</p>`;
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc;
-    const txLink = (p) => (p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `https://basescan.org/tx/${p.tx}`);
+    const nets = me.billing.chains ?? [];
+    const txLink = (p) => (p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
+    let picked = 8453; try { picked = Number(localStorage.getItem("aw_paychain")) || 8453; } catch {}
+    const netPick = sol || nets.length < 2 ? "" : `<div class="buybar" style="margin:0"><label class="note" for="payChain">Pay on</label><select id="payChain">${nets.map((c) => `<option value="${c.chainId}"${c.chainId === picked ? " selected" : ""}>${esc(c.name)}${c.chainId === 8453 ? " · lowest fees" : c.chainId === 1 ? " · higher network fees" : ""}</option>`).join("")}</select></div>`;
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? "Pro" : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
-      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
+      ${netPick}
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
       <div class="msg" id="payMsg" role="status"></div>
       ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
@@ -822,7 +838,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (e.target.closest("#tgUnlink")) { if (DEMO) return; await post("/api/telegram/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
     if (e.target.closest("#txClaim")) {
       const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
-      try { await claim($("#txPaste").value.trim(), say); say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      try { await claim($("#txPaste").value.trim(), say, me.chain === "solana" ? undefined : payNet().chainId); say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good"); } catch (err) { say(err.message, "bad"); }
     }
   });
   function setLive(ok, text) { $("#live").classList.toggle("off", !ok); $("#liveText").textContent = text; }
@@ -894,6 +910,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }).join("") : `<div class="card empty">${pick ? "This agent hasn't bought anything yet." : "Nothing bought yet. When your agents pay for something, it shows up here: what it was, how much, and the full receipt."}</div>`;
   }
   $("#buyAgent").addEventListener("change", renderPurchases);
+  document.addEventListener("change", (e) => { if (e.target.id === "payChain") { try { localStorage.setItem("aw_paychain", e.target.value); } catch {} } });
 
   async function refresh() {
     try { state = await api("GET", "/api/state"); render(); loadPurchases(); setLive(!state.paused, state.paused ? "all agents paused" : "live"); }
