@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
-const PRIVACY = fileURLToPath(new URL("../public/privacy.html", import.meta.url));
+const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -133,20 +133,21 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.status(ok ? 200 : 401).end();
   }));
 
-  // ---------- dashboard, privacy statement, fonts (served here: nothing loads from third parties) ----------
+  // ---------- dashboard, privacy statement, terms, fonts (served here: nothing loads from third parties) ----------
   app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
-  let page, privacy;
+  let page;
+  const legal = new Map();
   app.get(["/", "/index.html", "/demo"], (_req, res) => {
     page ??= readFileSync(DASHBOARD, "utf8");
     res.set("content-security-policy", CSP);
     res.type("html").send(page);
   });
   // Who runs the service comes from the environment (OPERATOR_NAME, CONTACT_EMAIL), not from the code.
-  app.get("/privacy", (_req, res) => {
-    privacy ??= readFileSync(PRIVACY, "utf8");
+  app.get(Object.keys(LEGAL), (req, res) => {
+    if (!legal.has(req.path)) legal.set(req.path, readFileSync(LEGAL[req.path], "utf8"));
     const missing = (what) => `<mark>[${what}: set in Render]</mark>`;
     res.set("content-security-policy", CSP);
-    res.type("html").send(privacy
+    res.type("html").send(legal.get(req.path)
       .replaceAll("{{OPERATOR}}", operator.name ? escapeHtml(operator.name) : missing("OPERATOR_NAME"))
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });

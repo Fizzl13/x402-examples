@@ -538,7 +538,13 @@ test("privacy statement, served with the operator from the environment; fonts fr
     assert.ok(page.includes('href="mailto:privacy@example.com"'));
     assert.doesNotMatch(page, /set in Render/);
     assert.match(res.headers.get("content-security-policy"), /font-src 'self'/);
+    const terms = await (await fetch(`${on.base}/terms`)).text();
+    assert.ok(terms.includes("Frits &lt;Test&gt;"));
+    assert.match(terms, /right of withdrawal/);
+    assert.match(terms, /\$5 per 30 days/);
+    assert.doesNotMatch(terms, /\{\{/);
     const dash = await (await fetch(`${on.base}/`)).text();
+    assert.match(dash, /href="\/terms"/);
     assert.doesNotMatch(dash, /googleapis|gstatic/);
     const font = await fetch(`${on.base}/fonts/dm-sans-latin-400-normal.woff2`);
     assert.equal(font.status, 200);

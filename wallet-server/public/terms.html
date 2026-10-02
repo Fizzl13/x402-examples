@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Terms of service | Fizzl Agent Wallet</title>
+<style>
+@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/dm-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); }
+:root { --bg: #020708; --mint: #61f5c3; --text: #f4f8f7; --soft: #d1dbd9; --dim: #82918f; --line: rgba(97,245,195,.28); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--soft); font: 400 16px/1.65 "DM Sans", Arial, sans-serif; }
+.wrap { width: min(780px, calc(100% - 32px)); margin-inline: auto; }
+header { border-bottom: 1px solid var(--line); }
+header .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { font: 700 22px/1 "Space Grotesk", Arial, sans-serif; letter-spacing: -1.2px; color: var(--text); text-decoration: none; }
+.brand span { color: var(--mint); }
+main { padding: 40px 0 64px; }
+h1 { font: 700 clamp(34px, 6vw, 52px)/1 "Space Grotesk", Arial, sans-serif; letter-spacing: -2px; text-transform: uppercase; color: var(--text); margin: 0 0 10px; }
+h2 { font: 700 20px/1.25 "Space Grotesk", Arial, sans-serif; color: var(--text); margin: 36px 0 10px; }
+.note { color: var(--dim); font-size: 13px; }
+a { color: var(--mint); }
+mark { background: rgba(245,195,97,.18); color: #f5c361; padding: 0 4px; border-radius: 4px; }
+.box { border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; background: rgba(97,245,195,.05); }
+ul { padding-left: 20px; }
+footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a><a href="/">Back to the dashboard</a></div></header>
+<main class="wrap">
+  <h1>Terms of service</h1>
+  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 2 October 2026</p>
+
+  <div class="box">
+    <p style="margin:0"><b>In short:</b></p>
+    <ul style="margin:8px 0 0">
+      <li>We help you set spending limits and approvals for your AI agents. We never hold your keys or your money.</li>
+      <li>Free is free. Pro costs $5 per 30 days in USDC, and you can stop any time.</li>
+      <li>Blockchain payments can't be reversed, so check before you send.</li>
+      <li>The service lowers risk but can't remove it. You stay responsible for your wallets and your agents.</li>
+    </ul>
+  </div>
+
+  <h2>1. Who we are</h2>
+  <p>The Fizzl Agent Wallet is offered by {{OPERATOR}}, trading as Fizzl, the Netherlands ("we", "us"). Contact: {{CONTACT}}.</p>
+
+  <h2>2. What the service is, and isn't</h2>
+  <p>The service lets you set rules for what your AI agents may spend, asks you to approve anything above those rules (on the dashboard or on Telegram), and keeps receipts and an activity log. Agents connect with their own key and ask us before they sign. They then sign and pay themselves.</p>
+  <ul>
+    <li><b>Not a wallet, bank or custodian.</b> We never ask for, see or store your private keys or recovery phrase, and we never hold or move your funds, except the Pro payments you send us yourself.</li>
+    <li><b>Not financial advice.</b> Nothing in the service tells you what to buy or sell.</li>
+    <li><b>Safety checks are a help, not a guarantee.</b> Requests are checked by presign-guard, which flags known risks such as drainers, sanctioned addresses and unlimited approvals. It can miss new threats and it can be wrong. A "green" verdict doesn't mean a payment is safe or worth it.</li>
+    <li><b>When in doubt, it stops.</b> If our server can't be reached, agents that use it stop signing. That is by design, so your agents may be unable to pay while the service is down.</li>
+  </ul>
+
+  <h2>3. Your account</h2>
+  <ul>
+    <li>You sign in with your wallet, and your wallet address is your account. You're responsible for keeping that wallet secure.</li>
+    <li>You must be at least 16 to use the service, and legally able to enter into a contract to buy Pro.</li>
+    <li>Keep your agent keys secret. Anyone with an agent key can act as that agent within your rules. If a key leaks, remove the agent on the dashboard.</li>
+    <li>You're responsible for what your agents do, for the rules you set and for the requests you approve.</li>
+  </ul>
+
+  <h2>4. Plans and prices</h2>
+  <ul>
+    <li><b>Free:</b> one agent; receipts kept 7 days.</li>
+    <li><b>Pro:</b> unlimited agents (up to 50); receipts kept 90 days. It costs <b>$5 per 30 days</b>, paid in USDC on the Base network, straight from your wallet. Paying again adds 30 days. Prices include any taxes we have to charge.</li>
+    <li>We may change the price of Pro. You'll hear about it at least 30 days in advance on the dashboard (and on Telegram, if connected). Time you already paid for keeps its price. Automatic payment runs on a contract with a fixed price, so a new price needs you to turn automatic payment on again.</li>
+  </ul>
+
+  <h2>5. Paying</h2>
+  <ul>
+    <li>Payments are blockchain transactions. <b>They can't be reversed by us or anyone else.</b> Pay from the wallet you signed in with, on Base, in USDC, to the address the dashboard shows. Network fees (gas) are yours.</li>
+    <li>A payment counts once it is confirmed on Base and our server has checked it. If a payment doesn't show up, use "Paid, but it didn't show up?" on the dashboard or contact us with the transaction hash. Payments sent to the wrong address, on the wrong network or in the wrong token can't be recovered by us.</li>
+  </ul>
+
+  <h2>6. Automatic payment</h2>
+  <ul>
+    <li>If you turn it on, you approve our subscription contract on Base for at most 12 months of Pro ($60). After that, $5 is taken from your wallet every 30 days. The contract can only send $5 per 30 days, only to our address. Its code is public.</li>
+    <li>We remind you on Telegram (if connected) 3 days before each payment.</li>
+    <li>If a payment can't go through, for example because your approval is used up or you don't have enough USDC on Base, Pro keeps working for 3 days. After that you're on Free. Nothing is deleted, and extra agents are paused.</li>
+    <li>You can turn automatic payment off at any time on the dashboard, or by setting your approval to 0 in your wallet. Time you already paid for stays.</li>
+  </ul>
+
+  <h2>7. Stopping, and your right of withdrawal</h2>
+  <ul>
+    <li>You can stop Pro at any time: just don't pay again, or turn off automatic payment. You can delete your account on the dashboard. There are no refunds for the rest of a period you paid for, except as below or where the law requires it.</li>
+    <li><b>Consumers in the EU:</b> by paying, you ask us to start Pro right away. You can still withdraw within 14 days of your first Pro payment, by writing to {{CONTACT}}. We then refund the part of the period you haven't used, in USDC to the address you paid from, within 14 days.</li>
+  </ul>
+
+  <h2>8. Fair use</h2>
+  <p>Don't use the service:</p>
+  <ul>
+    <li>for anything illegal, such as fraud, money laundering, financing terrorism or evading sanctions;</li>
+    <li>to attack or overload it, get around its limits, or access other people's accounts;</li>
+    <li>to resell it as your own service without our permission.</li>
+  </ul>
+  <p>We may suspend or end an account that does this. Where reasonable, we'll warn you first.</p>
+
+  <h2>9. Availability and changes to the service</h2>
+  <p>We do our best to keep the service running, but we don't guarantee it is always available or free of errors. We may change, improve or stop features. If we stop the service entirely, we'll tell you at least 30 days in advance and refund unused paid time.</p>
+
+  <h2>10. Liability</h2>
+  <ul>
+    <li>The service is a tool to lower the risk of agent spending. It doesn't remove that risk. We aren't liable for losses from what your agents do or from requests you approve. The same goes for mistakes or gaps in safety checks, and for problems with blockchains, wallets, Telegram or other services we don't control.</li>
+    <li>Our total liability towards you is limited to what you paid us in the 12 months before the event. These limits don't apply to damage caused by our intent or gross negligence. They also don't take away any rights you have as a consumer under mandatory law.</li>
+  </ul>
+
+  <h2>11. Your data</h2>
+  <p>How we handle personal data is described in the <a href="/privacy">privacy statement</a>.</p>
+
+  <h2>12. Changes to these terms</h2>
+  <p>We may update these terms. If a change matters to you, we'll say so on the dashboard (and on Telegram, if connected) at least 30 days before it takes effect. If you don't agree, you can stop and ask for unused paid time back.</p>
+
+  <h2>13. Law and disputes</h2>
+  <p>Dutch law applies. Disputes go to the competent court in the Netherlands. If you're a consumer, you keep the protection of the mandatory law of the country where you live, and you may also go to court there. Please contact us first: most things are easier to solve by e-mail.</p>
+
+  <p class="note">The open-source code of the wallet tools is licensed separately (MIT); these terms cover the hosted service at wallet.fizzl.eu.</p>
+</main>
+<footer><div class="wrap">Fizzl Agent Wallet · never holds keys or funds · <a href="/privacy">privacy</a></div></footer>
+</body>
+</html>
