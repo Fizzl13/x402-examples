@@ -511,12 +511,29 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
+  // Connecting Telegram: the one-time link is shown as a real link to tap (wallet apps' browsers block
+  // windows opened after a server round trip), with the /start command to send by hand as a fallback.
+  let tgPending = null;
   async function tgLink() {
     if (DEMO) { $("#tgMsg").textContent = "Demo: on your own account this opens Telegram."; return; }
-    try { const { url } = await post("/api/telegram/link"); window.open(url, "_blank", "noopener"); $("#tgMsg").textContent = "Press Start in Telegram, then come back here."; pollMe(); }
-    catch (err) { $("#tgMsg").textContent = err.message; }
+    try {
+      const { url } = await post("/api/telegram/link");
+      const u = new URL(url);
+      tgPending = { url, bot: u.pathname.slice(1), command: `/start ${u.searchParams.get("start")}`, until: Date.now() + 14 * 60_000 };
+      renderAccount();
+      pollMe();
+    } catch (err) { $("#tgMsg").textContent = err.message; }
   }
-  async function pollMe() { for (let i = 0; i < 40; i++) { await sleep(3000); try { me = await api("GET", "/api/me"); renderAccount(); if (me.telegram.linked) return; } catch { return; } } }
+  function tgPendingHtml() {
+    if (!tgPending || tgPending.until < Date.now()) return "";
+    return `<div style="display:grid;gap:8px;border-top:1px dashed var(--line);padding-top:12px">
+      <a class="button primary small" href="${esc(tgPending.url)}" target="_blank" rel="noopener noreferrer" style="justify-self:start">Open Telegram</a>
+      <p class="note" style="margin:0">Tap it, then press <b>Start</b> in the chat with @${esc(tgPending.bot)}. This page updates by itself.</p>
+      <p class="note" style="margin:0">Doesn't open? In Telegram, find <b>@${esc(tgPending.bot)}</b> and send it this message (valid 15 minutes):</p>
+      <div class="paste"><input id="tgCommand" readonly value="${esc(tgPending.command)}" aria-label="Message to send to the bot"><button class="button ghost small" type="button" id="tgCopy">Copy</button></div>
+    </div>`;
+  }
+  async function pollMe() { for (let i = 0; i < 100; i++) { await sleep(3000); try { me = await api("GET", "/api/me"); if (me.telegram.linked) tgPending = null; renderAccount(); if (me.telegram.linked) return; } catch { return; } } }
 
   let me = null;
   const day = (t) => new Date(t).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
@@ -558,7 +575,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="https://basescan.org/tx/${esc(p.tx)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
-      : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button primary small" type="button" id="tgLink">Connect Telegram</button></div><div class="msg" id="tgMsg" role="status"></div>`;
+      : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
   }
   // ---------- automatic payment (the subscription contract) ----------
   const word = (v) => BigInt(v).toString(16).padStart(64, "0");
@@ -633,6 +650,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
+    if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); navigator.clipboard?.writeText(i.value).then(() => { $("#tgCopy").textContent = "Copied"; }, () => {}); return; }
     const del = e.target.closest("#deleteAccount");
     if (del) {
       if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = "Sure? Agents, rules, receipts and the Telegram link are deleted. Click again to delete."; return; }
