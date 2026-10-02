@@ -1,0 +1,29 @@
+# The subscription contract: the committed build must match the source, and the contract and the
+# wallet server's billing against it are tested on an in-process EVM.
+name: subscription
+
+on:
+  push:
+    branches: [main]
+    paths: ["subscription/**", "wallet-server/src/**", ".github/workflows/subscription.yml"]
+  pull_request:
+    paths: ["subscription/**", "wallet-server/src/**", ".github/workflows/subscription.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: wallet-server
+      - run: npm ci
+        working-directory: subscription
+      - run: node build.mjs --check
+        working-directory: subscription
+      - run: npm test
+        working-directory: subscription

@@ -10,7 +10,8 @@
 // with the Telegram chat from TELEGRAM_CHAT_ID. That is the original
 // single-owner setup, unchanged.
 import { randomBytes } from "node:crypto";
-import { getAddress, isAddress, verifyMessage, padHex } from "viem";
+import { readFileSync } from "node:fs";
+import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decodeFunctionResult, encodeDeployData, erc20Abi } from "viem";
 import { createWallet, hashKey } from "./wallet.js";
 import { ADMIN } from "./store.js";
 
@@ -28,6 +29,8 @@ const LINK_TTL_S = 900;
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
+// The subscription contract (../subscription): automatic Pro payments.
+const SUBSCRIPTION = JSON.parse(readFileSync(new URL("./subscription-artifact.json", import.meta.url), "utf8"));
 const rand = (n = 12) => randomBytes(n).toString("base64url").replace(/[-_]/g, "x");
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const date = (t) => new Date(t).toISOString().slice(0, 10);
@@ -37,7 +40,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  * @param {object} o.store  memoryStore() or redisStore(): .scope(account) and .global
  * @param {object} [o.telegram]  createTelegram(): sends to any chat
  * @param {string} [o.adminChatId]  the owner's Telegram chat (TELEGRAM_CHAT_ID)
- * @param {object} o.billing  { payTo, priceUsdc, rpcUrl, fetch }
+ * @param {object} o.billing  { payTo, priceUsdc, rpcUrl, fetch, subscription?: contract address, charger?: { address, send(to, data) -> tx hash } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
 export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {} }) {
@@ -49,16 +52,34 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   if (!billing?.payTo || !isAddress(billing.payTo)) throw new Error("billing.payTo must be the address that receives Pro payments");
   const payTo = getAddress(billing.payTo);
   const priceUnits = BigInt(Math.round(Number(billing.priceUsdc ?? 5) * 1e6));
+  const token = billing.token ? getAddress(billing.token) : USDC_BASE; // USDC on Base (another token only in tests)
   const rpcFetch = billing.fetch ?? globalThis.fetch;
 
   async function account(id) {
     if (id === ADMIN) return { id: ADMIN, admin: true, telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null };
     return g.getAccount(id);
   }
+  // Pro lasts until the later of what was paid by hand and what the subscription contract took.
+  const proUntil = (a) => Math.max(a?.paidUntil ?? 0, a?.auto?.paidThrough ?? 0);
   function planOf(a) {
     if (!a) return PLANS.free;
     if (a.admin) return PLANS.admin;
-    return (a.paidUntil ?? 0) + GRACE_MS > now() ? PLANS.pro : PLANS.free;
+    return proUntil(a) + GRACE_MS > now() ? PLANS.pro : PLANS.free;
+  }
+  const subscription = billing.subscription && isAddress(billing.subscription) ? getAddress(billing.subscription) : null;
+
+  // The account's state in the subscription contract (and what its approval still allows), cached on the account.
+  async function syncAuto(a, { maxAgeMs = 60_000 } = {}) {
+    if (!subscription || !a?.address || a.admin) return a;
+    if (a.auto?.checkedAt && now() - a.auto.checkedAt < maxAgeMs) return a;
+    const [dueAt, paidThrough] = await Promise.all(["dueAt", "paidThrough"].map((fn) => call(subscription, SUBSCRIPTION.abi, fn, [a.address])));
+    const [allowance, balance] = await Promise.all([call(token, erc20Abi, "allowance", [a.address, subscription]), call(token, erc20Abi, "balanceOf", [a.address])]);
+    const auto = { ...(a.auto ?? {}), dueAt: Number(dueAt) * 1000, paidThrough: Number(paidThrough) * 1000, allowance: allowance.toString(), balance: balance.toString(), checkedAt: now() };
+    return serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { auto }));
+  }
+  async function call(to, abi, functionName, args, from) {
+    const data = await rpc("eth_call", [{ to, data: encodeFunctionData({ abi, functionName, args }), ...(from ? { from } : {}) }, "latest"]);
+    return decodeFunctionResult({ abi, functionName, data });
   }
 
   function walletFor(id) {
@@ -114,16 +135,18 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     },
 
     // What the dashboard shows about the account itself.
-    async me(id) {
-      const a = await account(id);
+    async me(id, { fresh = false } = {}) {
+      let a = await account(id);
       if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      try { a = await syncAuto(a, fresh ? { maxAgeMs: 0 } : {}); } catch (err) { console.warn(`[subscription] ${err.message}`); }
       const plan = planOf(a);
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays },
-        paidUntil: a.paidUntil ?? null, graceUntil: a.paidUntil ? a.paidUntil + GRACE_MS : null,
+        paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
+        auto: subscription && !a.admin ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
-        billing: a.admin ? null : { payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: USDC_BASE, periodDays: PERIOD_MS / DAY },
+        billing: a.admin ? null : { payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY },
       };
     },
 
@@ -178,24 +201,79 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async remind() {
       if (!telegram) return 0;
       let sent = 0;
+      const usd = `$${Number(priceUnits) / 1e6}`;
       for (const a of await g.listAccounts()) {
-        if (!a.paidUntil || !a.telegram?.chatId) continue;
-        const left = a.paidUntil - now();
+        const end = proUntil(a);
+        if (!end || !a.telegram?.chatId) continue;
+        const left = end - now();
+        const auto = (a.auto?.dueAt ?? 0) > 0;
         let kind = null, text = null;
-        if (left <= REMIND_BEFORE_MS && left > 0) { kind = "soon"; text = `Your Fizzl wallet Pro ends on ${date(a.paidUntil)}. Pay $${Number(priceUnits) / 1e6} on the dashboard to keep unlimited agents and 90-day receipts.`; }
+        if (auto && left <= REMIND_BEFORE_MS && left > 0) {
+          kind = "autosoon";
+          const short = BigInt(a.auto.allowance ?? "0") < priceUnits ? " Your approval is used up: renew it on the dashboard, or it can't be paid." : BigInt(a.auto.balance ?? "0") < priceUnits ? ` Your wallet has less than ${usd} USDC on Base: top it up, or it can't be paid.` : "";
+          text = `On ${date(a.auto.dueAt)}, ${usd} in USDC will be paid automatically from your wallet for Fizzl wallet Pro.${short} You can turn automatic payment off on the dashboard.`;
+        }
+        else if (left <= REMIND_BEFORE_MS && left > 0) { kind = "soon"; text = `Your Fizzl wallet Pro ends on ${date(end)}. Pay ${usd} on the dashboard (or turn on automatic payment) to keep unlimited agents and 90-day receipts.`; }
         else if (left <= 0 && left > -GRACE_MS) { kind = "grace"; text = `Your Fizzl wallet Pro has ended. Everything keeps working for 3 more days; pay on the dashboard to continue. After that you're on the free plan (1 agent); nothing is deleted.`; }
         else if (left <= -GRACE_MS && left > -GRACE_MS - 7 * DAY) { kind = "free"; text = "You're on the free plan now: one agent keeps working, the others are paused until you upgrade again."; }
-        const tag = kind && `${kind}:${a.paidUntil}`;
+        const tag = kind && `${kind}:${end}`;
         if (!tag || a.reminded === tag) continue;
         try { await telegram.send(a.telegram.chatId, text); sent++; await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { reminded: tag })); } catch (err) { console.warn(`[remind] ${err.message}`); }
       }
       return sent;
     },
 
+    // Hourly: take the payments that are due through the subscription contract. A charge that
+    // would fail (approval used up, not enough USDC) is not sent; the customer is told once.
+    async chargeDue() {
+      if (!subscription || !billing.charger) return { charged: 0, failed: 0 };
+      let charged = 0, failed = 0;
+      for (const listed of await g.listAccounts()) {
+        if (!(listed.auto?.dueAt > 0) || listed.auto.dueAt > now()) continue;
+        let a;
+        try { a = await syncAuto(listed, { maxAgeMs: 0 }); } catch (err) { console.warn(`[charge] ${err.message}`); continue; }
+        if (!(a.auto.dueAt > 0) || a.auto.dueAt > now()) continue;
+        const data = encodeFunctionData({ abi: SUBSCRIPTION.abi, functionName: "charge", args: [a.address] });
+        let why = null;
+        try { await rpc("eth_call", [{ from: billing.charger.address, to: subscription, data }, "latest"]); } catch (err) { why = BigInt(a.auto.allowance ?? "0") < priceUnits ? "your approval is used up" : BigInt(a.auto.balance ?? "0") < priceUnits ? "there isn't enough USDC on Base in your wallet" : err.message; }
+        if (why) {
+          failed++;
+          const tag = `fail:${a.auto.dueAt}`;
+          if (a.chargeNotice !== tag && telegram && a.telegram?.chatId) {
+            await telegram.send(a.telegram.chatId, `Automatic payment for Fizzl wallet Pro didn't go through: ${why}. Renew the approval or pay on the dashboard; Pro keeps working for 3 days.`).catch(() => {});
+            await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { chargeNotice: tag }));
+          }
+          continue;
+        }
+        try {
+          const tx = await billing.charger.send(subscription, data);
+          for (let i = 0; i < 30; i++) { const r = await rpc("eth_getTransactionReceipt", [tx]); if (r) break; await new Promise((ok) => setTimeout(ok, billing.pollMs ?? 2000)); }
+          const after = await syncAuto(a, { maxAgeMs: 0 });
+          charged++;
+          await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid automatically: ${Number(priceUnits) / 1e6} USDC, until ${date(after.auto.paidThrough)}` });
+          await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? after, { autoPayments: [...((await g.getAccount(a.id))?.autoPayments ?? []), { tx, amount: (Number(priceUnits) / 1e6).toString(), at: now(), paidThrough: after.auto.paidThrough }] }));
+          if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Paid automatically: ${Number(priceUnits) / 1e6} USDC for Fizzl wallet Pro, until ${date(after.auto.paidThrough)}. Thank you!`).catch(() => {});
+        } catch (err) { failed++; console.warn(`[charge] ${a.address}: ${err.message}`); }
+      }
+      return { charged, failed };
+    },
+
+    async refreshAuto(id) { return api.me(id, { fresh: true }); },
+
+    // For the owner: the transaction that deploys the subscription contract, and the charger's state.
+    async subscriptionSetup() {
+      const args = [token, payTo, priceUnits, BigInt(PERIOD_MS / 1000)];
+      const charger = billing.charger ? { address: billing.charger.address, balanceEth: Number(BigInt(await rpc("eth_getBalance", [billing.charger.address, "latest"]).catch(() => "0x0"))) / 1e18 } : null;
+      return { contract: subscription, deployData: encodeDeployData({ abi: SUBSCRIPTION.abi, bytecode: SUBSCRIPTION.bytecode, args }), args: { token: token, payee: payTo, priceUsdc: Number(priceUnits) / 1e6, periodDays: PERIOD_MS / DAY }, charger, compiler: SUBSCRIPTION.compiler };
+    },
+
     // Every Pro payment, for the owner's bookkeeping.
     async allPayments() {
       const rows = [];
-      for (const a of await g.listAccounts()) for (const p of a.payments ?? []) rows.push({ account: a.address, ...p });
+      for (const a of await g.listAccounts()) {
+        for (const p of a.payments ?? []) rows.push({ account: a.address, ...p });
+        for (const p of a.autoPayments ?? []) rows.push({ account: a.address, months: 1, paidUntil: p.paidThrough, auto: true, ...p });
+      }
       return rows.sort((x, y) => x.at - y.at);
     },
   };
@@ -213,7 +291,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const from = padHex(a.address.toLowerCase(), { size: 32 }).toLowerCase(), to = padHex(payTo.toLowerCase(), { size: 32 }).toLowerCase();
     let paid = 0n;
     for (const log of receipt.logs ?? []) {
-      if (log.address?.toLowerCase() !== USDC_BASE.toLowerCase() || log.topics?.[0] !== TRANSFER_TOPIC) continue;
+      if (log.address?.toLowerCase() !== token.toLowerCase() || log.topics?.[0] !== TRANSFER_TOPIC) continue;
       if (log.topics[1]?.toLowerCase() === from && log.topics[2]?.toLowerCase() === to) paid += BigInt(log.data);
     }
     if (paid < priceUnits) throw Object.assign(new Error(`no payment of ${Number(priceUnits) / 1e6} USDC from ${short(a.address)} to ${short(payTo)} in that transaction`), { status: 400 });
@@ -222,7 +300,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (at < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
     if (!(await g.claimTx(hash))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
     const months = Math.min(12, Number(paid / priceUnits));
-    const start = Math.max(now(), a.paidUntil ?? 0);
+    const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx: hash, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil }], reminded: null });
     await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });

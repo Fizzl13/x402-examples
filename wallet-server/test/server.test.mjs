@@ -425,7 +425,7 @@ test("Pro: paid in USDC on Base from the customer's own wallet to the owner, che
     assert.equal(two.body.limits.receiptDays, 90);
 
     const csv = await (await fetch(`${base}/api/admin/payments.csv`, { headers: { cookie: (await (await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) })).headers.get("set-cookie")).split(";")[0] } })).text();
-    assert.match(csv, /^date,account,amount_usdc,months,transaction,paid_until\n/);
+    assert.match(csv, /^date,account,amount_usdc,months,transaction,paid_until,automatic\n/);
     assert.equal(csv.trim().split("\n").length, 3);
     assert.ok(csv.includes(alice.address));
     assert.equal((await owner("GET", "/api/me")).body.plan, "owner");

@@ -100,11 +100,16 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
   owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash))));
+  owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
+  owner.get("/admin/subscription", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.json(await accounts.subscriptionSetup());
+  }));
   // The owner's bookkeeping: every Pro payment, as CSV.
   owner.get("/admin/payments.csv", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
     const rows = await accounts.allPayments();
-    const csv = ["date,account,amount_usdc,months,transaction,paid_until", ...rows.map((r) => [new Date(r.at).toISOString(), r.account, r.amount, r.months, r.tx, new Date(r.paidUntil).toISOString()].join(","))].join("\n");
+    const csv = ["date,account,amount_usdc,months,transaction,paid_until,automatic", ...rows.map((r) => [new Date(r.at).toISOString(), r.account, r.amount, r.months, r.tx, new Date(r.paidUntil).toISOString(), r.auto ? "yes" : "no"].join(","))].join("\n");
     res.type("text/csv").set("content-disposition", 'attachment; filename="fizzl-wallet-payments.csv"').send(`${csv}\n`);
   }));
   app.use("/api", owner);

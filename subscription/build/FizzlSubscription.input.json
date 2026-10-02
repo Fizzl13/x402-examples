@@ -1,0 +1,25 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "FizzlSubscription.sol": {
+      "content": "// SPDX-License-Identifier: MIT\npragma solidity 0.8.26;\n\ninterface IERC20 {\n    function transferFrom(address from, address to, uint256 value) external returns (bool);\n}\n\n/// @title Fizzl wallet Pro, paid automatically\n/// @notice A customer approves this contract once (for a capped amount of USDC) and calls subscribe().\n///         After that, anyone may call charge(customer) when a period is due. The only thing a charge\n///         can do is move `price` from that customer to `payee`, at most once per `period`.\n///         There is no owner and nothing can be changed after deployment. A customer stops with\n///         cancel() (or by setting their approval to 0); time already paid for is kept.\ncontract FizzlSubscription {\n    IERC20 public immutable token;\n    address public immutable payee;\n    uint256 public immutable price;\n    uint256 public immutable period;\n\n    /// A charge that comes later than this after it was due starts a new period from now\n    /// (instead of from the due date), so a customer never pays for time they didn't have.\n    uint256 public constant GRACE = 3 days;\n    /// subscribe() can start at most this far in the future.\n    uint256 public constant MAX_START_DELAY = 400 days;\n\n    /// When the next charge may happen; 0 when not subscribed.\n    mapping(address => uint256) public dueAt;\n    /// Until when the customer has paid through this contract.\n    mapping(address => uint256) public paidThrough;\n\n    event Subscribed(address indexed customer, uint256 firstChargeAt);\n    event Charged(address indexed customer, uint256 amount, uint256 paidThrough);\n    event Cancelled(address indexed customer, uint256 paidThrough);\n\n    error NotSubscribed();\n    error NotDue(uint256 dueAt);\n    error StartTooLate();\n    error PaymentFailed();\n    error BadConfig();\n\n    constructor(IERC20 token_, address payee_, uint256 price_, uint256 period_) {\n        if (address(token_) == address(0) || payee_ == address(0) || price_ == 0 || period_ < 1 days) revert BadConfig();\n        token = token_;\n        payee = payee_;\n        price = price_;\n        period = period_;\n    }\n\n    /// @notice Turn on automatic payment. The first charge is at `startAt`, or now if that has passed,\n    ///         or when time already paid through this contract ends. A first charge that is due now\n    ///         happens in this same call.\n    function subscribe(uint256 startAt) external {\n        if (startAt > block.timestamp + MAX_START_DELAY) revert StartTooLate();\n        uint256 first = startAt > block.timestamp ? startAt : block.timestamp;\n        if (paidThrough[msg.sender] > first) first = paidThrough[msg.sender];\n        dueAt[msg.sender] = first;\n        emit Subscribed(msg.sender, first);\n        if (first <= block.timestamp) _charge(msg.sender);\n    }\n\n    /// @notice Take one period's payment from `customer` if it is due. Anyone may call this.\n    function charge(address customer) external {\n        _charge(customer);\n    }\n\n    /// @notice Turn off automatic payment. Time already paid for is kept.\n    function cancel() external {\n        if (dueAt[msg.sender] == 0) revert NotSubscribed();\n        dueAt[msg.sender] = 0;\n        emit Cancelled(msg.sender, paidThrough[msg.sender]);\n    }\n\n    /// @notice Whether a charge for `customer` can happen now (subscribed and due).\n    function isDue(address customer) external view returns (bool) {\n        uint256 due = dueAt[customer];\n        return due != 0 && block.timestamp >= due;\n    }\n\n    function _charge(address customer) private {\n        uint256 due = dueAt[customer];\n        if (due == 0) revert NotSubscribed();\n        if (block.timestamp < due) revert NotDue(due);\n        uint256 start = due + GRACE >= block.timestamp ? due : block.timestamp;\n        uint256 through = start + period;\n        dueAt[customer] = through;\n        paidThrough[customer] = through;\n        emit Charged(customer, price, through);\n        if (!token.transferFrom(customer, payee, price)) revert PaymentFailed();\n    }\n}\n"
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "cancun",
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "metadata"
+        ]
+      }
+    }
+  }
+}

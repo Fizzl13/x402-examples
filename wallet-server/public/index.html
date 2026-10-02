@@ -357,6 +357,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       }
       if (method === "GET" && path === "/api/me") {
         return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
+          proUntil: Date.now() + 23 * 86_400_000, auto: { contract: "0x0000000000000000000000000000000000000000", on: true, nextCharge: Date.now() + 23 * 86_400_000, paidThrough: Date.now() + 23 * 86_400_000, monthsApproved: 11, balanceUsdc: 42 },
           payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], telegram: { linked: true, username: "you" },
           billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30 } };
       }
@@ -500,7 +501,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       say("Sent. Waiting for Base to confirm…");
       for (let i = 0; i < 40; i++) { if (await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] }).catch(() => null)) break; await sleep(2000); }
       await claim(txHash, say);
-      say(`Thank you! Pro until ${day(me.paidUntil)}.`, "good");
+      say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
   async function tgLink() {
@@ -512,6 +513,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   let me = null;
   const day = (t) => new Date(t).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+  function autoHtml() {
+    const a = me.auto, price = me.billing.priceUsdc;
+    if (!a) return `<p class="note" style="margin:0">Automatic payment: coming soon.</p>`;
+    if (!a.on) return `<div style="border-top:1px dashed var(--line);padding-top:12px;display:grid;gap:8px"><span class="tag">AUTOMATIC PAYMENT</span>
+      <p class="note" style="margin:0">$${esc(price)} is taken from your wallet every 30 days, by a <a href="https://basescan.org/address/${esc(a.contract)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">contract</a> that can only pay Fizzl $${esc(price)} per 30 days. You approve at most $${esc(price * 12)} (12 months), get a Telegram reminder before each payment, and can turn it off any time.${me.proUntil && me.proUntil > Date.now() ? ` The first payment is when your current Pro ends (${esc(day(me.proUntil))}).` : ""}</p>
+      <div class="btns"><button class="button small" type="button" data-auto="on">Turn on automatic payment</button></div><div class="msg" id="autoMsg" role="status"></div></div>`;
+    const low = a.monthsApproved < 2;
+    return `<div style="border-top:1px dashed var(--line);padding-top:12px;display:grid;gap:8px"><span class="tag">AUTOMATIC PAYMENT · ON</span>
+      <p class="note" style="margin:0">Next $${esc(price)} on <b style="color:#fff">${esc(day(a.nextCharge))}</b>. Approved for ${esc(a.monthsApproved)} more month${a.monthsApproved === 1 ? "" : "s"}${low ? ` <span style="color:var(--amber)">(renew soon)</span>` : ""}.${a.balanceUsdc !== null && a.balanceUsdc < price ? ` <span style="color:var(--amber)">Your wallet has ${esc(a.balanceUsdc)} USDC on Base: top it up before then.</span>` : ""}</p>
+      <div class="btns">${low ? `<button class="button small" type="button" data-auto="renew">Renew approval · 12 months</button>` : ""}<button class="button ghost small" type="button" data-auto="off">Turn off</button></div><div class="msg" id="autoMsg" role="status"></div></div>`;
+  }
   function renderAccount() {
     if (!me) return;
     const short = me.address ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "server owner";
@@ -519,33 +531,104 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#who").innerHTML = `${esc(short)} <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
     $("#accountSec").hidden = false;
     if (me.admin) {
-      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div>`;
-      $("#tgCard").innerHTML = `<span class="tag">TELEGRAM</span><p class="note">Your approvals go to the chat set in TELEGRAM_CHAT_ID on Render.</p>`;
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
+      $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
+      if (!DEMO) api("GET", "/api/admin/subscription").then(renderSetup, () => {});
       return;
     }
-    const pro = me.plan === "pro", inGrace = pro && me.paidUntil < (state?.now ?? Date.now());
-    const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(me.paidUntil))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(me.paidUntil))}</b>`) : "1 agent, receipts kept 7 days.";
+    const pro = me.plan === "pro", until = me.proUntil ?? me.paidUntil, inGrace = pro && until < (state?.now ?? Date.now());
+    const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(until))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(until))}</b>`) : "1 agent, receipts kept 7 days.";
     const price = me.billing.priceUsdc;
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? "Pro" : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
       <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on Base, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends.</p>
-      <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button><button class="button ghost small" type="button" disabled title="Coming soon">Automatic payment · soon</button></div>
+      <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
       <div class="msg" id="payMsg" role="status"></div>
+      ${autoHtml()}
       <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="0x… transaction hash" aria-label="Transaction hash"><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="https://basescan.org/tx/${esc(p.tx)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button primary small" type="button" id="tgLink">Connect Telegram</button></div><div class="msg" id="tgMsg" role="status"></div>`;
   }
+  // ---------- automatic payment (the subscription contract) ----------
+  const word = (v) => BigInt(v).toString(16).padStart(64, "0");
+  const addrWord = (a) => a.slice(2).toLowerCase().padStart(64, "0");
+  async function sendAndWait(eth, tx, say, what) {
+    say(`Confirm ${what} in ${walletName}…`);
+    const hash = await eth.request({ method: "eth_sendTransaction", params: [tx] });
+    say(`${what[0].toUpperCase()}${what.slice(1)} sent. Waiting for Base…`);
+    for (let i = 0; i < 60; i++) {
+      const r = await eth.request({ method: "eth_getTransactionReceipt", params: [hash] }).catch(() => null);
+      if (r) { if (r.status !== "0x1") throw new Error(`${what} failed on-chain`); return r; }
+      await sleep(2000);
+    }
+    throw new Error(`Base hasn't confirmed ${what} yet. Reload in a minute.`);
+  }
+  async function autoAction(kind) {
+    const say = (t, cls = "") => { const m = $("#autoMsg"); m.textContent = t; m.className = `msg ${cls}`; };
+    if (DEMO) return say("This is the demo: nothing is signed. On your own account this asks your wallet.", "good");
+    const eth = currentWallet();
+    if (!eth) return say("Open this page in a browser with your wallet to change automatic payment.", "bad");
+    try {
+      const [from] = await eth.request({ method: "eth_requestAccounts" });
+      if (from.toLowerCase() !== me.id) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}.`, "bad");
+      await onBase(eth);
+      const c = me.auto.contract, token = me.billing.tokenAddress, price = BigInt(Math.round(me.billing.priceUsdc * 1e6));
+      if (kind === "on" || kind === "renew") {
+        await sendAndWait(eth, { from, to: token, data: "0x095ea7b3" + addrWord(c) + word(price * 12n), value: "0x0" }, say, `the approval (at most $${me.billing.priceUsdc * 12} over 12 months)`);
+      }
+      if (kind === "on") {
+        const start = Math.floor(Math.max(Date.now(), me.proUntil ?? 0) / 1000);
+        await sendAndWait(eth, { from, to: c, data: "0x0f574ba7" + word(start), value: "0x0" }, say, "turning on automatic payment");
+      }
+      if (kind === "off") {
+        await sendAndWait(eth, { from, to: c, data: "0xea8a1af0", value: "0x0" }, say, "turning off automatic payment");
+        await sendAndWait(eth, { from, to: token, data: "0x095ea7b3" + addrWord(c) + word(0), value: "0x0" }, say, "removing the approval");
+      }
+      me = await post("/api/billing/auto/refresh");
+      renderAccount();
+      $("#autoMsg").textContent = kind === "off" ? "Automatic payment is off. Time you paid for stays." : "Done.";
+      $("#autoMsg").className = "msg good";
+    } catch (err) { say(walletError(err), "bad"); }
+  }
+  function renderSetup(s) {
+    const link = (a) => `<a href="https://basescan.org/address/${esc(a)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(a.slice(0, 6))}…${esc(a.slice(-4))}</a>`;
+    if (!s.contract) {
+      $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><div class="big">Not set up</div>
+        <p class="note" style="margin:0">Deploy the subscription contract once from your own wallet (a few cents of ETH on Base). It is fixed forever: USDC, $${esc(s.args.priceUsdc)} per ${esc(s.args.periodDays)} days, only to ${link(s.args.payee)}. No owner, nothing to change later.</p>
+        <div class="btns"><button class="button primary small" type="button" id="deploySub">Deploy the contract</button></div><div class="msg" id="autoMsg" role="status"></div>`;
+      $("#deploySub").onclick = async () => {
+        const say = (t, cls = "") => { const m = $("#autoMsg"); m.textContent = t; m.className = `msg ${cls}`; };
+        const eth = currentWallet();
+        if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Phantom, …).", "bad");
+        try {
+          const [from] = await eth.request({ method: "eth_requestAccounts" });
+          await onBase(eth);
+          const r = await sendAndWait(eth, { from, data: s.deployData, value: "0x0" }, say, "deploying the contract");
+          $("#autoMsg").innerHTML = `Deployed at <code>${esc(r.contractAddress)}</code>. In Render → Environment, add <b>SUBSCRIPTION_CONTRACT</b> = that address, and <b>CHARGER_KEY</b> = the private key of a new, separate wallet with about $1 of ETH on Base. Then save (Render restarts).`;
+          $("#autoMsg").className = "msg good";
+        } catch (err) { say(walletError(err), "bad"); }
+      };
+      return;
+    }
+    const ch = s.charger;
+    $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><div class="big">On</div>
+      <p class="note" style="margin:0">Contract ${link(s.contract)}: $${esc(s.args.priceUsdc)} per ${esc(s.args.periodDays)} days to ${link(s.args.payee)}.</p>
+      <p class="note" style="margin:0">${ch ? `Charger ${link(ch.address)}: ${esc(ch.balanceEth.toFixed(5))} ETH for gas${ch.balanceEth < 0.0003 ? ` <span style="color:var(--amber)">(top it up)</span>` : ""}.` : `<span style="color:var(--amber)">Set CHARGER_KEY in Render so monthly charges go out.</span>`}</p>`;
+  }
+
   document.addEventListener("click", async (e) => {
+    const au = e.target.closest("[data-auto]");
+    if (au) { au.disabled = true; try { await autoAction(au.dataset.auto); } finally { au.disabled = false; } return; }
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
     if (e.target.closest("#tgUnlink")) { if (DEMO) return; await post("/api/telegram/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
     if (e.target.closest("#txClaim")) {
       const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
-      try { await claim($("#txPaste").value.trim(), say); say(`Thank you! Pro until ${day(me.paidUntil)}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      try { await claim($("#txPaste").value.trim(), say); say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good"); } catch (err) { say(err.message, "bad"); }
     }
   });
   function setLive(ok, text) { $("#live").classList.toggle("off", !ok); $("#liveText").textContent = text; }
