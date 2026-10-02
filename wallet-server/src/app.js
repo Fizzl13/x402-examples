@@ -13,7 +13,7 @@ const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {} }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -91,6 +91,14 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
   owner.get("/state", wrap(async (req, res) => res.json(await req.wallet.state())));
+  // The search bar: paid APIs in the public x402 catalog.
+  owner.get("/services/search", wrap(async (req, res) => {
+    if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
+    const q = typeof req.query.q === "string" ? req.query.q.slice(0, 200) : "";
+    const max = Number(req.query.max);
+    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 12 })); }
+    catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
+  }));
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
   owner.put("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.setPolicy(req.body?.policy) })));

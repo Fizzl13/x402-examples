@@ -2,7 +2,7 @@
 // approvals on the dashboard and on Telegram. It never holds keys or funds:
 // agents sign and pay themselves (presign-guard-wallet with `server`).
 // The owner signs in with ADMIN_PASSWORD; customers sign in with their
-// wallet and get their own space (Free, or Pro paid in USDC on Base).
+// wallet and get their own space (Free, or Pro paid in USDC).
 //
 // Environment (Render only, never in code):
 //   ADMIN_PASSWORD      dashboard login (12+ characters)
@@ -21,6 +21,7 @@
 //   SUBSCRIPTION_CONTRACT  optional: the deployed FizzlSubscription address (automatic Pro payments)
 //   ETHEREUM_RPC_URL, ARBITRUM_RPC_URL, OPTIMISM_RPC_URL, POLYGON_RPC_URL
 //                       optional: RPCs to check Pro payments on those networks (public ones by default)
+//   X402_DISCOVERY_URL  optional: the x402 catalog the search bar searches (default Coinbase's Bazaar)
 //   SOLANA_PAY_TO       optional: the Solana address that receives Pro payments; turns on sign-in
 //                       with Phantom on Solana and paying Pro in USDC on Solana
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
@@ -32,6 +33,7 @@ import { createAuth } from "./src/auth.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
+import { createCatalog } from "./src/catalog.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -69,7 +71,8 @@ const accounts = createAccounts({
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])] },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
-const app = createApp({ accounts, auth, telegram, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined });
+const app = createApp({ accounts, auth, telegram, catalog, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 

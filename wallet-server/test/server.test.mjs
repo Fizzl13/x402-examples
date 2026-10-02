@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -48,7 +48,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -697,6 +697,46 @@ test("Solana: off unless SOLANA_PAY_TO is set", async () => {
   const { base, server } = await boot();
   try {
     assert.equal((await (await fetch(`${base}/api/config`)).json()).solana, false);
+  } finally { server.close(); }
+});
+
+test("search bar: paid APIs from the x402 catalog, USDC on the networks we know, best match first, signed-in only", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  let calls = 0;
+  const usdc = (network, asset, amount) => ({ scheme: "exact", network, asset, amount, payTo: PAY_TO });
+  const items = [
+    { resource: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "Ichimoku cloud trend signal for a crypto pair", accepts: [usdc("eip155:8453", USDC, "20000"), usdc("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "20000")], extensions: { bazaar: { info: { input: { method: "GET" } } } } },
+    { resource: "https://ichimoku-signal.fizzl.eu/signal/ETH-USDT", description: "Ichimoku cloud trend signal for a crypto pair", accepts: [usdc("eip155:8453", USDC, "20000")] },
+    { resource: "https://cheap.example/trend", description: "Crypto trend in one word", accepts: [usdc("eip155:42161", "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "5000")] },
+    { resource: "https://pricey.example/signal", description: "Premium crypto trend signal", accepts: [usdc("eip155:8453", USDC, "5000000")] },
+    { resource: "https://fake-usdc.example/signal", description: "Crypto trend signal paid in a token that only looks like USDC", accepts: [usdc("eip155:8453", "0x0000000000000000000000000000000000000001", "1000")] },
+    { resource: "http://plain-http.example/signal", description: "Crypto trend signal over plain http", accepts: [usdc("eip155:8453", USDC, "1000")] },
+    { resource: "https://weather.example/today", description: "Weather forecast <script>alert(1)</script>", accepts: [usdc("eip155:8453", USDC, "1000")] },
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/discovery", fetch: async () => { calls++; return Response.json({ items }); } });
+  const { base, server, owner } = await boot({ catalog });
+  try {
+    assert.equal((await fetch(`${base}/api/services/search?q=crypto`)).status, 401); // signed in only
+    const r = (await owner("GET", "/api/services/search?q=crypto%20trend%20signal&max=1")).body;
+    // Matches with USDC prices up to $1; the fake token, plain http, the $5 one and the weather are left out; one result per URL.
+    assert.deepEqual(r.results.map((x) => x.url), ["https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", "https://ichimoku-signal.fizzl.eu/signal/ETH-USDT", "https://cheap.example/trend"]);
+    assert.deepEqual(r.results[0].prices, [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }]);
+    assert.equal(r.results[0].method, "GET");
+    assert.equal(r.results[2].prices[0].network, "Arbitrum");
+    assert.equal((await owner("GET", "/api/services/search?q=crypto%20trend&max=0.01")).body.results.map((x) => x.host).join(), "cheap.example");
+    assert.equal((await owner("GET", "/api/services/search?q=weather")).body.results[0].description, "Weather forecast <script>alert(1)</script>"); // data, escaped by the page
+    assert.equal((await owner("GET", "/api/services/search?q=a")).body.results.length, 0);
+    assert.equal(calls, 1); // the catalog is fetched once and kept
+  } finally { server.close(); }
+});
+
+test("search bar: a catalog that can't be reached is a clear 502", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { server, owner } = await boot({ catalog: createCatalog({ url: "https://catalog.test/x", fetch: async () => new Response("down", { status: 503 }) }) });
+  try {
+    const r = await owner("GET", "/api/services/search?q=crypto");
+    assert.equal(r.status, 502);
+    assert.match(r.body.message, /can't be reached/);
   } finally { server.close(); }
 });
 

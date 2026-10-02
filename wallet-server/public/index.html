@@ -106,6 +106,25 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .buy .m { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .buy .a { grid-row: 1; grid-column: 2; color: #fff; font-weight: 600; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .buy .s { grid-column: 2; text-align: right; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
+.finder { margin-top: 34px; display: grid; gap: 12px; }
+.searchbar { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 18px; border: 1px solid var(--mint); border-radius: 999px; background: rgba(2,10,10,.7); box-shadow: 0 0 30px rgba(97,245,195,.12); }
+.searchbar:focus-within { box-shadow: 0 0 0 3px rgba(97,245,195,.25), 0 0 40px rgba(97,245,195,.18); }
+.searchbar svg { width: 22px; height: 22px; color: var(--mint); flex: none; }
+.searchbar input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 16px; outline: none; padding: 10px 0; }
+.searchbar select { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 13px; padding: 8px 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chips button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+.chips button:hover, .chips button:focus-visible { border-color: var(--mint); color: var(--text); }
+.hits { display: grid; gap: 10px; }
+.hit { padding: 16px 18px; display: grid; gap: 8px; }
+.hit header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.hit .host { font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
+.hit .prices { display: flex; flex-wrap: wrap; gap: 6px; }
+.hit .prices span { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; color: var(--soft); white-space: nowrap; }
+.hit .prices span:first-child { border-color: var(--mint); color: var(--mint); }
+.hit .url { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.hit .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 600px) { .searchbar { flex-wrap: wrap; border-radius: 22px; padding: 10px 12px; } .searchbar input { flex-basis: calc(100% - 40px); } .searchbar select, .searchbar .button { flex: 1; } }
 .fizzl { margin-top: 34px; display: grid; gap: 14px; }
 .fizzl > p { margin: 0; }
 .fz { padding: 20px; display: grid; gap: 10px; align-content: start; }
@@ -317,6 +336,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="Name your assistant, e.g. claude-desktop" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
+      <div class="finder" id="finder">
+        <span class="tag">FIND PAID SERVICES FOR YOUR AGENTS</span>
+        <form class="searchbar" id="searchForm" role="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          <input id="searchQ" type="search" placeholder="What should your agent buy? e.g. bitcoin signal, token safety, weather" maxlength="200" aria-label="Search paid services" autocomplete="off">
+          <select id="searchMax" aria-label="Highest price per call"><option value="0.05">up to $0.05</option><option value="0.25">up to $0.25</option><option value="1" selected>up to $1</option><option value="">any price</option></select>
+          <button class="button primary" type="submit">Search</button>
+        </form>
+        <div class="chips" id="searchChips"><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
+        <div id="searchOut" role="status" aria-live="polite"></div>
+      </div>
       <div class="fizzl" id="fizzlAgents">
         <span class="tag">FIZZL SERVICES YOUR AGENTS CAN USE</span>
         <p class="note">Paid services, not agents to add. Your agent calls them and pays per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
@@ -444,6 +474,24 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         return structuredClone({ policy: D.policy, paused: D.paused, now, events: D.events, approvals: D.approvals.slice(0, 12),
           spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
           agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
+      }
+      if (method === "GET" && path.startsWith("/api/services/search?")) {
+        const p = new URLSearchParams(path.split("?")[1]);
+        const terms = (p.get("q") ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+        const max = Number(p.get("max")) || Infinity;
+        const all = [
+          { url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "Ichimoku cloud trend signal for a crypto pair: bullish, bearish or neutral, with price and cloud position.", method: "GET", prices: [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }] },
+          { url: "https://ichimoku-signal.fizzl.eu/setups", description: "Ranked crypto trade setups with entry, stop and targets.", method: "GET", prices: [{ network: "Base", usd: 0.5 }] },
+          { url: "https://presign-guard.fizzl.eu/v1/token", description: "Token safety check before buying: grade, reasons and market data, for Base and Solana tokens.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Solana", usd: 0.01 }] },
+          { url: "https://plaintext.fizzl.eu/api/check-wallet", description: "A wallet's token and NFT approvals, explained in plain language with which ones to revoke.", method: "POST", prices: [{ network: "Base", usd: 0.04 }] },
+          { url: "https://x402-doctor.fizzl.eu/api/v1/preflight", description: "Check an x402 endpoint before paying it: safe to pay or not, and the cheapest option.", method: "GET", prices: [{ network: "Base", usd: 0.001 }, { network: "Solana", usd: 0.001 }] },
+          { url: "https://weather.example/v1/forecast", description: "Example listing: weather forecast for a city, hourly for 7 days.", method: "GET", prices: [{ network: "Base", usd: 0.005 }] },
+          { url: "https://search.example/v1/web", description: "Example listing: web search results as JSON.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Polygon", usd: 0.01 }] },
+          { url: "https://translate.example/v1/text", description: "Example listing: translate text between 40 languages.", method: "POST", prices: [{ network: "Base", usd: 0.02 }] },
+        ];
+        const results = all.map((r) => ({ ...r, host: new URL(r.url).hostname, cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length }))
+          .filter((r) => r.score && r.cheapest <= max).sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
+        return { query: p.get("q"), results };
       }
       if (method === "GET" && path.startsWith("/api/purchases?")) {
         return structuredClone({ purchases: Object.values(D.receipts).sort((x, y) => y.createdAt - x.createdAt).map((r) => ({ ...r, verdict: r.verdict?.verdict ?? null, approvedBy: r.approval?.by ?? null, error: r.outcome?.error ?? null })) });
@@ -826,7 +874,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (e.target.closest("#tgLink")) return tgLink();
     if (e.target.closest("[data-goadd]")) { goAdd(); return; }
     const cp = e.target.closest("button[data-copy]");
-    if (cp) { const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = "Copy"; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
+    if (cp) { const was = cp.textContent; const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = was; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
     if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
     const del = e.target.closest("#deleteAccount");
     if (del) {
@@ -873,6 +921,31 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <p class="note" style="margin:0"><a href="${esc(a.site)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">All endpoints and prices ↗</a></p>
     </div></details>
   </article>`).join("");
+
+  // ---------- the search bar: paid APIs in the public x402 catalog ----------
+  const usd = (n) => (n < 0.01 ? `$${+n.toFixed(4)}` : `$${n.toFixed(2)}`);
+  async function search(q) {
+    q = String(q ?? "").trim();
+    const out = $("#searchOut");
+    if (q.length < 2) { out.innerHTML = ""; return; }
+    out.innerHTML = `<p class="note" style="margin:0">Searching the x402 catalog…</p>`;
+    const max = $("#searchMax").value;
+    try {
+      const { results } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}`);
+      if (!results.length) { out.innerHTML = `<p class="note" style="margin:0">Nothing found for "${esc(q)}"${max ? ` up to $${esc(max)}` : ""}. Try other words or a higher price.</p>`; return; }
+      out.innerHTML = `<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} for "${esc(q)}". Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.</p>
+        <div class="hits">${results.map((r) => {
+          const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
+          return `<article class="card hit"><header><span class="host">${esc(r.host)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
+            ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
+            <span class="url">${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
+            <div class="btns"><button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button><a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
+        }).join("")}</div>`;
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
+  }
+  $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
+  $("#searchMax").addEventListener("change", () => { if ($("#searchQ").value.trim()) search($("#searchQ").value); });
+  $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });
 
   // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
   // (So does "Make my agent key" on the Fizzl agents.)
