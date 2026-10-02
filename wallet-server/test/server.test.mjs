@@ -3,16 +3,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { randomBytes } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { canonicalJson, inputHash } from "x402-safe-fetch";
 import { guardWallet } from "presign-guard-wallet";
 import { createApp } from "../src/app.js";
 import { createAuth } from "../src/auth.js";
-import { createWallet } from "../src/wallet.js";
+import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
 import { createTelegram } from "../src/telegram.js";
 
 const PASSWORD = "correct horse battery staple";
+const PAY_TO = "0x6B0F4651eD42893ab58139938175E4a69f175F25";
 const presignKey = privateKeyToAccount(generatePrivateKey());
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const SHOP = "0x1111111111111111111111111111111111111111";
@@ -36,12 +38,17 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
-  const telegram = createTelegram({ token: "1:abc", chatId: "4242", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", fetch: tg.fetchImpl });
-  const wallet = createWallet({ store, signers: [presignKey.address], authority: null, approvalTtlMs, notify: (a, s) => telegram.notify(a, s), onSettled: (a) => telegram.decided(a) });
-  const app = createApp({ wallet, auth: createAuth({ password: PASSWORD, secure: false }), telegram });
+  const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
+  const rpcFetch = async (_url, init) => { const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) }); };
+  const accounts = createAccounts({
+    store, telegram, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
+    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch },
+    walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
+  });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -55,7 +62,7 @@ async function boot({ approvalTtlMs } = {}) {
     return { status: r.status, body: await r.json().catch(() => null) };
   };
   const { body: { key } } = await owner("POST", "/api/agents", { name: "research-agent" });
-  return { base, server, owner, agent: agentCall(key), key, tg, wallet, store };
+  return { base, server, owner, agent: agentCall(key), agentCall, key, tg, accounts, store };
 }
 
 test("login: wrong password refused and slowed down; the dashboard needs the cookie", async () => {
@@ -284,5 +291,212 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
     assert.deepEqual(await r2.json(), { updated: 0 });
     assert.equal((await owner("GET", "/api/purchases/pu_nope")).status, 404);
     assert.equal((await agent("GET", `/api/purchases/${r.id}`)).status, 401);
+  } finally { server.close(); }
+});
+
+// ---------- hosted accounts: wallet sign-in, isolation, Telegram links, Pro ----------
+
+async function signInAs(base, account) {
+  const m = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account.address }) })).json();
+  const r = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: m.nonce, signature: await account.signMessage({ message: m.message }) }) });
+  const cookie = r.headers.get("set-cookie")?.split(";")[0];
+  const call = async (method, path, body) => {
+    const res = await fetch(base + path, { method, headers: { cookie, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  return { status: r.status, message: m.message, nonce: m.nonce, call };
+}
+const customer = () => privateKeyToAccount(generatePrivateKey());
+const pad = (a) => `0x${a.toLowerCase().slice(2).padStart(64, "0")}`;
+const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+// A fake Base RPC: transactions by hash.
+function chain(nowSec = () => Math.floor(Date.now() / 1000)) {
+  const txs = new Map();
+  const rpc = async (method, params) => {
+    if (method === "eth_getTransactionReceipt") return txs.get(params[0]) ?? null;
+    if (method === "eth_getBlockByNumber") return { timestamp: `0x${(txs.get(`block:${params[0]}`) ?? nowSec()).toString(16)}` };
+    return null;
+  };
+  const pay = (from, usdc, { to = PAY_TO, status = "0x1", ageDays = 0, token = USDC } = {}) => {
+    const hash = `0x${randomBytes(32).toString("hex")}`, block = `0x${randomBytes(3).toString("hex")}`;
+    txs.set(hash, { status, blockNumber: block, logs: [{ address: token, topics: [TRANSFER, pad(from), pad(to)], data: `0x${BigInt(Math.round(usdc * 1e6)).toString(16).padStart(64, "0")}` }] });
+    txs.set(`block:${block}`, nowSec() - ageDays * 86400);
+    return hash;
+  };
+  return { rpc, pay };
+}
+
+test("sign in with a wallet: a free signature over a message this server made, once", async () => {
+  const { base, server } = await boot();
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    assert.equal(a.status, 200);
+    assert.match(a.message, /^wallet\.test wants you to sign in with your Ethereum account:\n0x/);
+    assert.match(a.message, /Chain ID: 8453/);
+    assert.match(a.message, /not a transaction/);
+    const me = (await a.call("GET", "/api/me")).body;
+    assert.equal(me.address, alice.address);
+    assert.equal(me.plan, "free");
+    assert.equal(me.limits.maxAgents, 1);
+    assert.equal(me.billing.payTo, PAY_TO);
+    assert.equal(me.billing.priceUsdc, 5);
+
+    // Someone else's signature, a reused nonce, a made-up nonce: all refused.
+    const m = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: alice.address }) })).json();
+    const bad = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: m.nonce, signature: await customer().signMessage({ message: m.message }) }) });
+    assert.equal(bad.status, 401);
+    const replay = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: a.nonce, signature: await alice.signMessage({ message: a.message }) }) });
+    assert.equal(replay.status, 401);
+    assert.equal((await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: "nope" }) })).status, 400);
+    assert.equal((await fetch(`${base}/api/config`).then((r) => r.json())).wallet, true);
+  } finally { server.close(); }
+});
+
+test("every account sees and changes only its own agents, approvals, receipts and rules", async () => {
+  const { base, server, owner, agentCall } = await boot();
+  try {
+    const a = await signInAs(base, customer()), b = await signInAs(base, customer());
+    const { body: { key: aKey } } = await a.call("POST", "/api/agents", { name: "alice-bot" });
+    const aAgent = agentCall(aKey);
+    const r = await aAgent("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(9) });
+    assert.equal(r.body.status, "pending");
+
+    assert.deepEqual((await b.call("GET", "/api/state")).body.agents, []);
+    assert.deepEqual((await b.call("GET", "/api/state")).body.approvals, []);
+    assert.equal((await b.call("POST", `/api/approvals/${r.body.approvalId}`, { decision: "approve" })).status, 404);
+    assert.ok(!(await owner("GET", "/api/state")).body.agents.some((x) => x.name === "alice-bot"));
+    assert.equal((await owner("POST", `/api/approvals/${r.body.approvalId}`, { decision: "approve" })).status, 404);
+    assert.equal((await a.call("GET", "/api/state")).body.approvals[0].status, "pending");
+
+    // b's rules don't change a's, and only the owner gets the payments export.
+    await b.call("PUT", "/api/policy", { policy: { tokens: { USDC: { perTx: "100", perDay: "200" } } } });
+    assert.equal((await aAgent("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(9) })).body.status, "pending");
+    assert.equal((await a.call("GET", "/api/admin/payments.csv")).status, 403);
+    assert.equal((await fetch(`${base}/api/admin/payments.csv`, { headers: { cookie: "aw_session=forged.admin.x.y" } })).status, 401);
+  } finally { server.close(); }
+});
+
+test("free plan: one agent; a second is refused, and paused if it already exists", async () => {
+  const c = chain();
+  const { base, server, agentCall } = await boot({ rpc: c.rpc });
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    assert.equal((await a.call("POST", "/api/agents", { name: "one" })).status, 200);
+    const second = await a.call("POST", "/api/agents", { name: "two" });
+    assert.equal(second.status, 403);
+    assert.match(second.body.message, /free plan has 1 agent/);
+    // Pro: more agents.
+    await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5) });
+    const { body: { key: twoKey } } = await a.call("POST", "/api/agents", { name: "two" });
+    assert.equal((await agentCall(twoKey)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(1) })).body.status, "ok");
+  } finally { server.close(); }
+});
+
+test("Pro: paid in USDC on Base from the customer's own wallet to the owner, checked on-chain", async () => {
+  const c = chain();
+  const { base, server, owner } = await boot({ rpc: c.rpc });
+  try {
+    const alice = customer(), bob = customer();
+    const a = await signInAs(base, alice), b = await signInAs(base, bob);
+    const claim = (who, txHash) => who.call("POST", "/api/billing/claim", { txHash });
+
+    assert.equal((await claim(a, `0x${"ab".repeat(32)}`)).status, 409); // not mined yet
+    assert.match((await claim(a, c.pay(alice.address, 4))).body.message, /no payment of 5 USDC/);
+    assert.equal((await claim(a, c.pay(alice.address, 5, { to: bob.address }))).status, 400);
+    assert.equal((await claim(a, c.pay(alice.address, 5, { token: "0x0000000000000000000000000000000000000001" }))).status, 400);
+    assert.match((await claim(a, c.pay(alice.address, 5, { status: "0x0" }))).body.message, /failed/);
+    assert.match((await claim(a, c.pay(alice.address, 5, { ageDays: 9 }))).body.message, /older than 7 days/);
+
+    const tx = c.pay(alice.address, 5);
+    assert.equal((await claim(b, tx)).status, 400); // bob can't use alice's payment
+    const ok = await claim(a, tx);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.plan, "pro");
+    const until = ok.body.paidUntil;
+    assert.ok(Math.abs(until - (Date.now() + 30 * 86_400_000)) < 60_000);
+    assert.equal((await claim(a, tx)).body.paidUntil, until); // the same payment twice: counted once
+
+    // 10 USDC is two months, added on top.
+    const two = await claim(a, c.pay(alice.address, 10));
+    assert.ok(Math.abs(two.body.paidUntil - (until + 60 * 86_400_000)) < 60_000);
+    assert.equal(two.body.payments.length, 2);
+    assert.equal(two.body.limits.receiptDays, 90);
+
+    const csv = await (await fetch(`${base}/api/admin/payments.csv`, { headers: { cookie: (await (await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) })).headers.get("set-cookie")).split(";")[0] } })).text();
+    assert.match(csv, /^date,account,amount_usdc,months,transaction,paid_until\n/);
+    assert.equal(csv.trim().split("\n").length, 3);
+    assert.ok(csv.includes(alice.address));
+    assert.equal((await owner("GET", "/api/me")).body.plan, "owner");
+  } finally { server.close(); }
+});
+
+test("Telegram: one bot, a one-time link per account; approvals go to that chat and only its user can tap", async () => {
+  const { base, server, tg, agentCall } = await boot();
+  try {
+    const a = await signInAs(base, customer());
+    const { body: link } = await a.call("POST", "/api/telegram/link", {});
+    const code = /^https:\/\/t\.me\/FizzlTestBot\?start=([A-Za-z0-9]+)$/.exec(link.url)?.[1];
+    assert.ok(code, link.url);
+    const hook = (update, secret = "s3cret-hook") => fetch(`${base}/telegram/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret }, body: JSON.stringify(update) });
+    const start = (text, chatId = 555, type = "private") => hook({ message: { text, chat: { id: chatId, type }, from: { id: chatId, username: "alice" } } });
+
+    assert.equal((await hook({ message: { text: `/start ${code}`, chat: { id: 555, type: "private" }, from: { id: 555 } } }, "wrong")).status, 401);
+    await start("/start nonsensecode123");
+    assert.match(tg.calls.at(-1).body.text, /expired/);
+    await start(`/start ${code}`, 777, "group");
+    assert.match(tg.calls.at(-1).body.text, /private chat/);
+    const again = (await a.call("POST", "/api/telegram/link", {})).body.url.split("start=")[1];
+    await start(`/start ${again}`);
+    assert.match(tg.calls.at(-1).body.text, /^Connected ✓/);
+    assert.equal(tg.calls.at(-1).body.chat_id, 555);
+    assert.equal((await a.call("GET", "/api/me")).body.telegram.linked, true);
+    await start(`/start ${again}`); // a link works once
+    assert.match(tg.calls.at(-1).body.text, /expired/);
+
+    const { body: { key } } = await a.call("POST", "/api/agents", { name: "alice-bot" });
+    const r = await agentCall(key)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(9) });
+    await new Promise((ok) => setTimeout(ok, 30));
+    const asked = tg.calls.filter((c) => c.method === "sendMessage").at(-1);
+    assert.equal(asked.body.chat_id, "555");
+    assert.match(asked.body.text, /alice-bot wants to sign/);
+
+    const tap = (fromId) => hook({ callback_query: { id: "cb", data: `aw:${r.body.approvalId}:y`, from: { id: fromId, username: "x" } } });
+    await tap(4242); // the server owner is not this account's user
+    assert.equal((await a.call("GET", "/api/state")).body.approvals[0].status, "pending");
+    await tap(555);
+    assert.equal((await a.call("GET", "/api/state")).body.approvals[0].status, "approved");
+
+    await a.call("POST", "/api/telegram/unlink", {});
+    assert.equal((await a.call("GET", "/api/me")).body.telegram.linked, false);
+  } finally { server.close(); }
+});
+
+test("reminders: before Pro ends, when it ends, and back on free; each once", async () => {
+  let t = Date.now();
+  const c = chain(() => Math.floor(t / 1000));
+  const { base, server, tg, accounts } = await boot({ rpc: c.rpc, now: () => t });
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    const code = (await a.call("POST", "/api/telegram/link", {})).body.url.split("start=")[1];
+    await fetch(`${base}/telegram/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": "s3cret-hook" }, body: JSON.stringify({ message: { text: `/start ${code}`, chat: { id: 555, type: "private" }, from: { id: 555 } } }) });
+    await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5) });
+    const texts = () => tg.calls.filter((x) => x.method === "sendMessage" && x.body.chat_id === "555").map((x) => x.body.text);
+
+    assert.equal(await accounts.remind(), 0);
+    t += 28 * 86_400_000;
+    assert.equal(await accounts.remind(), 1);
+    assert.match(texts().at(-1), /Pro ends on/);
+    assert.equal(await accounts.remind(), 0);
+    t += 3 * 86_400_000;
+    assert.equal(await accounts.remind(), 1);
+    assert.match(texts().at(-1), /has ended/);
+    assert.equal((await a.call("GET", "/api/me")).body.plan, "pro"); // grace
+    t += 3 * 86_400_000;
+    assert.equal(await accounts.remind(), 1);
+    assert.match(texts().at(-1), /free plan/);
+    assert.equal((await a.call("GET", "/api/me")).body.plan, "free");
   } finally { server.close(); }
 });
