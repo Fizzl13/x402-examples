@@ -333,14 +333,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       </div>
     </section>
 
-    <section class="section" id="accountSec" hidden>
-      <div class="eyebrow"><i></i>00 / YOUR ACCOUNT</div>
-      <div class="account">
-        <article class="card" id="planCard"></article>
-        <article class="card" id="tgCard"></article>
-      </div>
-      <div id="deleteBox" hidden style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="link" type="button" id="deleteAccount">Delete my account</button><span class="msg" id="deleteMsg" role="status"></span></div>
-    </section>
 
     <section class="section" id="rule">
       <div class="eyebrow"><i></i>01 / YOUR PRICE RULE</div>
@@ -422,10 +414,19 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
       <div class="rows" id="events"></div>
     </section>
+
+    <section class="section" id="accountSec" hidden>
+      <div class="eyebrow"><i></i>06 / YOUR ACCOUNT</div>
+      <div class="account">
+        <article class="card" id="planCard"></article>
+        <article class="card" id="tgCard"></article>
+      </div>
+      <div id="deleteBox" hidden style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="link" type="button" id="deleteAccount">Delete my account</button><span class="msg" id="deleteMsg" role="status"></span></div>
+    </section>
   </div>
 </main>
 <dialog class="receipt" id="receipt" aria-labelledby="rcTitle"><div id="rcBody"></div></dialog>
-<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a></div></footer>
+<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a><span id="footAccount" hidden> · <a href="#accountSec" style="text-decoration:underline">your account &amp; plan</a></span></div></footer>
 
 <script>
 (() => {
@@ -857,8 +858,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#who").hidden = false;
     const max = me.limits?.maxAgents;
     $("#agentPlanNote").textContent = max ? `Your ${me.plan} plan: ${max} agent${max === 1 ? "" : "s"}, enough to use all the services below. Pro: unlimited agents.` : "Unlimited agents on your plan.";
-    $("#who").innerHTML = `<span>${esc(short)}</span> <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
+    $("#who").innerHTML = `<a href="#accountSec" title="Your account and plan" style="color:inherit;text-decoration:none"><span>${esc(short)}</span> <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span></a>`;
     $("#accountSec").hidden = false;
+    $("#footAccount").hidden = false;
     $("#deleteBox").hidden = me.admin || DEMO;
     renderFollow(); setupAgents();
     if (me.admin) {
@@ -1147,7 +1149,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const saved = me.follow ?? [];
     $("#followNow").textContent = saved.length ? `on · ${saved.includes("all") ? "everything new" : `${saved.length} categor${saved.length === 1 ? "y" : "ies"}`}` : "off";
     $("#followSave").disabled = !linked;
-    if (!linked) { $("#followMsg").textContent = "Connect Telegram first (under Your account)."; $("#followMsg").className = "msg"; }
+    if (!linked) { $("#followMsg").textContent = "Connect Telegram first (under Your account, at the bottom)."; $("#followMsg").className = "msg"; }
   }
   $("#followChips").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-follow]"); if (!b) return;

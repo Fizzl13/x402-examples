@@ -71,7 +71,7 @@ To check that everything works without paying anything, ask your owner to click 
 
 ### 4. Optional: approvals on the phone
 
-On the dashboard, under **Your account**, your owner clicks **Connect Telegram** to get approval requests with Approve / Deny buttons.
+On the dashboard, under **Your account** (at the bottom), your owner clicks **Connect Telegram** to get approval requests with Approve / Deny buttons.
 
 ## Using it
 
