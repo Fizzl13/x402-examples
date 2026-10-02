@@ -73,7 +73,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const q = typeof req.query.q === "string" ? req.query.q.slice(0, 200) : "";
     const max = Number(req.query.max);
     const category = typeof req.query.cat === "string" && /^[a-z]{2,20}$/.test(req.query.cat) ? req.query.cat : null;
-    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: category && !q ? 30 : 12, category })); } catch (err) { down(res, err); }
+    const page = Math.min(500, Math.max(1, Number.parseInt(req.query.page, 10) || 1));
+    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 20, category, page })); } catch (err) { down(res, err); }
   }));
   services.get("/categories", wrap(async (req, res) => {
     if (!catalog) return unavailable(res);

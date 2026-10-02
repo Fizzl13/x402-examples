@@ -976,3 +976,23 @@ test("new providers on Telegram: per followed category, once per new seller, nev
     assert.match(tg.calls.at(-1).body.text, /2 new providers/);
   } finally { server.close(); }
 });
+
+test("search bar: more than 20 results come in pages, like a search engine", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const items = Array.from({ length: 45 }, (_, i) => ({ resource: `https://seller${i}.example/signal`, description: "Crypto trend signal", accepts: [{ scheme: "exact", network: "eip155:8453", asset: USDC, amount: String(1000 + i), payTo: PAY_TO }] }));
+  const catalog = createCatalog({ url: "https://catalog.test/discovery", fetch: async () => Response.json({ items }) });
+  const { server, owner } = await boot({ catalog });
+  try {
+    const page = async (n) => (await owner("GET", `/api/services/search?q=crypto%20signal${n ? `&page=${n}` : ""}`)).body;
+    const p1 = await page();
+    assert.deepEqual([p1.results.length, p1.total, p1.page, p1.pages], [20, 45, 1, 3]);
+    assert.equal(p1.results[0].host, "seller0.example"); // same match: cheapest first
+    const p3 = await page(3);
+    assert.deepEqual([p3.results.length, p3.page], [5, 3]);
+    assert.equal(p3.results.at(-1).host, "seller44.example");
+    const seen = new Set([...p1.results, ...(await page(2)).results, ...p3.results].map((r) => r.url));
+    assert.equal(seen.size, 45); // every result exactly once
+    assert.equal((await page(99)).page, 3); // past the end: the last page
+    assert.equal((await page("x")).page, 1);
+  } finally { server.close(); }
+});
