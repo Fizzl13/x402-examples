@@ -62,6 +62,9 @@ test("redis store: accounts are separate scopes; one-time codes and payments wor
     await store.global.putOnce("tg", "code123", { account: alice }, 60);
     assert.deepEqual(await store.global.takeOnce("tg", "code123"), { account: alice });
     assert.equal(await store.global.takeOnce("tg", "code123"), null);
+    await store.global.addSeen({ "https://a.example": 0, "https://b.example": 1000 });
+    await store.global.addSeen({ "https://a.example": 5000 }); // first seen is kept
+    assert.deepEqual(await store.global.getSeen(), { "https://a.example": 0, "https://b.example": 1000 });
     assert.equal(await store.global.claimTx("0xabc"), true);
     assert.equal(await store.global.claimTx("0xabc"), false);
     await store.global.putAccount({ id: alice, paidUntil: 1 });
