@@ -199,9 +199,10 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       }
       return { categories: [...counts.values()].map(({ words: _w, ...c }) => c).filter((c) => c.count > 0) };
     },
-    async search(query, { maxUsd = Infinity, limit = 12, category = null } = {}) {
+    // Results come in pages of `limit` (like a search engine): { results, total, page, pages }.
+    async search(query, { maxUsd = Infinity, limit = 20, category = null, page = 1 } = {}) {
       const terms = words(query);
-      if (!terms.length && !category) return { query: String(query ?? ""), results: [] };
+      if (!terms.length && !category) return { query: String(query ?? ""), results: [], total: 0, page: 1, pages: 0 };
       const found = new Map(); // one result per URL
       for (const item of await load()) {
         let u;
@@ -223,14 +224,17 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (found.has(key) && found.get(key).score >= score) continue;
         found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
       }
-      const results = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest).slice(0, Math.min(30, Math.max(1, limit))).map(({ score, ...r }) => r);
+      const all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
+      const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
+      const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
+      const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => r);
       // Which of these sellers publish a skill.md (cached; unknown ones are checked now, briefly).
       if (skills && results.length) {
         const origins = results.map((r) => new URL(r.url).origin);
         await skills.check(origins);
         for (const r of results) r.skill = skills.known(new URL(r.url).origin) ? `${new URL(r.url).origin}/skill.md` : null;
       }
-      return { query: String(query ?? ""), category, results };
+      return { query: String(query ?? ""), category, results, total: all.length, page: at, pages };
     },
   };
 }

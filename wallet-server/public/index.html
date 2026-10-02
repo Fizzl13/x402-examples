@@ -135,6 +135,12 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .cats button.on { border-color: var(--mint); background: rgba(97,245,195,.1); box-shadow: 0 0 0 1px var(--mint) inset; }
 .catbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .catbar button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; }
+.pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; }
+.pager button, .pager .cur { min-width: 40px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 14px; cursor: pointer; }
+.pager button:hover, .pager button:focus-visible { border-color: var(--mint); color: var(--text); }
+.pager .cur { display: inline-flex; align-items: center; justify-content: center; background: var(--mint); border-color: var(--mint); color: #02100c; font-weight: 700; cursor: default; }
+.pager .step { color: var(--mint); }
+.pager .gap { color: var(--dim); padding: 0 2px; }
 .skilltag { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: var(--mint); border: 1px solid var(--mint); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
 .setup { padding: 20px; display: grid; gap: 12px; margin-top: 16px; }
 .setup .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -573,7 +579,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         const cat = p.get("cat");
         const results = all.filter((r) => !cat || catOf(r) === cat).map((r) => ({ ...r, skill: /fizzl\.eu/.test(r.url) ? `${new URL(r.url).origin}/skill.md` : null, host: new URL(r.url).hostname, isNew: /weather|translate/.test(r.url), cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.length ? terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length : 1 }))
           .filter((r) => r.score && r.cheapest <= max).sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
-        return { query: p.get("q"), results };
+        const pages = Math.ceil(results.length / 20), at = Math.min(Math.max(1, Number(p.get("page")) || 1), Math.max(1, pages));
+        return { query: p.get("q"), results: results.slice((at - 1) * 20, at * 20), total: results.length, page: at, pages };
       }
       if (method === "GET" && path.startsWith("/api/purchases?")) {
         return structuredClone({ purchases: Object.values(D.receipts).sort((x, y) => y.createdAt - x.createdAt).map((r) => ({ ...r, verdict: r.verdict?.verdict ?? null, approvedBy: r.approval?.by ?? null, error: r.outcome?.error ?? null })) });
@@ -1031,8 +1038,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   // ---------- the search bar: paid APIs in the public x402 catalog ----------
   const usd = (n) => (n < 0.01 ? `$${+n.toFixed(4)}` : `$${n.toFixed(2)}`);
-  async function search(q) {
+  // One page of 20 results; more pages get a pager under the results (Previous 1 2 3 … Next).
+  let lastQ = "";
+  function pagerHtml(page, pages) {
+    if (pages < 2) return "";
+    const nums = [...new Set([1, page - 2, page - 1, page, page + 1, page + 2, pages])].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+    const out = [];
+    nums.forEach((n, i) => {
+      if (i && n - nums[i - 1] > 1) out.push(`<span class="gap" aria-hidden="true">…</span>`);
+      out.push(n === page ? `<span class="cur" aria-current="page">${n}</span>` : `<button type="button" data-page="${n}" aria-label="Page ${n}">${n}</button>`);
+    });
+    return `<nav class="pager" aria-label="Result pages">${page > 1 ? `<button type="button" data-page="${page - 1}" class="step">‹ Previous</button>` : ""}${out.join("")}${page < pages ? `<button type="button" data-page="${page + 1}" class="step">Next ›</button>` : ""}</nav>`;
+  }
+  async function search(q, page = 1) {
     q = String(q ?? "").trim();
+    lastQ = q;
     const out = $("#searchOut");
     if (q.length < 2 && !activeCat) { out.innerHTML = ""; return; }
     out.innerHTML = `<p class="note" style="margin:0">Searching the x402 catalog…</p>`;
@@ -1041,9 +1061,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const what = [q ? `"${esc(q)}"` : "", cat ? `in ${esc(cat.icon)} ${esc(cat.name)}` : ""].filter(Boolean).join(" ");
     const catBar = cat ? `<div class="catbar"><span class="note">Category: <b style="color:#fff">${esc(cat.icon)} ${esc(cat.name)}</b></span><button type="button" id="catClear">× all categories</button></div>` : "";
     try {
-      const { results } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}`);
+      const { results, total = results.length, page: at = 1, pages = 1 } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}${page > 1 ? `&page=${page}` : ""}`);
+      const from = (at - 1) * 20 + 1, range = pages > 1 ? `Results ${from}–${from + results.length - 1} of ${total}` : `${results.length}`;
       if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price.</p>`; return; }
-      out.innerHTML = `${catBar}<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} ${what}${!q && cat ? " (new providers first, then cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
+      out.innerHTML = `${catBar}<p class="note" style="margin:0">${range} paid service${total === 1 ? "" : "s"} ${what}${!q && cat ? " (new providers first, then cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
@@ -1051,7 +1072,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
             <span class="url">${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
             <div class="btns">${connect ? `<button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button>`}<a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
-        }).join("")}</div>`;
+        }).join("")}</div>${pagerHtml(at, pages)}`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
   // Categories: the catalog sorted by what listings say they do, with counts.
@@ -1073,6 +1094,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     activeCat = activeCat === b.dataset.cat ? null : b.dataset.cat;
     renderCats();
     search($("#searchQ").value);
+  });
+  $("#searchOut").addEventListener("click", async (e) => {
+    const b = e.target.closest(".pager button[data-page]"); if (!b) return;
+    await search(lastQ, Number(b.dataset.page)); // the same search, another page
+    $("#searchOut").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   });
   $("#searchOut").addEventListener("click", (e) => { if (e.target.closest("#catClear")) { activeCat = null; renderCats(); search($("#searchQ").value); } });
 
