@@ -1,0 +1,4 @@
+DM Sans (Colophon Foundry, Google) and Space Grotesk (Florian Karsten) are licensed under the
+SIL Open Font License, Version 1.1 (https://openfontlicensing.org/ofl-1-1). Files from the
+@fontsource/dm-sans and @fontsource/space-grotesk packages (latin subset), served from this
+server so visitors don't load anything from Google.

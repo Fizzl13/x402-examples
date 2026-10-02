@@ -16,6 +16,8 @@
 //   PRO_PRICE_USDC      Pro per 30 days (default 5)
 //   BASE_RPC_URL        optional: a Base RPC to check payments (default https://mainnet.base.org)
 //   WALLET_SIGNIN       "off" for a private, owner-only server (no customer sign-in)
+//   OPERATOR_NAME       who runs the service, shown in the privacy statement (/privacy)
+//   CONTACT_EMAIL       where customers reach you about their data, shown in the privacy statement
 //   SUBSCRIPTION_CONTRACT  optional: the deployed FizzlSubscription address (automatic Pro payments)
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
@@ -60,7 +62,7 @@ const accounts = createAccounts({
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])] },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
-const app = createApp({ accounts, auth, telegram, signInWithWallet: env.WALLET_SIGNIN !== "off" });
+const app = createApp({ accounts, auth, telegram, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 

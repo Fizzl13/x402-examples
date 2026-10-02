@@ -5,10 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Agent Wallet | FIZZL</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
 <style>
+@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/dm-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/dm-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/dm-sans-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/space-grotesk-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/space-grotesk-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/space-grotesk-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); }
 /* lab.fizzl.eu language: mint on near-black, Space Grotesk uppercase headings with an outlined second line, glass cards. */
 :root {
   --bg: #020708; --mint: #61f5c3; --amber: #f5c361; --violet: #a78bfa; --cyan: #5ad1ff; --rose: #ff7a90;
@@ -175,6 +180,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="err" id="walletErr"></div>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
+      <p class="note" style="margin:0"><a href="/privacy" style="text-decoration:underline">Privacy statement</a>: no passwords, no e-mail, no tracking.</p>
       <form id="loginForm" hidden style="display:grid;gap:12px">
         <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
         <input id="password" type="password" autocomplete="current-password" required>
@@ -208,6 +214,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <article class="card" id="planCard"></article>
         <article class="card" id="tgCard"></article>
       </div>
+      <div id="deleteBox" hidden style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="link" type="button" id="deleteAccount">Delete my account</button><span class="msg" id="deleteMsg" role="status"></span></div>
     </section>
 
     <section class="section" id="rule">
@@ -259,7 +266,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </div>
 </main>
 <dialog class="receipt" id="receipt" aria-labelledby="rcTitle"><div id="rcBody"></div></dialog>
-<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet</div></footer>
+<footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/privacy" style="text-decoration:underline">privacy</a></div></footer>
 
 <script>
 (() => {
@@ -530,6 +537,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#who").hidden = false;
     $("#who").innerHTML = `${esc(short)} <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
     $("#accountSec").hidden = false;
+    $("#deleteBox").hidden = me.admin || DEMO;
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
       $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
@@ -625,6 +633,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
+    const del = e.target.closest("#deleteAccount");
+    if (del) {
+      if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = "Sure? Agents, rules, receipts and the Telegram link are deleted. Click again to delete."; return; }
+      try { await post("/api/account/delete", { confirm: "delete" }); location.reload(); }
+      catch (err) { $("#deleteMsg").textContent = err.message; $("#deleteMsg").className = "msg bad"; del.dataset.confirm = ""; del.textContent = "Delete my account"; }
+      return;
+    }
     if (e.target.closest("#tgUnlink")) { if (DEMO) return; await post("/api/telegram/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
     if (e.target.closest("#txClaim")) {
       const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };

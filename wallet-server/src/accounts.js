@@ -130,7 +130,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!ok) throw Object.assign(new Error("that signature does not match"), { status: 401 });
       const id = pending.address.toLowerCase();
       const existing = await g.getAccount(id);
-      if (!existing) await g.putAccount({ id, address: pending.address, createdAt: now(), paidUntil: 0, payments: [], telegram: null });
+      if (!existing || existing.deletedAt) await g.putAccount({ id, address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: existing?.autoPayments ?? [], telegram: null });
       return id;
     },
 
@@ -191,6 +191,24 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!a?.telegram || String(from?.id) !== String(a.telegram.userId)) return { refused: true };
       const who = from.username ? `@${from.username}` : "Telegram";
       return walletFor(owner).decide(approvalId, decision, who);
+    },
+
+    // ---------- deleting an account (GDPR erasure) ----------
+    // Everything goes: agents and their keys, rules, approvals, receipts, log, Telegram link.
+    // Only the payment records stay (bookkeeping law: 7 years). Automatic payment must be off first,
+    // because the subscription lives on-chain and only the customer can cancel it.
+    async deleteAccount(id) {
+      if (id === ADMIN) throw Object.assign(new Error("the owner's account can't be deleted here"), { status: 400 });
+      const a = await syncAuto(await account(id), { maxAgeMs: 0 }).catch(() => null) ?? (await account(id));
+      if (!a) return { ok: true };
+      if ((a.auto?.dueAt ?? 0) > 0) throw Object.assign(new Error("Turn off automatic payment first (it lives on-chain, so only your wallet can stop it)."), { status: 409 });
+      return serial(id, async () => {
+        await store.wipe(id);
+        wallets.delete(id);
+        const kept = { id, address: a.address, deletedAt: now(), payments: a.payments ?? [], autoPayments: a.autoPayments ?? [], paidUntil: 0 };
+        await g.putAccount(kept);
+        return { ok: true };
+      });
     },
 
     // ---------- billing: Pro, paid straight from the customer's wallet ----------

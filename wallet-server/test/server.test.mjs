@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -48,7 +48,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now } = {}) {
     billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -499,4 +499,50 @@ test("reminders: before Pro ends, when it ends, and back on free; each once", as
     assert.match(texts().at(-1), /free plan/);
     assert.equal((await a.call("GET", "/api/me")).body.plan, "free");
   } finally { server.close(); }
+});
+
+test("delete my account: everything goes except payment records; the agent key stops working", async () => {
+  const c = chain();
+  const { base, server, agentCall, accounts } = await boot({ rpc: c.rpc });
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5) });
+    const { body: { key } } = await a.call("POST", "/api/agents", { name: "alice-bot" });
+    await agentCall(key)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(1) });
+    assert.equal((await a.call("POST", "/api/account/delete", {})).status, 400); // needs the confirmation
+    const del = await a.call("POST", "/api/account/delete", { confirm: "delete" });
+    assert.equal(del.status, 200);
+    assert.equal((await agentCall(key)("GET", "/v1/spending")).status, 401);
+    assert.equal((await accounts.allPayments()).length, 1); // kept for bookkeeping
+    // Signing in again: a fresh, empty free account.
+    const again = await signInAs(base, alice);
+    assert.deepEqual((await again.call("GET", "/api/state")).body.agents, []);
+    assert.equal((await again.call("GET", "/api/me")).body.plan, "free");
+    assert.equal((await again.call("POST", "/api/account/delete", { confirm: "delete" })).status, 200);
+  } finally { server.close(); }
+});
+
+test("privacy statement, served with the operator from the environment; fonts from this server", async () => {
+  const off = await boot();
+  try {
+    const page = await (await fetch(`${off.base}/privacy`)).text();
+    assert.match(page, /\[OPERATOR_NAME: set in Render\]/);
+    assert.match(page, /Autoriteit Persoonsgegevens/);
+  } finally { off.server.close(); }
+  const on = await boot({ operator: { name: "Frits <Test>", email: "privacy@example.com" } });
+  try {
+    const res = await fetch(`${on.base}/privacy`);
+    const page = await res.text();
+    assert.ok(page.includes("Frits &lt;Test&gt;"));
+    assert.ok(page.includes('href="mailto:privacy@example.com"'));
+    assert.doesNotMatch(page, /set in Render/);
+    assert.match(res.headers.get("content-security-policy"), /font-src 'self'/);
+    const dash = await (await fetch(`${on.base}/`)).text();
+    assert.doesNotMatch(dash, /googleapis|gstatic/);
+    const font = await fetch(`${on.base}/fonts/dm-sans-latin-400-normal.woff2`);
+    assert.equal(font.status, 200);
+    assert.ok((await font.arrayBuffer()).byteLength > 5000);
+    assert.equal((await fetch(`${on.base}/fonts/../server.js`)).status, 404);
+  } finally { on.server.close(); }
 });

@@ -65,6 +65,7 @@ export function memoryStore() {
       async getApproval(id) { return approvals.get(id) ?? null; },
       async putApproval(a) { approvals.set(a.id, a); if (account !== ADMIN) await global.setApprovalOwner(a.id, account); },
       async listApprovals() { return [...approvals.values()]; },
+      async deleteApproval(id) { approvals.delete(id); },
       async addEvent(e) { events.unshift(e); events = events.slice(0, EVENTS_KEPT); },
       async listEvents(n = 100) { return events.slice(0, n); },
       async getPurchase(id) { const p = purchases.get(id); return p && p.until > Date.now() ? p.value : null; },
@@ -74,8 +75,16 @@ export function memoryStore() {
     return s;
   }
 
+  // Remove everything in one account's scope (its agents' keys included).
+  async function wipe(account) {
+    if (account === ADMIN) throw new Error("the owner's scope can't be wiped");
+    const s = scopes.get(account);
+    if (s) for (const a of await s.listAgents()) await global.delKeyOwner(a.keyHash);
+    scopes.delete(account);
+  }
+
   const admin = scope(ADMIN);
-  return Object.assign(admin, { scope, global });
+  return Object.assign(admin, { scope, global, wipe });
 }
 
 export async function redisStore(url, { prefix = "aw:" } = {}) {
@@ -137,6 +146,7 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
       async getApproval(id) { return json(await client.hGet(k("approvals"), id)); },
       async putApproval(a) { await client.hSet(k("approvals"), a.id, JSON.stringify(a)); if (account !== ADMIN) await global.setApprovalOwner(a.id, account); },
       async listApprovals() { return Object.values(await client.hGetAll(k("approvals"))).map(json); },
+      async deleteApproval(id) { await client.hDel(k("approvals"), id); },
       async addEvent(e) { await client.lPush(k("events"), JSON.stringify(e)); await client.lTrim(k("events"), 0, EVENTS_KEPT - 1); },
       async listEvents(n = 100) { return (await client.lRange(k("events"), 0, n - 1)).map(json); },
       async getPurchase(id) { return json(await client.get(k(`purchase:${id}`))); },
@@ -146,6 +156,14 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
     return s;
   }
 
+  async function wipe(account) {
+    if (account === ADMIN) throw new Error("the owner's scope can't be wiped");
+    for (const a of await scope(account).listAgents()) await global.delKeyOwner(a.keyHash);
+    const keys = [];
+    for await (const batch of client.scanIterator({ MATCH: `${prefix}u:${account}:*`, COUNT: 200 })) keys.push(...(Array.isArray(batch) ? batch : [batch]));
+    if (keys.length) await client.del(keys);
+  }
+
   const admin = scope(ADMIN);
-  return Object.assign(admin, { scope, global, close: () => client.quit() });
+  return Object.assign(admin, { scope, global, wipe, close: () => client.quit() });
 }

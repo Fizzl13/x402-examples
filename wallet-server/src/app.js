@@ -7,8 +7,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
+const PRIVACY = fileURLToPath(new URL("../public/privacy.html", import.meta.url));
+const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {} }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -100,6 +104,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
   owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash))));
+  owner.post("/account/delete", wrap(async (req, res) => {
+    if (req.body?.confirm !== "delete") return res.status(400).json({ error: "bad_request", message: 'send { "confirm": "delete" }' });
+    await accounts.deleteAccount(req.account);
+    res.set("set-cookie", auth.logoutCookie()).json({ ok: true });
+  }));
   owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
   owner.get("/admin/subscription", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
@@ -124,12 +133,22 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.status(ok ? 200 : 401).end();
   }));
 
-  // ---------- dashboard ----------
-  let page;
+  // ---------- dashboard, privacy statement, fonts (served here: nothing loads from third parties) ----------
+  app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
+  let page, privacy;
   app.get(["/", "/index.html", "/demo"], (_req, res) => {
     page ??= readFileSync(DASHBOARD, "utf8");
-    res.set("content-security-policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.set("content-security-policy", CSP);
     res.type("html").send(page);
+  });
+  // Who runs the service comes from the environment (OPERATOR_NAME, CONTACT_EMAIL), not from the code.
+  app.get("/privacy", (_req, res) => {
+    privacy ??= readFileSync(PRIVACY, "utf8");
+    const missing = (what) => `<mark>[${what}: set in Render]</mark>`;
+    res.set("content-security-policy", CSP);
+    res.type("html").send(privacy
+      .replaceAll("{{OPERATOR}}", operator.name ? escapeHtml(operator.name) : missing("OPERATOR_NAME"))
+      .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   return app;
