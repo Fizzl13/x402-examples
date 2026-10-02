@@ -1,7 +1,7 @@
 {
   "name": "presign-guard-wallet",
-  "version": "0.3.0",
-  "description": "A viem wallet for AI agents that asks presign-guard ($0.01 over x402) before every transaction, contract write and typed-data signature, refuses to sign red, and keeps to per-token spending limits.",
+  "version": "0.4.0",
+  "description": "A viem wallet for AI agents that asks presign-guard ($0.01 over x402) before every transaction, contract write and typed-data signature, refuses to sign red, and keeps to per-token spending limits, with approval from your phone over the limit.",
   "type": "module",
   "exports": {
     ".": {
@@ -11,6 +11,10 @@
     "./file-store": {
       "types": "./file-store.d.ts",
       "default": "./file-store.js"
+    },
+    "./telegram": {
+      "types": "./telegram.d.ts",
+      "default": "./telegram.js"
     }
   },
   "main": "./index.js",
@@ -21,6 +25,8 @@
     "limits.js",
     "file-store.js",
     "file-store.d.ts",
+    "telegram.js",
+    "telegram.d.ts",
     "README.md",
     "LICENSE"
   ],
@@ -53,7 +59,9 @@
     "drainer",
     "usdc",
     "spending-limits",
-    "budget"
+    "budget",
+    "telegram",
+    "human-in-the-loop"
   ],
   "repository": {
     "type": "git",

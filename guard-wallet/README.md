@@ -65,7 +65,7 @@ try {
 | `signers` | presign-guard's published signer | Accepted signer addresses |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `signers` |
 | `limits` | | Spending limits per token, see [Spending limits](#spending-limits) |
-| `onOverLimit` | | `async (info) => boolean`: asked when a limit would be crossed; `true` signs anyway. Without it the wallet stops |
+| `onOverLimit` | | `async (info) => boolean`: asked when a limit would be crossed; `true` signs anyway. Without it the wallet stops. Ready-made: [`telegramApprover`](#approve-from-your-phone-telegram) |
 | `onSpend` | | `(entry) => void` after each signed spend, e.g. for a log |
 | `store` | in memory | Where spending is kept; `fileStore(path)` from `presign-guard-wallet/file-store`, or your own |
 
@@ -127,6 +127,33 @@ What counts as spending:
 Other contract calls (a swap that uses an allowance you already gave) spend nothing new: the allowance was counted when it was given. Budgets are shared across chains (`USDC: { perDay: "20" }` is 20 USDC in total), checked one at a time so parallel transactions cannot both fit in the last of a budget, booked before signing and given back when signing fails. A store that cannot be read stops the wallet (`limit_unavailable`).
 
 These limits live in your agent's software: they stop a confused or manipulated agent, not someone who has the private key. For limits the chain enforces, use a smart account with session keys; the same budget can then be set there.
+
+### Approve from your phone (Telegram)
+
+`onOverLimit` can be a Telegram bot: when a signature would cross a limit, you get a message with what the agent wants to sign, why it is over the limit and presign-guard's verdict, with **Approve** and **Deny** buttons. The agent waits for your tap.
+
+1. In Telegram, talk to [@BotFather](https://t.me/BotFather), send `/newbot` and keep the token it gives you secret (an environment variable, never in code).
+2. Send your new bot `/start`, then find your chat id:
+   ```bash
+   TELEGRAM_BOT_TOKEN=... node -e 'import("presign-guard-wallet/telegram").then(async (t) => console.log(await t.findTelegramChats({ token: process.env.TELEGRAM_BOT_TOKEN })))'
+   ```
+3. Use it:
+   ```js
+   import { telegramApprover } from "presign-guard-wallet/telegram";
+
+   const wallet = guardWallet(walletClient, {
+     pay,
+     limits: { tokens: { USDC: { perTx: "5", perDay: "20" } } },
+     onOverLimit: telegramApprover({
+       token: process.env.TELEGRAM_BOT_TOKEN,
+       chatId: process.env.TELEGRAM_CHAT_ID,
+       label: "research-agent",
+       timeoutMs: 10 * 60_000, // no answer in 10 minutes = Deny
+     }),
+   });
+   ```
+
+Only the chat you name (or the `allowedUserIds` you list) can answer; anyone else's tap is refused. No server is needed: the wallet asks Telegram for your tap itself (long polling), so the bot must not have a webhook, and one bot serves one agent process at a time (a second process polling the same bot makes Telegram refuse both; the request then fails and nothing is signed). If Telegram cannot be reached, the wallet stops (`limit_unavailable`) rather than signing.
 
 ## Signed verdicts
 
