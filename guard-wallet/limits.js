@@ -219,7 +219,7 @@ export function createLimiter(limits, { store = memoryStore(), onOverLimit, onSp
       if (result.reasons.length) {
         const summary = result.reasons.map((r) => r.message).join("; ");
         if (result.hardStop || !onOverLimit) return { ok: false, ...result, summary };
-        const approved = (await onOverLimit({ method: info.method, request: info.request, verdict: info.verdict, reasons: result.reasons, summary, spending: await summarize(used) })) === true;
+        const approved = (await onOverLimit({ method: info.method, request: info.request, verdict: info.verdict, reasons: result.reasons, summary, spending: await summarize(used), purchase: info.purchase ?? null })) === true;
         if (!approved) return { ok: false, ...result, summary, asked: true };
       }
       const entries = result.charges.filter((c) => c.amount > 0n).map((c) => ({ id: newId(), at: now(), budget: c.budget, amount: c.amount.toString(), method: info.method, chainId: info.request.chainId, to: spend.items[0]?.to ?? info.request.to ?? null }));
@@ -230,7 +230,7 @@ export function createLimiter(limits, { store = memoryStore(), onOverLimit, onSp
     spent(entries, result, info) {
       if (!onSpend) return;
       for (const e of entries) {
-        try { onSpend({ ...e, amount: formatUnits(BigInt(e.amount), SCALE), result, verdict: info.verdict ?? null, receiptId: info.verdict?.receipt?.request_id ?? null }); } catch (err) { console.warn(`[presign-guard-wallet] onSpend threw: ${err.message}`); }
+        try { onSpend({ ...e, amount: formatUnits(BigInt(e.amount), SCALE), result, verdict: info.verdict ?? null, receiptId: info.verdict?.receipt?.request_id ?? null, purchase: info.purchase ?? null }); } catch (err) { console.warn(`[presign-guard-wallet] onSpend threw: ${err.message}`); }
       }
     },
     spending: async () => summarize(await usedNow()),

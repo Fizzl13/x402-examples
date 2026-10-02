@@ -24,9 +24,9 @@ export function createRemoteLimiter({ url, key, fetch: fetchImpl = globalThis.fe
 
   return {
     remote: true,
-    async reserve({ method, request, verdict }) {
-      let r = await call("POST", "/v1/reserve", { method, request, verdict: verdict ?? null });
-      if (r.status === "ok") return { ok: true, entries: (r.entries ?? []).map((id) => ({ id })) };
+    async reserve({ method, request, verdict, purchase }) {
+      let r = await call("POST", "/v1/reserve", { method, request, verdict: verdict ?? null, ...(purchase ? { purchase } : {}) });
+      if (r.status === "ok") return { ok: true, entries: (r.entries ?? []).map((id) => ({ id })), purchaseId: r.purchaseId ?? null };
       if (r.status === "paused") return { ok: false, paused: true, summary: r.summary ?? "paused on the wallet server", reasons: [] };
       if (r.status === "denied") return { ok: false, hardStop: true, summary: r.summary, reasons: r.reasons ?? [] };
       if (r.status !== "pending") throw new Error(`wallet server: unexpected answer ${r.status}`);
@@ -34,17 +34,19 @@ export function createRemoteLimiter({ url, key, fetch: fetchImpl = globalThis.fe
       const id = r.approvalId, summary = r.summary, deadline = (r.expiresAt ?? Date.now() + 600_000) + 10_000;
       while (Date.now() < deadline) {
         const a = await call("GET", `/v1/approvals/${encodeURIComponent(id)}?wait=25`);
-        if (a.status === "approved") return { ok: true, entries: (a.entries ?? []).map((x) => ({ id: x })), approved: true };
+        if (a.status === "approved") return { ok: true, entries: (a.entries ?? []).map((x) => ({ id: x })), approved: true, purchaseId: a.purchaseId ?? null };
         if (a.status === "denied") return { ok: false, asked: true, summary: `${summary} (denied by the owner)`, reasons: [] };
         if (a.status === "expired") return { ok: false, asked: true, summary: `${summary} (no answer in time)`, reasons: [] };
       }
       return { ok: false, asked: true, summary: `${summary} (no answer in time)`, reasons: [] };
     },
-    async release(entries) { if (entries?.length) await call("POST", "/v1/release", { entries: entries.map((e) => e.id) }); },
+    async release(entries, info) { if (entries?.length) await call("POST", "/v1/release", { entries: entries.map((e) => e.id), ...(info?.purchaseId ? { purchaseId: info.purchaseId, error: String(info.error ?? "").slice(0, 300) || null } : {}) }); },
     spent(entries, result, info) {
-      for (const e of entries ?? []) { try { onSpend?.({ id: e.id, result, verdict: info?.verdict ?? null, receiptId: info?.verdict?.receipt?.request_id ?? null }); } catch (err) { console.warn(`[presign-guard-wallet] onSpend threw: ${err.message}`); } }
-      if (entries?.length) call("POST", "/v1/spent", { entries: entries.map((e) => e.id), result: typeof result === "string" ? result : null }).catch((err) => console.warn(`[presign-guard-wallet] ${err.message}`));
+      for (const e of entries ?? []) { try { onSpend?.({ id: e.id, result, verdict: info?.verdict ?? null, receiptId: info?.verdict?.receipt?.request_id ?? null, purchase: info?.purchase ?? null, purchaseId: info?.purchaseId ?? null }); } catch (err) { console.warn(`[presign-guard-wallet] onSpend threw: ${err.message}`); } }
+      if (entries?.length) call("POST", "/v1/spent", { entries: entries.map((e) => e.id), result: typeof result === "string" ? result : null, ...(info?.purchaseId ? { purchaseId: info.purchaseId } : {}) }).catch((err) => console.warn(`[presign-guard-wallet] ${err.message}`));
     },
+    // What happened after signing (e.g. the API's answer and the x402 settlement), on the server's receipt.
+    async annotate(purchaseIds, outcome) { await call("POST", "/v1/purchases/annotate", { ids: purchaseIds, outcome }); },
     async spending() { return (await call("GET", "/v1/spending")).spending; },
   };
 }

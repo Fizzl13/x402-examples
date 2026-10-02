@@ -6,10 +6,11 @@
 
 const EVENTS_KEPT = 500;
 const ENTRIES_KEPT_MS = 31 * 86_400_000;
+const PURCHASES_KEPT_S = 90 * 86_400; // receipts are kept 90 days
 
 export function memoryStore() {
   let policy = null, paused = false;
-  const agents = new Map(), keyIndex = new Map(), approvals = new Map();
+  const agents = new Map(), keyIndex = new Map(), approvals = new Map(), purchases = new Map();
   let entries = [], events = [];
   return {
     async getPolicy() { return policy; },
@@ -30,6 +31,8 @@ export function memoryStore() {
     async listApprovals() { return [...approvals.values()]; },
     async addEvent(e) { events.unshift(e); events = events.slice(0, EVENTS_KEPT); },
     async listEvents(n = 100) { return events.slice(0, n); },
+    async getPurchase(id) { return purchases.get(id) ?? null; },
+    async putPurchase(p) { purchases.set(p.id, p); },
   };
 }
 
@@ -69,6 +72,8 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
     async listApprovals() { return Object.values(await client.hGetAll(k("approvals"))).map(json); },
     async addEvent(e) { await client.lPush(k("events"), JSON.stringify(e)); await client.lTrim(k("events"), 0, EVENTS_KEPT - 1); },
     async listEvents(n = 100) { return (await client.lRange(k("events"), 0, n - 1)).map(json); },
+    async getPurchase(id) { return json(await client.get(k(`purchase:${id}`))); },
+    async putPurchase(p) { await client.set(k(`purchase:${p.id}`), JSON.stringify(p), { EX: PURCHASES_KEPT_S }); },
     close: () => client.quit(),
   };
 }

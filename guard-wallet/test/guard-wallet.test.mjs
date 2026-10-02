@@ -195,3 +195,33 @@ test("credits: an unknown key falls back to pay; without pay the wallet stops", 
   assert.equal(d.log.signed.length, 0);
   assert.throws(() => guardWallet(d.wallet, { creditKey: "nope" }), /credit key/);
 });
+
+test("withPurchase: what is bought reaches onSpend and onOverLimit; outside it nothing is attached", async () => {
+  const w = world();
+  const spends = [], asked = [];
+  const g = make(w, {
+    limits: { tokens: { ETH: { perTx: "0.001" } } },
+    onSpend: (e) => spends.push(e),
+    onOverLimit: async (info) => { asked.push(info.purchase); return true; },
+  });
+  const what = { url: "https://api.example.com/report", description: "weekly market report" };
+  const out = await g.withPurchase(what, async (report) => {
+    const hash = await g.sendTransaction({ to: SPENDER, value: 10n ** 14n });
+    report({ httpStatus: 200 });
+    return hash;
+  });
+  assert.equal(out, "0xtx");
+  assert.deepEqual(spends[0].purchase, what);
+  await g.withPurchase({ description: "big one" }, () => g.sendTransaction({ to: SPENDER, value: 10n ** 16n }));
+  assert.deepEqual(asked, [{ description: "big one" }]);
+  await g.sendTransaction({ to: SPENDER, value: 1n });
+  assert.equal(spends.at(-1).purchase, null);
+});
+
+test("withPurchase: bad input is refused, errors from fn come through", async () => {
+  const g = make(world());
+  await assert.rejects(g.withPurchase({ url: "ftp://x" }, async () => {}), /https/);
+  await assert.rejects(g.withPurchase(null, async () => {}), /info/);
+  await assert.rejects(g.withPurchase({}, "nope"), /fn/);
+  await assert.rejects(g.withPurchase({ description: "x" }, async () => { throw new Error("api down"); }), /api down/);
+});

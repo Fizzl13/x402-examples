@@ -73,6 +73,22 @@ export interface OverLimitInfo {
   /** One line for a human, e.g. "8 USDC is over the limit of 20 per 24h (15 used)". */
   summary: string;
   spending: SpendingRow[];
+  /** What the agent said it is buying (withPurchase), or null. */
+  purchase: Purchase | null;
+}
+
+/** What is being bought, given to withPurchase. */
+export interface Purchase {
+  url?: string;
+  description?: string;
+}
+
+/** What happened after signing, given to report() inside withPurchase. */
+export interface PurchaseOutcome {
+  httpStatus?: number;
+  settlement?: { transaction?: string; network?: string; [key: string]: unknown };
+  error?: string;
+  [key: string]: unknown;
 }
 
 export interface SpendEntry {
@@ -88,6 +104,7 @@ export interface SpendEntry {
   result: unknown;
   verdict: PresignVerdict | null;
   receiptId: string | null;
+  purchase: Purchase | null;
 }
 
 /** Where spending is kept. amount is a decimal string at 18 decimals. */
@@ -107,6 +124,11 @@ export interface GuardControls {
   paused(): boolean;
   /** Per token: the limits, what was spent in the current window and what is left; null without limits. */
   spending(): Promise<SpendingRow[] | null>;
+  /**
+   * Record what is being bought: every signature made inside fn carries it (onSpend, the
+   * wallet server's receipts, approval messages). Call report() with what happened afterwards.
+   */
+  withPurchase<T>(info: Purchase, fn: (report: (outcome: PurchaseOutcome) => void) => Promise<T> | T): Promise<T>;
 }
 
 export interface GuardOptions {

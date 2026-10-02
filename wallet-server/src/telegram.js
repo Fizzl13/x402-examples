@@ -16,6 +16,9 @@ export function createTelegram({ token, chatId, publicUrl, webhookSecret, dashbo
 
   const text = (a, spending) => {
     const lines = [`<b>${escape(a.agentName)} wants to sign something over your limit</b>`, "", escape(a.summary), "", `<code>${escape(a.method)}</code> · chain ${escape(a.chainId)}${a.to ? ` · to <code>${escape(a.to)}</code>` : ""}`];
+    if (a.purchase?.description || a.purchase?.url) {
+      lines.splice(3, 0, ...[a.purchase.description ? `for: ${escape(a.purchase.description)}` : null, a.purchase.url ? `<code>${escape(a.purchase.url)}</code>` : null].filter(Boolean), "");
+    }
     lines.push(a.verdict ? `presign-guard: <b>${escape(a.verdict.verdict)}</b>${a.verdict.reasons?.length ? ` (${escape(a.verdict.reasons.join(", "))})` : ""}` : "presign-guard: no verified verdict");
     const s = (spending ?? []).map((x) => `${escape(x.token)} ${escape(x.used)}${x.perDay ? ` / ${escape(x.perDay)}` : ""}`).join(" · ");
     if (s) lines.push(`spent this window: ${s}`);

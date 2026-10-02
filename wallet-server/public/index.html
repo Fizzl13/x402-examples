@@ -100,6 +100,25 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .trow .t { color: var(--dim); font-size: 11px; grid-row: span 2; font-variant-numeric: tabular-nums; }
 .trow .w { color: #fff; font-weight: 600; overflow-wrap: anywhere; }
 .trow .m { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+button.trow { width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit; font-size: 13px; }
+button.trow:hover { background: rgba(97,245,195,.07); }
+.trow .r { grid-column: 2; color: var(--mint); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; }
+dialog.receipt { width: min(560px, calc(100% - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(160deg, #061816, #030c0d); color: var(--text); overflow: auto; }
+dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.receipt .head { padding: 22px 22px 16px; border-bottom: 1px dashed var(--line); display: grid; gap: 8px; }
+.receipt .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.receipt .close { border: 1px solid rgba(244,248,247,.25); border-radius: 999px; background: transparent; color: var(--soft); min-height: 32px; padding: 0 12px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; }
+.receipt h3 { overflow-wrap: anywhere; }
+.receipt .amt { font: 700 40px/1 var(--display); letter-spacing: -2px; text-shadow: 0 0 22px rgba(97,245,195,.35); }
+.receipt dl { margin: 0; padding: 14px 22px 22px; display: grid; grid-template-columns: minmax(0, 120px) minmax(0, 1fr); gap: 10px 14px; font-size: 13px; }
+.receipt dt { color: var(--dim); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; padding-top: 2px; }
+.receipt dd { margin: 0; color: var(--soft); overflow-wrap: anywhere; }
+.receipt dd a { color: var(--mint); text-decoration: underline; text-underline-offset: 2px; }
+.receipt code { font: 12px/1.5 ui-monospace, Menlo, monospace; }
+.receipt .sep { grid-column: 1 / -1; border-top: 1px dashed var(--line); margin: 4px 0; }
+.status { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor; font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
+.s-signed { color: var(--mint); } .s-signing { color: var(--cyan); } .s-failed { color: var(--rose); }
+@media (max-width: 480px) { .receipt dl { grid-template-columns: 1fr; gap: 2px; } .receipt dd { margin-bottom: 10px; } }
 .login { min-height: 70vh; display: grid; place-items: center; }
 .login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
@@ -201,6 +220,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
   </div>
 </main>
+<dialog class="receipt" id="receipt" aria-labelledby="rcTitle"><div id="rcBody"></div></dialog>
 <footer><div class="wrap">FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet</div></footer>
 
 <script>
@@ -240,23 +260,49 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         { at: t0 - 12 * min, type: "signed", agent: "trading-bot", method: "sendTransaction", amounts: ["2 USDC"], to: "Uniswap router", verdict: "green" },
       ],
     };
+    // Example receipts (made-up hashes: no explorer links in the demo).
+    D.receipts = {};
+    const hex = (n) => "0x" + Array.from({ length: n }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+    const WHAT = {
+      "ichimoku-signal.fizzl.eu": ["https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", "BTC-USDT Ichimoku signal for the morning brief"],
+      "plaintext.fizzl.eu": ["https://plaintext.fizzl.eu/api/check-wallet", "Plain-English check of a customer's wallet"],
+      "presign-guard.fizzl.eu": ["https://presign-guard.fizzl.eu/v1/token?chain=base", "Token safety check before a swap"],
+      "x402-doctor.fizzl.eu": ["https://x402-doctor.fizzl.eu/api/v1/preflight", "Pre-payment check of a new API"],
+      "api.marketdepth.io": ["https://api.marketdepth.io/v2/orderbook/full", "Full order-book snapshot for the weekly report"],
+      "sentiment.example": ["https://sentiment.example/api/batch", "Sentiment scores for 500 headlines"],
+      "translate.example": ["https://translate.example/v1/document", "Translate a 40-page contract to Dutch"],
+      "Uniswap router": [null, "Swap 2 USDC to ETH for gas"], "Jupiter": [null, "Rebalance: buy SOL exposure"],
+    };
+    const receipt = ({ agentName, agentId, amt, to, method, approval = null, at = Date.now() }) => {
+      const [url, description] = WHAT[to] ?? [null, null];
+      const id = "pu_demo_" + Math.random().toString(36).slice(2, 9);
+      const isPay = method === "signTypedData";
+      D.receipts[id] = { id, demo: true, agent: agentId, agentName, method, chainId: 8453, to: hex(40), amounts: [`${amt} USDC`], what: url || description ? { ...(url ? { url } : {}), ...(description ? { description } : {}) } : null,
+        verdict: { verdict: "green", reasons: [], receiptId: "pg_" + Math.random().toString(36).slice(2, 12), signer: "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE", signedAt: new Date(at).toISOString() },
+        approval, status: "signed", result: isPay ? hex(130) : hex(64), outcome: isPay ? { httpStatus: 200, settlement: { transaction: hex(64), network: "eip155:8453" } } : null, createdAt: at, updatedAt: at };
+      return id;
+    };
+    D.events.forEach((e) => { if (e.type === "signed") { const a = D.agents.find((x) => x.name === e.agent); e.purchase = receipt({ agentName: e.agent, agentId: a?.id, amt: parseFloat(e.amounts[0]), to: e.to, method: e.method, at: e.at }); e.what = D.receipts[e.purchase].what?.description ?? null; } });
+    D.approvals.forEach((a) => { a.purchase = { url: WHAT[a.to]?.[0], description: WHAT[a.to]?.[1] }; });
     const BUYS = [["research-agent", "ag_r", 0.10, "ichimoku-signal.fizzl.eu"], ["support-agent", "ag_s", 0.03, "plaintext.fizzl.eu"], ["trading-bot", "ag_t", 0.01, "presign-guard.fizzl.eu"], ["research-agent", "ag_r", 0.05, "x402-doctor.fizzl.eu"]];
     const BIG = [["trading-bot", "ag_t", 6, "Jupiter", "sendTransaction"], ["research-agent", "ag_r", 12.5, "sentiment.example", "signTypedData"], ["support-agent", "ag_s", 7.5, "translate.example", "signTypedData"]];
     let tick = 0;
     const limit = () => Number(D.policy.tokens?.USDC?.perTx ?? Infinity), dayCap = () => Number(D.policy.tokens?.USDC?.perDay ?? Infinity);
     const book = (agentId, amt) => { D.used = +(D.used + amt).toFixed(2); const a = D.agents.find((x) => x.id === agentId); if (a) { a.spent = +(a.spent + amt).toFixed(2); a.lastSeen = Date.now(); } };
-    const ask = (name, id, amt, to, method, why) => D.approvals.unshift({ id: "ap_" + Math.random().toString(36).slice(2, 8), status: "pending", agent: id, agentName: name, method, chainId: 8453, to, summary: why, verdict: { verdict: "green", reasons: [] }, createdAt: Date.now(), expiresAt: Date.now() + 10 * min, amount: amt });
+    const ask = (name, id, amt, to, method, why) => D.approvals.unshift({ id: "ap_" + Math.random().toString(36).slice(2, 8), status: "pending", agent: id, agentName: name, method, chainId: 8453, to, summary: why, verdict: { verdict: "green", reasons: [] }, purchase: { url: WHAT[to]?.[0], description: WHAT[to]?.[1] }, createdAt: Date.now(), expiresAt: Date.now() + 10 * min, amount: amt });
     setInterval(() => {
       if (D.paused) return;
       tick++;
       const [name, id, amt, to, method = "signTypedData"] = tick % 6 === 0 ? BIG[(tick / 6) % BIG.length] : BUYS[tick % BUYS.length];
       if (D.agents.find((a) => a.id === id)?.paused) return;
-      if (amt > limit()) { const why = `${amt} USDC is over the limit of ${limit()} per transaction`; ask(name, id, amt, to, method, why); D.events.unshift({ at: Date.now(), type: "asked", agent: name, summary: why }); }
-      else if (D.used + amt > dayCap()) { const why = `${amt} USDC is over the limit of ${dayCap()} per 24h (${D.used} used)`; ask(name, id, amt, to, method, why); D.events.unshift({ at: Date.now(), type: "asked", agent: name, summary: why }); }
-      else { book(id, amt); D.events.unshift({ at: Date.now(), type: "signed", agent: name, method, amounts: [`${amt} USDC`], to, verdict: "green" }); }
+      const what = WHAT[to]?.[1] ?? null;
+      if (amt > limit()) { const why = `${amt} USDC is over the limit of ${limit()} per transaction`; ask(name, id, amt, to, method, why); D.events.unshift({ at: Date.now(), type: "asked", agent: name, summary: why, what }); }
+      else if (D.used + amt > dayCap()) { const why = `${amt} USDC is over the limit of ${dayCap()} per 24h (${D.used} used)`; ask(name, id, amt, to, method, why); D.events.unshift({ at: Date.now(), type: "asked", agent: name, summary: why, what }); }
+      else { book(id, amt); D.events.unshift({ at: Date.now(), type: "signed", agent: name, method, amounts: [`${amt} USDC`], to, verdict: "green", what, purchase: receipt({ agentName: name, agentId: id, amt, to, method }) }); }
       D.events = D.events.slice(0, 60);
     }, 5000);
     const fmtN = (n) => String(+n.toFixed(2));
+    let m0;
     api = async (method, path, body) => {
       if (method === "GET" && path === "/api/state") {
         const now = Date.now();
@@ -266,6 +312,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
           agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
       }
+      if (method === "GET" && (m0 = /^\/api\/purchases\/(.+)$/.exec(path))) {
+        const r = D.receipts[decodeURIComponent(m0[1])];
+        if (!r) throw new Error("no such receipt");
+        return structuredClone({ purchase: r });
+      }
       if (method === "PUT" && path === "/api/policy") { D.policy = body.policy; D.events.unshift({ at: Date.now(), type: "policy", by: "you" }); return { policy: D.policy }; }
       if (method === "POST" && path === "/api/pause") { D.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: body.paused ? "paused" : "resumed", by: "you" }); return { ok: true }; }
       let m;
@@ -273,8 +324,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         const a = D.approvals.find((x) => x.id === decodeURIComponent(m[1]));
         if (a && a.status === "pending") {
           a.status = body.decision === "approve" ? "approved" : "denied"; a.decidedAt = Date.now(); a.decidedBy = "you";
-          if (a.status === "approved") { book(a.agent, a.amount); D.events.unshift({ at: Date.now(), type: "signed", agent: a.agentName, method: a.method, amounts: [`${a.amount} USDC`], to: a.to, verdict: "green" }); }
-          D.events.unshift({ at: Date.now(), type: a.status, agent: a.agentName, summary: a.summary, by: "you" });
+          if (a.status === "approved") {
+            book(a.agent, a.amount);
+            a.purchaseId = receipt({ agentName: a.agentName, agentId: a.agent, amt: a.amount, to: a.to, method: a.method, approval: { id: a.id, summary: a.summary, by: "dashboard", at: Date.now() } });
+            D.events.unshift({ at: Date.now(), type: "signed", agent: a.agentName, method: a.method, amounts: [`${a.amount} USDC`], to: a.to, verdict: "green", what: a.purchase?.description ?? null, purchase: a.purchaseId });
+          }
+          D.events.unshift({ at: Date.now(), type: a.status, agent: a.agentName, summary: a.summary, by: "you", what: a.purchase?.description ?? null, ...(a.purchaseId ? { purchase: a.purchaseId } : {}) });
         }
         return a;
       }
@@ -370,6 +425,68 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   });
   function alertInline(msg) { $("#newKey").innerHTML = `<p class="err">${esc(msg)}</p>`; }
 
+  // ---------- receipts ----------
+  const CHAINS = { 1: ["Ethereum", "https://etherscan.io"], 10: ["Optimism", "https://optimistic.etherscan.io"], 56: ["BNB Chain", "https://bscscan.com"], 137: ["Polygon", "https://polygonscan.com"], 8453: ["Base", "https://basescan.org"], 42161: ["Arbitrum", "https://arbiscan.io"] };
+  const isAddr = (v) => /^0x[0-9a-fA-F]{40}$/.test(v ?? "");
+  const isTx = (v) => /^0x[0-9a-fA-F]{64}$/.test(v ?? "");
+  const safeUrl = (u) => (/^https?:\/\//.test(u ?? "") ? u : null);
+  const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer nofollow">${esc(text)}</a>`;
+  const chainOf = (id) => CHAINS[Number(String(id ?? "").replace(/^eip155:/, ""))] ?? null;
+  const short = (h) => (h.length > 26 ? `${h.slice(0, 14)}…${h.slice(-8)}` : h);
+  const full = (t) => new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  function receiptHtml(p) {
+    const chain = p.demo ? null : chainOf(p.chainId); // demo hashes are made up: no explorer links
+    const row = (k, v) => (v ? `<dt>${esc(k)}</dt><dd>${v}</dd>` : "");
+    const what = p.what?.description || (p.what?.url ? new URL(p.what.url).host : null);
+    const to = p.to ? (isAddr(p.to) && chain ? ext(`${chain[1]}/address/${p.to}`, p.to) : `<code>${esc(p.to)}</code>`) : "a new contract";
+    const v = p.verdict;
+    const verdict = v ? `<span class="verdict v-${esc(v.verdict)}">${esc(v.verdict)}</span>${v.reasons?.length ? ` <span class="note">${esc(v.reasons.join(", "))}</span>` : ""}` : `<span class="verdict v-none">no verified verdict</span>`;
+    const proof = v?.receiptId ? `<code>${esc(v.receiptId)}</code><br><span class="note">signed by presign-guard${v.signer ? ` (<code>${esc(v.signer.slice(0, 6))}…${esc(v.signer.slice(-4))}</code>)` : ""}${v.signedAt ? ` at ${esc(full(v.signedAt))}` : ""}; the signature was checked by this server</span>` : null;
+    const resultIsTx = isTx(p.result) && ["sendTransaction", "writeContract"].includes(p.method);
+    const result = p.result ? (resultIsTx && chain ? ext(`${chain[1]}/tx/${p.result}`, `${p.result.slice(0, 10)}…${p.result.slice(-8)}`) + ` <span class="note">transaction</span>` : `<code>${esc(short(p.result))}</code> <span class="note">${p.method === "signTypedData" ? "signature" : "result"}</span>`) : null;
+    const st = p.outcome?.settlement;
+    const stChain = p.demo ? null : chainOf(st?.network) ?? chain;
+    const settled = st?.transaction ? (isTx(st.transaction) && stChain ? ext(`${stChain[1]}/tx/${st.transaction}`, `${st.transaction.slice(0, 10)}…${st.transaction.slice(-8)}`) : `<code>${esc(short(st.transaction))}</code>`) + (st.network ? ` <span class="note">${esc(chainOf(st.network)?.[0] ?? st.network)}</span>` : "") : null;
+    const statusText = { signed: "signed", signing: "signing", failed: "failed" }[p.status] ?? p.status;
+    return `<div class="head">
+      <div class="top"><span class="tag">RECEIPT · ${esc(p.agentName)}</span><button type="button" class="close" data-close>Close</button></div>
+      <h3 id="rcTitle">${esc(what ?? "No description given")}</h3>
+      <div class="top"><span class="amt num">${esc(p.amounts?.join(" + ") || "no amount")}</span><span class="status s-${esc(p.status)}">${esc(statusText)}</span></div>
+    </div>
+    <dl>
+      ${row("What", p.what?.url ? ext(safeUrl(p.what.url), p.what.url) : (p.what ? "" : `<span class="note">The agent didn't say. Wrap purchases in withPurchase() to record it.</span>`))}
+      ${row("When", esc(full(p.createdAt)))}
+      ${row("Paid to", to)}
+      ${row("Network", esc(chainOf(p.chainId)?.[0] ?? (p.chainId ? `chain ${p.chainId}` : "")))}
+      ${row("How", `<code>${esc(p.method)}</code>`)}
+      <div class="sep"></div>
+      ${row("presign-guard", verdict)}
+      ${row("Proof", proof)}
+      ${row("Approval", p.approval ? `${esc(p.approval.summary)}<br><span class="note">approved via ${esc(p.approval.by)} at ${esc(full(p.approval.at))}</span>` : `<span class="note">within your rules, no approval needed</span>`)}
+      <div class="sep"></div>
+      ${row("Signed", result)}
+      ${row("Settled", settled)}
+      ${row("Answer", p.outcome?.httpStatus ? `HTTP ${esc(p.outcome.httpStatus)}` : null)}
+      ${p.demo ? `<div class="sep"></div><dd style="grid-column:1/-1" class="note">Demo receipt: example data, made-up hashes.</dd>` : ""}
+      ${row("Problem", p.outcome?.error ? `<span style="color:var(--rose)">${esc(p.outcome.error)}</span>${p.status === "failed" ? `<br><span class="note">nothing was paid; the spending was given back</span>` : ""}` : null)}
+    </dl>`;
+  }
+  async function openReceipt(id, opener) {
+    const dlg = $("#receipt");
+    $("#rcBody").innerHTML = `<div class="head"><div class="top"><span class="tag">RECEIPT</span><button type="button" class="close" data-close>Close</button></div><p class="note" id="rcTitle">Loading…</p></div>`;
+    dlg.returnTo = opener;
+    if (!dlg.open) dlg.showModal();
+    try { const { purchase } = await api("GET", `/api/purchases/${encodeURIComponent(id)}`); $("#rcBody").innerHTML = receiptHtml(purchase); }
+    catch (err) { if (err.message !== "login") $("#rcBody").querySelector("#rcTitle").textContent = err.message; }
+    dlg.querySelector("[data-close]")?.focus();
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-receipt]");
+    if (b) { openReceipt(b.dataset.receipt, b); return; }
+    if (e.target.closest("[data-close]") || e.target === $("#receipt")) $("#receipt").close();
+  });
+  $("#receipt").addEventListener("close", () => { $("#receipt").returnTo?.focus?.(); });
+
   function render() {
     const s = state;
     // budgets
@@ -391,8 +508,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const left = Math.max(0, Math.round((a.expiresAt - s.now) / 60000));
       const right = a.status === "pending"
         ? `<div class="btns"><button class="button primary small" data-decision="approve" data-id="${esc(a.id)}">Approve</button><button class="button ghost small" data-decision="deny" data-id="${esc(a.id)}">Deny</button></div><span class="note">${left} min left</span>`
-        : `<span class="tag" style="color:${a.status === "approved" ? "var(--mint)" : "var(--rose)"}">${esc(a.status)}${a.decidedBy ? ` · ${esc(a.decidedBy)}` : ""}</span>`;
-      return `<article class="card asked" style="${a.status === "pending" ? "" : "opacity:.6;border-color:var(--line)"}"><div><div class="facts" style="margin:0 0 6px"><span class="tag">${esc(a.agentName)}</span>${v}<span>${time(a.createdAt)}</span></div><h3>${esc(a.summary)}</h3><div class="facts"><span><code>${esc(a.method)}</code> · chain ${esc(a.chainId)}</span>${a.to ? `<span>to ${esc(a.to)}</span>` : ""}</div></div><div style="display:grid;gap:6px;justify-items:end">${right}</div></article>`;
+        : `<span class="tag" style="color:${a.status === "approved" ? "var(--mint)" : "var(--rose)"}">${esc(a.status)}${a.decidedBy ? ` · ${esc(a.decidedBy)}` : ""}</span>${a.purchaseId ? `<button type="button" class="button ghost small" data-receipt="${esc(a.purchaseId)}">Receipt</button>` : ""}`;
+      return `<article class="card asked" style="${a.status === "pending" ? "" : "opacity:.6;border-color:var(--line)"}"><div><div class="facts" style="margin:0 0 6px"><span class="tag">${esc(a.agentName)}</span>${v}<span>${time(a.createdAt)}</span></div><h3>${esc(a.summary)}</h3>${a.purchase?.description || a.purchase?.url ? `<div class="facts"><span>for: <b style="color:#fff">${esc(a.purchase.description ?? a.purchase.url)}</b></span></div>` : ""}<div class="facts"><span><code>${esc(a.method)}</code> · chain ${esc(a.chainId)}</span>${a.to ? `<span>to ${esc(a.to)}</span>` : ""}</div></div><div style="display:grid;gap:6px;justify-items:end">${right}</div></article>`;
     }).join("") : `<div class="card empty">Nothing waits for you. Requests over your price show up here and on Telegram.</div>`;
     // agents
     $("#agents").innerHTML = s.agents.length ? s.agents.map((a) => {
@@ -403,14 +520,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     // events
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
     const line = (e) => ({
-      signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}`, `${e.method}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · presign-guard ${e.verdict}` : ""}`],
-      spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}`, e.result ? `result ${e.result}` : ""],
-      asked: [`${e.agent} asked you`, e.summary], approved: [`Approved (${e.by})`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
+      signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}${e.what ? ` · ${e.what}` : ""}`, `${e.method}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · presign-guard ${e.verdict}` : ""}`],
+      spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}${e.what ? ` · ${e.what}` : ""}`, e.result ? `result ${e.result}` : ""],
+      asked: [`${e.agent} asked you${e.what ? ` · ${e.what}` : ""}`, e.summary], approved: [`Approved (${e.by})${e.what ? ` · ${e.what}` : ""}`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
       expired: ["No answer in time", `${e.agent}: ${e.summary}`], blocked: [`${e.agent} blocked`, e.summary], released: [`${e.agent}: signing failed, spending given back`, ""],
       policy: ["Rules changed", e.by], paused: ["All agents paused", e.by], resumed: ["All agents resumed", e.by],
       agent_added: [`Agent added: ${e.agent}`, ""], agent_removed: [`Agent removed: ${e.agent}`, ""], agent_paused: [`${e.agent} paused`, ""], agent_resumed: [`${e.agent} resumed`, ""],
     }[e.type] ?? [e.type, ""]);
-    $("#events").innerHTML = s.events.length ? s.events.map((e) => { const [w, m] = line(e); return `<div class="trow ${kind[e.type] ?? "info"}"><span class="t">${time(e.at)}</span><span class="w">${esc(w)}</span><span class="m">${esc(m)}</span></div>`; }).join("") : `<div class="card empty">Nothing yet. Activity shows here as your agents work.</div>`;
+    $("#events").innerHTML = s.events.length ? s.events.map((e) => {
+      const [w, m] = line(e);
+      const inner = `<span class="t">${time(e.at)}</span><span class="w">${esc(w)}</span><span class="m">${esc(m)}</span>`;
+      return e.purchase
+        ? `<button type="button" class="trow ${kind[e.type] ?? "info"}" data-receipt="${esc(e.purchase)}" aria-label="Open the receipt: ${esc(w)}">${inner}<span class="r">Receipt ›</span></button>`
+        : `<div class="trow ${kind[e.type] ?? "info"}">${inner}</div>`;
+    }).join("") : `<div class="card empty">Nothing yet. Activity shows here as your agents work.</div>`;
   }
 
   // Start: logged in already?

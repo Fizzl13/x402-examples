@@ -14,6 +14,17 @@ The server **never holds keys or funds**: each agent signs and pays itself with 
 - **Agents:** each gets its own key (`awk_…`, stored only as a hash); pause or remove one, or pause all.
 - **Trust:** a presign-guard verdict counts only with its valid signature over exactly that request.
 
+## Receipts
+
+Every signature an agent makes gets a receipt. Click a line in the activity log, or "Receipt" on an approved request, to see:
+- **what** was bought: the URL and description the agent gave with `withPurchase()` in presign-guard-wallet (0.6+);
+- the **amount**, recipient and network, with explorer links;
+- presign-guard's **verdict**, with its signed receipt ID; the server checks that signature;
+- the **approval**: who decided, how and when;
+- the **result**: the transaction or signature, the x402 settlement and the API's answer, or why it failed (the spending is then given back).
+
+Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fill in "what" automatically.
+
 ## Run it on Render
 
 1. New Web Service from this repository, **Root Directory** `wallet-server` (or use `render.yaml`). Build `npm ci --omit=dev`, start `node server.js`. Run a single instance.
@@ -46,10 +57,11 @@ Everything else stays the same: red verdicts are never signed, `onOrange` still 
 
 | | |
 |---|---|
-| `POST /v1/reserve` `{ method, request, verdict }` | `{ status: "ok", entries }`, `{ status: "pending", approvalId }`, `{ status: "denied" }` or `{ status: "paused" }` |
-| `GET /v1/approvals/:id?wait=25` | long poll: `pending`, `approved` (with entries), `denied`, `expired` |
-| `POST /v1/release` `{ entries }` | signing failed: give the spending back |
-| `POST /v1/spent` `{ entries, result }` | record the signed result |
+| `POST /v1/reserve` `{ method, request, verdict, purchase? }` | `{ status: "ok", entries, purchaseId }`, `{ status: "pending", approvalId }`, `{ status: "denied" }` or `{ status: "paused" }` |
+| `GET /v1/approvals/:id?wait=25` | long poll: `pending`, `approved` (with entries and purchaseId), `denied`, `expired` |
+| `POST /v1/release` `{ entries, purchaseId?, error? }` | signing failed: give the spending back |
+| `POST /v1/spent` `{ entries, result, purchaseId? }` | record the signed result |
+| `POST /v1/purchases/annotate` `{ ids, outcome }` | what happened afterwards: `{ httpStatus, settlement: { transaction, network }, error }` |
 | `GET /v1/spending`, `GET /v1/policy` | |
 
 MIT licensed.
