@@ -96,7 +96,14 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
     const q = typeof req.query.q === "string" ? req.query.q.slice(0, 200) : "";
     const max = Number(req.query.max);
-    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 12 })); }
+    const category = typeof req.query.cat === "string" && /^[a-z]{2,20}$/.test(req.query.cat) ? req.query.cat : null;
+    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: category && !q ? 30 : 12, category })); }
+    catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
+  }));
+  owner.get("/services/categories", wrap(async (req, res) => {
+    if (!catalog) return res.status(503).json({ error: "unavailable", message: "Searching is not set up on this server." });
+    const max = Number(req.query.max);
+    try { res.json(await catalog.categories({ maxUsd: max > 0 ? max : Infinity })); }
     catch (err) { console.warn(`[catalog] ${err.message}`); res.status(502).json({ error: "catalog_unavailable", message: "The x402 catalog can't be reached right now. Try again in a minute." }); }
   }));
   owner.get("/services/new", wrap(async (req, res) => {

@@ -769,3 +769,33 @@ test("new providers: the first catalog is the baseline; sellers that appear late
   assert.equal((await catalog.newProviders()).providers.length, 0);
   assert.equal((await catalog.newProviders({ days: 30 })).providers.length, 1);
 });
+
+test("categories: listings sorted by what they say they do, with counts; search within a category", async () => {
+  const { createCatalog, categorize } = await import("../src/catalog.js");
+  assert.equal(categorize("Ichimoku cloud trend signal for a crypto pair"), "crypto");
+  assert.equal(categorize("Is this token a honeypot or a scam? Safety verdict"), "security");
+  assert.equal(categorize("Weather forecast API for a city"), "weather"); // a tie with dev tools goes to the specific one
+  assert.equal(categorize("Something nobody can place"), "other");
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  const items = [
+    { resource: "https://a.example/signal", description: "Crypto trend signal for bitcoin", accepts: [usdc("20000")] },
+    { resource: "https://b.example/price", description: "Live crypto token price", accepts: [usdc("5000")] },
+    { resource: "https://c.example/token", description: "Token scam and honeypot safety check", accepts: [usdc("10000")] },
+    { resource: "https://d.example/forecast", description: "Weather forecast for a city", accepts: [usdc("1000")] },
+    { resource: "https://e.example/pricey", description: "Premium crypto market signal", accepts: [usdc("9000000")] },
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }) });
+  const { server, owner } = await boot({ catalog });
+  try {
+    const cats = Object.fromEntries((await owner("GET", "/api/services/categories?max=1")).body.categories.map((c) => [c.id, c.count]));
+    assert.deepEqual(cats, { crypto: 2, security: 1, weather: 1 }); // the $9 one is above the cap; empty categories are left out
+    // A category without words: everything in it, cheapest first.
+    const all = (await owner("GET", "/api/services/search?cat=crypto&max=1")).body;
+    assert.deepEqual(all.results.map((r) => r.host), ["b.example", "a.example"]);
+    assert.ok(all.results.every((r) => r.category === "crypto"));
+    // Words within a category; a bad category name is ignored.
+    assert.deepEqual((await owner("GET", "/api/services/search?q=bitcoin&cat=crypto")).body.results.map((r) => r.host), ["a.example"]);
+    assert.equal((await owner("GET", "/api/services/search?q=bitcoin&cat=security")).body.results.length, 0);
+    assert.equal((await owner("GET", "/api/services/search?q=weather&cat=../../x")).body.results[0].host, "d.example");
+  } finally { server.close(); }
+});

@@ -122,6 +122,16 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .hit .prices { display: flex; flex-wrap: wrap; gap: 6px; }
 .hit .prices span { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; color: var(--soft); white-space: nowrap; }
 .hit .prices span:first-child { border-color: var(--mint); color: var(--mint); }
+.cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.cats button { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; text-align: left; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: rgba(2,10,10,.45); color: var(--soft); font: inherit; font-size: 13px; cursor: pointer; }
+.cats button .ic { grid-row: span 2; font-size: 22px; }
+.cats button b { color: var(--text); font-weight: 600; }
+.cats button small { color: var(--muted); font-size: 11px; }
+.cats button small i { font-style: normal; color: var(--amber); }
+.cats button:hover, .cats button:focus-visible { border-color: var(--mint); }
+.cats button.on { border-color: var(--mint); background: rgba(97,245,195,.1); box-shadow: 0 0 0 1px var(--mint) inset; }
+.catbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.catbar button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; }
 .newtag { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #021; background: var(--amber); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
 .chips .newchip { border-color: var(--amber); color: var(--amber); }
 .hit .url { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
@@ -347,6 +357,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <button class="button primary" type="submit">Search</button>
         </form>
         <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
+        <div class="cats" id="searchCats" aria-label="Categories"></div>
         <div id="searchOut" role="status" aria-live="polite"></div>
       </div>
       <div class="fizzl" id="fizzlAgents">
@@ -477,6 +488,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
           agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
       }
+      if (method === "GET" && path.startsWith("/api/services/categories")) {
+        return { categories: [
+          { id: "crypto", name: "Crypto & trading", icon: "📈", count: 412, fresh: 6 }, { id: "security", name: "Security & safety", icon: "🛡️", count: 58, fresh: 1 },
+          { id: "onchain", name: "Wallets & on-chain data", icon: "⛓️", count: 134, fresh: 2 }, { id: "ai", name: "AI & language models", icon: "🤖", count: 203, fresh: 4 },
+          { id: "search", name: "Search & web", icon: "🔎", count: 97, fresh: 0 }, { id: "finance", name: "Stocks & finance", icon: "💹", count: 41, fresh: 0 },
+          { id: "media", name: "Images, audio & video", icon: "🎨", count: 66, fresh: 1 }, { id: "language", name: "Translation & text", icon: "🌐", count: 23, fresh: 1 },
+          { id: "weather", name: "Weather & places", icon: "🌦️", count: 19, fresh: 1 }, { id: "dev", name: "Developer tools", icon: "🛠️", count: 88, fresh: 0 },
+        ] };
+      }
       if (method === "GET" && path.startsWith("/api/services/new")) {
         const day = 86_400_000, t = Date.now();
         return { days: 7, trackingSince: t - 30 * day, providers: [
@@ -498,7 +518,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           { url: "https://search.example/v1/web", description: "Example listing: web search results as JSON.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Polygon", usd: 0.01 }] },
           { url: "https://translate.example/v1/text", description: "Example listing: translate text between 40 languages.", method: "POST", prices: [{ network: "Base", usd: 0.02 }] },
         ];
-        const results = all.map((r) => ({ ...r, host: new URL(r.url).hostname, isNew: /weather|translate/.test(r.url), cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length }))
+        const catOf = (r) => (/ichimoku/.test(r.url) ? "crypto" : /presign|check-wallet/.test(r.url) ? "security" : /doctor/.test(r.url) ? "dev" : /weather/.test(r.url) ? "weather" : /search/.test(r.url) ? "search" : /translate/.test(r.url) ? "language" : "other");
+        const cat = p.get("cat");
+        const results = all.filter((r) => !cat || catOf(r) === cat).map((r) => ({ ...r, host: new URL(r.url).hostname, isNew: /weather|translate/.test(r.url), cheapest: Math.min(...r.prices.map((x) => x.usd)), score: terms.length ? terms.filter((t) => `${r.description} ${r.url}`.toLowerCase().includes(t)).length : 1 }))
           .filter((r) => r.score && r.cheapest <= max).sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
         return { query: p.get("q"), results };
       }
@@ -936,13 +958,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   async function search(q) {
     q = String(q ?? "").trim();
     const out = $("#searchOut");
-    if (q.length < 2) { out.innerHTML = ""; return; }
+    if (q.length < 2 && !activeCat) { out.innerHTML = ""; return; }
     out.innerHTML = `<p class="note" style="margin:0">Searching the x402 catalog…</p>`;
     const max = $("#searchMax").value;
+    const cat = catList.find((c) => c.id === activeCat);
+    const what = [q ? `"${esc(q)}"` : "", cat ? `in ${esc(cat.icon)} ${esc(cat.name)}` : ""].filter(Boolean).join(" ");
+    const catBar = cat ? `<div class="catbar"><span class="note">Category: <b style="color:#fff">${esc(cat.icon)} ${esc(cat.name)}</b></span><button type="button" id="catClear">× all categories</button></div>` : "";
     try {
-      const { results } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}`);
-      if (!results.length) { out.innerHTML = `<p class="note" style="margin:0">Nothing found for "${esc(q)}"${max ? ` up to $${esc(max)}` : ""}. Try other words or a higher price.</p>`; return; }
-      out.innerHTML = `<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} for "${esc(q)}". Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.</p>
+      const { results } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}`);
+      if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price.</p>`; return; }
+      out.innerHTML = `${catBar}<p class="note" style="margin:0">${results.length} paid service${results.length === 1 ? "" : "s"} ${what}${!q && cat ? " (new providers first, then cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
@@ -952,6 +977,27 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         }).join("")}</div>`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
+  // Categories: the catalog sorted by what listings say they do, with counts.
+  let activeCat = null, catList = [];
+  async function loadCats() {
+    if (!$("#searchCats")) return;
+    const max = $("#searchMax").value;
+    try {
+      catList = (await api("GET", `/api/services/categories${max ? `?max=${encodeURIComponent(max)}` : ""}`)).categories;
+      renderCats();
+    } catch { $("#searchCats").innerHTML = ""; }
+  }
+  function renderCats() {
+    $("#searchCats").innerHTML = catList.map((c) => `<button type="button" data-cat="${esc(c.id)}" class="${c.id === activeCat ? "on" : ""}" aria-pressed="${c.id === activeCat}"><span class="ic" aria-hidden="true">${esc(c.icon)}</span><b>${esc(c.name)}</b><small>${esc(c.count)} service${c.count === 1 ? "" : "s"}${c.fresh ? ` · <i>${esc(c.fresh)} new</i>` : ""}</small></button>`).join("");
+  }
+  $("#searchCats").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-cat]"); if (!b) return;
+    activeCat = activeCat === b.dataset.cat ? null : b.dataset.cat;
+    renderCats();
+    search($("#searchQ").value);
+  });
+  $("#searchOut").addEventListener("click", (e) => { if (e.target.closest("#catClear")) { activeCat = null; renderCats(); search($("#searchQ").value); } });
+
   // New providers: sellers that appeared in the catalog in the last 7 days.
   async function showNew() {
     const out = $("#searchOut");
@@ -970,7 +1016,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#newBtn").addEventListener("click", showNew);
   $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
-  $("#searchMax").addEventListener("change", () => { if ($("#searchQ").value.trim()) search($("#searchQ").value); });
+  $("#searchMax").addEventListener("change", () => { loadCats(); if ($("#searchQ").value.trim() || activeCat) search($("#searchQ").value); });
   $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });
 
   // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
@@ -1019,6 +1065,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false; $("#addAgentTop").hidden = false;
     api("GET", "/api/me").then((m) => { me = m; renderAccount(); }, () => {});
     refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
+    loadCats();
   }
 
   const usdc = () => state?.policy?.tokens?.USDC ?? {};

@@ -15,6 +15,31 @@ const USDC = {
   "eip155:1": ["Ethereum", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"],
   "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": ["Solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
 };
+// The catalog has no categories, so listings are sorted into these by the words in their
+// description and URL (the category with the most matching words; "other" when none match).
+export const CATEGORIES = [
+  { id: "crypto", name: "Crypto & trading", icon: "📈", words: ["crypto", "bitcoin", "btc", "eth", "ethereum", "solana", "token", "price", "prices", "trading", "trade", "signal", "signals", "market", "markets", "dex", "swap", "defi", "ohlc", "candles", "ichimoku", "coin", "coins", "memecoin", "yield"] },
+  { id: "security", name: "Security & safety", icon: "🛡️", words: ["security", "safety", "safe", "scam", "rug", "honeypot", "drainer", "phishing", "risk", "audit", "sanction", "sanctions", "approval", "approvals", "verify", "verdict", "fraud", "malicious"] },
+  { id: "onchain", name: "Wallets & on-chain data", icon: "⛓️", words: ["wallet", "wallets", "address", "onchain", "chain", "blockchain", "transaction", "transactions", "balance", "balances", "nft", "nfts", "contract", "contracts", "holders", "explorer", "gas", "x402"] },
+  { id: "ai", name: "AI & language models", icon: "🤖", words: ["llm", "gpt", "claude", "model", "models", "inference", "prompt", "chat", "completion", "agent", "agents", "embedding", "embeddings", "summarize", "summary", "classify", "sentiment"] },
+  { id: "search", name: "Search & web", icon: "🔎", words: ["search", "web", "scrape", "scraping", "crawl", "crawler", "browse", "browser", "page", "pages", "url", "urls", "news", "serp", "google", "extract"] },
+  { id: "finance", name: "Stocks & finance", icon: "💹", words: ["stock", "stocks", "equity", "equities", "forex", "fx", "finance", "financial", "earnings", "nasdaq", "nyse", "commodity", "commodities", "gold", "interest", "economic", "macro"] },
+  { id: "media", name: "Images, audio & video", icon: "🎨", words: ["image", "images", "photo", "picture", "video", "videos", "audio", "voice", "speech", "tts", "music", "transcribe", "transcription", "generate", "art", "ocr", "pdf"] },
+  { id: "language", name: "Translation & text", icon: "🌐", words: ["translate", "translation", "language", "languages", "text", "grammar", "rewrite", "writing", "words", "dictionary"] },
+  { id: "weather", name: "Weather & places", icon: "🌦️", words: ["weather", "forecast", "temperature", "climate", "rain", "geo", "geocode", "location", "map", "maps", "places", "city", "country", "timezone", "ip"] },
+  { id: "social", name: "Social & people", icon: "💬", words: ["twitter", "tweet", "tweets", "social", "reddit", "farcaster", "telegram", "discord", "profile", "profiles", "followers", "email", "people", "linkedin"] },
+  { id: "dev", name: "Developer tools", icon: "🛠️", words: ["api", "code", "github", "deploy", "test", "testing", "monitor", "monitoring", "uptime", "dns", "ssl", "json", "convert", "validate", "debug", "diagnose", "endpoint", "endpoints", "webhook"] },
+];
+export function categorize(textOf) {
+  const have = new Set(String(textOf ?? "").toLowerCase().split(/[^a-z0-9]+/));
+  let best = "other", top = 0;
+  for (const c of CATEGORIES) {
+    const n = c.words.filter((w) => have.has(w)).length;
+    if (n > top) { top = n; best = c.id; }
+  }
+  return best;
+}
+
 const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need"]);
 export const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
 // The USDC prices of a listing, one per network we know (checked against that network's USDC).
@@ -62,6 +87,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     if (seen && Object.keys(fresh).length) await seen.addSeen(fresh);
     firstSeen = { ...known, ...fresh };
   }
+  const categoryOf = (item, u) => categorize(`${item.description ?? ""} ${item.accepts?.[0]?.description ?? ""} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`);
   const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
 
   return {
@@ -85,9 +111,25 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       return { days, providers, trackingSince: Math.min(...Object.values(firstSeen).filter((v) => v > 0), now()) };
     },
     // Best matches for a request: { results: [{ url, host, description, method, prices: [{ network, usd }], cheapest }] }.
-    async search(query, { maxUsd = Infinity, limit = 12 } = {}) {
+    // Listing counts per category (and how many from new providers), for the category tiles.
+    async categories({ maxUsd = Infinity } = {}) {
+      const counts = new Map([...CATEGORIES.map((c) => [c.id, { ...c, count: 0, fresh: 0 }]), ["other", { id: "other", name: "Other", icon: "✨", count: 0, fresh: 0 }]]);
+      const seenUrl = new Set();
+      for (const item of await load()) {
+        let u; try { u = new URL(item.resource); } catch { continue; }
+        if (u.protocol !== "https:" || seenUrl.has(`${u.origin}${u.pathname}`)) continue;
+        const prices = pricesOf(item);
+        if (!prices.length || Math.min(...prices.map((p) => p.usd)) > maxUsd) continue;
+        seenUrl.add(`${u.origin}${u.pathname}`);
+        const c = counts.get(categoryOf(item, u));
+        c.count++;
+        if (isNew(u.origin)) c.fresh++;
+      }
+      return { categories: [...counts.values()].map(({ words: _w, ...c }) => c).filter((c) => c.count > 0) };
+    },
+    async search(query, { maxUsd = Infinity, limit = 12, category = null } = {}) {
       const terms = words(query);
-      if (!terms.length) return { query: String(query ?? ""), results: [] };
+      if (!terms.length && !category) return { query: String(query ?? ""), results: [] };
       const found = new Map(); // one result per URL
       for (const item of await load()) {
         let u;
@@ -99,15 +141,18 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (cheapest > maxUsd) continue;
         const info = item.extensions?.bazaar?.info ?? {};
         const description = text(item.description, 400) || text(item.accepts?.[0]?.description, 400);
+        const cat = categoryOf(item, u);
+        if (category && cat !== category) continue;
         const have = new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(info.input ?? {})}`));
-        const score = terms.filter((t) => have.has(t)).length;
+        // In a category without words, everything counts; new providers first, then cheapest.
+        const score = terms.length ? terms.filter((t) => have.has(t)).length : 1 + (isNew(u.origin) ? 1 : 0);
         if (!score) continue;
         const key = `${u.origin}${u.pathname}`;
         if (found.has(key) && found.get(key).score >= score) continue;
-        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin) });
+        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
       }
       const results = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest).slice(0, Math.min(30, Math.max(1, limit))).map(({ score, ...r }) => r);
-      return { query: String(query), results };
+      return { query: String(query ?? ""), category, results };
     },
   };
 }
