@@ -1,0 +1,158 @@
+// Searching the public x402 catalog (Coinbase's x402 Bazaar) for paid APIs, for the dashboard's
+// search bar: the same catalog presign-guard-wallet-mcp's find_services searches. Listings are
+// what sellers say about themselves, so everything here is shown as data, never as a
+// recommendation, and only USDC prices on networks agents commonly pay on are kept.
+export const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
+const TTL_MS = 60 * 60 * 1000;
+const PAGES = 20;
+
+// USDC per network (CAIP-2), 6 decimals on each.
+const USDC = {
+  "eip155:8453": ["Base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"],
+  "eip155:42161": ["Arbitrum", "0xaf88d065e77c8cc2239327c5edb3a432268e5831"],
+  "eip155:10": ["Optimism", "0x0b2c639c533813f4aa9d7837caf62653d097ff85"],
+  "eip155:137": ["Polygon", "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"],
+  "eip155:1": ["Ethereum", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"],
+  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": ["Solana", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+};
+// The catalog has no categories, so listings are sorted into these by the words in their
+// description and URL (the category with the most matching words; "other" when none match).
+export const CATEGORIES = [
+  { id: "crypto", name: "Crypto & trading", icon: "📈", words: ["crypto", "bitcoin", "btc", "eth", "ethereum", "solana", "token", "price", "prices", "trading", "trade", "signal", "signals", "market", "markets", "dex", "swap", "defi", "ohlc", "candles", "ichimoku", "coin", "coins", "memecoin", "yield"] },
+  { id: "security", name: "Security & safety", icon: "🛡️", words: ["security", "safety", "safe", "scam", "rug", "honeypot", "drainer", "phishing", "risk", "audit", "sanction", "sanctions", "approval", "approvals", "verify", "verdict", "fraud", "malicious"] },
+  { id: "onchain", name: "Wallets & on-chain data", icon: "⛓️", words: ["wallet", "wallets", "address", "onchain", "chain", "blockchain", "transaction", "transactions", "balance", "balances", "nft", "nfts", "contract", "contracts", "holders", "explorer", "gas", "x402"] },
+  { id: "ai", name: "AI & language models", icon: "🤖", words: ["llm", "gpt", "claude", "model", "models", "inference", "prompt", "chat", "completion", "agent", "agents", "embedding", "embeddings", "summarize", "summary", "classify", "sentiment"] },
+  { id: "search", name: "Search & web", icon: "🔎", words: ["search", "web", "scrape", "scraping", "crawl", "crawler", "browse", "browser", "page", "pages", "url", "urls", "news", "serp", "google", "extract"] },
+  { id: "finance", name: "Stocks & finance", icon: "💹", words: ["stock", "stocks", "equity", "equities", "forex", "fx", "finance", "financial", "earnings", "nasdaq", "nyse", "commodity", "commodities", "gold", "interest", "economic", "macro"] },
+  { id: "media", name: "Images, audio & video", icon: "🎨", words: ["image", "images", "photo", "picture", "video", "videos", "audio", "voice", "speech", "tts", "music", "transcribe", "transcription", "generate", "art", "ocr", "pdf"] },
+  { id: "language", name: "Translation & text", icon: "🌐", words: ["translate", "translation", "language", "languages", "text", "grammar", "rewrite", "writing", "words", "dictionary"] },
+  { id: "weather", name: "Weather & places", icon: "🌦️", words: ["weather", "forecast", "temperature", "climate", "rain", "geo", "geocode", "location", "map", "maps", "places", "city", "country", "timezone", "ip"] },
+  { id: "social", name: "Social & people", icon: "💬", words: ["twitter", "tweet", "tweets", "social", "reddit", "farcaster", "telegram", "discord", "profile", "profiles", "followers", "email", "people", "linkedin"] },
+  { id: "dev", name: "Developer tools", icon: "🛠️", words: ["api", "code", "github", "deploy", "test", "testing", "monitor", "monitoring", "uptime", "dns", "ssl", "json", "convert", "validate", "debug", "diagnose", "endpoint", "endpoints", "webhook"] },
+];
+export function categorize(textOf) {
+  const have = new Set(String(textOf ?? "").toLowerCase().split(/[^a-z0-9]+/));
+  let best = "other", top = 0;
+  for (const c of CATEGORIES) {
+    const n = c.words.filter((w) => have.has(w)).length;
+    if (n > top) { top = n; best = c.id; }
+  }
+  return best;
+}
+
+const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need"]);
+export const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+// The USDC prices of a listing, one per network we know (checked against that network's USDC).
+function pricesOf(item) {
+  const prices = [];
+  for (const a of item.accepts ?? []) {
+    const known = USDC[a?.network];
+    if (!known || String(a.asset ?? "").toLowerCase() !== known[1].toLowerCase()) continue;
+    const usd = Number(a.amount ?? a.maxAmountRequired ?? NaN) / 1e6;
+    if (usd >= 0 && Number.isFinite(usd) && !prices.some((p) => p.network === known[0])) prices.push({ network: known[0], usd: Number(usd.toFixed(6)) });
+  }
+  return prices;
+}
+const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
+
+// `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
+// new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null } = {}) {
+  let items = null, at = 0, loading = null, firstSeen = {};
+  async function load() {
+    if (items && now() - at < TTL_MS) return items;
+    loading ??= (async () => {
+      const all = [];
+      for (let page = 0; page < PAGES; page++) {
+        const res = await fetchImpl(`${url}?type=http&limit=500&offset=${page * 500}`, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
+        const batch = (await res.json()).items ?? [];
+        all.push(...batch);
+        if (batch.length < 500) break;
+      }
+      items = all; at = now();
+      await track(all).catch((err) => console.warn(`[catalog] tracking new providers: ${err.message}`));
+      return all;
+    })().finally(() => { loading = null; });
+    return loading;
+  }
+
+  async function track(all) {
+    const origins = new Set();
+    for (const item of all) { try { const u = new URL(item.resource); if (u.protocol === "https:") origins.add(u.origin); } catch {} }
+    const known = seen ? await seen.getSeen() : firstSeen;
+    const baseline = !Object.keys(known).length;
+    const fresh = {};
+    for (const o of origins) if (!(o in known)) fresh[o] = baseline ? 0 : now();
+    if (seen && Object.keys(fresh).length) await seen.addSeen(fresh);
+    firstSeen = { ...known, ...fresh };
+  }
+  const categoryOf = (item, u) => categorize(`${item.description ?? ""} ${item.accepts?.[0]?.description ?? ""} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`);
+  const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
+
+  return {
+    // Sellers that appeared in the last `days` days, newest first, with what they offer.
+    async newProviders({ days = 7, limit = 30 } = {}) {
+      const list = await load();
+      const by = new Map();
+      for (const item of list) {
+        let u; try { u = new URL(item.resource); } catch { continue; }
+        if (u.protocol !== "https:" || !isNew(u.origin, days)) continue;
+        const prices = pricesOf(item);
+        if (!prices.length) continue;
+        const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", example: u.href };
+        p.listings++;
+        p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
+        prices.forEach((x) => p.networks.add(x.network));
+        if (!p.description) p.description = text(item.description, 300);
+        by.set(u.origin, p);
+      }
+      const providers = [...by.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, limit).map((p) => ({ ...p, networks: [...p.networks] }));
+      return { days, providers, trackingSince: Math.min(...Object.values(firstSeen).filter((v) => v > 0), now()) };
+    },
+    // Best matches for a request: { results: [{ url, host, description, method, prices: [{ network, usd }], cheapest }] }.
+    // Listing counts per category (and how many from new providers), for the category tiles.
+    async categories({ maxUsd = Infinity } = {}) {
+      const counts = new Map([...CATEGORIES.map((c) => [c.id, { ...c, count: 0, fresh: 0 }]), ["other", { id: "other", name: "Other", icon: "✨", count: 0, fresh: 0 }]]);
+      const seenUrl = new Set();
+      for (const item of await load()) {
+        let u; try { u = new URL(item.resource); } catch { continue; }
+        if (u.protocol !== "https:" || seenUrl.has(`${u.origin}${u.pathname}`)) continue;
+        const prices = pricesOf(item);
+        if (!prices.length || Math.min(...prices.map((p) => p.usd)) > maxUsd) continue;
+        seenUrl.add(`${u.origin}${u.pathname}`);
+        const c = counts.get(categoryOf(item, u));
+        c.count++;
+        if (isNew(u.origin)) c.fresh++;
+      }
+      return { categories: [...counts.values()].map(({ words: _w, ...c }) => c).filter((c) => c.count > 0) };
+    },
+    async search(query, { maxUsd = Infinity, limit = 12, category = null } = {}) {
+      const terms = words(query);
+      if (!terms.length && !category) return { query: String(query ?? ""), results: [] };
+      const found = new Map(); // one result per URL
+      for (const item of await load()) {
+        let u;
+        try { u = new URL(item.resource); } catch { continue; }
+        if (u.protocol !== "https:") continue;
+        const prices = pricesOf(item);
+        if (!prices.length) continue;
+        const cheapest = Math.min(...prices.map((p) => p.usd));
+        if (cheapest > maxUsd) continue;
+        const info = item.extensions?.bazaar?.info ?? {};
+        const description = text(item.description, 400) || text(item.accepts?.[0]?.description, 400);
+        const cat = categoryOf(item, u);
+        if (category && cat !== category) continue;
+        const have = new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(info.input ?? {})}`));
+        // In a category without words, everything counts; new providers first, then cheapest.
+        const score = terms.length ? terms.filter((t) => have.has(t)).length : 1 + (isNew(u.origin) ? 1 : 0);
+        if (!score) continue;
+        const key = `${u.origin}${u.pathname}`;
+        if (found.has(key) && found.get(key).score >= score) continue;
+        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
+      }
+      const results = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest).slice(0, Math.min(30, Math.max(1, limit))).map(({ score, ...r }) => r);
+      return { query: String(query ?? ""), category, results };
+    },
+  };
+}

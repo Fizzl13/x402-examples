@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -48,7 +48,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -700,3 +700,102 @@ test("Solana: off unless SOLANA_PAY_TO is set", async () => {
   } finally { server.close(); }
 });
 
+test("search bar: paid APIs from the x402 catalog, USDC on the networks we know, best match first, signed-in only", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  let calls = 0;
+  const usdc = (network, asset, amount) => ({ scheme: "exact", network, asset, amount, payTo: PAY_TO });
+  const items = [
+    { resource: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "Ichimoku cloud trend signal for a crypto pair", accepts: [usdc("eip155:8453", USDC, "20000"), usdc("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "20000")], extensions: { bazaar: { info: { input: { method: "GET" } } } } },
+    { resource: "https://ichimoku-signal.fizzl.eu/signal/ETH-USDT", description: "Ichimoku cloud trend signal for a crypto pair", accepts: [usdc("eip155:8453", USDC, "20000")] },
+    { resource: "https://cheap.example/trend", description: "Crypto trend in one word", accepts: [usdc("eip155:42161", "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "5000")] },
+    { resource: "https://pricey.example/signal", description: "Premium crypto trend signal", accepts: [usdc("eip155:8453", USDC, "5000000")] },
+    { resource: "https://fake-usdc.example/signal", description: "Crypto trend signal paid in a token that only looks like USDC", accepts: [usdc("eip155:8453", "0x0000000000000000000000000000000000000001", "1000")] },
+    { resource: "http://plain-http.example/signal", description: "Crypto trend signal over plain http", accepts: [usdc("eip155:8453", USDC, "1000")] },
+    { resource: "https://weather.example/today", description: "Weather forecast <script>alert(1)</script>", accepts: [usdc("eip155:8453", USDC, "1000")] },
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/discovery", fetch: async () => { calls++; return Response.json({ items }); } });
+  const { base, server, owner } = await boot({ catalog });
+  try {
+    assert.equal((await fetch(`${base}/api/services/search?q=crypto`)).status, 401); // signed in only
+    const r = (await owner("GET", "/api/services/search?q=crypto%20trend%20signal&max=1")).body;
+    // Matches with USDC prices up to $1; the fake token, plain http, the $5 one and the weather are left out; one result per URL.
+    assert.deepEqual(r.results.map((x) => x.url), ["https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", "https://ichimoku-signal.fizzl.eu/signal/ETH-USDT", "https://cheap.example/trend"]);
+    assert.deepEqual(r.results[0].prices, [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }]);
+    assert.equal(r.results[0].method, "GET");
+    assert.equal(r.results[2].prices[0].network, "Arbitrum");
+    assert.equal((await owner("GET", "/api/services/search?q=crypto%20trend&max=0.01")).body.results.map((x) => x.host).join(), "cheap.example");
+    assert.equal((await owner("GET", "/api/services/search?q=weather")).body.results[0].description, "Weather forecast <script>alert(1)</script>"); // data, escaped by the page
+    assert.equal((await owner("GET", "/api/services/search?q=a")).body.results.length, 0);
+    assert.equal(calls, 1); // the catalog is fetched once and kept
+  } finally { server.close(); }
+});
+
+test("search bar: a catalog that can't be reached is a clear 502", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { server, owner } = await boot({ catalog: createCatalog({ url: "https://catalog.test/x", fetch: async () => new Response("down", { status: 503 }) }) });
+  try {
+    const r = await owner("GET", "/api/services/search?q=crypto");
+    assert.equal(r.status, 502);
+    assert.match(r.body.message, /can't be reached/);
+  } finally { server.close(); }
+});
+
+
+test("new providers: the first catalog is the baseline; sellers that appear later are marked NEW and listed, and it survives a restart", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const store = memoryStore();
+  let t = Date.parse("2026-10-01T00:00:00Z");
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  let items = [{ resource: "https://old.example/signal", description: "Crypto trend signal", accepts: [usdc("10000")] }];
+  const make = () => createCatalog({ url: "https://catalog.test/d", now: () => t, seen: store.global, fetch: async () => Response.json({ items }) });
+  let catalog = make();
+  assert.equal((await catalog.search("crypto signal")).results[0].isNew, false); // baseline: not new
+  assert.equal((await catalog.newProviders()).providers.length, 0);
+
+  // Two hours later the catalog is fetched again with a new seller.
+  t += 2 * 3_600_000;
+  items = [...items, { resource: "https://fresh.example/signal", description: "Fresh crypto trend signal", accepts: [usdc("20000")] }, { resource: "https://fresh.example/levels", description: "Support and resistance", accepts: [usdc("50000")] }];
+  const hits = (await catalog.search("crypto signal")).results;
+  assert.deepEqual(hits.map((h) => [h.host, h.isNew]), [["old.example", false], ["fresh.example", true]]); // same match: cheapest first
+  const fresh = (await catalog.newProviders()).providers;
+  assert.deepEqual(fresh.map((p) => [p.host, p.listings, p.cheapest]), [["fresh.example", 2, 0.02]]);
+  assert.equal(fresh[0].firstSeen, t);
+
+  // A restart (new catalog object, same store) keeps when each seller was first seen; after 8 days it isn't new anymore.
+  catalog = make();
+  assert.equal((await catalog.newProviders()).providers[0].host, "fresh.example");
+  t += 8 * 86_400_000;
+  catalog = make();
+  assert.equal((await catalog.newProviders()).providers.length, 0);
+  assert.equal((await catalog.newProviders({ days: 30 })).providers.length, 1);
+});
+
+test("categories: listings sorted by what they say they do, with counts; search within a category", async () => {
+  const { createCatalog, categorize } = await import("../src/catalog.js");
+  assert.equal(categorize("Ichimoku cloud trend signal for a crypto pair"), "crypto");
+  assert.equal(categorize("Is this token a honeypot or a scam? Safety verdict"), "security");
+  assert.equal(categorize("Weather forecast API for a city"), "weather"); // a tie with dev tools goes to the specific one
+  assert.equal(categorize("Something nobody can place"), "other");
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  const items = [
+    { resource: "https://a.example/signal", description: "Crypto trend signal for bitcoin", accepts: [usdc("20000")] },
+    { resource: "https://b.example/price", description: "Live crypto token price", accepts: [usdc("5000")] },
+    { resource: "https://c.example/token", description: "Token scam and honeypot safety check", accepts: [usdc("10000")] },
+    { resource: "https://d.example/forecast", description: "Weather forecast for a city", accepts: [usdc("1000")] },
+    { resource: "https://e.example/pricey", description: "Premium crypto market signal", accepts: [usdc("9000000")] },
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }) });
+  const { server, owner } = await boot({ catalog });
+  try {
+    const cats = Object.fromEntries((await owner("GET", "/api/services/categories?max=1")).body.categories.map((c) => [c.id, c.count]));
+    assert.deepEqual(cats, { crypto: 2, security: 1, weather: 1 }); // the $9 one is above the cap; empty categories are left out
+    // A category without words: everything in it, cheapest first.
+    const all = (await owner("GET", "/api/services/search?cat=crypto&max=1")).body;
+    assert.deepEqual(all.results.map((r) => r.host), ["b.example", "a.example"]);
+    assert.ok(all.results.every((r) => r.category === "crypto"));
+    // Words within a category; a bad category name is ignored.
+    assert.deepEqual((await owner("GET", "/api/services/search?q=bitcoin&cat=crypto")).body.results.map((r) => r.host), ["a.example"]);
+    assert.equal((await owner("GET", "/api/services/search?q=bitcoin&cat=security")).body.results.length, 0);
+    assert.equal((await owner("GET", "/api/services/search?q=weather&cat=../../x")).body.results[0].host, "d.example");
+  } finally { server.close(); }
+});
