@@ -687,6 +687,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
+    if (e.target.closest("[data-goadd]")) { goAdd(); return; }
     const cp = e.target.closest("button[data-copy]");
     if (cp) { const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = "Copy"; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
     if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
@@ -726,7 +727,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <header><span class="tag">${esc(a.name)}</span><span class="cost">${esc(a.price)}</span></header>
     <p class="note" style="margin:0">${esc(a.what)}</p>
     <details><summary>Connect</summary><div class="how">
-      <p class="note" style="margin:0"><b>1. Give an agent a key.</b> Add an agent above and put its key in the wallet MCP (<a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#one-budget-for-all-your-agents" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">how</a>).</p>
+      <p class="note" style="margin:0"><b>1. Your agent needs a key.</b> One agent key works for all Fizzl agents: already have one? Skip to step 2. Otherwise make one and put it in the wallet MCP (<a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#one-budget-for-all-your-agents" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">how</a>).</p>
+      <button class="button ghost small" type="button" data-goadd style="justify-self:start">Make my agent key</button>
       <p class="note" style="margin:0"><b>2. Optional: add its tools</b> to Claude, Cursor or another MCP client with this address:</p>
       ${copyRow(`${a.site}/mcp`, `${a.name} MCP address`)}
       <p class="note" style="margin:0"><b>3. Ask your agent</b>, for example:</p>
@@ -736,10 +738,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </article>`).join("");
 
   // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
-  $("#addAgentTop").addEventListener("click", () => {
+  // (So does "Make my agent key" on the Fizzl agents.)
+  function goAdd() {
     $("#agentsSec").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     setTimeout(() => $("#agentName").focus({ preventScroll: true }), 400);
-  });
+  }
+  $("#addAgentTop").addEventListener("click", goAdd);
   $("#logout").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); showLogin(); });
 
   async function refresh() {
@@ -801,10 +805,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     refresh();
   });
+  // A name from whatever was typed or pasted: an address becomes its host's first part
+  // (https://x402-doctor.fizzl.eu/mcp -> x402-doctor), other characters the server refuses become "-".
+  function agentNameFrom(input) {
+    let v = input.trim();
+    try { const u = new URL(v); if (/^https?:$/.test(u.protocol)) v = u.hostname.replace(/^www\./, "").split(".")[0]; } catch {}
+    return v.replace(/[^\w .-]+/g, "-").replace(/-{2,}/g, "-").replace(/^[-. ]+|[-. ]+$/g, "").slice(0, 40);
+  }
+  $("#agentName").addEventListener("paste", () => setTimeout(() => { const i = $("#agentName"); const n = agentNameFrom(i.value); if (n && n !== i.value) i.value = n; }));
   $("#addForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
-      const { agent, key } = await api("POST", "/api/agents", { name: $("#agentName").value.trim() });
+      const name = agentNameFrom($("#agentName").value);
+      $("#agentName").value = name;
+      const { agent, key } = await api("POST", "/api/agents", { name });
       $("#agentName").value = "";
       $("#newKey").innerHTML = `<div class="card newkey"><span class="tag">KEY FOR ${esc(agent.name)} · SHOWN ONCE</span><code id="keyText">${esc(key)}</code><div class="addform"><button class="button small" id="copyKey" type="button">Copy</button><button class="button ghost small" id="hideKey" type="button">I've stored it</button></div><span class="note">Put it in the agent's environment as WALLET_SERVER_KEY. It is not stored here, only its hash: lost means make a new agent.</span></div>`;
       $("#copyKey").onclick = () => navigator.clipboard?.writeText(key).then(() => { $("#copyKey").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#keyText")); });
