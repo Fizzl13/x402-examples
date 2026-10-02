@@ -95,6 +95,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .agent header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .agent .state { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; }
 .agent .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.explain { padding: 18px 20px; display: grid; gap: 8px; margin-bottom: 16px; color: var(--soft); }
+.explain b { color: var(--text); }
 .fizzl { margin-top: 34px; display: grid; gap: 14px; }
 .fizzl > p { margin: 0; }
 .fz { padding: 20px; display: grid; gap: 10px; align-content: start; }
@@ -270,15 +272,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <section class="section" id="agentsSec">
       <div class="eyebrow"><i></i>03 / AGENTS</div>
       <h2>YOUR AGENTS.<br><span>ONE BUDGET.</span></h2>
+      <div class="card explain">
+        <p style="margin:0"><b>An agent is your own AI assistant or bot</b>, for example Claude Desktop, Cursor or a script of yours. Add it here and it gets a key: with that key it pays through this wallet, within your rules.</p>
+        <p style="margin:0"><b>One agent can use every service</b>, including all four Fizzl services below. You don't add services as agents. More agents only help to keep assistants apart, so you can pause or remove one on its own.</p>
+        <p class="note" style="margin:0" id="agentPlanNote"></p>
+      </div>
       <div id="newKey"></div>
       <div class="agents" id="agents"></div>
       <form class="addform" id="addForm" style="margin-top:16px">
-        <input id="agentName" placeholder="New agent name, e.g. research-agent" maxlength="40" required aria-label="New agent name">
+        <input id="agentName" placeholder="Name your assistant, e.g. claude-desktop" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
       <div class="fizzl" id="fizzlAgents">
-        <span class="tag">FIZZL AGENTS TO CONNECT</span>
-        <p class="note">Paid services your agents can use. They pay per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
+        <span class="tag">FIZZL SERVICES YOUR AGENTS CAN USE</span>
+        <p class="note">Paid services, not agents to add. Your agent calls them and pays per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
         <div class="agents" id="fizzlList"></div>
       </div>
     </section>
@@ -589,6 +596,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!me) return;
     const short = me.address ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "server owner";
     $("#who").hidden = false;
+    const max = me.limits?.maxAgents;
+    $("#agentPlanNote").textContent = max ? `Your ${me.plan} plan: ${max} agent${max === 1 ? "" : "s"}, enough to use all the services below. Pro: unlimited agents.` : "Unlimited agents on your plan.";
     $("#who").innerHTML = `<span>${esc(short)}</span> <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
     $("#accountSec").hidden = false;
     $("#deleteBox").hidden = me.admin || DEMO;
@@ -727,7 +736,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <header><span class="tag">${esc(a.name)}</span><span class="cost">${esc(a.price)}</span></header>
     <p class="note" style="margin:0">${esc(a.what)}</p>
     <details><summary>Connect</summary><div class="how">
-      <p class="note" style="margin:0"><b>1. Your agent needs a key.</b> One agent key works for all Fizzl agents: already have one? Skip to step 2. Otherwise make one and put it in the wallet MCP (<a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#one-budget-for-all-your-agents" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">how</a>).</p>
+      <p class="note" style="margin:0"><b>1. Have one agent key.</b> The same key works for all four services. Already made one above? Skip to step 2. Otherwise make one and put it in the wallet MCP (<a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#one-budget-for-all-your-agents" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">how</a>).</p>
       <button class="button ghost small" type="button" data-goadd style="justify-self:start">Make my agent key</button>
       <p class="note" style="margin:0"><b>2. Optional: add its tools</b> to Claude, Cursor or another MCP client with this address:</p>
       ${copyRow(`${a.site}/mcp`, `${a.name} MCP address`)}
@@ -919,7 +928,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const st = a.paused ? ["paused", "var(--dim)"] : pending.some((p) => p.agent === a.id) ? ["waiting for you", "var(--amber)"] : ["active", "var(--mint)"];
       const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div><div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div></article>`;
-    }).join("") : `<div class="card empty">No agents yet. Add one below and give it its key.</div>`;
+    }).join("") : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
     // events
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
     const line = (e) => ({
