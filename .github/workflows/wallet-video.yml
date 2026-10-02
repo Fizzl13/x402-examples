@@ -4,10 +4,15 @@ name: wallet-video
 # reads wallet-server/media/script.json, a real browser records the live demo
 # (https://wallet.fizzl.eu/demo, example data) and the drawn safety scenes timed
 # to the voice, ffmpeg mixes both into an MP4 with burned-in captions.
-# Download the result from the run's "wallet-video" artifact.
+# Download the result from the run's artifact (fizzl-agent-wallet or fizzl-agent-wallet-30s).
 on:
   workflow_dispatch:
     inputs:
+      script:
+        description: "Which video: script.json (the ~90-second intro) or short.json (30 seconds, for social media)"
+        type: choice
+        options: [script.json, short.json]
+        default: script.json
       voice:
         description: "Kokoro voice (e.g. af_heart, af_bella, am_michael, bf_emma, bm_george)"
         required: false
@@ -27,6 +32,8 @@ jobs:
     defaults:
       run:
         working-directory: wallet-server/media
+    env:
+      SCRIPT: ${{ inputs.script || 'script.json' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -51,16 +58,18 @@ jobs:
           python build.py
       - name: Contact sheet (one frame per scene)
         run: |
+          NAME=$(python -c "import json,os;print(json.load(open(os.environ['SCRIPT'])).get('output','fizzl-agent-wallet'))")
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
           i=0
           for t in $(python -c "import json;t=json.load(open('out/timeline.json'));print(' '.join(str(round(s['start']+s['duration']*0.8,1)) for s in t['segments']))"); do
-            ffmpeg -loglevel error -y -ss "$t" -i out/fizzl-agent-wallet.mp4 -frames:v 1 -update 1 -vf scale=640:-1 "out/f$i.jpg"; i=$((i+1))
+            ffmpeg -loglevel error -y -ss "$t" -i "out/$NAME.mp4" -frames:v 1 -update 1 -vf scale=640:-1 "out/f$i.jpg"; i=$((i+1))
           done
           ffmpeg -loglevel error -y -framerate 1 -i out/f%d.jpg -vf "tile=3x$(( (i + 2) / 3 ))" -frames:v 1 -update 1 out/contact.jpg
       - uses: actions/upload-artifact@v4
         with:
-          name: wallet-video
+          name: ${{ env.NAME }}
           path: |
-            wallet-server/media/out/fizzl-agent-wallet.mp4
-            wallet-server/media/out/fizzl-agent-wallet.srt
+            wallet-server/media/out/${{ env.NAME }}.mp4
+            wallet-server/media/out/${{ env.NAME }}.srt
             wallet-server/media/out/poster.jpg
             wallet-server/media/out/contact.jpg

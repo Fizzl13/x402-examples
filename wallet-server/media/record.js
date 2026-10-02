@@ -7,6 +7,7 @@
 //
 //   node record.js                                          # the live demo (GitHub Actions)
 //   DEMO_URL=http://127.0.0.1:3000/demo node record.js      # a local server
+//   SCRIPT=short.json node record.js                        # the 30-second version
 
 import fs from "node:fs";
 import path from "node:path";
@@ -235,6 +236,10 @@ async function main() {
       // Scroll the receipt to "What your agent got".
       await page.evaluate(() => { const d = document.getElementById("receipt"); const got = d.querySelector(".rc-sec:nth-of-type(2)") || d.querySelector(".headline"); d.scrollTo({ top: got ? got.offsetTop - 40 : d.scrollHeight / 2, behavior: "smooth" }); });
     },
+
+    // The short video opens a receipt straight from the Purchases list.
+    async "prepare:receipt-open"() { await openDemo(page); await scrollTo(page, "#buysSec"); },
+    async "receipt-open"(seg, ms) { await sleep(600); await scenes.receipt(seg, ms - 600); },
 
     async "prepare:agents"() { await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#agentsSec"); },
     async agents(seg, ms) {

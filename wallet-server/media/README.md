@@ -15,8 +15,9 @@ pipeline as x402 Doctor's explainer:
 3. `build.py` places each voice line where its scene starts and encodes
    `fizzl-agent-wallet.mp4` (1920×1080, H.264/AAC), an `.srt` and `poster.jpg`.
 
-Run it: Actions → "wallet-video" → Run workflow (optionally pick a voice), then
-download the "wallet-video" artifact. Edit the narration in `script.json`; the
+Run it: Actions → "wallet-video" → Run workflow (pick `script.json` for the intro
+or `short.json` for a 30-second version, and optionally a voice), then download
+the run's artifact. Edit the narration in `script.json`; the
 timing follows the voice.
 
 Local dry run without a voice model (silent narration of the right length),

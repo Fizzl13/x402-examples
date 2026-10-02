@@ -1,0 +1,38 @@
+{
+  "title": "Fizzl Agent Wallet in 30 seconds",
+  "output": "fizzl-agent-wallet-30s",
+  "segments": [
+    {
+      "id": "s-hook",
+      "scene": "card",
+      "card": { "title": "Give your AI agent a wallet.", "sub": "With your rules." },
+      "text": "Give your AI agent a wallet. With your rules."
+    },
+    {
+      "id": "s-rule",
+      "scene": "rule",
+      "text": "It pays for what it needs on its own, up to the limit you set."
+    },
+    {
+      "id": "s-phone",
+      "scene": "phone",
+      "text": "Above it, you approve with one tap. No answer, no payment."
+    },
+    {
+      "id": "s-check",
+      "scene": "check",
+      "text": "Every signature is checked for scams first. A red verdict is never signed."
+    },
+    {
+      "id": "s-receipt",
+      "scene": "receipt-open",
+      "text": "And every purchase gets a receipt in plain words: what was bought, and what came back."
+    },
+    {
+      "id": "s-end",
+      "scene": "card",
+      "card": { "title": "Fizzl Agent Wallet", "sub": "Free to start · wallet.fizzl.eu", "note": "Never holds your keys or your money" },
+      "text": "Fizzl Agent Wallet. Free to start, at wallet.fizzl.eu."
+    }
+  ]
+}

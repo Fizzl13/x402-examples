@@ -31,7 +31,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
   // What the sign-in page offers.
-  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, password: auth.hasPassword, telegram: !!telegram?.username }));
+  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
 
   // ---------- agents ----------
   const agentOnly = async (req, res, next) => {
@@ -68,7 +68,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.post("/api/signin/message", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
     if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
-    res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`));
+    res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`, req.body?.chain === "solana" ? "solana" : "ethereum"));
   }));
   app.post("/api/signin", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
@@ -104,6 +104,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   }));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
+  owner.post("/billing/solana", wrap(async (req, res) => res.json(await accounts.solanaPayment(req.account, req.body?.months))));
   owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash))));
   owner.post("/account/delete", wrap(async (req, res) => {
     if (req.body?.confirm !== "delete") return res.status(400).json({ error: "bad_request", message: 'send { "confirm": "delete" }' });

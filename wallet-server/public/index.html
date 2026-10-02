@@ -231,7 +231,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
-        <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base.</p>
+        <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom on Ethereum or Solana, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base or Solana.</p>
       </div>
       <div class="err" id="walletErr"></div>
       <div class="or" id="orLine" hidden>or</div>
@@ -489,6 +489,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#app").hidden = true; $("#logout").hidden = true; $("#addAgentTop").hidden = true; $("#who").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out");
     fetch("/api/config").then((r) => r.json()).then((c) => {
       $("#walletLogin").hidden = !c.wallet;
+      solanaOn = !!c.solana; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
       $("#orLine").hidden = !c.password || !c.wallet;
       $("#loginForm").hidden = !c.password || c.wallet;
@@ -497,6 +498,33 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#showPassword").addEventListener("click", () => { $("#loginForm").hidden = false; $("#showPassword").hidden = true; $("#password").focus(); });
 
   // ---------- wallets (MetaMask, Phantom, Coinbase Wallet, …) ----------
+  // ---------- Solana (Phantom): sign in with a signed message, pay Pro in USDC on Solana ----------
+  let solanaOn = false;
+  const solProvider = () => window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : null);
+  const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  function b58(bytes) {
+    let n = 0n; for (const b of bytes) n = n * 256n + BigInt(b);
+    let out = ""; while (n > 0n) { out = B58[Number(n % 58n)] + out; n /= 58n; }
+    for (const b of bytes) { if (b !== 0) break; out = "1" + out; }
+    return out;
+  }
+  const isPhone = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  async function solanaSignIn(b) {
+    const sol = solProvider(); if (!sol) return;
+    const label = b.innerHTML;
+    $("#walletErr").textContent = "";
+    b.disabled = true; b.textContent = "Check Phantom…";
+    try {
+      const { publicKey } = await sol.connect();
+      const address = publicKey.toString();
+      const { nonce, message } = await post("/api/signin/message", { address, chain: "solana" });
+      const { signature } = await sol.signMessage(new TextEncoder().encode(message), "utf8");
+      await post("/api/signin", { nonce, signature: b58(signature) });
+      try { localStorage.setItem("aw_wallet", "solana:phantom"); } catch {}
+      start();
+    } catch (err) { $("#walletErr").textContent = walletError(err); }
+    finally { b.disabled = false; b.innerHTML = label; }
+  }
   const hexUtf8 = (t) => "0x" + [...new TextEncoder().encode(t)].map((b) => b.toString(16).padStart(2, "0")).join("");
   const walletError = (err) => (err?.code === 4001 ? `You cancelled it in ${walletName}.` : err?.message || String(err));
   async function post(path, body) {
@@ -529,9 +557,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const safeIcon = (i) => (typeof i === "string" && /^data:image\/(svg\+xml|png|webp|jpeg|gif)[;,]/.test(i) ? i : null);
   function renderWallets() {
     const list = allWallets();
-    $("#walletList").innerHTML = list.length
+    const sol = solanaOn && solProvider()
+      ? `<button class="button primary" type="button" data-solana="1">Connect Phantom (Solana)</button>`
+      : solanaOn && isPhone && !list.length ? `<a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}">Open in the Phantom app</a>` : "";
+    $("#walletList").innerHTML = sol + (list.length
       ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
-      : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`;
+      : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`);
   }
   const findWallet = (rdns) => allWallets().find((w) => w.info.rdns === rdns) ?? null;
   // The wallet the customer signed in with, for paying later (remembered in this browser only).
@@ -544,6 +575,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     return w?.provider ?? null;
   }
   $("#walletList").addEventListener("click", async (e) => {
+    const sb = e.target.closest("button[data-solana]"); if (sb) return solanaSignIn(sb);
     const b = e.target.closest("button[data-wallet]"); if (!b) return;
     const w = findWallet(b.dataset.wallet); if (!w) return;
     const eth = w.provider, label = b.innerHTML;
@@ -576,15 +608,32 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
   async function claim(txHash, say) {
+    const net = me?.chain === "solana" ? "Solana" : "Base";
     for (let i = 0; i < 20; i++) {
       try { me = await post("/api/billing/claim", { txHash }); renderAccount(); return true; }
-      catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say("Waiting for Base to confirm the payment…"); await sleep(3000); }
+      catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say(`Waiting for ${net} to confirm the payment…`); await sleep(3000); }
     }
-    throw new Error("Base hasn't confirmed it yet. Paste the transaction hash below in a minute.");
+    throw new Error(`${net} hasn't confirmed it yet. Paste the transaction ${net === "Solana" ? "signature" : "hash"} below in a minute.`);
+  }
+  // Pro paid on Solana: the server builds the USDC transfer, Phantom signs and sends it, the server checks it on-chain.
+  async function paySolana(months, say) {
+    const sol = solProvider();
+    if (!sol) return say(isPhone ? "Open this page in the Phantom app to pay." : "Open this page in a browser with Phantom to pay.", "bad");
+    try {
+      const { publicKey } = await sol.connect();
+      if (publicKey.toString() !== me.address) return say(`Switch Phantom to ${me.address.slice(0, 4)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
+      const { message, amountUsdc } = await post("/api/billing/solana", { months });
+      say(`Confirm ${amountUsdc} USDC in Phantom…`);
+      const { signature } = await sol.request({ method: "signAndSendTransaction", params: { message } });
+      say("Sent. Waiting for Solana to confirm…");
+      await claim(signature, say);
+      say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good");
+    } catch (err) { say(walletError(err), "bad"); }
   }
   async function pay(months) {
     const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
     if (DEMO) return say("This is the demo: nothing is paid. On your own account this opens your wallet to send the USDC.", "good");
+    if (me.chain === "solana") return paySolana(months, say);
     const eth = currentWallet();
     if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Phantom, …) to pay.", "bad");
     try {
@@ -667,16 +716,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     const pro = me.plan === "pro", until = me.proUntil ?? me.paidUntil, inGrace = pro && until < (state?.now ?? Date.now());
     const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(until))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(until))}</b>`) : "1 agent, receipts kept 7 days.";
-    const price = me.billing.priceUsdc;
+    if (!me.billing) {
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Paying for Pro from a Solana wallet isn't open on this server yet.</p>`;
+    } else {
+    const sol = me.chain === "solana", price = me.billing.priceUsdc;
+    const txLink = (p) => (p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `https://basescan.org/tx/${p.tx}`);
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? "Pro" : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
-      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on Base, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
       <div class="msg" id="payMsg" role="status"></div>
-      ${autoHtml()}
-      <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="0x… transaction hash" aria-label="Transaction hash"><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
-      ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="https://basescan.org/tx/${esc(p.tx)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
+      ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
+      <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
+      ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
+    }
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;

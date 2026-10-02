@@ -44,6 +44,8 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `OPERATOR_NAME` | who runs the service, shown in the privacy statement at `/privacy` |
    | `CONTACT_EMAIL` | where customers reach you about their data, shown in the privacy statement |
    | `SUBSCRIPTION_CONTRACT` | optional: the deployed [subscription contract](../subscription) for automatic Pro payments |
+   | `SOLANA_PAY_TO` | optional: the Solana address that receives Pro payments. Turns on signing in with Phantom on Solana and paying Pro in USDC on Solana |
+   | `SOLANA_RPC_URL` | optional: a Solana RPC to build and check those payments (default `https://api.mainnet-beta.solana.com`) |
    | `CHARGER_KEY` | optional: private key of a **new, separate** wallet with a little ETH on Base that sends the monthly charges (never your payout wallet) |
 3. Open the URL, log in, set your price rule, add an agent and copy its key.
 
