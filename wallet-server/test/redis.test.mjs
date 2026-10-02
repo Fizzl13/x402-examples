@@ -40,3 +40,28 @@ test("redis store: agents, entries, approvals and events survive a reconnect", {
     await store.close();
   } finally { proc.kill(); }
 });
+
+test("redis store: accounts are separate scopes; one-time codes and payments work once", { skip: !hasRedis && "redis-server not installed" }, async () => {
+  const port = 20000 + Math.floor(Math.random() * 20000);
+  const proc = spawn("redis-server", ["--port", String(port), "--save", "", "--appendonly", "no"], { stdio: "ignore" });
+  try {
+    await new Promise((ok) => setTimeout(ok, 400));
+    const store = await redisStore(`redis://127.0.0.1:${port}`);
+    const alice = "0x" + "a".repeat(40), bob = "0x" + "b".repeat(40);
+    const wa = createWallet({ store: store.scope(alice), signers: [], authority: null });
+    const wb = createWallet({ store: store.scope(bob), signers: [], authority: null });
+    const { key } = await wa.addAgent("alice-bot");
+    assert.equal((await wb.state()).agents.length, 0);
+    assert.equal((await createWallet({ store, signers: [], authority: null }).state()).agents.length, 0);
+    const { hashKey } = await import("../src/wallet.js");
+    assert.equal(await store.global.getKeyOwner(hashKey(key)), alice);
+    await store.global.putOnce("tg", "code123", { account: alice }, 60);
+    assert.deepEqual(await store.global.takeOnce("tg", "code123"), { account: alice });
+    assert.equal(await store.global.takeOnce("tg", "code123"), null);
+    assert.equal(await store.global.claimTx("0xabc"), true);
+    assert.equal(await store.global.claimTx("0xabc"), false);
+    await store.global.putAccount({ id: alice, paidUntil: 1 });
+    assert.equal((await store.global.listAccounts()).length, 1);
+    await store.close();
+  } finally { proc.kill(); }
+});

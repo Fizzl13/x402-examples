@@ -120,6 +120,22 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .s-signed { color: var(--mint); } .s-signing { color: var(--cyan); } .s-failed { color: var(--rose); }
 @media (max-width: 480px) { .receipt dl { grid-template-columns: 1fr; gap: 2px; } .receipt dd { margin-bottom: 10px; } }
 .login { min-height: 70vh; display: grid; place-items: center; }
+.login .or { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
+.login .or::before, .login .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
+.who { color: var(--soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.plan-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--mint); color: var(--mint); font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
+.plan-badge.free { border-color: rgba(244,248,247,.3); color: var(--soft); }
+.account { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.account .card { padding: 22px; display: grid; gap: 12px; align-content: start; }
+.account .big { font-size: 34px; }
+.account .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.paylist { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.paylist div { display: flex; justify-content: space-between; gap: 10px; border-top: 1px dashed var(--line); padding-top: 4px; }
+.msg { font-size: 13px; color: var(--soft); min-height: 1.2em; overflow-wrap: anywhere; }
+.msg.bad { color: var(--rose); } .msg.good { color: var(--mint); }
+.paste { display: flex; gap: 8px; flex-wrap: wrap; }
+.paste input { flex: 1 1 200px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); font: 12px ui-monospace, Menlo, monospace; }
 .login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
 .err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
@@ -127,6 +143,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .demo-banner a { text-decoration: underline; }
 footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-top: 30px; }
 @media (max-width: 860px) { .hero, .rule { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { #liveText { display: none; } .who { font-size: 11px; display: grid; justify-items: end; gap: 3px; } .brand { font-size: 20px; } }
 @media (max-width: 600px) { .asked { grid-template-columns: 1fr; } .asked .btns { justify-content: flex-start; } }
 @media (prefers-reduced-motion: reduce) { .bar b { transition: none; } }
 </style>
@@ -136,6 +153,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 <header class="topbar"><div class="wrap">
   <div class="brand">FIZZL<span>.WALLET</span></div>
   <div style="display:flex;gap:12px;align-items:center">
+    <span class="who" id="who" hidden></span>
     <span class="live" id="live"><i></i><span id="liveText">connecting</span></span>
     <button class="button ghost small" id="logout" hidden>Log out</button>
   </div>
@@ -144,14 +162,23 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 <div class="demo-banner" id="demoBanner" hidden><div class="wrap">LIVE DEMO · example agents and example data · nothing here moves money · <a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-server">run your own ↗</a></div></div>
 <main class="wrap">
   <section class="login" id="loginView" hidden>
-    <form class="card" id="loginForm">
-      <span class="tag">Agent Wallet</span>
-      <h3>Log in to your wallet server</h3>
-      <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
-      <input id="password" type="password" autocomplete="current-password" required>
-      <button class="button primary" type="submit">Log in</button>
-      <div class="err" id="loginErr"></div>
-    </form>
+    <div class="card">
+      <span class="tag">Fizzl Agent Wallet</span>
+      <h3>Spending limits and phone approvals for your AI agents</h3>
+      <div id="walletLogin">
+        <button class="button primary" type="button" id="connectWallet" style="width:100%">Connect MetaMask</button>
+        <p class="note" style="margin:10px 0 0">Sign in with your wallet: one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC.</p>
+      </div>
+      <div class="err" id="walletErr"></div>
+      <div class="or" id="orLine" hidden>or</div>
+      <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
+      <form id="loginForm" hidden style="display:grid;gap:12px">
+        <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <button class="button" type="submit">Log in</button>
+        <div class="err" id="loginErr"></div>
+      </form>
+    </div>
   </section>
 
   <div id="app" hidden>
@@ -169,6 +196,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
         <div id="budgets"></div>
         <span class="note" id="pausedNote"></span>
+      </div>
+    </section>
+
+    <section class="section" id="accountSec" hidden>
+      <div class="eyebrow"><i></i>00 / YOUR ACCOUNT</div>
+      <div class="account">
+        <article class="card" id="planCard"></article>
+        <article class="card" id="tgCard"></article>
       </div>
     </section>
 
@@ -317,6 +352,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         if (!r) throw new Error("no such receipt");
         return structuredClone({ purchase: r });
       }
+      if (method === "GET" && path === "/api/me") {
+        return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
+          payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], telegram: { linked: true, username: "you" },
+          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30 } };
+      }
       if (method === "PUT" && path === "/api/policy") { D.policy = body.policy; D.events.unshift({ at: Date.now(), type: "policy", by: "you" }); return { policy: D.policy }; }
       if (method === "POST" && path === "/api/pause") { D.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: body.paused ? "paused" : "resumed", by: "you" }); return { ok: true }; }
       let m;
@@ -344,7 +384,121 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     };
   }
 
-  function showLogin() { $("#app").hidden = true; $("#logout").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out"); }
+  function showLogin() {
+    $("#app").hidden = true; $("#logout").hidden = true; $("#who").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out");
+    fetch("/api/config").then((r) => r.json()).then((c) => {
+      $("#walletLogin").hidden = !c.wallet;
+      $("#showPassword").hidden = !c.password || !c.wallet;
+      $("#orLine").hidden = !c.password || !c.wallet;
+      $("#loginForm").hidden = !c.password || c.wallet;
+    }, () => {});
+  }
+  $("#showPassword").addEventListener("click", () => { $("#loginForm").hidden = false; $("#showPassword").hidden = true; $("#password").focus(); });
+
+  // ---------- wallet (MetaMask) ----------
+  const hexUtf8 = (t) => "0x" + [...new TextEncoder().encode(t)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const walletError = (err) => (err?.code === 4001 ? "You cancelled it in MetaMask." : err?.message || String(err));
+  async function post(path, body) {
+    const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}), credentials: "same-origin" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(data.message || data.error || `HTTP ${res.status}`), { status: res.status });
+    return data;
+  }
+  $("#connectWallet").addEventListener("click", async () => {
+    const eth = window.ethereum;
+    $("#walletErr").textContent = "";
+    if (!eth) { $("#walletErr").innerHTML = `No wallet found in this browser. <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Install MetaMask</a>, or open this page in the MetaMask app.`; return; }
+    const b = $("#connectWallet"); b.disabled = true; b.textContent = "Check MetaMask…";
+    try {
+      const [address] = await eth.request({ method: "eth_requestAccounts" });
+      const { nonce, message } = await post("/api/signin/message", { address });
+      const signature = await eth.request({ method: "personal_sign", params: [hexUtf8(message), address] });
+      await post("/api/signin", { nonce, signature });
+      start();
+    } catch (err) { $("#walletErr").textContent = walletError(err); }
+    finally { b.disabled = false; b.textContent = "Connect MetaMask"; }
+  });
+  async function onBase(eth) {
+    const id = await eth.request({ method: "eth_chainId" });
+    if (id === "0x2105") return;
+    try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }); }
+    catch (err) {
+      if (err?.code !== 4902) throw err;
+      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
+    }
+  }
+  const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  async function claim(txHash, say) {
+    for (let i = 0; i < 20; i++) {
+      try { me = await post("/api/billing/claim", { txHash }); renderAccount(); return true; }
+      catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say("Waiting for Base to confirm the payment…"); await sleep(3000); }
+    }
+    throw new Error("Base hasn't confirmed it yet. Paste the transaction hash below in a minute.");
+  }
+  async function pay(months) {
+    const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
+    if (DEMO) return say("This is the demo: nothing is paid. On your own account this opens MetaMask to send the USDC.", "good");
+    const eth = window.ethereum;
+    if (!eth) return say("Open this page in a browser with MetaMask to pay.", "bad");
+    try {
+      const [from] = await eth.request({ method: "eth_requestAccounts" });
+      if (from.toLowerCase() !== me.id) return say(`Switch MetaMask to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
+      await onBase(eth);
+      const units = BigInt(Math.round(me.billing.priceUsdc * 1e6)) * BigInt(months);
+      const data = "0xa9059cbb" + me.billing.payTo.slice(2).toLowerCase().padStart(64, "0") + units.toString(16).padStart(64, "0");
+      say("Confirm the payment in MetaMask…");
+      const txHash = await eth.request({ method: "eth_sendTransaction", params: [{ from, to: me.billing.tokenAddress, data, value: "0x0" }] });
+      say("Sent. Waiting for Base to confirm…");
+      for (let i = 0; i < 40; i++) { if (await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] }).catch(() => null)) break; await sleep(2000); }
+      await claim(txHash, say);
+      say(`Thank you! Pro until ${day(me.paidUntil)}.`, "good");
+    } catch (err) { say(walletError(err), "bad"); }
+  }
+  async function tgLink() {
+    if (DEMO) { $("#tgMsg").textContent = "Demo: on your own account this opens Telegram."; return; }
+    try { const { url } = await post("/api/telegram/link"); window.open(url, "_blank", "noopener"); $("#tgMsg").textContent = "Press Start in Telegram, then come back here."; pollMe(); }
+    catch (err) { $("#tgMsg").textContent = err.message; }
+  }
+  async function pollMe() { for (let i = 0; i < 40; i++) { await sleep(3000); try { me = await api("GET", "/api/me"); renderAccount(); if (me.telegram.linked) return; } catch { return; } } }
+
+  let me = null;
+  const day = (t) => new Date(t).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+  function renderAccount() {
+    if (!me) return;
+    const short = me.address ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "server owner";
+    $("#who").hidden = false;
+    $("#who").innerHTML = `${esc(short)} <span class="plan-badge ${me.plan === "free" ? "free" : ""}">${esc(me.plan)}</span>`;
+    $("#accountSec").hidden = false;
+    if (me.admin) {
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div>`;
+      $("#tgCard").innerHTML = `<span class="tag">TELEGRAM</span><p class="note">Your approvals go to the chat set in TELEGRAM_CHAT_ID on Render.</p>`;
+      return;
+    }
+    const pro = me.plan === "pro", inGrace = pro && me.paidUntil < (state?.now ?? Date.now());
+    const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(me.paidUntil))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(me.paidUntil))}</b>`) : "1 agent, receipts kept 7 days.";
+    const price = me.billing.priceUsdc;
+    $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
+      <div class="big">${pro ? "Pro" : "Free"}</div>
+      <p class="note" style="margin:0">${status}</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on Base, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends.</p>
+      <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button><button class="button ghost small" type="button" disabled title="Coming soon">Automatic payment · soon</button></div>
+      <div class="msg" id="payMsg" role="status"></div>
+      <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="0x… transaction hash" aria-label="Transaction hash"><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
+      ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="https://basescan.org/tx/${esc(p.tx)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
+    $("#tgCard").innerHTML = me.telegram.linked
+      ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
+      : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button primary small" type="button" id="tgLink">Connect Telegram</button></div><div class="msg" id="tgMsg" role="status"></div>`;
+  }
+  document.addEventListener("click", async (e) => {
+    const p = e.target.closest("[data-pay]");
+    if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
+    if (e.target.closest("#tgLink")) return tgLink();
+    if (e.target.closest("#tgUnlink")) { if (DEMO) return; await post("/api/telegram/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
+    if (e.target.closest("#txClaim")) {
+      const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
+      try { await claim($("#txPaste").value.trim(), say); say(`Thank you! Pro until ${day(me.paidUntil)}.`, "good"); } catch (err) { say(err.message, "bad"); }
+    }
+  });
   function setLive(ok, text) { $("#live").classList.toggle("off", !ok); $("#liveText").textContent = text; }
 
   $("#loginForm").addEventListener("submit", async (e) => {
@@ -361,7 +515,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     try { state = await api("GET", "/api/state"); render(); setLive(!state.paused, state.paused ? "all agents paused" : "live"); }
     catch (err) { if (err.message !== "login") setLive(false, "can't reach the server"); }
   }
-  function start() { $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false; refresh(); clearInterval(timer); timer = setInterval(refresh, 4000); }
+  function start() {
+    $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false;
+    api("GET", "/api/me").then((m) => { me = m; renderAccount(); }, () => {});
+    refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
+  }
 
   const usdc = () => state?.policy?.tokens?.USDC ?? {};
   function setSliders() {
@@ -524,7 +682,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}${e.what ? ` · ${e.what}` : ""}`, e.result ? `result ${e.result}` : ""],
       asked: [`${e.agent} asked you${e.what ? ` · ${e.what}` : ""}`, e.summary], approved: [`Approved (${e.by})${e.what ? ` · ${e.what}` : ""}`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
       expired: ["No answer in time", `${e.agent}: ${e.summary}`], blocked: [`${e.agent} blocked`, e.summary], released: [`${e.agent}: signing failed, spending given back`, ""],
-      policy: ["Rules changed", e.by], paused: ["All agents paused", e.by], resumed: ["All agents resumed", e.by],
+      policy: ["Rules changed", e.by], plan: ["Plan", e.summary], paused: ["All agents paused", e.by], resumed: ["All agents resumed", e.by],
       agent_added: [`Agent added: ${e.agent}`, ""], agent_removed: [`Agent removed: ${e.agent}`, ""], agent_paused: [`${e.agent} paused`, ""], agent_resumed: [`${e.agent} resumed`, ""],
     }[e.type] ?? [e.type, ""]);
     $("#events").innerHTML = s.events.length ? s.events.map((e) => {

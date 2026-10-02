@@ -48,7 +48,10 @@ const verdictView = (v) => (v ? {
   signedAt: v.receipt?.signed_at ?? null,
 } : null);
 
-export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {} } = {}) {
+// plan(): what this account may use; null fields mean unlimited (a self-hosted server, or Pro).
+const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
+
+export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED } = {}) {
   let queue = Promise.resolve();
   const locked = (fn) => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
   const waiters = new Map(); // approval id -> Set of resolve functions (long polls)
@@ -85,7 +88,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       what: purchase ?? null, verdict: verdict ?? null, approval, status: "signing", result: null, outcome: null,
       createdAt: now(), updatedAt: now(),
     };
-    await store.putPurchase(p);
+    await store.putPurchase(p, (await plan()).receiptDays);
     return p;
   }
   async function updatePurchase(agent, purchaseId, change) {
@@ -93,7 +96,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     const p = await store.getPurchase(purchaseId);
     if (!p || p.agent !== agent.id) return null;
     const next = { ...p, ...change, updatedAt: now() };
-    await store.putPurchase(next);
+    await store.putPurchase(next, (await plan()).receiptDays);
     return next;
   }
 
@@ -120,6 +123,11 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     reserve: (agent, { method, request, verdict, purchase: rawPurchase }) => locked(async () => {
       if (await store.getPaused()) return { status: "paused", summary: "all agents are paused" };
       if (agent.paused) return { status: "paused", summary: `${agent.name} is paused` };
+      const { maxAgents } = await plan();
+      if (maxAgents) {
+        const first = (await store.listAgents()).sort((x, y) => x.createdAt - y.createdAt).slice(0, maxAgents).map((a) => a.id);
+        if (!first.includes(agent.id)) return { status: "paused", summary: `${agent.name} is paused: the free plan has ${maxAgents} agent${maxAgents === 1 ? "" : "s"} (upgrade to Pro on the dashboard)` };
+      }
       if (!request || typeof request !== "object" || !request.type) throw Object.assign(new Error("request is required"), { status: 400 });
       const { policy } = await policyNow();
       const trusted = trustedVerdict(verdict, request);
@@ -250,6 +258,10 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
 
     async addAgent(name) {
       if (typeof name !== "string" || !/^[\w .-]{1,40}$/.test(name)) throw Object.assign(new Error("name: 1-40 letters, digits, spaces, . _ -"), { status: 400 });
+      const { maxAgents } = await plan();
+      const count = (await store.listAgents()).length;
+      if (maxAgents && count >= maxAgents) throw Object.assign(new Error(`The free plan has ${maxAgents} agent${maxAgents === 1 ? "" : "s"}. Upgrade to Pro for more.`), { status: 403 });
+      if (count >= 50) throw Object.assign(new Error("50 agents is the most one account can have."), { status: 403 });
       const key = `awk_${randomBytes(24).toString("base64url")}`;
       const agent = { id: id("ag"), name, keyHash: hashKey(key), createdAt: now(), paused: false, lastSeen: null };
       await store.putAgent(agent);
