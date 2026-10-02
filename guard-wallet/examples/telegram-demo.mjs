@@ -1,16 +1,19 @@
-// Telegram approval demo: a pretend agent tries to send 8 USDC with a 5 USDC
-// per-transaction limit. You get the request on Telegram and tap Approve or
-// Deny. Nothing real happens: the wallet is a stub that never broadcasts, and
-// the presign-guard verdict is signed locally (no payment, no network call to
-// presign-guard). Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+// Approval demo: a pretend agent tries to send 8 USDC.
+// - With WALLET_SERVER_URL and WALLET_SERVER_KEY: the wallet server's rules and
+//   budget apply; approve or deny on its dashboard (or its Telegram bot).
+// - Otherwise, with TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID: a local 5 USDC
+//   per-transaction limit, and you tap Approve or Deny on Telegram.
+// Nothing real happens: the wallet is a stub that never broadcasts, and the
+// presign-guard verdict is signed locally (no payment, no call to presign-guard).
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { canonicalJson, inputHash } from "x402-safe-fetch";
 import { guardWallet, PresignBlockedError } from "../index.js";
 import { telegramApprover } from "../telegram.js";
 
-const { TELEGRAM_BOT_TOKEN: token, TELEGRAM_CHAT_ID: chatId } = process.env;
-if (!token || !chatId) { console.error("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."); process.exit(1); }
+const { TELEGRAM_BOT_TOKEN: token, TELEGRAM_CHAT_ID: chatId, WALLET_SERVER_URL: serverUrl, WALLET_SERVER_KEY: serverKey } = process.env;
+const useServer = !!(serverUrl && serverKey);
+if (!useServer && !(token && chatId)) { console.error("Set WALLET_SERVER_URL and WALLET_SERVER_KEY, or TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."); process.exit(1); }
 
 // A local stand-in for presign-guard: a green verdict, signed by a throwaway key.
 const demoSigner = privateKeyToAccount(generatePrivateKey());
@@ -25,18 +28,22 @@ const pay = async (_url, init) => {
 // A wallet that only pretends to send.
 const stub = { chain: { id: 8453 }, account: privateKeyToAccount(generatePrivateKey()), sendTransaction: async () => "0xdemo-not-broadcast" };
 
-const wallet = guardWallet(stub, {
-  pay,
-  signers: [demoSigner.address],
-  limits: { tokens: { USDC: { perTx: "5", perDay: "20" } } },
-  onOverLimit: telegramApprover({ token, chatId, label: "demo-agent (GitHub Actions test)", timeoutMs: 5 * 60_000 }),
-  onSpend: (e) => console.log(`booked: ${e.amount} ${e.budget}`),
-});
+const wallet = guardWallet(stub, useServer
+  ? { pay, signers: [demoSigner.address], server: { url: serverUrl, key: serverKey }, onSpend: (e) => console.log(`booked on the server: ${e.id}`) }
+  : {
+    pay,
+    signers: [demoSigner.address],
+    limits: { tokens: { USDC: { perTx: "5", perDay: "20" } } },
+    onOverLimit: telegramApprover({ token, chatId, label: "demo-agent (GitHub Actions test)", timeoutMs: 5 * 60_000 }),
+    onSpend: (e) => console.log(`booked: ${e.amount} ${e.budget}`),
+  });
 
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const tx = { to: USDC, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: ["0x1111111111111111111111111111111111111111", 8_000_000n] }) };
 
-console.log("demo-agent wants to send 8 USDC (limit 5 per transaction). Check Telegram and tap Approve or Deny (5 minutes)…");
+console.log(useServer
+  ? `demo-agent wants to send 8 USDC. Over your rule? Approve or deny on ${serverUrl} (10 minutes)…`
+  : "demo-agent wants to send 8 USDC (limit 5 per transaction). Check Telegram and tap Approve or Deny (5 minutes)…");
 try {
   const hash = await wallet.sendTransaction(tx);
   console.log(`RESULT approved: the wallet signed (${hash}). Spending now:`, JSON.stringify(await wallet.spending()));
