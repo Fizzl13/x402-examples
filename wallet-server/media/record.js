@@ -242,7 +242,10 @@ async function main() {
     async "receipt-open"(seg, ms) { await sleep(600); await scenes.receipt(seg, ms - 600); },
 
     // The search bar: type a request, see the results, copy one for the agent.
-    async "prepare:find"() { await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#finder"); await page.fill("#searchQ", ""); },
+    async "prepare:find"() {
+      if (!page.url().includes("/demo")) await openDemo(page); // the short video comes here straight from a title card
+      await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#finder"); await page.fill("#searchQ", "");
+    },
     async find(seg, ms) {
       await glow(page, "#searchForm");
       await page.type("#searchQ", "bitcoin signal", { delay: 90 });
