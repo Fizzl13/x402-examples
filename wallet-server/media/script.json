@@ -1,0 +1,74 @@
+{
+  "title": "Fizzl Agent Wallet: your agents pay, you set the rules",
+  "output": "fizzl-agent-wallet",
+  "segments": [
+    {
+      "id": "hook",
+      "scene": "card",
+      "card": { "title": "Your AI agent can pay now.", "sub": "Would you hand it your wallet?" },
+      "text": "AI agents can now pay for things on their own. But would you hand one your wallet?"
+    },
+    {
+      "id": "intro",
+      "scene": "card",
+      "card": { "title": "Fizzl Agent Wallet", "sub": "Your agents pay. You set the rules.", "note": "wallet.fizzl.eu" },
+      "text": "Meet the Fizzl Agent Wallet. Your agents pay for what they need. You decide the rules."
+    },
+    {
+      "id": "rule",
+      "scene": "rule",
+      "text": "Set one simple rule. Agents pay on their own up to five dollars per purchase, within one daily budget for all of them."
+    },
+    {
+      "id": "ask",
+      "scene": "approvals",
+      "text": "Anything above your rule waits for you. You see what the agent wants to buy, and why."
+    },
+    {
+      "id": "phone",
+      "scene": "phone",
+      "text": "On your phone too: one tap on Telegram to approve or deny. No answer means no payment."
+    },
+    {
+      "id": "approve",
+      "scene": "approve",
+      "text": "Approve it, and the agent goes ahead."
+    },
+    {
+      "id": "flow",
+      "scene": "flow",
+      "text": "Here is why it is safe. Your agent keeps its own key. Before it signs anything, it asks the wallet, and the wallet only says yes or no."
+    },
+    {
+      "id": "check",
+      "scene": "check",
+      "text": "Every signature is checked first by presign-guard. Known drainers, sanctioned addresses, unlimited approvals: a red verdict is never signed."
+    },
+    {
+      "id": "stop",
+      "scene": "stop",
+      "text": "And when in doubt, it stops. If a check or the wallet can't be reached, nothing is signed."
+    },
+    {
+      "id": "purchases",
+      "scene": "purchases",
+      "text": "Every purchase shows up in one list: what was bought, by which agent, and for how much."
+    },
+    {
+      "id": "receipt",
+      "scene": "receipt",
+      "text": "Open one, and the receipt explains it in plain words: the safety check, your rules, the payment, and what your agent got back."
+    },
+    {
+      "id": "agents",
+      "scene": "agents",
+      "text": "Connect Claude, Cursor or your own code with one key per agent. Pause or remove any agent with one click."
+    },
+    {
+      "id": "end",
+      "scene": "card",
+      "card": { "title": "Free to start.", "sub": "wallet.fizzl.eu", "note": "Sign in with MetaMask or Phantom · never holds your keys or your money" },
+      "text": "Free to start. Sign in with your wallet at wallet.fizzl.eu. It never holds your keys or your money."
+    }
+  ]
+}
