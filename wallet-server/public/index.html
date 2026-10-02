@@ -135,6 +135,18 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .cats button.on { border-color: var(--mint); background: rgba(97,245,195,.1); box-shadow: 0 0 0 1px var(--mint) inset; }
 .catbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .catbar button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; }
+.filters { display: grid; gap: 8px; }
+.filters .fbody { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.filters .fgroup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filters button[aria-pressed], .filters .ftoggle, .filters .fclear { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+.filters button[aria-pressed="true"] { background: var(--mint); border-color: var(--mint); color: #02100c; font-weight: 700; }
+.filters button:hover, .filters button:focus-visible { border-color: var(--mint); }
+.filters select { border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--soft); font: inherit; font-size: 13px; padding: 6px 10px; }
+.filters .ftoggle { display: inline-flex; gap: 6px; align-items: center; justify-self: start; }
+.filters .ftoggle.on { border-color: var(--mint); color: var(--mint); }
+.filters .fbody { display: none; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(2,10,10,.45); }
+.filters.open .fbody { display: flex; }
+.filters .fclear { border-style: dashed; }
 .pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 6px; }
 .pager button, .pager .cur { min-width: 40px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 14px; cursor: pointer; }
 .pager button:hover, .pager button:focus-visible { border-color: var(--mint); color: var(--text); }
@@ -154,6 +166,15 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .checks b { color: var(--text); } .checks .fix { color: var(--soft); } .checks .fix::before { content: "What to do: "; color: var(--amber); font-weight: 700; }
 .verdictline { font: 700 18px/1.3 var(--display); margin: 0; }
 .follow { display: grid; gap: 10px; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 14px; }
+.follow { padding: 10px 16px; }
+.follow summary { display: flex; gap: 10px; align-items: center; cursor: pointer; list-style: none; }
+.follow summary .tag { min-width: 0; }
+.follow summary #followNow { margin-left: auto; white-space: nowrap; }
+.follow summary::-webkit-details-marker { display: none; }
+.follow summary::after { content: "▾"; color: var(--mint); }
+.follow[open] summary::after { content: "▴"; }
+.follow[open] { padding-bottom: 14px; }
+.follow:not([open]) { gap: 0; }
 .follow .chips button.on { border-color: var(--mint); color: #02100c; background: var(--mint); }
 .newtag { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #021; background: var(--amber); border-radius: 999px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
 .chips .newchip { border-color: var(--amber); color: var(--amber); }
@@ -334,14 +355,23 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <select id="searchMax" aria-label="Highest price per call"><option value="0.05">up to $0.05</option><option value="0.25">up to $0.25</option><option value="1" selected>up to $1</option><option value="">any price</option></select>
           <button class="button primary" type="submit">Search</button>
         </form>
+        <div class="filters" id="filters">
+          <button type="button" class="ftoggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersBody">Filters</button>
+          <div class="fbody" id="filtersBody">
+            <div class="fgroup" role="group" aria-label="Pays on"><span class="note">Pays on</span><button type="button" data-net="Base" aria-pressed="false">Base</button><button type="button" data-net="Solana" aria-pressed="false">Solana</button><button type="button" data-net="Arbitrum" aria-pressed="false">Arbitrum</button><button type="button" data-net="Optimism" aria-pressed="false">Optimism</button><button type="button" data-net="Polygon" aria-pressed="false">Polygon</button><button type="button" data-net="Ethereum" aria-pressed="false">Ethereum</button></div>
+            <div class="fgroup" role="group" aria-label="Only"><span class="note">Only</span><button type="button" data-flag="reliable" aria-pressed="false" title="Sellers x402 Doctor has seen paying out on at least 90% of its daily checks">✓ Reliable</button><button type="button" data-flag="skill" aria-pressed="false" title="Sellers that publish a skill.md your agent can connect to">🤖 skill.md</button><button type="button" data-flag="fresh" aria-pressed="false" title="Sellers that joined the catalog in the last 7 days">✨ New</button></div>
+            <label class="fgroup"><span class="note">Sort</span><select id="searchSort" aria-label="Sort results"><option value="best">Best match</option><option value="cheap">Cheapest first</option><option value="record">Longest reliable</option></select></label>
+            <button type="button" class="fclear" id="filtersClear" hidden>× clear filters</button>
+          </div>
+        </div>
         <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
         <div class="cats" id="searchCats" aria-label="Categories"></div>
-        <div class="follow" id="followBox" hidden>
-          <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between"><span class="tag">🔔 NEW PROVIDERS ON TELEGRAM</span><span class="note" id="followNow"></span></div>
+        <details class="follow" id="followBox" hidden>
+          <summary><span class="tag">🔔 NEW PROVIDERS ON TELEGRAM</span><span class="note" id="followNow"></span></summary>
           <p class="note" style="margin:0">Get a Telegram message when a new seller joins the x402 catalog in a category you pick. At most one message an hour, and only when there's something new.</p>
           <div class="chips" id="followChips"></div>
           <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="button primary small" type="button" id="followSave">Save</button><span class="msg" id="followMsg" role="status"></span></div>
-        </div>
+        </details>
         <div id="searchOut" role="status" aria-live="polite"></div>
       </div>
     </section>
@@ -1072,21 +1102,51 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:0">${esc(a.what)}</p>
         <div class="btns"><button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(a.ask)}">Copy one request</button><a class="button ghost small" href="${esc(a.site)}" target="_blank" rel="noopener noreferrer">All endpoints ↗</a></div></article>`; }).join("")}</div></div>`;
   }
+  // Filters: networks, only reliable / with a skill.md / new, and the order. Remembered in this browser.
+  let filt = { net: [], reliable: false, skill: false, fresh: false, sort: "best" };
+  try { filt = { ...filt, ...JSON.parse(localStorage.getItem("aw_filters") || "{}") }; } catch {}
+  const filtCount = () => filt.net.length + ["reliable", "skill", "fresh"].filter((k) => filt[k]).length + (filt.sort !== "best" ? 1 : 0);
+  const filtQuery = () => `${filt.net.length ? `&net=${encodeURIComponent(filt.net.join(","))}` : ""}${filt.reliable ? "&reliable=1" : ""}${filt.skill ? "&skill=1" : ""}${filt.fresh ? "&new=1" : ""}${filt.sort !== "best" ? `&sort=${filt.sort}` : ""}`;
+  function renderFilters() {
+    document.querySelectorAll("#filters [data-net]").forEach((b) => b.setAttribute("aria-pressed", String(filt.net.includes(b.dataset.net))));
+    document.querySelectorAll("#filters [data-flag]").forEach((b) => b.setAttribute("aria-pressed", String(!!filt[b.dataset.flag])));
+    $("#searchSort").value = filt.sort;
+    const n = filtCount();
+    $("#filtersToggle").textContent = `${$("#filters").classList.contains("open") ? "▴" : "▾"} Filters${n ? ` (${n})` : ""}`;
+    $("#filtersToggle").classList.toggle("on", n > 0);
+    $("#filtersClear").hidden = !n;
+  }
+  function filtersChanged() {
+    try { localStorage.setItem("aw_filters", JSON.stringify(filt)); } catch {}
+    renderFilters();
+    if (lastQ || activeCat || filt.reliable || filt.skill || filt.fresh) search(lastQ || $("#searchQ").value);
+  }
+  $("#filters").addEventListener("click", (e) => {
+    const net = e.target.closest("[data-net]"), flag = e.target.closest("[data-flag]");
+    if (net) { const n = net.dataset.net; filt.net = filt.net.includes(n) ? filt.net.filter((x) => x !== n) : [...filt.net, n]; filtersChanged(); }
+    if (flag) { filt[flag.dataset.flag] = !filt[flag.dataset.flag]; filtersChanged(); }
+    if (e.target.closest("#filtersClear")) { filt = { net: [], reliable: false, skill: false, fresh: false, sort: "best" }; filtersChanged(); }
+    if (e.target.closest("#filtersToggle")) { const open = $("#filters").classList.toggle("open"); $("#filtersToggle").setAttribute("aria-expanded", String(open)); renderFilters(); }
+  });
+  $("#searchSort").addEventListener("change", () => { filt.sort = $("#searchSort").value; filtersChanged(); });
+  renderFilters();
   async function search(q, page = 1) {
     q = String(q ?? "").trim();
     lastQ = q;
     const out = $("#searchOut");
-    if (q.length < 2 && !activeCat) { out.innerHTML = ""; return; }
+    const onlyFilters = filt.reliable || filt.skill || filt.fresh;
+    if (q.length < 2 && !activeCat && !onlyFilters) { out.innerHTML = ""; return; }
     out.innerHTML = `<p class="note" style="margin:0">Searching the x402 catalog…</p>`;
     const max = $("#searchMax").value;
     const cat = catList.find((c) => c.id === activeCat);
-    const what = [q ? `"${esc(q)}"` : "", cat ? `in ${esc(cat.icon)} ${esc(cat.name)}` : ""].filter(Boolean).join(" ");
+    const fl = [filt.net.length ? `on ${filt.net.join(" or ")}` : "", filt.reliable ? "reliable" : "", filt.skill ? "with a skill.md" : "", filt.fresh ? "new this week" : ""].filter(Boolean);
+    const what = [q ? `"${esc(q)}"` : "", cat ? `in ${esc(cat.icon)} ${esc(cat.name)}` : "", fl.length ? `(${esc(fl.join(", "))})` : ""].filter(Boolean).join(" ");
     const catBar = cat ? `<div class="catbar"><span class="note">Category: <b style="color:#fff">${esc(cat.icon)} ${esc(cat.name)}</b></span><button type="button" id="catClear">× all categories</button></div>` : "";
     try {
-      const { results, total = results.length, page: at = 1, pages = 1 } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}${page > 1 ? `&page=${page}` : ""}`);
+      const { results, total = results.length, page: at = 1, pages = 1 } = await api("GET", `/api/services/search?q=${encodeURIComponent(q)}${max ? `&max=${encodeURIComponent(max)}` : ""}${activeCat ? `&cat=${encodeURIComponent(activeCat)}` : ""}${filtQuery()}${page > 1 ? `&page=${page}` : ""}`);
       const from = (at - 1) * 20 + 1, range = pages > 1 ? `Results ${from}–${from + results.length - 1} of ${total}` : `${results.length}`;
-      if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price.</p>`; return; }
-      out.innerHTML = `${catBar}${!q && cat && at === 1 ? fizzlBlock(cat.id) : ""}<p class="note" style="margin:0">${range} ${!q && cat ? `provider${total === 1 ? "" : "s"}` : `paid service${total === 1 ? "" : "s"}`} ${what}${!q && cat ? " (one card per provider: those with a skill.md first, then those x402 Doctor has seen paying out day after day, then new ones, then the cheapest)" : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
+      if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price${filtCount() ? `, or <button class="link" type="button" id="noFilters">clear the filters</button>` : ""}.</p>`; return; }
+      out.innerHTML = `${catBar}${!q && cat && at === 1 ? fizzlBlock(cat.id) : ""}<p class="note" style="margin:0">${range} ${!q ? `provider${total === 1 ? "" : "s"}` : `paid service${total === 1 ? "" : "s"}`} ${what}${!q ? (filt.sort === "best" ? " (one card per provider: those with a skill.md first, then those x402 Doctor has seen paying out day after day, then new ones, then the cheapest)" : " (one card per provider)") : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
         <div class="hits">${results.map((r) => {
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
@@ -1122,6 +1182,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     await search(lastQ, Number(b.dataset.page)); // the same search, another page
     $("#searchOut").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   });
+  $("#searchOut").addEventListener("click", (e) => { if (e.target.closest("#noFilters")) { filt = { net: [], reliable: false, skill: false, fresh: false, sort: "best" }; filtersChanged(); } });
   $("#searchOut").addEventListener("click", (e) => { if (e.target.closest("#catClear")) { activeCat = null; renderCats(); search($("#searchQ").value); } });
 
   // New providers: sellers that appeared in the catalog in the last 7 days.

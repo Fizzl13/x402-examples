@@ -1064,3 +1064,41 @@ test("x402 Doctor's track records: summed up per seller; proven sellers first wi
     assert.equal(fetched, 1); // loaded once, kept 6 hours
   } finally { server.close(); }
 });
+
+test("search filters: network, new, skill.md, reliable, and sorting", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { createTrustIndex } = await import("../src/trust.js");
+  const SOL = ["solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"];
+  const pay = (amount, [network, asset] = ["eip155:8453", USDC]) => ({ scheme: "exact", network, asset, amount, payTo: PAY_TO });
+  const items = [
+    { resource: "https://both.example/signal", description: "Crypto signal", accepts: [pay("20000"), pay("10000", SOL)] },
+    { resource: "https://base.example/signal", description: "Crypto signal", accepts: [pay("5000")] },
+    { resource: "https://sol.example/signal", description: "Crypto signal", accepts: [pay("30000", SOL)] },
+  ];
+  const trust = createTrustIndex({ url: "https://trust.test/i", fetch: async () => Response.json({ resources: { "https://both.example/signal": { h: "gggggggggg" }, "https://base.example/signal": { h: "gnnnnnnnnn" } } }) });
+  const skills = { known: (o) => o !== "https://base.example", check: async () => {} };
+  let t = Date.parse("2026-10-01T00:00:00Z");
+  const store = memoryStore();
+  let list = items.slice(0, 2);
+  const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, seen: store.global, fetch: async () => Response.json({ items: list }), skills, trust });
+  await catalog.refresh(); // both.example and base.example are the baseline
+  t += 2 * 3_600_000; list = items; await catalog.refresh(); // sol.example is new
+  const { server, owner } = await boot({ catalog });
+  try {
+    const hosts = async (qs) => (await owner("GET", `/api/services/search?q=crypto%20signal&${qs}`)).body.results.map((r) => r.host);
+    assert.deepEqual(await hosts(""), ["base.example", "both.example", "sol.example"]); // same match: cheapest first
+    assert.deepEqual(await hosts("net=Solana"), ["both.example", "sol.example"]);
+    const solOnly = (await owner("GET", "/api/services/search?q=crypto%20signal&net=Solana")).body.results[0];
+    assert.deepEqual([solOnly.prices.map((p) => p.network), solOnly.cheapest], [["Solana"], 0.01]); // prices for the chosen network
+    assert.deepEqual(await hosts("net=Base,Nope"), ["base.example", "both.example"]);
+    assert.deepEqual(await hosts("new=1"), ["sol.example"]);
+    assert.deepEqual(await hosts("skill=1"), ["both.example", "sol.example"]);
+    assert.deepEqual(await hosts("reliable=1"), ["both.example"]);
+    assert.deepEqual(await hosts("sort=record"), ["both.example", "sol.example", "base.example"]); // proven, unknown, failing
+    assert.deepEqual(await hosts("sort=cheap&net=Solana"), ["both.example", "sol.example"]);
+    // Filters alone (no words, no category): every provider that passes, one card each.
+    const onlyReliable = (await owner("GET", "/api/services/search?reliable=1")).body;
+    assert.deepEqual(onlyReliable.results.map((r) => [r.host, r.endpoints]), [["both.example", 1]]);
+    assert.equal((await owner("GET", "/api/services/search?net=Base")).body.total, 0); // a network alone isn't a search
+  } finally { server.close(); }
+});
