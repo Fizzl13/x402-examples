@@ -332,7 +332,10 @@ test("sign in with a wallet: a free signature over a message this server made, o
     const alice = customer();
     const a = await signInAs(base, alice);
     assert.equal(a.status, 200);
-    assert.match(a.message, /^wallet\.test wants you to sign in with your Ethereum account:\n0x/);
+    // The domain is the one the browser is on (here 127.0.0.1:<port>), not PUBLIC_URL, so wallets don't warn.
+    const host = new URL(base).host;
+    assert.ok(a.message.startsWith(`${host} wants you to sign in with your Ethereum account:\n0x`), a.message);
+    assert.ok(a.message.includes(`URI: ${base}\n`));
     assert.match(a.message, /Chain ID: 8453/);
     assert.match(a.message, /not a transaction/);
     const me = (await a.call("GET", "/api/me")).body;
@@ -350,6 +353,10 @@ test("sign in with a wallet: a free signature over a message this server made, o
     assert.equal(replay.status, 401);
     assert.equal((await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: "nope" }) })).status, 400);
     assert.equal((await fetch(`${base}/api/config`).then((r) => r.json())).wallet, true);
+    // Behind a proxy with another name (wallet.fizzl.eu in front of onrender.com), that name is used.
+    const viaProxy = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-host": "wallet.fizzl.eu", "x-forwarded-proto": "https" }, body: JSON.stringify({ address: alice.address }) })).json();
+    assert.ok(viaProxy.message.startsWith("wallet.fizzl.eu wants you to sign in"), viaProxy.message);
+    assert.ok(viaProxy.message.includes("URI: https://wallet.fizzl.eu\n"));
   } finally { server.close(); }
 });
 

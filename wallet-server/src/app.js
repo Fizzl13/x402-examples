@@ -68,7 +68,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.post("/api/signin/message", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
     if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
-    res.json(await accounts.signInMessage(req.body?.address));
+    res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`));
   }));
   app.post("/api/signin", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
