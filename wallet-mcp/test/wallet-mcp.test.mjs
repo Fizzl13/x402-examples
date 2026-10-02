@@ -67,7 +67,8 @@ const ENV = { AGENT_KEY: KEY, LIMIT_USDC_PER_TX: "5", LIMIT_USDC_PER_DAY: "20" }
 async function setup(env = {}, opts = {}) {
   const net = network(opts);
   const fake = fakeWallet();
-  const wallet = createWallet(configFromEnv({ ...ENV, ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const spends = [];
+  const wallet = createWallet(configFromEnv({ ...ENV, ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off", onSpend: (e) => spends.push(e) } });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await createServer(wallet).connect(a);
   const client = new Client({ name: "test", version: "1" });
@@ -76,7 +77,7 @@ async function setup(env = {}, opts = {}) {
     const r = await client.callTool({ name, arguments: args });
     return { error: !!r.isError, text: r.content[0].text };
   };
-  return { client, call, wallet, net, fake };
+  return { client, call, wallet, net, fake, spends };
 }
 
 test("configuration: a budget is required and conflicting setups are refused", () => {
@@ -194,4 +195,16 @@ test("bad input is refused before anything is signed", async () => {
   assert.equal((await call("send_usdc", { to: "not-an-address", amount: "1" })).error, true);
   assert.equal((await call("send_usdc", { to: SHOP, amount: "-1" })).error, true);
   assert.equal(fake.sent.length, 0);
+});
+
+test("every payment says what it was for (receipts, approvals)", async () => {
+  const { call, spends } = await setup();
+  await call("pay_x402", { url: API, reason: "data for the weekly report" });
+  assert.deepEqual(spends[0].purchase, { url: API, description: "data for the weekly report" });
+  await call("pay_x402", { url: API });
+  assert.deepEqual(spends[1].purchase, { url: API, description: "GET api.example.test" });
+  await call("send_usdc", { to: SHOP, amount: "1", reason: "refund order 1042" });
+  assert.deepEqual(spends[2].purchase, { description: "refund order 1042" });
+  await call("send_usdc", { to: SHOP, amount: "1" });
+  assert.equal(spends[3].purchase.description, `Send 1 USDC to ${SHOP}`);
 });
