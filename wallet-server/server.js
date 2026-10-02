@@ -22,6 +22,7 @@
 //   ETHEREUM_RPC_URL, ARBITRUM_RPC_URL, OPTIMISM_RPC_URL, POLYGON_RPC_URL
 //                       optional: RPCs to check Pro payments on those networks (public ones by default)
 //   X402_DISCOVERY_URL  optional: the x402 catalog the search bar searches (default Coinbase's Bazaar)
+//   X402_TRUST_INDEX_URL optional: x402 Doctor's Trust Index, to rank sellers by track record (default its public file)
 //   SOLANA_PAY_TO       optional: the Solana address that receives Pro payments; turns on sign-in
 //                       with Phantom on Solana and paying Pro in USDC on Solana
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
@@ -34,6 +35,7 @@ import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
 import { createCatalog, createSkillChecker } from "./src/catalog.js";
+import { createTrustIndex } from "./src/trust.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -72,7 +74,7 @@ const accounts = createAccounts({
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
 // New sellers in the catalog go to the Telegram of accounts that follow their category.
-const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(),
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const app = createApp({ accounts, auth, telegram, catalog, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
 const port = Number(env.PORT ?? 3000);

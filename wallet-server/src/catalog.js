@@ -101,7 +101,8 @@ const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().sl
 // `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
 // `onNew(providers)` is called once with the sellers that appeared since the last load (never for the baseline).
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null } = {}) {
+// `trust` (src/trust.js): x402 Doctor's daily track records per seller, to rank and label results.
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null } = {}) {
   let items = null, at = 0, loading = null, firstSeen = {};
   async function load() {
     if (items && now() - at < TTL_MS) return items;
@@ -164,7 +165,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
 
   return {
     // Load the catalog now if the cached copy is old (the server does this hourly, so new sellers are noticed).
-    async refresh() { await load(); },
+    async refresh() { await load(); await trust?.ready({ waitMs: 30_000 }); },
     // Sellers that appeared in the last `days` days, newest first, with what they offer.
     async newProviders({ days = 7, limit = 30 } = {}) {
       const list = await load();
@@ -247,9 +248,14 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
           if (!seller.description && r.description) seller.description = r.description;
         }
         all = [...by.values()];
-        if (skills) await skills.check(all.slice(0, 300).map((r) => new URL(r.url).origin));
-        const has = (r) => (skills?.known(new URL(r.url).origin) ? 1 : 0);
-        all.sort((a, b) => has(b) - has(a) || Number(b.isNew) - Number(a.isNew) || a.cheapest - b.cheapest);
+        await Promise.all([skills?.check(all.slice(0, 300).map((r) => new URL(r.url).origin)), trust?.ready()]);
+        // Within the same skill.md group: sellers x402 Doctor has seen paying out day after day first (a longer
+        // record first), then unknown ones, then sellers that often fail; then new ones, then the cheapest.
+        const origin = (r) => new URL(r.url).origin;
+        const has = (r) => (skills?.known(origin(r)) ? 1 : 0);
+        const tier = (r) => trust?.tier(origin(r)) ?? 1;
+        const record = (r) => (tier(r) === 2 ? trust.seller(origin(r)).payableDays : 0);
+        all.sort((a, b) => has(b) - has(a) || tier(b) - tier(a) || record(b) - record(a) || Number(b.isNew) - Number(a.isNew) || a.cheapest - b.cheapest);
       }
       const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
       const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
@@ -260,6 +266,8 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         await skills.check(origins);
         for (const r of results) r.skill = skills.known(new URL(r.url).origin) ? `${new URL(r.url).origin}/skill.md` : null;
       }
+      // The seller's track record, shown on the card ("paid out 30 of 30 days").
+      if (trust) { await trust.ready({ waitMs: 0 }); for (const r of results) r.record = trust.seller(new URL(r.url).origin); }
       return { query: String(query ?? ""), category, results, total: all.length, page: at, pages };
     },
   };
