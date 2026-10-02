@@ -106,7 +106,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .buy .m { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .buy .a { grid-row: 1; grid-column: 2; color: #fff; font-weight: 600; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .buy .s { grid-column: 2; text-align: right; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
-.finder { margin-top: 34px; display: grid; gap: 12px; }
+.finder { display: grid; gap: 12px; }
 .searchbar { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 18px; border: 1px solid var(--mint); border-radius: 999px; background: rgba(2,10,10,.7); box-shadow: 0 0 30px rgba(97,245,195,.12); }
 .searchbar:focus-within { box-shadow: 0 0 0 3px rgba(97,245,195,.25), 0 0 40px rgba(97,245,195,.18); }
 .searchbar svg { width: 22px; height: 22px; color: var(--mint); flex: none; }
@@ -295,6 +295,22 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       </div>
     </section>
 
+    <section class="section" id="findSec">
+      <div class="eyebrow"><i></i>FIND SERVICES</div>
+      <h2>WHAT DO YOUR AGENTS NEED?<br><span>FIND IT HERE.</span></h2>
+      <div class="finder" id="finder">
+        <form class="searchbar" id="searchForm" role="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          <input id="searchQ" type="search" placeholder="What should your agent buy? e.g. bitcoin signal, token safety, weather" maxlength="200" aria-label="Search paid services" autocomplete="off">
+          <select id="searchMax" aria-label="Highest price per call"><option value="0.05">up to $0.05</option><option value="0.25">up to $0.25</option><option value="1" selected>up to $1</option><option value="">any price</option></select>
+          <button class="button primary" type="submit">Search</button>
+        </form>
+        <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
+        <div class="cats" id="searchCats" aria-label="Categories"></div>
+        <div id="searchOut" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="section" id="accountSec" hidden>
       <div class="eyebrow"><i></i>00 / YOUR ACCOUNT</div>
       <div class="account">
@@ -348,18 +364,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="Name your assistant, e.g. claude-desktop" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
-      <div class="finder" id="finder">
-        <span class="tag">FIND PAID SERVICES FOR YOUR AGENTS</span>
-        <form class="searchbar" id="searchForm" role="search">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-          <input id="searchQ" type="search" placeholder="What should your agent buy? e.g. bitcoin signal, token safety, weather" maxlength="200" aria-label="Search paid services" autocomplete="off">
-          <select id="searchMax" aria-label="Highest price per call"><option value="0.05">up to $0.05</option><option value="0.25">up to $0.25</option><option value="1" selected>up to $1</option><option value="">any price</option></select>
-          <button class="button primary" type="submit">Search</button>
-        </form>
-        <div class="chips" id="searchChips"><button type="button" class="newchip" id="newBtn">✨ New this week</button><span class="note">Try:</span><button type="button" data-q="crypto trend signal">crypto signal</button><button type="button" data-q="token safety check">token safety</button><button type="button" data-q="wallet approvals">wallet approvals</button><button type="button" data-q="weather forecast">weather</button><button type="button" data-q="web search">web search</button><button type="button" data-q="translate text">translate</button></div>
-        <div class="cats" id="searchCats" aria-label="Categories"></div>
-        <div id="searchOut" role="status" aria-live="polite"></div>
-      </div>
       <div class="fizzl" id="fizzlAgents">
         <span class="tag">FIZZL SERVICES YOUR AGENTS CAN USE</span>
         <p class="note">Paid services, not agents to add. Your agent calls them and pays per call in USDC through this wallet, so your price rule and daily budget apply, and every purchase shows up as a receipt.</p>
