@@ -216,6 +216,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
     res.json(await accounts.markRefunded(req.params.id, req.body?.tx));
   }));
+  // Endpoint monitor: the x402 endpoints this account watches (checked hourly, alerts on Telegram).
+  owner.get("/monitors", wrap(async (req, res) => res.json(await accounts.monitors(req.account))));
+  owner.post("/monitors", wrap(async (req, res) => res.json(await accounts.addMonitor(req.account, { url: req.body?.url, method: req.body?.method || "GET" }))));
+  owner.delete("/monitors/:id", wrap(async (req, res) => res.json(await accounts.removeMonitor(req.account, req.params.id))));
+  owner.post("/monitors/:id/check", wrap(async (req, res) => { await accounts.checkMonitor(req.account, req.params.id); res.json(await accounts.monitors(req.account)); }));
   owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
   // The owner's Stats tab: the website, the wallet and the four services, from the usage log.
   owner.get("/admin/stats", wrap(async (req, res) => {

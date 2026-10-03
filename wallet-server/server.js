@@ -90,12 +90,13 @@ const app = createApp({ accounts, auth, telegram, catalog, usage, stats, signInW
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 
-// Every hour: take automatic payments that are due, send Pro reminders (and refund reminders to you) on Telegram, look for new sellers in the catalog, and on Monday morning send you the weekly summary.
+// Every hour: take automatic payments that are due, send Pro reminders (and refund reminders to you) on Telegram, look for new sellers in the catalog, check the sellers' watched x402 endpoints, and on Monday morning send you the weekly summary.
 const hourly = async () => {
   try { const r = await accounts.chargeDue(); if (r.charged || r.failed) console.log(`[subscription] charged ${r.charged}, failed ${r.failed}`); } catch (err) { console.warn(`[subscription] ${err.message}`); }
   try { await accounts.remind(); } catch (err) { console.warn(`[remind] ${err.message}`); }
   try { await accounts.remindRefunds(); } catch (err) { console.warn(`[refunds] ${err.message}`); }
   try { await catalog.refresh(); } catch (err) { console.warn(`[catalog] ${err.message}`); }
+  try { const n = await accounts.checkMonitors(); if (n) console.log(`[monitor] checked ${n} endpoint(s)`); } catch (err) { console.warn(`[monitor] ${err.message}`); }
   try { await accounts.weeklyDigest({ summary: stats.enabled ? await stats.summary(7).catch(() => null) : null }); } catch (err) { console.warn(`[digest] ${err.message}`); }
 };
 setTimeout(hourly, 60_000).unref();
