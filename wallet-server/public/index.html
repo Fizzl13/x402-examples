@@ -931,11 +931,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const safeIcon = (i) => (typeof i === "string" && /^data:image\/(svg\+xml|png|webp|jpeg|gif)[;,]/.test(i) ? i : null);
   function renderWallets() {
     const list = allWallets();
-    const sol = solanaOn && solProvider()
-      ? `<button class="button primary" type="button" data-solana="1">Connect Phantom (Solana)</button>`
-      : solanaOn && isPhone && !list.length ? `<a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}">Open in the Phantom app</a>` : "";
-    $("#walletList").innerHTML = sol + (list.length
+    const sol = solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1">Connect Phantom (Solana)</button>` : "";
+    // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
+    // where it is built in. (More apps under "Other wallets".)
+    const apps = isPhone && !list.length && !solProvider()
+      ? `<a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in the MetaMask app</a><a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}">Open in the Phantom app</a>`
+      : "";
+    $("#walletList").innerHTML = sol + apps + (list.length
       ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
+      : apps ? `<p class="note" style="margin:0">Your wallet app has its own browser: these buttons open this page there, so you can sign in. Another app? See "Other wallets".</p>`
       : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`);
   }
   // "Other wallets": open this page inside a wallet app's own browser (where the wallet is built in),
