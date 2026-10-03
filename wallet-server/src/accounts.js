@@ -454,10 +454,11 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return serial(id, async () => {
         const a = await account(id), rec = (id === ADMIN ? await g.getAccount(ADMIN) : a) ?? { id };
         const list = rec.monitors ?? [], plan = planOf(a);
-        if (list.some((m) => m.url === clean && m.method === method)) throw Object.assign(new Error("You're already watching that endpoint."), { status: 409 });
+        if (list.some((m) => m.url === clean && (m.method === method || m.switchedFrom === method))) throw Object.assign(new Error("You're already watching that endpoint."), { status: 409 });
         if (list.length >= plan.maxMonitors) throw Object.assign(new Error(plan.name === "free" ? "The free plan watches 1 endpoint. Pro watches up to 10." : `You can watch up to ${plan.maxMonitors} endpoints.`), { status: 403 });
         const last = await endpointMonitor.check(clean, method).catch((err) => ({ state: "down", status: 0, ms: 0, note: err.message }));
-        const m = { id: rand(6), url: clean, method, addedAt: now(), last: { ...last, at: now() }, fails: last.state === "down" ? 1 : 0, alerted: false };
+        const works = last.method && last.method !== method ? last.method : method;
+        const m = { id: rand(6), url: clean, method: works, ...(works !== method ? { switchedFrom: method } : {}), addedAt: now(), last: { ...last, at: now() }, fails: last.state === "down" ? 1 : 0, alerted: false };
         await g.putAccount({ ...rec, monitors: [...list, m] });
         usage.record("monitor_added", { account: id, input: { host: new URL(clean).host }, result: { state: last.state } });
         return api.monitors(id);
@@ -482,7 +483,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (r.state === "ok" && m.alerted) { alerted = false; type = "up"; message = `✅ Your x402 endpoint works again:\n${m.method} ${m.url}\n${r.note}`; }
       await serial(id, async () => {
         const cur = await g.getAccount(id);
-        await g.putAccount({ ...cur, monitors: (cur.monitors ?? []).map((x) => (x.id === monitorId ? { ...x, last: { ...r, at: now() }, fails, alerted } : x)) });
+        await g.putAccount({ ...cur, monitors: (cur.monitors ?? []).map((x) => (x.id === monitorId ? { ...x, ...(r.state === "ok" && r.method && r.method !== x.method ? { method: r.method, switchedFrom: x.method } : {}), last: { ...r, at: now() }, fails, alerted } : x)) });
       });
       if (message && alert) {
         const chat = (await account(id))?.telegram?.chatId;

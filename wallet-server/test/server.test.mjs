@@ -1397,9 +1397,10 @@ test("endpoint monitor: an x402 endpoint must answer 402 with payment options; p
     "https://free.example/paid": () => new Response("hi", { status: 200 }),
     "https://empty.example/paid": () => new Response("{}", { status: 402 }),
     "https://broken.example/paid": () => new Response("oops", { status: 502 }),
+    "https://post.example/paid": (init) => (init.method === "POST" ? new Response("{}", { status: 402, headers: { "payment-required": challenge } }) : new Response("use POST", { status: 405 })),
   };
   const lookup = async (h) => (h === "private.example" ? [{ address: "10.0.0.5" }] : h === "nowhere.example" ? [] : [{ address: "93.184.216.34" }]);
-  const m = createEndpointMonitor({ fetch: async (url) => answers[url](), lookup });
+  const m = createEndpointMonitor({ fetch: async (url, init) => answers[url](init), lookup });
   const good = await m.check("https://good.example/paid");
   assert.equal(good.state, "ok");
   assert.deepEqual(good.networks, ["eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"]);
@@ -1409,6 +1410,24 @@ test("endpoint monitor: an x402 endpoint must answer 402 with payment options; p
   assert.match((await m.check("https://broken.example/paid")).note, /server has an error/);
   assert.match((await m.check("https://private.example/paid")).note, /private network/);
   assert.match((await m.check("https://nowhere.example/paid")).note, /doesn't resolve/);
+  // The seller picked GET, but only POST asks for payment: that works, and says so.
+  const post = await m.check("https://post.example/paid", "GET");
+  assert.equal(post.state, "ok");
+  assert.equal(post.method, "POST");
+  assert.match(post.note, /on POST \(not GET\)\.$/);
+  assert.equal((await m.check("https://free.example/paid", "GET")).method, "GET"); // neither works: the chosen one is reported
+});
+
+test("endpoint monitor in the account: a wrong method is switched to the one that asks for payment", async () => {
+  const endpointMonitor = { check: async (_url, method) => ({ state: "ok", status: 402, ms: 50, note: method === "GET" ? "Asks for payment correctly, on POST (not GET)." : "Asks for payment correctly.", method: "POST" }) };
+  const { base, server } = await boot({ endpointMonitor });
+  try {
+    const a = await signInAs(base, customer());
+    const r = (await a.call("POST", "/api/monitors", { url: "https://shop.example/paid", method: "GET" })).body;
+    assert.equal(r.monitors[0].method, "POST");
+    assert.equal(r.monitors[0].switchedFrom, "GET");
+    assert.equal((await a.call("POST", "/api/monitors", { url: "https://shop.example/paid", method: "GET" })).status, 409); // same endpoint
+  } finally { server.close(); }
 });
 
 test("monitor alerts to a webhook: Discord, Slack or JSON; public https only; the URL is never shown back", async () => {
