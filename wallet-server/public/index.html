@@ -169,6 +169,18 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .agent header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .agent .state { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; }
 .agent .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Five agents or more: one line each, opened with a tap for Pause / Remove. */
+.agents.compact { grid-template-columns: 1fr; gap: 6px; }
+.agentrow { padding: 0; }
+.agentrow > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 12px 16px; }
+.agentrow > summary::-webkit-details-marker { display: none; }
+.agentrow .name { font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agentrow .meta { grid-column: 2 / 4; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agentrow .state { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; }
+.agentrow .rowdot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+.agentrow .btns { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 14px; }
+.agentfilter { display: block; width: 100%; box-sizing: border-box; min-height: 42px; margin: 0 0 10px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; }
+.agentfilter[hidden] { display: none; }
 .skillbox { padding: 18px 20px; display: grid; gap: 10px; margin-bottom: 16px; border-color: var(--mint); }
 .skillbox .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .skillbox code { display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 14px/1.4 ui-monospace, Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
@@ -556,6 +568,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="eyebrow"><i></i>03 / AGENTS</div>
       <h2>YOUR AGENTS.<br><span>ONE BUDGET.</span></h2>
       <div id="newKey"></div>
+      <input class="agentfilter" id="agentFilter" type="search" placeholder="Find an agent" aria-label="Find an agent" hidden>
       <div class="agents" id="agents"></div>
       <form class="addform" id="addForm" style="margin-top:16px">
         <input id="agentName" placeholder="Name your assistant, e.g. claude-desktop" maxlength="40" required aria-label="New agent name">
@@ -656,6 +669,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let state = null, editing = false, timer = null, howtoSet = false;
+  const openAgents = new Set(); // compact agent rows the owner opened (kept through the refresh)
 
   let api = async function (method, path, body) {
     const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
@@ -1841,6 +1855,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     b.disabled = true;
     try { await api("POST", `/api/approvals/${encodeURIComponent(b.dataset.id)}`, { decision: b.dataset.decision }); } finally { refresh(); }
   });
+  // Compact rows: remember which ones are open, so the refresh every few seconds doesn't close them.
+  $("#agents").addEventListener("toggle", (e) => { const d = e.target.closest("details[data-agent]"); if (d) d.open ? openAgents.add(d.dataset.agent) : openAgents.delete(d.dataset.agent); }, true);
+  $("#agentFilter").addEventListener("input", () => { if (state) render(); });
   $("#agents").addEventListener("click", async (e) => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     const id = b.dataset.id;
@@ -2124,11 +2141,19 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       return `<article class="card asked" style="${a.status === "pending" ? "" : "opacity:.6;border-color:var(--line)"}"><div><div class="facts" style="margin:0 0 6px"><span class="tag">${esc(a.agentName)}</span>${v}<span>${time(a.createdAt)}</span></div><h3>${esc(a.summary)}</h3>${a.purchase?.description || a.purchase?.url ? `<div class="facts"><span>for: <b style="color:#fff">${esc(a.purchase.description ?? a.purchase.url)}</b></span></div>` : ""}<div class="facts"><span><code>${esc(a.method)}</code> · chain ${esc(a.chainId)}</span>${a.to ? `<span>to ${esc(a.to)}</span>` : ""}</div></div><div style="display:grid;gap:6px;justify-items:end">${right}</div></article>`;
     }).join("") : `<div class="card empty">Nothing waits for you. Requests over your price show up here and on Telegram.</div>`;
     // agents
-    $("#agents").innerHTML = s.agents.length ? s.agents.map((a) => {
+    // Five or more: compact rows (tap one for Pause / Remove); nine or more: a search box too.
+    const compact = s.agents.length >= 5;
+    $("#agents").classList.toggle("compact", compact);
+    $("#agentFilter").hidden = s.agents.length < 9;
+    const q = $("#agentFilter").hidden ? "" : $("#agentFilter").value.trim().toLowerCase();
+    const shown = q ? s.agents.filter((a) => a.name.toLowerCase().includes(q)) : s.agents;
+    $("#agents").innerHTML = s.agents.length ? (shown.length ? shown.map((a) => {
       const st = a.paused ? ["paused", "var(--dim)"] : pending.some((p) => p.agent === a.id) ? ["waiting for you", "var(--amber)"] : ["active", "var(--mint)"];
       const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
+      const buttons = `<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
+      if (compact) return `<details class="card agentrow" data-agent="${esc(a.id)}"${openAgents.has(a.id) ? " open" : ""}><summary><span class="rowdot" style="color:${st[1]}" aria-hidden="true"></span><span class="name">${esc(a.name)}</span><span class="state" style="color:${st[1]}">${st[0]}</span><span class="meta">spent ${esc(spent)} · seen ${a.lastSeen ? time(a.lastSeen) : "never"}</span></summary>${buttons}</details>`;
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div><div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div></article>`;
-    }).join("") : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
+    }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
     setupAgents();
     // events
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
