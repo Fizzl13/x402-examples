@@ -18,7 +18,7 @@ import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
 import { weekOf, formatDigest } from "./digest.js";
-import { createEndpointMonitor, urlProblem } from "./monitor.js";
+import { createAlertHook, createEndpointMonitor, hookKind, urlProblem } from "./monitor.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -62,7 +62,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor() }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook() }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -425,7 +425,26 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async monitors(id) {
       const a = await account(id);
       const plan = planOf(a), list = (id === ADMIN ? (await g.getAccount(ADMIN))?.monitors : a?.monitors) ?? [];
-      return { max: plan.maxMonitors, telegram: !!(a?.telegram?.chatId), monitors: list.map((m, i) => ({ ...m, paused: i >= plan.maxMonitors })) };
+      const hook = (await g.getAccount(id))?.alertHook ?? null;
+      return { max: plan.maxMonitors, telegram: !!(a?.telegram?.chatId), hook: hook ? { kind: hook.kind, host: new URL(hook.url).hostname } : null, monitors: list.map((m, i) => ({ ...m, paused: i >= plan.maxMonitors })) };
+    },
+    // Alerts also to a Discord/Slack/other webhook (one per account). Empty url: remove it.
+    async setAlertHook(id, url) {
+      const raw = String(url ?? "").trim();
+      if (raw) { const problem = urlProblem(raw); if (problem) throw Object.assign(new Error(problem), { status: 400 }); }
+      await serial(id, async () => {
+        const rec = (await g.getAccount(id)) ?? { id };
+        const { alertHook: _old, ...rest } = rec;
+        await g.putAccount(raw ? { ...rec, alertHook: { url: new URL(raw).href, kind: hookKind(raw), at: now() } } : rest);
+      });
+      return api.monitors(id);
+    },
+    async testAlertHook(id) {
+      const hook = (await g.getAccount(id))?.alertHook;
+      if (!hook) throw Object.assign(new Error("No webhook set."), { status: 404 });
+      try { await alertHook.send(hook.url, "✅ Test from the Fizzl endpoint monitor: alerts about your x402 endpoints will arrive here.", { type: "test", at: now() }); }
+      catch (err) { throw Object.assign(new Error(err.message), { status: 502 }); }
+      return { ok: true };
     },
     async addMonitor(id, { url, method = "GET" } = {}) {
       const problem = urlProblem(url);
@@ -458,9 +477,9 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!m) throw Object.assign(new Error("no such endpoint"), { status: 404 });
       const r = await endpointMonitor.check(m.url, m.method).catch((err) => ({ state: "down", status: 0, ms: 0, note: err.message }));
       const fails = r.state === "down" ? (m.fails ?? 0) + 1 : 0;
-      let alerted = m.alerted, message = null;
-      if (fails >= 2 && !m.alerted) { alerted = true; message = `⚠️ Your x402 endpoint stopped working for paying agents:\n${m.method} ${m.url}\n${r.note}\n\nChecked twice, an hour apart. Diagnose it for free: https://x402-doctor.fizzl.eu/?url=${encodeURIComponent(m.url)}`; }
-      if (r.state === "ok" && m.alerted) { alerted = false; message = `✅ Your x402 endpoint works again:\n${m.method} ${m.url}\n${r.note}`; }
+      let alerted = m.alerted, message = null, type = null;
+      if (fails >= 2 && !m.alerted) { alerted = true; type = "down"; message = `⚠️ Your x402 endpoint stopped working for paying agents:\n${m.method} ${m.url}\n${r.note}\n\nChecked twice, an hour apart. Diagnose it for free: https://x402-doctor.fizzl.eu/?url=${encodeURIComponent(m.url)}`; }
+      if (r.state === "ok" && m.alerted) { alerted = false; type = "up"; message = `✅ Your x402 endpoint works again:\n${m.method} ${m.url}\n${r.note}`; }
       await serial(id, async () => {
         const cur = await g.getAccount(id);
         await g.putAccount({ ...cur, monitors: (cur.monitors ?? []).map((x) => (x.id === monitorId ? { ...x, last: { ...r, at: now() }, fails, alerted } : x)) });
@@ -468,6 +487,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (message && alert) {
         const chat = (await account(id))?.telegram?.chatId;
         if (telegram && chat) await telegram.send(chat, message).catch((err) => console.warn(`[monitor] ${err.message}`));
+        const hook = (await g.getAccount(id))?.alertHook;
+        if (hook) await alertHook.send(hook.url, message, { type, url: m.url, method: m.method, note: r.note, status: r.status, at: now() }).catch((err) => console.warn(`[monitor] webhook: ${err.message}`));
         usage.record("monitor_alert", { account: id, input: { host: new URL(m.url).host }, result: { state: r.state } });
       }
       return r;

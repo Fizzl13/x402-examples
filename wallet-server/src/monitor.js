@@ -61,3 +61,37 @@ export function createEndpointMonitor({ fetch: fetchImpl = globalThis.fetch, loo
   }
   return { check };
 }
+
+// Monitor alerts to a webhook as well as Telegram: a Discord or Slack incoming webhook (their own message
+// format), or any https URL (JSON with the event). The URL is a secret of the seller's: it's kept on the
+// server and only shown back as its kind and host. Same rules as watched endpoints: public https only.
+export function hookKind(raw) {
+  const u = new URL(raw);
+  if (/^(discord|discordapp)\.com$/i.test(u.hostname) && u.pathname.startsWith("/api/webhooks/")) return "discord";
+  if (/^hooks\.slack\.com$/i.test(u.hostname)) return "slack";
+  return "webhook";
+}
+
+export function createAlertHook({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }) } = {}) {
+  /** Send one alert. `event`: { type: "down" | "up" | "test", url, method, note, status, at }. Throws a readable error. */
+  async function send(url, text, event) {
+    const problem = urlProblem(url);
+    if (problem) throw new Error(problem);
+    const host = new URL(url).hostname;
+    const addrs = await lookup(host).catch(() => []);
+    if (!addrs.length) throw new Error(`The name ${host} doesn't resolve.`);
+    if (addrs.some((a) => isPrivateAddress(a.address ?? a))) throw new Error("That address points to a private network.");
+    const kind = hookKind(url);
+    const body = kind === "discord" ? { content: text.slice(0, 1900), allowed_mentions: { parse: [] } } : kind === "slack" ? { text } : { text, event };
+    let res;
+    try {
+      res = await fetchImpl(url, { method: "POST", redirect: "manual", headers: { "content-type": "application/json", "user-agent": UA }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+      res.body?.cancel?.().catch?.(() => {});
+    } catch (err) {
+      throw new Error(err?.name === "TimeoutError" ? "The webhook didn't answer within 10 seconds." : "The webhook isn't reachable.");
+    }
+    if (res.status < 200 || res.status >= 300) throw new Error(`The webhook answered HTTP ${res.status}.`);
+    return { kind };
+  }
+  return { send };
+}

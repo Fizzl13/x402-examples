@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -49,6 +49,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
     ...(usage ? { usage } : {}),
     ...(endpointMonitor ? { endpointMonitor } : {}),
+    ...(alertHook ? { alertHook } : {}),
   });
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
@@ -1408,6 +1409,51 @@ test("endpoint monitor: an x402 endpoint must answer 402 with payment options; p
   assert.match((await m.check("https://broken.example/paid")).note, /server has an error/);
   assert.match((await m.check("https://private.example/paid")).note, /private network/);
   assert.match((await m.check("https://nowhere.example/paid")).note, /doesn't resolve/);
+});
+
+test("monitor alerts to a webhook: Discord, Slack or JSON; public https only; the URL is never shown back", async () => {
+  const { createAlertHook, hookKind } = await import("../src/monitor.js");
+  assert.equal(hookKind("https://discord.com/api/webhooks/1/abc"), "discord");
+  assert.equal(hookKind("https://hooks.slack.com/services/T/B/x"), "slack");
+  assert.equal(hookKind("https://example.com/hook"), "webhook");
+  const sent = [];
+  const fetch = async (url, init) => { sent.push({ url, body: JSON.parse(init.body), redirect: init.redirect }); return new Response(null, { status: url.includes("broken") ? 500 : 204 }); };
+  const hook = createAlertHook({ fetch, lookup: async (h) => [{ address: h.startsWith("internal") ? "10.0.0.5" : "93.184.216.34" }] });
+  await hook.send("https://discord.com/api/webhooks/1/abc", "hi", { type: "test" });
+  await hook.send("https://hooks.slack.com/services/T/B/x", "hi", { type: "test" });
+  await hook.send("https://example.com/hook", "hi", { type: "down", url: "https://shop.example/paid" });
+  assert.deepEqual(sent.map((x) => x.body), [{ content: "hi", allowed_mentions: { parse: [] } }, { text: "hi" }, { text: "hi", event: { type: "down", url: "https://shop.example/paid" } }]);
+  assert.ok(sent.every((x) => x.redirect === "manual"));
+  await assert.rejects(hook.send("http://example.com/hook", "hi"), /https/);
+  await assert.rejects(hook.send("https://internal.example.com/hook", "hi"), /private network/);
+  await assert.rejects(hook.send("https://broken.example.com/hook", "hi"), /HTTP 500/);
+
+  // In the account: set, test, alerts go there too, remove.
+  let t = Date.now(), up = true;
+  const endpointMonitor = { check: async () => (up ? { state: "ok", status: 402, ms: 80, note: "Asks for payment correctly." } : { state: "down", status: 502, ms: 40, note: "Answers HTTP 502 instead of 402." }) };
+  const hooked = [];
+  const alertHook = { send: async (url, text, event) => { hooked.push({ url, text, event }); return { kind: "discord" }; } };
+  const { base, server, accounts } = await boot({ now: () => t, endpointMonitor, alertHook });
+  try {
+    const a = await signInAs(base, customer());
+    assert.equal((await a.call("POST", "/api/monitors/alert-hook/test", {})).status, 404);
+    assert.equal((await a.call("PUT", "/api/monitors/alert-hook", { url: "http://discord.com/api/webhooks/1/secret" })).status, 400);
+    const set = await a.call("PUT", "/api/monitors/alert-hook", { url: "https://discord.com/api/webhooks/1/secret" });
+    assert.deepEqual(set.body.hook, { kind: "discord", host: "discord.com" });
+    assert.doesNotMatch(JSON.stringify((await a.call("GET", "/api/monitors")).body), /secret/);
+    assert.equal((await a.call("POST", "/api/monitors/alert-hook/test", {})).status, 200);
+    assert.equal(hooked.at(-1).event.type, "test");
+    await a.call("POST", "/api/monitors", { url: "https://shop.example/paid" });
+    up = false;
+    t += 61 * 60_000; await accounts.checkMonitors();
+    t += 61 * 60_000; await accounts.checkMonitors();
+    assert.deepEqual({ ...hooked.at(-1).event, at: 0 }, { type: "down", url: "https://shop.example/paid", method: "GET", note: "Answers HTTP 502 instead of 402.", status: 502, at: 0 });
+    assert.match(hooked.at(-1).text, /stopped working for paying agents/);
+    assert.equal(hooked.at(-1).url, "https://discord.com/api/webhooks/1/secret");
+    up = true; t += 61 * 60_000; await accounts.checkMonitors();
+    assert.equal(hooked.at(-1).event.type, "up");
+    assert.equal((await a.call("PUT", "/api/monitors/alert-hook", { url: "" })).body.hook, null);
+  } finally { server.close(); }
 });
 
 test("endpoint monitor in the account: free watches 1, an alert after two failed checks, and one when it's back", async () => {
