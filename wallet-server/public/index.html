@@ -274,6 +274,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .mw-phone { display: flex; gap: 14px; align-items: center; }
 .mw-phone img { flex: none; background: #fff; border-radius: 10px; padding: 4px; }
 .mw-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mw-links img { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
 .mw-links a { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; color: var(--soft); text-decoration: none; font-size: 13px; }
 .mw-links a:hover, .mw-links a:focus-visible { border-color: var(--mint); color: var(--mint); }
 @media (max-width: 420px) { .mw-phone { flex-direction: column; align-items: flex-start; } }
@@ -931,14 +932,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const safeIcon = (i) => (typeof i === "string" && /^data:image\/(svg\+xml|png|webp|jpeg|gif)[;,]/.test(i) ? i : null);
   function renderWallets() {
     const list = allWallets();
-    const sol = solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1">Connect Phantom (Solana)</button>` : "";
+    const sol = solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1"><img src="/icons/phantom.svg" alt="">Connect Phantom (Solana)</button>` : "";
     // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
     // where it is built in. (More apps under "Other wallets".)
     const apps = isPhone && !list.length && !solProvider()
-      ? `<a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in the MetaMask app</a><a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}">Open in the Phantom app</a>`
+      ? `<a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}"><img src="/icons/metamask.svg" alt="">Open in the MetaMask app</a><a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}"><img src="/icons/phantom.svg" alt="">Open in the Phantom app</a>`
       : "";
     $("#walletList").innerHTML = sol + apps + (list.length
-      ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
+      ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : /phantom/i.test(w.info.name) ? `<img src="/icons/phantom.svg" alt="">` : /metamask/i.test(w.info.name) ? `<img src="/icons/metamask.svg" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
       : apps ? `<p class="note" style="margin:0">Your wallet app has its own browser: these buttons open this page there, so you can sign in. Another app? See "Other wallets".</p>`
       : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`);
   }
@@ -959,7 +960,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     p.hidden = !open;
     $("#moreWallets").setAttribute("aria-expanded", String(open));
     if (open) {
-      $("#mwApps").innerHTML = walletAppLinks().map(([n, h]) => `<a href="${esc(h)}" rel="noopener noreferrer">${esc(n)}</a>`).join("");
+      const logo = { MetaMask: "metamask", Phantom: "phantom" };
+      $("#mwApps").innerHTML = walletAppLinks().map(([n, h]) => `<a href="${esc(h)}" rel="noopener noreferrer">${logo[n] ? `<img src="/icons/${logo[n]}.svg" alt="">` : ""}${esc(n)}</a>`).join("");
       $("#mwQr").hidden = isPhone; // on a phone the app links are the way; the QR is for computers
     }
   });
