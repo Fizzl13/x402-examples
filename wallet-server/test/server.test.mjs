@@ -1347,3 +1347,24 @@ test("weekly summary on Telegram: Monday from 9:00 Amsterdam time, once a week; 
     assert.equal(sent().length, 3);
   } finally { server.close(); }
 });
+
+test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {
+  const { newAgentKey, addressOf, keccak256 } = await import("../public/agentkey.js");
+  const { privateKeyToAddress } = await import("viem/accounts");
+  const { keccak256: viemKeccak, toHex } = await import("viem");
+  assert.equal(addressOf("0x" + "1".padStart(64, "0")), "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf");
+  for (let i = 0; i < 12; i++) {
+    const k = newAgentKey();
+    assert.match(k.privateKey, /^0x[0-9a-f]{64}$/);
+    assert.equal(k.address, privateKeyToAddress(k.privateKey));
+  }
+  for (const n of [0, 135, 136, 137, 500]) { const b = new Uint8Array(n).map((_, i) => i * 7); assert.equal(toHex(keccak256(b)), viemKeccak(b)); }
+  assert.throws(() => addressOf("0x0"), /not a valid/);
+  const { base, server } = await boot();
+  try {
+    const r = await fetch(`${base}/agentkey.js`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-type"), /javascript/);
+    assert.match(await r.text(), /export function newAgentKey/);
+  } finally { server.close(); }
+});

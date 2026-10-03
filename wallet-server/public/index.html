@@ -279,6 +279,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .mw-links a:hover, .mw-links a:focus-visible { border-color: var(--mint); color: var(--mint); }
 @media (max-width: 420px) { .mw-phone { flex-direction: column; align-items: flex-start; } }
 .fund { display: grid; gap: 8px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(97,245,195,.04); }
+.madewallet { display: grid; gap: 8px; }
+.madewallet code { overflow-wrap: anywhere; }
+.newkey .fund code, .newkey .madewallet code { display: inline; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.warnline { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,190,90,.45); background: rgba(255,190,90,.08); color: var(--soft); font-size: 13px; }
 .setup { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
 .newkey .setup-steps code { display: inline; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
 .setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
@@ -1517,10 +1521,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (from.toLowerCase() === to.toLowerCase()) return say("That's the agent's own wallet. Switch to your main wallet to send from.", "bad");
       await onBase(eth);
       await sendAndWait(eth, { from, to: USDC_BASE, data: "0xa9059cbb" + addrWord(to) + word(BigInt(amount) * 1_000_000n), value: "0x0" }, say, `sending ${amount} USDC`);
-      say(`Sent ${amount} USDC. Checking the balance…`, "good");
-      setTimeout(runSetup, 1500);
+      if ($("#setupOut").contains($("#fundMsg"))) { say(`Sent ${amount} USDC. Checking the balance…`, "good"); setTimeout(runSetup, 1500); }
+      else say(`Sent ${amount} USDC to the agent's wallet.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
+  $("#newKey").addEventListener("click", async (e) => { const fb = e.target.closest("[data-fund]"); if (fb) { fb.disabled = true; try { await fundAgent(Number(fb.dataset.fund)); } finally { fb.disabled = false; } } });
   $("#setupRun").addEventListener("click", runSetup);
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
@@ -1775,19 +1780,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#agentName").value = "";
       $("#newKey").innerHTML = `<div class="card newkey"><span class="tag">KEY FOR ${esc(agent.name)} · SHOWN ONCE</span><code id="keyText">${esc(key)}</code><div class="addform"><button class="button small" id="copyKey" type="button">Copy</button><button class="button ghost small" id="hideKey" type="button">I've stored it</button></div><span class="note">Put it in the agent's environment as WALLET_SERVER_KEY. It is not stored here, only its hash: lost means make a new agent.</span>${setupHtml(key)}</div>`;
       $("#copyKey").onclick = () => navigator.clipboard?.writeText(key).then(() => { $("#copyKey").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#keyText")); });
-      $("#hideKey").onclick = () => { $("#newKey").innerHTML = ""; };
-      wireSetup(key);
+      $("#hideKey").onclick = () => { if (madeKey && !confirm("Did you copy the config with your agent's wallet key into your app? It can't be shown again.")) return; madeKey = null; $("#newKey").innerHTML = ""; };
+      wireSetup(key, agent);
       refresh();
     } catch (err) { alertInline(err.message); }
   });
   // Ready-to-paste setup for the new key: the wallet server's address and the key filled in;
   // only the agent wallet's own private key is left for the user (this page never sees it).
   const SETUP_CLIENTS = [["desktop", "Claude Desktop"], ["code", "Claude Code"], ["cursor", "Cursor"], ["env", "Other"]];
-  function setupText(client, key) {
+  // agentKey: a wallet made for this agent in this browser (agentkey.js); otherwise a placeholder to replace.
+  function setupText(client, key, agentKey = null) {
     const url = /^https:\/\//.test(location.origin) ? location.origin : "https://wallet.fizzl.eu";
-    const env = { AGENT_KEY: "0x…your agent wallet's private key…", WALLET_SERVER_URL: url, WALLET_SERVER_KEY: key };
+    const pk = agentKey?.privateKey ?? "0x…your agent wallet's private key…";
+    const env = { AGENT_KEY: pk, WALLET_SERVER_URL: url, WALLET_SERVER_KEY: key };
     const json = JSON.stringify({ mcpServers: { wallet: { command: "npx", args: ["-y", "presign-guard-wallet-mcp"], env } } }, null, 2);
-    if (client === "code") return `claude mcp add wallet \\\n  -e AGENT_KEY=0x…your-agent-wallet-private-key… \\\n  -e WALLET_SERVER_URL=${url} \\\n  -e WALLET_SERVER_KEY=${key} \\\n  -- npx -y presign-guard-wallet-mcp`;
+    if (client === "code") return `claude mcp add wallet \\\n  -e AGENT_KEY=${agentKey?.privateKey ?? "0x…your-agent-wallet-private-key…"} \\\n  -e WALLET_SERVER_URL=${url} \\\n  -e WALLET_SERVER_KEY=${key} \\\n  -- npx -y presign-guard-wallet-mcp`;
     if (client === "env") return Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n# then run: npx -y presign-guard-wallet-mcp (an MCP server over stdio)";
     return json;
   }
@@ -1800,24 +1807,49 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   function setupHtml(key) {
     if (DEMO) return "";
     return `<div class="setup"><span class="tag">SET UP YOUR AGENT</span>
-      <ol class="note setup-steps"><li>Make a <b>separate wallet</b> for this agent (a new account in MetaMask) with only what it may spend: a few dollars of USDC on Base. Never your main wallet.</li><li>Pick your app, copy, and replace <code>0x…</code> with that wallet's private key. It stays on your computer; this page never sees it.</li><li>Run <b>Test my setup</b> and paste the agent wallet's address (public): you can send it USDC from there in one click.</li></ol>
+      <div class="mkwallet" id="mkWallet">
+        <p class="note" style="margin:0"><b style="color:var(--text)">1. Your agent needs its own wallet</b>, with only what it may spend (never your main wallet).</p>
+        <div class="btns" style="margin:0"><button class="button primary small" type="button" id="mkAgentWallet">Make a wallet for this agent</button><button class="link" type="button" id="useOwnWallet">I'll use a wallet I made myself</button></div>
+        <p class="note" style="margin:0">Made here, in your browser: the key goes straight into the config below. This page doesn't keep it and our server never sees it.</p>
+      </div>
+      <div id="agentWalletOut"></div>
+      <ol class="note setup-steps" id="ownSteps" hidden><li>Make a <b>separate wallet</b> for this agent (a new account in MetaMask) with only what it may spend: a few dollars of USDC on Base.</li><li>Pick your app, copy, and replace <code>0x…</code> with that wallet's private key. It stays on your computer; this page never sees it.</li><li>Run <b>Test my setup</b> and paste the agent wallet's address (public): you can send it USDC from there in one click.</li></ol>
+      <p class="note" style="margin:0"><b style="color:var(--text)">2. Add it to your app:</b></p>
       <div class="setup-tabs" role="tablist">${SETUP_CLIENTS.map(([id, label], i) => `<button type="button" role="tab" class="${i ? "" : "on"}" data-setup="${id}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
       <p class="note" id="setupWhere" style="margin:0">${esc(SETUP_WHERE.desktop)}</p>
       <pre class="setup-code" id="setupCode">${esc(setupText("desktop", key))}</pre>
       <div class="addform"><button class="button small" id="copySetup" type="button">Copy</button></div>
-      <p class="note" style="margin:0">Then ask your agent: <i>"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"</i>. Or run <b>Test my setup</b> on its card first.</p></div>`;
+      <p class="note" style="margin:0"><b style="color:var(--text)">3.</b> Then ask your agent: <i>"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"</i>. Or run <b>Test my setup</b> on its card first.</p></div>`;
   }
-  function wireSetup(key) {
+  let madeKey = null; // the wallet made for the newest agent (only in this page, until the card is closed)
+  function wireSetup(key, agent) {
+    madeKey = null;
     if (DEMO || !$("#setupCode")) return;
     let client = "desktop";
+    const show = () => { $("#setupCode").textContent = setupText(client, key, madeKey); $("#copySetup").textContent = "Copy"; };
     for (const b of document.querySelectorAll("[data-setup]")) b.onclick = () => {
       client = b.dataset.setup;
       for (const o of document.querySelectorAll("[data-setup]")) { o.classList.toggle("on", o === b); o.setAttribute("aria-selected", String(o === b)); }
-      $("#setupCode").textContent = setupText(client, key);
       $("#setupWhere").textContent = SETUP_WHERE[client];
-      $("#copySetup").textContent = "Copy";
+      show();
     };
-    $("#copySetup").onclick = () => navigator.clipboard?.writeText(setupText(client, key)).then(() => { $("#copySetup").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#setupCode")); });
+    $("#copySetup").onclick = () => navigator.clipboard?.writeText(setupText(client, key, madeKey)).then(() => { $("#copySetup").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#setupCode")); });
+    $("#useOwnWallet").onclick = () => { $("#mkWallet").hidden = true; $("#ownSteps").hidden = false; };
+    $("#mkAgentWallet").onclick = async () => {
+      const b = $("#mkAgentWallet"); b.disabled = true; b.textContent = "Making…";
+      try {
+        const { newAgentKey } = await import("/agentkey.js");
+        madeKey = newAgentKey();
+        fundTo = madeKey.address; setupAgentId = agent.id;
+        api("PUT", `/api/agents/${encodeURIComponent(agent.id)}/address`, { address: madeKey.address }).catch(() => {}); // public address only: for the balance and Test my setup
+        $("#mkWallet").hidden = true;
+        $("#agentWalletOut").innerHTML = `<div class="madewallet"><p class="note" style="margin:0"><b style="color:var(--text)">1. ${esc(agent.name)}'s wallet:</b> <code>${esc(madeKey.address)}</code> <button class="link" type="button" data-copy="${esc(madeKey.address)}">copy address</button></p>
+          <p class="warnline">Its private key is now in the config below, and <b>only there</b>: copy it into your app now, and keep a copy somewhere safe (a password manager). Close this card without copying and the key, and any money in that wallet, is gone. <button class="link" type="button" id="copyPk">Copy the private key</button></p>
+          ${fundHtml({ name: agent.name, address: madeKey.address }, null)}</div>`;
+        $("#copyPk").onclick = () => navigator.clipboard?.writeText(madeKey.privateKey).then(() => { $("#copyPk").textContent = "Copied"; });
+        show();
+      } catch (err) { b.disabled = false; b.textContent = "Make a wallet for this agent"; alert(err.message); }
+    };
   }
   function alertInline(msg) { $("#newKey").innerHTML = `<p class="err">${esc(msg)}</p>`; }
 
