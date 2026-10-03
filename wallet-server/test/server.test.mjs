@@ -451,6 +451,40 @@ test("free plan: one agent; a second is refused, and paused if it already exists
   } finally { server.close(); }
 });
 
+test("Pro 20: $9 per 30 days for 20 watched endpoints; a pasted $9 hash counts as Pro 20; Pro alone stays at 10", async () => {
+  const c = chain();
+  const endpointMonitor = { check: async () => ({ state: "ok", status: 402, ms: 10, note: "ok" }) };
+  const { base, server, accounts } = await boot({ rpc: c.rpc, endpointMonitor });
+  try {
+    const alice = customer(), bob = customer();
+    const a = await signInAs(base, alice), b = await signInAs(base, bob);
+    // $5 asked as Pro 20: refused, nothing claimed.
+    const short = await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5), tier: "pro20" });
+    assert.equal(short.status, 400);
+    assert.match(short.body.message, /no payment of 9 USDC/);
+    const me = (await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 9), tier: "pro20" })).body;
+    assert.equal(me.plan, "pro");
+    assert.equal(me.tier, "pro20");
+    assert.equal(me.limits.maxMonitors, 20);
+    assert.equal(me.billing.price20Usdc, 9);
+    assert.equal(me.payments.at(-1).tier, "pro20");
+    for (let i = 0; i < 20; i++) assert.equal((await a.call("POST", "/api/monitors", { url: `https://shop${i}.example/paid` })).status, 200);
+    assert.equal((await a.call("POST", "/api/monitors", { url: "https://shop99.example/paid" })).status, 403);
+    // Pasted without a tier: $9 is a whole number of Pro 20 months, not of Pro months.
+    assert.equal((await b.call("POST", "/api/billing/claim", { txHash: c.pay(bob.address, 9) })).body.tier, "pro20");
+    // Plain Pro: 10.
+    const carol = customer(), cc = await signInAs(base, carol);
+    const pro = (await cc.call("POST", "/api/billing/claim", { txHash: c.pay(carol.address, 5) })).body;
+    assert.equal(pro.tier, null);
+    assert.equal(pro.limits.maxMonitors, 10);
+    for (let i = 0; i < 10; i++) await cc.call("POST", "/api/monitors", { url: `https://c${i}.example/paid` });
+    assert.match((await cc.call("POST", "/api/monitors", { url: "https://c99.example/paid" })).body.message, /Pro 20 watches 20/);
+    // Withdrawal within 14 days: pro rata at $9 per 30 days.
+    assert.ok(me.withdrawal.refundUsdc <= 9 && me.withdrawal.refundUsdc > 8.9);
+    void accounts;
+  } finally { server.close(); }
+});
+
 test("Pro: also paid in USDC on Ethereum, Arbitrum, Optimism or Polygon, each checked against that network's USDC", async () => {
   const c = chain();
   const { base, server, accounts } = await boot({ rpc: c.rpc });

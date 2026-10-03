@@ -837,7 +837,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
           proUntil: Date.now() + 23 * 86_400_000, auto: { contract: "0x0000000000000000000000000000000000000000", on: true, nextCharge: Date.now() + 23 * 86_400_000, paidThrough: Date.now() + 23 * 86_400_000, monthsApproved: 11, balanceUsdc: 42 },
           payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], withdrawal: { done: false, deadline: Date.now() + 7 * 86_400_000, refundUsdc: 3.83 }, telegram: { linked: true, username: "you" }, follow: D.follow,
-          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
+          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, price20Usdc: 9, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
             chains: [[8453, "Base", "https://basescan.org"], [42161, "Arbitrum", "https://arbiscan.io"], [10, "Optimism", "https://optimistic.etherscan.io"], [137, "Polygon", "https://polygonscan.com"], [1, "Ethereum", "https://etherscan.io"]].map(([chainId, name, explorer]) => ({ chainId, name, explorer, nativeSymbol: chainId === 137 ? "POL" : "ETH" })) } };
       }
       if (method === "PUT" && path === "/api/follow") { D.follow = body.categories; return { follow: D.follow }; }
@@ -1043,33 +1043,33 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     return list.find((c) => c.chainId === id) ?? list[0] ?? BASE_NET;
   }
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
-  async function claim(txHash, say, chainId) {
+  async function claim(txHash, say, chainId, tier) {
     const net = me?.chain === "solana" ? "Solana" : payNet().name;
     for (let i = 0; i < 20; i++) {
-      try { me = await post("/api/billing/claim", { txHash, ...(chainId ? { chainId } : {}) }); renderAccount(); return true; }
+      try { me = await post("/api/billing/claim", { txHash, ...(chainId ? { chainId } : {}), ...(tier ? { tier } : {}) }); renderAccount(); return true; }
       catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say(`Waiting for ${net} to confirm the payment…`); await sleep(3000); }
     }
     throw new Error(`${net} hasn't confirmed it yet. Paste the transaction ${net === "Solana" ? "signature" : "hash"} below in a minute.`);
   }
   // Pro paid on Solana: the server builds the USDC transfer, Phantom signs and sends it, the server checks it on-chain.
-  async function paySolana(months, say) {
+  async function paySolana(months, say, tier) {
     const sol = solProvider();
     if (!sol) return say(isPhone ? "Open this page in the Phantom app to pay." : "Open this page in a browser with Phantom to pay.", "bad");
     try {
       const { publicKey } = await sol.connect();
       if (publicKey.toString() !== me.address) return say(`Switch Phantom to ${me.address.slice(0, 4)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
-      const { message, amountUsdc } = await post("/api/billing/solana", { months });
+      const { message, amountUsdc } = await post("/api/billing/solana", { months, ...(tier ? { tier } : {}) });
       say(`Confirm ${amountUsdc} USDC in Phantom…`);
       const { signature } = await sol.request({ method: "signAndSendTransaction", params: { message } });
       say("Sent. Waiting for Solana to confirm…");
-      await claim(signature, say);
-      say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good");
+      await claim(signature, say, undefined, tier);
+      say(`Thank you! ${me.tier === "pro20" ? `Pro 20 until ${day(me.pro20Until)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
-  async function pay(months) {
+  async function pay(months, tier) {
     const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
     if (DEMO) return say("This is the demo: nothing is paid. On your own account this opens your wallet to send the USDC.", "good");
-    if (me.chain === "solana") return paySolana(months, say);
+    if (me.chain === "solana") return paySolana(months, say, tier);
     const eth = currentWallet();
     if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Phantom, …) to pay.", "bad");
     try {
@@ -1077,14 +1077,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (from.toLowerCase() !== me.id) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
       const net = payNet();
       await onChain(eth, net);
-      const units = BigInt(Math.round(me.billing.priceUsdc * 1e6)) * BigInt(months);
+      const units = BigInt(Math.round((tier === "pro20" ? me.billing.price20Usdc ?? 9 : me.billing.priceUsdc) * 1e6)) * BigInt(months);
       const data = "0xa9059cbb" + me.billing.payTo.slice(2).toLowerCase().padStart(64, "0") + units.toString(16).padStart(64, "0");
       say(`Confirm the payment on ${net.name} in ${walletName}…`);
       const txHash = await eth.request({ method: "eth_sendTransaction", params: [{ from, to: net.usdc ?? me.billing.tokenAddress, data, value: "0x0" }] });
       say(`Sent. Waiting for ${net.name} to confirm…`);
       for (let i = 0; i < 40; i++) { if (await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] }).catch(() => null)) break; await sleep(2000); }
-      await claim(txHash, say, net.chainId);
-      say(`Thank you! Pro until ${day(me.proUntil ?? me.paidUntil)}.`, "good");
+      await claim(txHash, say, net.chainId, tier);
+      say(`Thank you! ${me.tier === "pro20" ? `Pro 20 until ${day(me.pro20Until)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
   // Connecting Telegram: the one-time link is shown as a real link to tap (wallet apps' browsers block
@@ -1171,21 +1171,24 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       return;
     }
     const pro = me.plan === "pro", until = me.proUntil ?? me.paidUntil, inGrace = pro && until < (state?.now ?? Date.now());
-    const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(until))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(until))}</b>`) : "1 agent, receipts kept 7 days.";
+    const p20 = me.tier === "pro20";
+    const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(until))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(until))}</b>${p20 ? `, with 20 watched endpoints until <b style="color:#fff">${esc(day(me.pro20Until))}</b>` : ""}`) : "1 agent, receipts kept 7 days.";
     if (!me.billing) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Paying for Pro from a Solana wallet isn't open on this server yet.</p>`;
     } else {
-    const sol = me.chain === "solana", price = me.billing.priceUsdc;
+    const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9;
     const nets = me.billing.chains ?? [];
     const txLink = (p) => (p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
     let picked = 8453; try { picked = Number(localStorage.getItem("aw_paychain")) || 8453; } catch {}
     const netPick = sol || nets.length < 2 ? "" : `<div class="buybar" style="margin:0"><label class="note" for="payChain">Pay on</label><select id="payChain">${nets.map((c) => `<option value="${c.chainId}"${c.chainId === picked ? " selected" : ""}>${esc(c.name)}${c.chainId === 8453 ? " · lowest fees" : c.chainId === 1 ? " · higher network fees" : ""}</option>`).join("")}</select></div>`;
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
-      <div class="big">${pro ? "Pro" : "Free"}</div>
+      <div class="big">${pro ? (p20 ? "Pro 20" : "Pro") : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
       <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
       ${netPick}
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
+      <p class="note" style="margin:0"><b style="color:#fff">Pro 20</b>: the same, with up to <b style="color:#fff">20</b> endpoints watched, for sellers with many routes. $${esc(price20)} per 30 days, paid per month or year (automatic payment is for Pro).</p>
+      <div class="btns"><button class="button small" type="button" data-pay="1" data-tier="pro20">Pro 20 · 1 month · $${esc(price20)}</button><button class="button ghost small" type="button" data-pay="12" data-tier="pro20">12 months · $${esc(price20 * 12)}</button></div>
       <div class="msg" id="payMsg" role="status"></div>
       ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
       <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
@@ -1235,7 +1238,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   function renderMonitors(r) {
     $("#monitorCard").hidden = false;
     const free = me?.plan === "free";
-    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10` : ""}.${r.telegram || r.hook ? "" : ` <b style="color:var(--amber)">Connect Telegram or Discord/Slack (above) to get the alerts.</b>`}`;
+    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10, <b>Pro 20</b> up to 20` : r.max === 10 ? ` · <b>Pro 20</b> watches up to 20` : ""}.${r.telegram || r.hook ? "" : ` <b style="color:var(--amber)">Connect Telegram or Discord/Slack (above) to get the alerts.</b>`}`;
     $("#monList").innerHTML = r.monitors.length ? `<div class="monlist">${r.monitors.map((m) => {
       const st = m.paused ? "paused" : m.last?.state === "ok" ? "ok" : "down";
       const label = { ok: "Payable", down: "Not payable", paused: "Paused (over your plan)" }[st];
@@ -1343,7 +1346,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const au = e.target.closest("[data-auto]");
     if (au) { au.disabled = true; try { await autoAction(au.dataset.auto); } finally { au.disabled = false; } return; }
     const p = e.target.closest("[data-pay]");
-    if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay)); } finally { p.disabled = false; } return; }
+    if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay), p.dataset.tier); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
     if (e.target.closest("[data-goadd]")) { goAdd(); return; }
     const cp = e.target.closest("button[data-copy]");

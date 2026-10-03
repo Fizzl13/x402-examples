@@ -76,7 +76,7 @@ const accounts = createAccounts({
   telegram,
   adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null,
   publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
-  billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,
+  billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), price20Usdc: Number(env.PRO20_PRICE_USDC || 9), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,
     chains: Object.fromEntries([[1, env.ETHEREUM_RPC_URL], [42161, env.ARBITRUM_RPC_URL], [10, env.OPTIMISM_RPC_URL], [137, env.POLYGON_RPC_URL]].filter(([, u]) => u).map(([id, rpcUrl]) => [id, { rpcUrl }])),
     solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null },
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])] },
