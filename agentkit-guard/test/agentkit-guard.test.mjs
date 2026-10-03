@@ -192,3 +192,12 @@ test("works on AgentKit's real ViemWalletProvider (private fields, local key)", 
   assert.equal(p.calls.length, 2);
   assert.equal(p.calls[0].chainId, 8453);
 });
+
+test("the offline demo runs and shows green, red, over the limit and paused", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const out = execFileSync(process.execPath, [new URL("../example/demo.mjs", import.meta.url).pathname], { encoding: "utf8" });
+  assert.match(out, /✓ signed: 0x/);
+  assert.match(out, /not signed \(red\): not signed: red \(known_drainer\)/);
+  assert.match(out, /not signed \(over_limit\)/);
+  assert.match(out, /not signed \(paused\)/);
+});

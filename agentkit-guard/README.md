@@ -13,6 +13,47 @@ The keys stay where they are: in your CDP wallet, Privy wallet or viem key. This
 
 Try the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 
+## See it in 30 seconds (offline, free)
+
+```sh
+git clone https://github.com/Fizzl13/x402-examples && cd x402-examples/agentkit-guard
+npm install && npm run demo
+```
+
+No keys, no network, no money: the wallet and presign-guard are stand-ins. It shows exactly what your agent gets back:
+
+```
+▶ Pay 2 USDC to an API (within the 5 USDC limit)
+   ✓ signed: 0xabab…
+
+▶ Approve unlimited USDC to a known drainer
+   ✕ not signed (red): not signed: red (known_drainer)
+
+▶ Pay 8 USDC (over the 5 USDC limit: asks you)
+   (you'd get a Telegram message: "8 USDC is over the limit of 5 per transaction". Here: denied.)
+   ✕ not signed (over_limit): not signed: 8 USDC is over the limit of 5 per transaction
+
+▶ The agent checks its own budget (get_spending_limits):
+   {"limits":[{"token":"USDC","perTx":"5","perDay":"20","used":"2","left":"18"}],"paused":false}
+
+▶ Pay 1 USDC while paused
+   ✕ not signed (paused): wallet is paused; nothing was signed
+```
+
+The code is in [example/demo.mjs](https://github.com/Fizzl13/x402-examples/blob/main/agentkit-guard/example/demo.mjs): swap the stand-ins for your real provider and `pay` (below) and that's your agent.
+
+## What your agent sees
+
+| Situation | The wallet provider | The agent gets |
+|---|---|---|
+| Green, within limits | signs as usual | the transaction hash or signature |
+| Red (drainer, sanctioned, look-alike token, unlimited approval to an unknown spender) | refuses | `not signed: red (<reason codes>)` |
+| Over a limit | asks you (Telegram or dashboard); no answer is no | the hash if you approve, else `not signed: … over the limit …` |
+| Paused (by you or by the agent) | refuses | `wallet is paused; nothing was signed` |
+| presign-guard or your server unreachable | refuses | `not signed (check_failed): …` |
+
+AgentKit returns these messages to the model like any other tool result, so the agent can explain to the user why it didn't pay.
+
 ## Install
 
 ```sh
