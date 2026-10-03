@@ -302,6 +302,17 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .paste { display: flex; gap: 8px; flex-wrap: wrap; }
 .paste input { flex: 1 1 200px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); font: 12px ui-monospace, Menlo, monospace; }
 .login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
+.login { gap: 22px; align-content: center; padding-block: 32px; }
+/* Why keys stay with you: shown under the sign-in, and in "How it works" */
+.yourkeys { width: min(760px, 100%); display: grid; gap: 14px; }
+.yourkeys h3 { margin: 0; font: 700 clamp(22px, 3vw, 30px)/1.1 var(--display); letter-spacing: -1px; }
+.yourkeys h3 span { color: var(--mint); }
+.yourkeys .lead { margin: 0; color: var(--soft); font-size: 15px; }
+.yourkeys .points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.yourkeys .points div { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: rgba(2,10,10,.45); display: grid; gap: 6px; align-content: start; }
+.yourkeys .points b { color: var(--text); font-size: 14px; }
+.yourkeys .points span { color: var(--muted); font-size: 13px; }
+@media (max-width: 720px) { .yourkeys .points { grid-template-columns: 1fr; } }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
 .err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
 .demo-banner { border-bottom: 1px solid var(--line); background: rgba(97,245,195,.08); color: var(--mint); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding-block: 10px; }
@@ -348,13 +359,22 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="err" id="walletErr"></div>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
-      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no e-mail, no tracking.</p>
+      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no e-mail, no tracking cookies.</p>
       <form id="loginForm" hidden style="display:grid;gap:12px">
         <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
         <input id="password" type="password" autocomplete="current-password" required>
         <button class="button" type="submit">Log in</button>
         <div class="err" id="loginErr"></div>
       </form>
+    </div>
+    <div class="yourkeys">
+      <h3>Your agent's money stays <span>in your agent's wallet.</span></h3>
+      <p class="lead">Custodial agent wallets hold your money for you. Fizzl never does: your agent signs with its own key, and this server only counts, asks and records. If Fizzl disappeared tomorrow, the money would still be in your agent's wallet.</p>
+      <div class="points">
+        <div><b>🛡️ Checked before every signature</b><span>presign-guard stops known drainers, sanctioned addresses and unlimited approvals. A red verdict is never signed.</span></div>
+        <div><b>📱 You decide above your limit</b><span>Approve or deny on your phone (Telegram) or here. No answer means no payment.</span></div>
+        <div><b>🧾 Receipts that show what was bought</b><span>Every purchase: the safety check, your rule, the payment, and what your agent got back.</span></div>
+      </div>
     </div>
   </section>
 
@@ -462,6 +482,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <p class="note" style="margin:12px 0 0" id="agentPlanNote"></p>
       <details class="howto" id="howto">
         <summary>How it works · connect an agent · Fizzl services</summary>
+        <div class="yourkeys">
+          <h3>Your agent's money stays <span>in your agent's wallet.</span></h3>
+          <p class="lead">Custodial agent wallets hold your money for you. Fizzl never does: your agent signs with its own key, and this server only counts, asks and records. If Fizzl disappeared tomorrow, the money would still be in your agent's wallet.</p>
+          <div class="points">
+            <div><b>🛡️ Checked before every signature</b><span>presign-guard stops known drainers, sanctioned addresses and unlimited approvals. A red verdict is never signed.</span></div>
+            <div><b>📱 You decide above your limit</b><span>Approve or deny on your phone (Telegram) or here. No answer means no payment.</span></div>
+            <div><b>🧾 Receipts that show what was bought</b><span>Every purchase: the safety check, your rule, the payment, and what your agent got back.</span></div>
+          </div>
+        </div>
       <div class="card skillbox">
         <span class="tag">THE QUICKEST WAY TO CONNECT AN AGENT</span>
         <p style="margin:0">Paste this into Claude, Cursor or any agent. It reads the steps and walks you through them:</p>
