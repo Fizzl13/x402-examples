@@ -14,6 +14,7 @@ const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", impo
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
+const ICONS = fileURLToPath(new URL("../public/icons", import.meta.url)); // wallet logos (MetaMask, Phantom) for the sign-in buttons
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -253,6 +254,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.set({ "cache-control": "public, max-age=3600", "access-control-allow-origin": "*" }).type("application/javascript").send(counter);
   });
   app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
+  app.use("/icons", express.static(ICONS, { maxAge: "30d", fallthrough: false }));
   let page;
   const legal = new Map();
   app.get(["/", "/index.html", "/demo"], (req, res) => {
