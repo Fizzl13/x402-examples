@@ -196,8 +196,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   }));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
-  owner.post("/billing/solana", wrap(async (req, res) => res.json(await accounts.solanaPayment(req.account, req.body?.months))));
-  owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash, req.body?.chainId))));
+  owner.post("/billing/solana", wrap(async (req, res) => res.json(await accounts.solanaPayment(req.account, req.body?.months, req.body?.tier))));
+  owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash, req.body?.chainId, req.body?.tier))));
   owner.post("/account/delete", wrap(async (req, res) => {
     if (req.body?.confirm !== "delete") return res.status(400).json({ error: "bad_request", message: 'send { "confirm": "delete" }' });
     await accounts.deleteAccount(req.account);

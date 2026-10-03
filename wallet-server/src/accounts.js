@@ -26,6 +26,10 @@ const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
 export const PLANS = {
   free: { name: "free", maxAgents: 1, receiptDays: 7, maxMonitors: 1 },
   pro: { name: "pro", maxAgents: null, receiptDays: 90, maxMonitors: 10 },
+  // Pro with room for more watched endpoints (for sellers with many routes); the rest is Pro.
+  pro20: { name: "pro", tier: "pro20", maxAgents: null, receiptDays: 90, maxMonitors: 20 },
+  // "Unlimited" watched endpoints, with a fair-use ceiling so one account can't fill the hourly round.
+  unlimited: { name: "pro", tier: "unlimited", maxAgents: null, receiptDays: 90, maxMonitors: 250 },
   admin: { name: "owner", maxAgents: null, receiptDays: 90, maxMonitors: 50 },
 };
 const DAY = 86_400_000;
@@ -80,6 +84,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   if (!billing?.payTo || !isAddress(billing.payTo)) throw new Error("billing.payTo must be the address that receives Pro payments");
   const payTo = getAddress(billing.payTo);
   const priceUnits = BigInt(Math.round(Number(billing.priceUsdc ?? 5) * 1e6));
+  // The bigger plans: Pro with more watched endpoints, paid per month or year (not automatically).
+  const TIERS = {
+    pro20: { label: "Pro 20", units: BigInt(Math.round(Number(billing.price20Usdc ?? 9) * 1e6)) },
+    unlimited: { label: "Pro Unlimited", units: BigInt(Math.round(Number(billing.priceUnlimitedUsdc ?? 20) * 1e6)) },
+  };
+  const unitOf = (tier) => TIERS[tier]?.units ?? priceUnits;
+  const labelOf = (tier) => TIERS[tier]?.label ?? "Pro";
+  const tierActive = (a, tier) => (a?.tierUntil?.[tier] ?? 0) + GRACE_MS > now();
   const token = billing.token ? getAddress(billing.token) : USDC_BASE; // USDC on Base (another token only in tests)
   const rpcFetch = billing.fetch ?? globalThis.fetch;
   // Per network: its USDC and RPC. Base keeps billing.token / billing.rpcUrl (tests use another token there).
@@ -104,7 +116,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!a) return PLANS.free;
     if (a.admin) return PLANS.admin;
     if (withdrawn(a)) return PLANS.free;
-    return proUntil(a) + GRACE_MS > now() ? PLANS.pro : PLANS.free;
+    if (proUntil(a) + GRACE_MS <= now()) return PLANS.free;
+    return tierActive(a, "unlimited") ? PLANS.unlimited : tierActive(a, "pro20") ? PLANS.pro20 : PLANS.pro;
   }
   // The EU right of withdrawal: within 14 days of the first Pro payment, once. The refund is the
   // part of what was paid that hasn't been used yet (Pro started right away, at the customer's request).
@@ -116,7 +129,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const deadline = paid[0].at + WITHDRAW_MS;
     if (now() > deadline) return null;
     const total = paid.reduce((n, p) => n + (Number(p.amount) || 0), 0);
-    const used = ((Number(priceUnits) / 1e6) * (now() - paid[0].at)) / PERIOD_MS; // pro rata, $5 per 30 days
+    const used = ((Number(unitOf(paid[0].tier)) / 1e6) * (now() - paid[0].at)) / PERIOD_MS; // pro rata at the price of the plan first paid for
     return { done: false, deadline, refundUsdc: Math.max(0, Math.floor((total - used) * 100) / 100) };
   }
   const subscription = billing.subscription && isAddress(billing.subscription) ? getAddress(billing.subscription) : null;
@@ -225,7 +238,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       try { a = await syncAuto(a, fresh ? { maxAgeMs: 0 } : {}); } catch (err) { console.warn(`[subscription] ${err.message}`); }
       const plan = planOf(a);
       return {
-        id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
+        id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
         chain: a.admin ? null : isSol(a) ? "solana" : "ethereum",
         auto: subscription && !a.admin && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
@@ -234,8 +247,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         follow: a.follow ?? [],
         billing: a.admin ? null : isSol(a)
-          ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
-          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
+          ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
+          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
     },
 
@@ -473,7 +486,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         const a = await account(id), rec = (id === ADMIN ? await g.getAccount(ADMIN) : a) ?? { id };
         const list = rec.monitors ?? [], plan = planOf(a);
         if (list.some((m) => m.url === clean && (m.method === method || m.switchedFrom === method))) throw Object.assign(new Error("You're already watching that endpoint."), { status: 409 });
-        if (list.length >= plan.maxMonitors) throw Object.assign(new Error(plan.name === "free" ? "The free plan watches 1 endpoint. Pro watches up to 10." : `You can watch up to ${plan.maxMonitors} endpoints.`), { status: 403 });
+        if (list.length >= plan.maxMonitors) throw Object.assign(new Error(plan.name === "free" ? "The free plan watches 1 endpoint. Pro watches up to 10, Pro 20 up to 20, Pro Unlimited as many as you need." : plan.maxMonitors === 10 ? "Pro watches up to 10 endpoints. Pro 20 watches 20, Pro Unlimited as many as you need." : plan.maxMonitors === 20 ? "Pro 20 watches up to 20 endpoints. Pro Unlimited watches as many as you need." : `You can watch up to ${plan.maxMonitors} endpoints.`), { status: 403 });
         const last = await endpointMonitor.check(clean, method).catch((err) => ({ state: "down", status: 0, ms: 0, note: err.message }));
         const works = last.method && last.method !== method ? last.method : method;
         const m = { id: rand(6), url: clean, method: works, ...(works !== method ? { switchedFrom: method } : {}), addedAt: now(), last: { ...last, at: now() }, fails: last.state === "down" ? 1 : 0, alerted: false };
@@ -551,15 +564,18 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
     // ---------- billing: Pro, paid straight from the customer's wallet ----------
     // One payment at a time per account, so two claims can't overwrite each other's months.
-    claimPayment: (id, txHash, chainId) => serial(id, () => claim(id, txHash, chainId)),
+    // tier: "pro20" or "unlimited" for the bigger plans; left out, a payment that is only a whole number of
+    // Pro 20 months counts as Pro 20 (Unlimited has to be asked for: $20 is also 4 months of Pro).
+    claimPayment: (id, txHash, chainId, tier) => serial(id, () => claim(id, txHash, chainId, tier)),
     // A Solana account paying for Pro: the transaction for its wallet to sign and send (USDC to the owner).
-    async solanaPayment(id, months = 1) {
+    async solanaPayment(id, months = 1, tier = null) {
       const a = await account(id);
       if (!a || !isSol(a)) throw Object.assign(new Error("only for accounts signed in with a Solana wallet"), { status: 400 });
       if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
       const m = Math.min(12, Math.max(1, Math.floor(Number(months) || 1)));
       const { value } = await solRpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
-      return { message: usdcTransferMessage({ from: a.address, to: solPayTo, amount: priceUnits * BigInt(m), blockhash: value.blockhash }), amountUsdc: (Number(priceUnits) * m) / 1e6, months: m, payTo: solPayTo };
+      const unit = unitOf(tier);
+      return { message: usdcTransferMessage({ from: a.address, to: solPayTo, amount: unit * BigInt(m), blockhash: value.blockhash }), amountUsdc: (Number(unit) * m) / 1e6, months: m, payTo: solPayTo };
     },
 
     // Hourly: remind before Pro ends, and say so when it has ended. Each message once per period.
@@ -662,7 +678,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? ref : existing.ref, input: { chain: "solana" } });
     return id;
   }
-  async function claimSolana(a, signature) {
+  // Which plan a payment buys: the one asked for, or (asked for nothing, e.g. a pasted hash) Pro 20 when the
+  // amount is a whole number of Pro 20 months and not of Pro months.
+  const tierFor = (tier, paid) => (["pro", "pro20", "unlimited"].includes(tier) ? tier : paid >= TIERS.pro20.units && paid % TIERS.pro20.units === 0n && paid % priceUnits !== 0n ? "pro20" : "pro");
+  async function claimSolana(a, signature, tier) {
     if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
     if (!isSolanaSignature(signature)) throw Object.assign(new Error("that is not a Solana transaction signature"), { status: 400 });
     if ((a.payments ?? []).some((p) => p.tx === signature)) return api.me(a.id);
@@ -670,10 +689,11 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!tx) throw Object.assign(new Error("not confirmed yet: try again in a few seconds"), { status: 409 });
     if (tx.meta?.err) throw Object.assign(new Error("that transaction failed on-chain"), { status: 400 });
     const paid = usdcPaid(tx, { payer: a.address, payee: solPayTo }) ?? 0n;
-    if (paid < priceUnits) throw Object.assign(new Error(`no payment of ${Number(priceUnits) / 1e6} USDC from ${short(a.address)} to ${short(solPayTo)} in that transaction`), { status: 400 });
+    const t = tierFor(tier, paid);
+    if (paid < unitOf(t)) throw Object.assign(new Error(`no payment of ${Number(unitOf(t)) / 1e6} USDC from ${short(a.address)} to ${short(solPayTo)} in that transaction`), { status: 400 });
     if ((tx.blockTime ?? 0) * 1000 < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
     if (!(await g.claimTx(`sol:${signature}`))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
-    return credit(a, signature, paid);
+    return credit(a, signature, paid, null, t);
   }
   async function solRpc(method, params) {
     const res = await rpcFetch(billing.solana?.rpcUrl ?? "https://api.mainnet-beta.solana.com", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -681,21 +701,23 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!data || data.error) throw Object.assign(new Error(`Solana RPC ${method}: ${data?.error?.message ?? `HTTP ${res.status}`}`), { status: 502 });
     return data.result;
   }
-  // Pro for what was paid (whole months, at most 12), after any time already paid for.
-  async function credit(a, tx, paid, chainId = null) {
-    const months = Math.min(12, Number(paid / priceUnits));
+  // Pro for what was paid (whole months, at most 12), after any time already paid for. Months of a bigger plan
+  // also add time on that plan (from now, or after what's left of it); the Pro time they add comes after any Pro left.
+  async function credit(a, tx, paid, chainId = null, tier = "pro") {
+    const months = Math.min(12, Number(paid / unitOf(tier)));
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
-    await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
-    usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base", months } });
-    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
+    const bigger = TIERS[tier] ? { tierUntil: { ...(a.tierUntil ?? {}), [tier]: Math.max(now(), a.tierUntil?.[tier] ?? 0) + months * PERIOD_MS } } : {};
+    await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
+    usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base", months, ...(TIERS[tier] ? { tier } : {}) } });
+    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
   }
 
-  async function claim(id, txHash, chainId = 8453) {
+  async function claim(id, txHash, chainId = 8453, tier = null) {
     if (id === ADMIN) throw Object.assign(new Error("the owner's server has no plan to pay for"), { status: 400 });
     const sa = await account(id);
-    if (isSol(sa)) return claimSolana(sa, txHash);
+    if (isSol(sa)) return claimSolana(sa, txHash, tier);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
     const cid = Number(chainId ?? 8453), net = chains[cid];
     if (!net) throw Object.assign(new Error(`Pro can be paid on ${Object.values(chains).map((c) => c.name).join(", ")}`), { status: 400 });
@@ -714,12 +736,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (log.address?.toLowerCase() !== net.usdc.toLowerCase() || log.topics?.[0] !== TRANSFER_TOPIC) continue;
       if (log.topics[1]?.toLowerCase() === from && log.topics[2]?.toLowerCase() === to) paid += BigInt(log.data);
     }
-    if (paid < priceUnits) throw Object.assign(new Error(`no payment of ${Number(priceUnits) / 1e6} USDC on ${net.name} from ${short(a.address)} to ${short(payTo)} in that transaction`), { status: 400 });
+    const t = tierFor(tier, paid);
+    if (paid < unitOf(t)) throw Object.assign(new Error(`no payment of ${Number(unitOf(t)) / 1e6} USDC on ${net.name} from ${short(a.address)} to ${short(payTo)} in that transaction`), { status: 400 });
     const block = await rpc("eth_getBlockByNumber", [receipt.blockNumber, false], cid);
     const at = Number(BigInt(block?.timestamp ?? "0x0")) * 1000;
     if (at < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
     if (!(await g.claimTx(claimKey))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
-    return credit(a, hash, paid, cid);
+    return credit(a, hash, paid, cid, t);
   }
 
   async function rpc(method, params, chainId = 8453) {
