@@ -608,6 +608,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="statsbar"><h2 style="margin:0">YOUR NUMBERS.<br><span>WEBSITE TO PRO.</span></h2>
         <div class="seg" role="group" aria-label="Period"><button type="button" data-days="7" aria-pressed="false">7 days</button><button type="button" data-days="30" aria-pressed="true">30 days</button></div></div>
       <div id="statsOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
+      <p class="note" style="margin:14px 0 0">Every Monday morning you get the last 7 days of this on Telegram. <button class="link" type="button" id="digestNow">Send me the weekly summary now</button> <span id="digestMsg" role="status"></span></p>
     </section>
 
     <section class="section" id="accountSec" data-tab="account" hidden>
@@ -1659,6 +1660,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     finally { statsBusy = false; }
   }
   $("#statsSec").addEventListener("click", (e) => { const b = e.target.closest(".seg button[data-days]"); if (!b) return; statsDays = Number(b.dataset.days); loadStats(); });
+  $("#digestNow").addEventListener("click", async (e) => {
+    const b = e.currentTarget, m = $("#digestMsg");
+    if (DEMO) { m.textContent = "This is the demo: nothing is sent."; return; }
+    b.disabled = true; m.textContent = "Sending…";
+    try { await post("/api/admin/digest", {}); m.textContent = "Sent: check Telegram."; }
+    catch (err) { m.textContent = err.message; }
+    finally { b.disabled = false; }
+  });
 
   // Purchases: what the agents bought, newest first, each opening its receipt.
   let buys = [];

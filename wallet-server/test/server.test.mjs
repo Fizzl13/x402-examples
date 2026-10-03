@@ -1307,3 +1307,43 @@ test("website counter, sign-up source and the owner's Stats tab: from website vi
     assert.equal(gh.reads.filter((r) => r.endsWith(".jsonl")).length, before);
   } finally { server.close(); }
 });
+
+test("weekly summary on Telegram: Monday from 9:00 Amsterdam time, once a week; on demand from the Stats tab", async () => {
+  const { weekOf, formatDigest } = await import("../src/digest.js");
+  // 5 Oct 2026 is a Monday; 08:30 in Amsterdam (UTC+2) is too early, 09:30 is due.
+  assert.deepEqual(weekOf(Date.parse("2026-10-05T06:30:00Z")), { monday: "2026-10-05", due: false });
+  assert.deepEqual(weekOf(Date.parse("2026-10-05T07:30:00Z")), { monday: "2026-10-05", due: true });
+  assert.deepEqual(weekOf(Date.parse("2026-10-11T21:00:00Z")), { monday: "2026-10-05", due: true }); // Sunday evening: same week
+  assert.equal(weekOf(Date.parse("2026-10-11T22:30:00Z")).monday, "2026-10-12"); // past midnight in Amsterdam
+
+  const summary = { from: "2026-09-28", to: "2026-10-04",
+    kpi: { siteViews: 120, clicksToWallet: 9, signups: 3, agentsAdded: 2, purchases: 4, spentUsd: 0.12, paidCalls: 7, serviceUsd: 0.31, pro: 1, proUsd: 5, withdrawals: 0, refundUsd: 0 },
+    prev: { siteViews: 100, signups: 1, serviceUsd: 0.2, proUsd: 0, refundUsd: 0 },
+    services: [{ name: "x402 Doctor", paid: 5, usd: 0.05, quotes: 40, payers: 2 }, { name: "Ichimoku Signal", paid: 2, usd: 0.26, quotes: 10, payers: 1 }],
+    tables: { noResults: [["weather", 3]] } };
+  const text = formatDigest({ summary, refunds: [{ refundUsdc: 4 }], dashboardUrl: "https://wallet.test" });
+  assert.match(text, /Revenue: \$5\.31 \(\+5\.11 vs 0\.2\)/);
+  assert.match(text, /Website visits: 120 \(\+20 vs 100\)/);
+  assert.match(text, /3 sign-ups \(\+2 vs 1\)/);
+  assert.match(text, /Ichimoku Signal 2 paid \/ 1 payer · x402 Doctor 5 paid/);
+  assert.match(text, /"weather" \(3\)/);
+  assert.match(text, /Refunds still to send: 1 \(\$4\.00\)/);
+  assert.match(text, /https:\/\/wallet\.test\/#\/stats/);
+
+  let t = Date.parse("2026-10-05T07:30:00Z");
+  const stats = { enabled: true, summary: async () => summary };
+  const { server, tg, accounts, owner } = await boot({ now: () => t, stats });
+  try {
+    const sent = () => tg.calls.filter((c) => c.method === "sendMessage" && c.body.chat_id === "4242" && /weekly summary/.test(c.body.text));
+    assert.equal((await accounts.weeklyDigest({ summary })).sent, true);
+    assert.equal((await accounts.weeklyDigest({ summary })).sent, false); // once a week
+    t += 3 * 86_400_000;
+    assert.equal((await accounts.weeklyDigest({ summary })).sent, false);
+    t += 5 * 86_400_000; // the next Monday
+    assert.equal((await accounts.weeklyDigest({ summary })).sent, true);
+    assert.equal(sent().length, 2);
+    // On demand (Stats tab): owner only, always sends.
+    assert.equal((await owner("POST", "/api/admin/digest", {})).status, 200);
+    assert.equal(sent().length, 3);
+  } finally { server.close(); }
+});
