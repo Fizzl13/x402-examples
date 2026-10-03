@@ -434,6 +434,19 @@ test("every account sees and changes only its own agents, approvals, receipts an
   } finally { server.close(); }
 });
 
+test("an agent's site: https only, shown on the agent, cleared with an empty value", async () => {
+  const { server, owner } = await boot();
+  try {
+    const { body: { agent } } = await owner("POST", "/api/agents", { name: "site-bot" });
+    assert.equal((await owner("PUT", `/api/agents/${agent.id}/site`, { site: "http://example.com" })).status, 400);
+    assert.equal((await owner("PUT", `/api/agents/${agent.id}/site`, { site: "javascript:alert(1)" })).status, 400);
+    assert.equal((await owner("PUT", `/api/agents/${agent.id}/site`, { site: "https://ichimoku-signal.fizzl.eu" })).body.site, "https://ichimoku-signal.fizzl.eu/");
+    assert.equal((await owner("GET", "/api/state")).body.agents.find((a) => a.id === agent.id).site, "https://ichimoku-signal.fizzl.eu/");
+    assert.equal((await owner("PUT", `/api/agents/${agent.id}/site`, { site: "" })).body.site, null);
+    assert.equal((await owner("PUT", "/api/agents/nope/site", { site: "https://a.example" })).status, 404);
+  } finally { server.close(); }
+});
+
 test("free plan: one agent; a second is refused, and paused if it already exists", async () => {
   const c = chain();
   const { base, server, agentCall } = await boot({ rpc: c.rpc });

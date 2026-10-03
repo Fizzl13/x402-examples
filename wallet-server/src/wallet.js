@@ -333,6 +333,22 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         return publicAgent(a);
       });
     },
+    // Where the agent lives (its site or app page), shown as a link on its card. Null clears it.
+    async setAgentSite(agentId, site) {
+      let clean = null;
+      if (site !== null && site !== "") {
+        let u = null;
+        try { u = new URL(String(site).trim()); } catch {}
+        if (!u || u.protocol !== "https:" || u.href.length > 200 || u.username || u.password) throw Object.assign(new Error("site must be an https:// address"), { status: 400 });
+        clean = u.href;
+      }
+      return locked(async () => {
+        const a = await store.getAgent(agentId);
+        if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
+        a.site = clean; await store.putAgent(a);
+        return publicAgent(a);
+      });
+    },
     async agents() { return (await store.listAgents()).map(publicAgent).sort((x, y) => x.createdAt - y.createdAt); },
     async agentForKey(key) { return typeof key === "string" && key.startsWith("awk_") ? store.agentByKeyHash(hashKey(key)) : null; },
 
