@@ -979,7 +979,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     b.disabled = true; b.textContent = `Check ${w.info.name}…`;
     try {
       const [address] = await eth.request({ method: "eth_requestAccounts" });
-      const { nonce, message } = await post("/api/signin/message", { address });
+      const chainId = await eth.request({ method: "eth_chainId" }).then((h) => parseInt(h, 16) || null, () => null);
+      const { nonce, message } = await post("/api/signin/message", { address, ...(chainId ? { chainId } : {}) });
       const signature = await eth.request({ method: "personal_sign", params: [hexUtf8(message), address] });
       await post("/api/signin", { nonce, signature, ref: signupRef() });
       try { localStorage.setItem("aw_wallet", w.info.rdns); } catch {}

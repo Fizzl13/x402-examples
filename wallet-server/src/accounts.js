@@ -166,14 +166,17 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // ---------- sign-in with Ethereum (EIP-4361) ----------
     // The domain in the message is the one the visitor actually opened (wallet.fizzl.eu, or the
     // onrender.com address): wallets compare it with the address bar and warn when they differ.
-    async signInMessage(address, origin, chain = "ethereum") {
+    async signInMessage(address, origin, chain = "ethereum", chainId = null) {
       if (chain === "solana") return solanaSignInMessage(address, origin);
+      // The network the wallet is on right now: some wallets (Phantom) refuse to sign a sign-in
+      // message that names another chain. It changes nothing else; the signature is checked the same.
+      const cid = Number.isSafeInteger(Number(chainId)) && Number(chainId) > 0 ? Number(chainId) : 8453;
       if (!isAddress(address ?? "", { strict: false })) throw Object.assign(new Error("address must be an 0x… address"), { status: 400 });
       const addr = getAddress(address);
       const nonce = rand(12);
       const issued = new Date(now()).toISOString(), expires = new Date(now() + NONCE_TTL_S * 1000).toISOString();
       const where = siteFor(origin);
-      const message = `${where.host} wants you to sign in with your Ethereum account:\n${addr}\n\nSign in to Fizzl Agent Wallet. This is free: it is not a transaction and moves no money.\n\nURI: ${where.origin}\nVersion: 1\nChain ID: 8453\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
+      const message = `${where.host} wants you to sign in with your Ethereum account:\n${addr}\n\nSign in to Fizzl Agent Wallet. This is free: it is not a transaction and moves no money.\n\nURI: ${where.origin}\nVersion: 1\nChain ID: ${cid}\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
       await g.putOnce("siwe", nonce, { address: addr, message }, NONCE_TTL_S);
       return { nonce, message };
     },
