@@ -278,8 +278,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .fz details[open] summary { background: var(--mint); color: #021; }
 .fz .how { display: grid; gap: 10px; margin-top: 12px; }
 .fz .how b { color: var(--text); }
-.fz .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
-.fz .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
+.askcard .copy, .fz .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
+.askcard .copy code, .fz .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
 .newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
 .wallet-more { width: 100%; margin-top: 10px; justify-content: center; }
 .more-wallets { display: grid; gap: 14px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(97,245,195,.04); }
@@ -391,7 +391,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .yourkeys h3 { margin: 0; font: 700 clamp(22px, 3vw, 30px)/1.1 var(--display); letter-spacing: -1px; }
 .yourkeys h3 span { color: var(--mint); }
 .yourkeys .lead { margin: 0; color: var(--soft); font-size: 15px; }
-.yourkeys .points { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.yourkeys .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .yourkeys .points div { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: rgba(2,10,10,.45); display: grid; gap: 6px; align-content: start; }
 .yourkeys .points b { color: var(--text); font-size: 14px; }
 .yourkeys .points span { color: var(--muted); font-size: 13px; }
@@ -473,6 +473,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div><b>🛡️ Checked before every signature</b><span>presign-guard stops known drainers, sanctioned addresses and unlimited approvals. A red verdict is never signed.</span></div>
         <div><b>📱 You decide above your limit</b><span>Approve or deny on your phone (Telegram) or here. No answer means no payment.</span></div>
         <div><b>🧾 Receipts that show what was bought</b><span>Every purchase: the safety check, your rule, the payment, and what your agent got back.</span></div>
+        <div><b>🔎 Data on demand</b><span>Ask your agent in your own words, like "what's the weather in Amsterdam the coming days?". It finds a paid service, pays within your rules, and brings back the answer.</span></div>
       </div>
     </div>
   </section>
@@ -579,6 +580,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:0">Checks the five things your agent needs: a key, contact with this wallet, rules that let it spend, USDC to pay with, and approvals on your phone. Nothing is paid or signed.</p>
         <div class="row"><select id="setupAgent" aria-label="Agent to test" hidden></select><label class="note" id="setupTgWrap"><input type="checkbox" id="setupTg" checked> send me a Telegram test message</label><button class="button primary small" type="button" id="setupRun">Test my setup</button></div>
         <div id="setupOut" role="status" aria-live="polite"></div>
+      </div>
+      <div class="card setup askcard">
+        <span class="tag">THEN JUST ASK: DATA ON DEMAND</span>
+        <p class="note" style="margin:0">Ask in your own words, in any language. Your agent finds a paid service in the x402 catalog, pays it within your rules and gives you the answer; the receipt shows up under Purchases. For example:</p>
+        <div class="copy"><code>What's the weather in Amsterdam the coming days?</code><button class="button ghost small" type="button" data-copy="What's the weather in Amsterdam the coming days?" data-track="ask_example" data-from="agents">Copy</button></div>
+        <div class="copy"><code>Wat is de koers van Bitcoin vandaag?</code><button class="button ghost small" type="button" data-copy="Wat is de koers van Bitcoin vandaag?" data-track="ask_example" data-from="agents">Copy</button></div>
+        <div class="copy"><code>Is this token safe to buy: 0x…?</code><button class="button ghost small" type="button" data-copy="Is this token safe to buy: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
+        <div class="copy"><code>What does this smart contract do: 0x…?</code><button class="button ghost small" type="button" data-copy="What does this smart contract do: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
+        <p class="note" style="margin:0"><b style="color:#fff">Fewest clicks:</b> when Claude asks whether it may use the wallet's tools, choose <b style="color:#fff">Always allow</b>. Your rules here decide what it may spend (the "per payment" limit is its top price), and anything over them still comes to you first. Want to look yourself? The <a href="#/find" style="text-decoration:underline">Find</a> tab searches the same catalog.</p>
       </div>
       <p class="note" style="margin:12px 0 0" id="agentPlanNote"></p>
       <details class="howto" id="howto">

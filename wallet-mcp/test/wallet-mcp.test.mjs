@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { decodeFunctionData, erc20Abi } from "viem";
-import { configFromEnv, createServer, createWallet } from "../lib.js";
+import { configFromEnv, createServer, createWallet, words } from "../lib.js";
 
 const KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // a well-known test key (anvil #1), no funds
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -262,3 +262,9 @@ test("find_services: paid APIs from the x402 catalog this wallet can pay, best m
   await assert.rejects(wallet.findServices({ query: "a" }), /say what you need/);
 });
 
+
+test("find_services understands a plain question, in Dutch too", () => {
+  assert.deepEqual(words("Wat is het weer de komende dagen in Amsterdam?"), ["weather", "days", "amsterdam"]);
+  assert.deepEqual(words("Wat is de koers van Bitcoin vandaag?"), ["price", "bitcoin", "today"]);
+  assert.deepEqual(words("What is the weather in Amsterdam?"), ["weather", "amsterdam"]);
+});

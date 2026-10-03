@@ -56,8 +56,11 @@ export function categorize(textOf) {
   return best;
 }
 
-const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need"]);
-export const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need", "please", "tell", "give", "show", "does", "are", "you", "your", "about", "wat", "het", "een", "van", "voor", "met", "mij", "mijn", "kan", "wil", "graag", "zijn", "deze", "dit", "die", "komende", "hoe", "welke", "waar", "wanneer", "geef", "ook", "naar", "over", "niet", "wel", "nog", "maar", "dat", "wordt", "worden", "bij", "als", "uit", "doet", "zoek"]);
+// Everyday Dutch words to the English words catalog listings use, so a plain question works too
+// ("wat is het weer de komende dagen in Amsterdam?" finds weather forecasts).
+const NL = { weer: "weather", weerbericht: "weather", voorspelling: "forecast", temperatuur: "temperature", regen: "rain", koers: "price", koersen: "price", prijs: "price", prijzen: "price", nieuws: "news", aandeel: "stock", aandelen: "stocks", munt: "coin", munten: "coins", veilig: "safe", veiligheid: "safety", vertaal: "translate", vertaling: "translation", samenvatting: "summary", samenvatten: "summarize", adres: "address", beurs: "market", markt: "market", vandaag: "today", morgen: "tomorrow", dagen: "days", wisselkoers: "exchange", uitleg: "explain", leg: "explain", controleer: "check", afbeelding: "image", plaatje: "image", foto: "image", tekst: "text", vlucht: "flight", vluchten: "flights", bedrijf: "company", portemonnee: "wallet", signaal: "signal" };
+export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).map((w) => NL[w] ?? w).filter((w) => w.length >= 3 && !STOP.has(w));
 // ---------- skill.md: does a seller publish instructions agents can follow? ----------
 // Checked for the sellers in search results only, from the server, so carefully: https on the
 // standard port, a public hostname (no IP literals, nothing resolving to a private address), no

@@ -118,7 +118,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.use("/api/public/services", slowDown, services);
   // The dashboard tells which buttons people use on search results (Connect, one request, website, a Fizzl
   // service, a new provider): only the kind of button, where, and the seller's host name.
-  const CLICKS = new Set(["connect", "request", "website", "all_services", "fizzl_connect", "fizzl_request", "skill_line"]);
+  const CLICKS = new Set(["connect", "request", "website", "all_services", "fizzl_connect", "fizzl_request", "skill_line", "ask_example"]);
   // The visitor counter on fizzl.eu and its subdomains (public/s.js): a page view, or a click to the
   // wallet or a service. No cookies, no IP address, nothing about the visitor; Do Not Track is respected.
   const siteOrigin = (o) => { try { const u = new URL(o); return u.protocol === "https:" && fizzlSite(u.hostname) ? u.hostname : null; } catch { return null; } };

@@ -12,7 +12,7 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 
 export const CHAINS = {
   base: { chain: base, usdc: ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6] },
@@ -32,8 +32,11 @@ const CHECK_PRICE_CAP = "$0.02"; // a presign-guard check costs $0.01
 
 const amountString = z.string().regex(/^\d+(\.\d+)?$/, "a decimal amount like \"2.5\"");
 // Lowercase words of 3+ letters, for matching a request against catalog listings.
-const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json"]);
-const words = (t) => String(t ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from", "that", "this", "http", "https", "www", "com", "json", "what", "how", "can", "want", "need", "please", "tell", "give", "show", "does", "are", "you", "your", "about", "wat", "het", "een", "van", "voor", "met", "mij", "mijn", "kan", "wil", "graag", "zijn", "deze", "dit", "die", "komende", "hoe", "welke", "waar", "wanneer", "geef", "ook", "naar", "over", "niet", "wel", "nog", "maar", "dat", "wordt", "worden", "bij", "als", "uit", "doet", "zoek"]);
+// Everyday Dutch words to the English words catalog listings use, so a plain question works too
+// ("wat is het weer de komende dagen in Amsterdam?" finds weather forecasts).
+const NL = { weer: "weather", weerbericht: "weather", voorspelling: "forecast", temperatuur: "temperature", regen: "rain", koers: "price", koersen: "price", prijs: "price", prijzen: "price", nieuws: "news", aandeel: "stock", aandelen: "stocks", munt: "coin", munten: "coins", veilig: "safe", veiligheid: "safety", vertaal: "translate", vertaling: "translation", samenvatting: "summary", samenvatten: "summarize", adres: "address", beurs: "market", markt: "market", vandaag: "today", morgen: "tomorrow", dagen: "days", wisselkoers: "exchange", uitleg: "explain", leg: "explain", controleer: "check", afbeelding: "image", plaatje: "image", foto: "image", tekst: "text", vlucht: "flight", vluchten: "flights", bedrijf: "company", portemonnee: "wallet", signaal: "signal" };
+export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).map((w) => NL[w] ?? w).filter((w) => w.length >= 3 && !STOP.has(w));
 const address = z.string().refine((a) => isAddress(a, { strict: false }), "an 0x… address");
 
 /**
@@ -282,9 +285,9 @@ export function createServer(wallet) {
 
   server.registerTool("find_services", {
     title: "Find paid services",
-    description: "Search the public x402 catalog (Coinbase's x402 Bazaar) for paid APIs this wallet can pay: USDC on its chain, within max_price_usd. Returns url, description, price and how to call each one, best match first. Then call pay_x402 with the one you pick. Listings are not recommendations: prefer a clear description and a fair price, and pay only what the task needs.",
+    description: "Search the public x402 catalog (Coinbase's x402 Bazaar) for paid APIs this wallet can pay: USDC on its chain, within max_price_usd. Returns url, description, price and how to call each one, best match first. Use it whenever the owner asks for something you can't answer yourself (live weather, prices, news, safety checks, ...), however they say it and in any language: pass the gist as the query, in English works best. Then call pay_x402 with the one you pick and answer the owner. Don't ask the owner to confirm a payment that is within this wallet's limits: the limits are their consent, and anything over them goes to the owner for approval anyway. Listings are not recommendations: prefer a clear description and a fair price, and pay only what the task needs.",
     inputSchema: {
-      query: z.string().min(2).max(200).describe("What you need, in a few words, e.g. \"bitcoin trend signal\" or \"is this token safe\""),
+      query: z.string().min(2).max(200).describe("What you need, in a few words, e.g. \"weather forecast amsterdam\", \"bitcoin trend signal\" or \"is this token safe\" (Dutch works too)"),
       max_price_usd: z.number().positive().optional().describe("Highest price per call to show, in dollars (default and at most the server's MAX_PAYMENT_USD)"),
       limit: z.number().int().min(1).max(10).optional().describe("How many results (default 5)"),
     },
