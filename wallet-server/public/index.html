@@ -269,6 +269,14 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .fz .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
 .fz .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
 .newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
+.wallet-more { width: 100%; margin-top: 10px; justify-content: center; }
+.more-wallets { display: grid; gap: 14px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(97,245,195,.04); }
+.mw-phone { display: flex; gap: 14px; align-items: center; }
+.mw-phone img { flex: none; background: #fff; border-radius: 10px; padding: 4px; }
+.mw-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mw-links a { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; color: var(--soft); text-decoration: none; font-size: 13px; }
+.mw-links a:hover, .mw-links a:focus-visible { border-color: var(--mint); color: var(--mint); }
+@media (max-width: 420px) { .mw-phone { flex-direction: column; align-items: flex-start; } }
 .fund { display: grid; gap: 8px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(97,245,195,.04); }
 .setup { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
 .newkey .setup-steps code { display: inline; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
@@ -405,6 +413,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
+        <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
+        <div class="more-wallets" id="morePanel" hidden>
+          <div class="mw-phone" id="mwQr">
+            <img src="/qr.svg" alt="QR code that opens this page on your phone" width="132" height="132" loading="lazy">
+            <div><b>Wallet on your phone?</b><p class="note" style="margin:4px 0 0">Scan this with your phone's camera, then open the page in your wallet app's browser (MetaMask, Coinbase Wallet, Trust, Phantom, OKX, …) and sign in there.</p></div>
+          </div>
+          <div><span class="tag">OPEN IN YOUR WALLET APP</span><div class="mw-links" id="mwApps"></div></div>
+          <div><span class="tag">NO WALLET YET?</span><div class="mw-links">
+            <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer">MetaMask</a>
+            <a href="https://www.coinbase.com/wallet/downloads" target="_blank" rel="noopener noreferrer">Coinbase Wallet</a>
+            <a href="https://rabby.io/" target="_blank" rel="noopener noreferrer">Rabby</a>
+            <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer">Phantom</a>
+            <a href="https://trustwallet.com/download" target="_blank" rel="noopener noreferrer">Trust Wallet</a>
+          </div><p class="note" style="margin:6px 0 0">Install one, reload this page, and it shows up above. Use a separate wallet for your agents, never your savings.</p></div>
+        </div>
         <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom on Ethereum or Solana, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base or Solana.</p>
       </div>
       <div class="err" id="walletErr"></div>
@@ -915,6 +938,27 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
       : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`);
   }
+  // "Other wallets": open this page inside a wallet app's own browser (where the wallet is built in),
+  // a QR code to get there from a computer, and where to get a wallet. No third-party scripts.
+  function walletAppLinks() {
+    const url = location.origin + "/", u = encodeURIComponent(url);
+    return [
+      ["MetaMask", `https://metamask.app.link/dapp/${url.replace(/^https?:\/\//, "")}`],
+      ["Coinbase Wallet", `https://go.cb-w.com/dapp?cb_url=${u}`],
+      ["Trust Wallet", `https://link.trustwallet.com/open_url?coin_id=60&url=${u}`],
+      ["Phantom", `https://phantom.app/ul/browse/${u}?ref=${encodeURIComponent(location.origin)}`],
+      ["OKX Wallet", `https://www.okx.com/download?deeplink=${encodeURIComponent(`okx://wallet/dapp/url?dappUrl=${u}`)}`],
+    ];
+  }
+  $("#moreWallets").addEventListener("click", () => {
+    const p = $("#morePanel"), open = p.hidden;
+    p.hidden = !open;
+    $("#moreWallets").setAttribute("aria-expanded", String(open));
+    if (open) {
+      $("#mwApps").innerHTML = walletAppLinks().map(([n, h]) => `<a href="${esc(h)}" rel="noopener noreferrer">${esc(n)}</a>`).join("");
+      $("#mwQr").hidden = isPhone; // on a phone the app links are the way; the QR is for computers
+    }
+  });
   const findWallet = (rdns) => allWallets().find((w) => w.info.rdns === rdns) ?? null;
   // The wallet the customer signed in with, for paying later (remembered in this browser only).
   let walletName = "your wallet";

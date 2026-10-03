@@ -6,6 +6,7 @@ import express from "express";
 import { PAY_CHAINS } from "./accounts.js";
 import { noUsage, agentOf, fizzlSite } from "./usage.js";
 import { readFileSync } from "node:fs";
+import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
@@ -264,6 +265,20 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // /skill.md: instructions an agent reads and follows ("Connect to wallet.fizzl.eu/skill.md"),
   // with this server's own address in them.
   let skill;
+  // A QR code that opens this dashboard on a phone (for "Other wallets": scan, then open it in the wallet app).
+  const qrCache = new Map();
+  app.get("/qr.svg", (req, res) => {
+    const host = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(req.host ?? "") ? req.host : "wallet.fizzl.eu";
+    const url = `${req.protocol === "http" && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "https" : req.protocol}://${host}/`;
+    if (!qrCache.has(url)) {
+      const qr = qrcode(0, "M");
+      qr.addData(url);
+      qr.make();
+      qrCache.set(url, qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }));
+      if (qrCache.size > 20) qrCache.delete(qrCache.keys().next().value);
+    }
+    res.set("cache-control", "public, max-age=86400").type("image/svg+xml").send(qrCache.get(url));
+  });
   app.get("/skill.md", (req, res) => {
     skill ??= readFileSync(SKILL, "utf8");
     const host = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(req.host ?? "") ? req.host : "wallet.fizzl.eu";

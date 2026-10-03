@@ -16,6 +16,7 @@
     "@noble/curves": "^1.9.7",
     "express": "^5.2.1",
     "presign-guard-wallet": "file:../guard-wallet",
+    "qrcode-generator": "^1.5.2",
     "redis": "^5.12.1",
     "viem": "^2.56.9",
     "x402-safe-fetch": "^0.4.0"
