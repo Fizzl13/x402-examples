@@ -805,6 +805,18 @@ test("search bar: paid APIs from the x402 catalog, USDC on the networks we know,
   } finally { server.close(); }
 });
 
+test("catalog: Fizzl's old onrender.com addresses are left out once the fizzl.eu address is listed", async () => {
+  const { withoutMovedHosts } = await import("../src/catalog.js");
+  const r = (u) => ({ resource: u });
+  const out = withoutMovedHosts([
+    r("https://x402-doctor.onrender.com/api/v1/preflight"), r("https://x402-doctor.fizzl.eu/api/v1/preflight"),
+    r("https://presign-guard.onrender.com/v1/token"), // its fizzl.eu address isn't listed: kept
+    r("https://smartcontractexplainer.onrender.com/api/explain"), r("https://plaintext.fizzl.eu/api/check-wallet"),
+    r("https://other.onrender.com/x"), r("not a url"),
+  ]).map((i) => i.resource);
+  assert.deepEqual(out, ["https://x402-doctor.fizzl.eu/api/v1/preflight", "https://presign-guard.onrender.com/v1/token", "https://plaintext.fizzl.eu/api/check-wallet", "https://other.onrender.com/x", "not a url"]);
+});
+
 test("search bar: a catalog that can't be reached is a clear 502", async () => {
   const { createCatalog } = await import("../src/catalog.js");
   const { server, owner } = await boot({ catalog: createCatalog({ url: "https://catalog.test/x", fetch: async () => new Response("down", { status: 503 }) }) });
