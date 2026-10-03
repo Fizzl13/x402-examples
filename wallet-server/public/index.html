@@ -632,10 +632,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <article class="card monitor" id="monitorCard" hidden>
         <span class="tag">ENDPOINT MONITOR · FOR X402 SELLERS</span>
         <div class="big" style="font-size:22px">Is your x402 endpoint still payable?</div>
-        <p class="note" style="margin:0">Every hour we call your endpoint the way a paying agent does (without paying) and check that it still answers 402 with a valid x402 challenge. If it breaks, you get a Telegram message. <span id="monLimit"></span></p>
+        <p class="note" style="margin:0">Every hour we call your endpoint the way a paying agent does (without paying) and check that it still answers 402 with a valid x402 challenge. If it breaks, you get a message on Telegram (or Discord, Slack or your own webhook). <span id="monLimit"></span></p>
         <form class="addform" id="monForm"><input id="monUrl" type="url" required placeholder="https://api.example.com/paid" aria-label="Your x402 endpoint" style="flex:1;min-width:200px"><select id="monMethod" aria-label="Method"><option>GET</option><option>POST</option></select><button class="button primary small" type="submit">Watch</button></form>
         <div class="msg" id="monMsg" role="status"></div>
         <div id="monList"></div>
+        <div class="monhook" id="monHook"></div>
       </article>
       <div id="deleteBox" hidden style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="link" type="button" id="deleteAccount">Delete my account</button><span class="msg" id="deleteMsg" role="status"></span></div>
     </section>
@@ -1234,12 +1235,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   function renderMonitors(r) {
     $("#monitorCard").hidden = false;
     const free = me?.plan === "free";
-    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10` : ""}.${r.telegram ? "" : ` <b style="color:var(--amber)">Connect Telegram (above) to get the alerts.</b>`}`;
+    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10` : ""}.${r.telegram || r.hook ? "" : ` <b style="color:var(--amber)">Connect Telegram (above), or add a webhook below, to get the alerts.</b>`}`;
     $("#monList").innerHTML = r.monitors.length ? `<div class="monlist">${r.monitors.map((m) => {
       const st = m.paused ? "paused" : m.last?.state === "ok" ? "ok" : "down";
       const label = { ok: "Payable", down: "Not payable", paused: "Paused (over your plan)" }[st];
       return `<div class="monrow"><span class="mondot ${st}" aria-hidden="true"></span><div class="monmain"><b>${esc(m.method)} ${esc(m.url.replace(/^https:\/\//, ""))}</b><span class="note">${esc(label)}${m.last ? ` · ${esc(m.last.note)}${m.last.ms ? ` · ${esc(m.last.ms)} ms` : ""} · ${esc(ago(m.last.at))}` : ""}</span></div><div class="monact"><button class="link" type="button" data-moncheck="${esc(m.id)}">Check now</button> <button class="link" type="button" data-monrm="${esc(m.id)}">Remove</button></div></div>`;
     }).join("")}</div>` : `<p class="note" style="margin:0">No endpoints yet. Add the paid URL agents call, e.g. https://api.example.com/v1/quote.</p>`;
+    const kindName = { discord: "Discord", slack: "Slack", webhook: "your webhook" };
+    $("#monHook").innerHTML = r.hook
+      ? `<p class="note" style="margin:0">Alerts also go to <b style="color:#fff">${esc(kindName[r.hook.kind] ?? "your webhook")}</b> (${esc(r.hook.host)}). <button class="link" type="button" id="hookTest">Send a test</button> · <button class="link" type="button" id="hookRm">Remove</button> <span id="hookMsg" role="status"></span></p>`
+      : `<details><summary>Also send alerts to Discord, Slack or a webhook</summary><form class="addform" id="hookForm" style="margin-top:8px"><input id="hookUrl" type="url" required placeholder="https://discord.com/api/webhooks/…" aria-label="Webhook URL" style="flex:1;min-width:200px"><button class="button small" type="submit">Save</button></form><p class="note" style="margin:6px 0 0">Discord: channel settings → Integrations → Webhooks → Copy URL. Slack: an incoming webhook. Any other https URL gets JSON with the event. <span id="hookMsg" role="status"></span></p></details>`;
     usePendingWatch();
   }
   async function loadMonitors() { if (DEMO || !me || me.admin === undefined) return; try { renderMonitors(await api("GET", "/api/monitors")); } catch {} }
@@ -1250,6 +1255,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     try { renderMonitors(await post("/api/monitors", { url: $("#monUrl").value.trim(), method: $("#monMethod").value })); $("#monUrl").value = ""; say("Added. It's checked every hour from now on.", "good"); }
     catch (err) { say(err.message, "bad"); }
     finally { btn.disabled = false; }
+  });
+  $("#monHook").addEventListener("submit", async (e) => {
+    if (e.target.id !== "hookForm") return;
+    e.preventDefault();
+    try { renderMonitors(await api("PUT", "/api/monitors/alert-hook", { url: $("#hookUrl").value.trim() })); $("#hookMsg").textContent = "Saved. Send a test to check it."; }
+    catch (err) { $("#hookMsg").textContent = err.message; }
+  });
+  $("#monHook").addEventListener("click", async (e) => {
+    if (e.target.id === "hookTest") { $("#hookMsg").textContent = "Sending…"; try { await post("/api/monitors/alert-hook/test", {}); $("#hookMsg").textContent = "Sent. Check the channel."; } catch (err) { $("#hookMsg").textContent = err.message; } }
+    if (e.target.id === "hookRm") { try { renderMonitors(await api("PUT", "/api/monitors/alert-hook", { url: "" })); } catch {} }
   });
   $("#monList").addEventListener("click", async (e) => {
     const c = e.target.closest("[data-moncheck]"), r = e.target.closest("[data-monrm]");

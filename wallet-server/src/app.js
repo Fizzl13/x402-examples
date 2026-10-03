@@ -219,6 +219,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // Endpoint monitor: the x402 endpoints this account watches (checked hourly, alerts on Telegram).
   owner.get("/monitors", wrap(async (req, res) => res.json(await accounts.monitors(req.account))));
   owner.post("/monitors", wrap(async (req, res) => res.json(await accounts.addMonitor(req.account, { url: req.body?.url, method: req.body?.method || "GET" }))));
+  owner.put("/monitors/alert-hook", wrap(async (req, res) => res.json(await accounts.setAlertHook(req.account, req.body?.url))));
+  owner.post("/monitors/alert-hook/test", wrap(async (req, res) => res.json(await accounts.testAlertHook(req.account))));
   owner.delete("/monitors/:id", wrap(async (req, res) => res.json(await accounts.removeMonitor(req.account, req.params.id))));
   owner.post("/monitors/:id/check", wrap(async (req, res) => { await accounts.checkMonitor(req.account, req.params.id); res.json(await accounts.monitors(req.account)); }));
   owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
