@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -48,6 +48,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
     ...(usage ? { usage } : {}),
+    ...(endpointMonitor ? { endpointMonitor } : {}),
   });
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
@@ -1366,5 +1367,73 @@ test("agent wallet made in the browser (public/agentkey.js): matches viem's addr
     assert.equal(r.status, 200);
     assert.match(r.headers.get("content-type"), /javascript/);
     assert.match(await r.text(), /export function newAgentKey/);
+  } finally { server.close(); }
+});
+
+test("endpoint monitor: an x402 endpoint must answer 402 with payment options; public https only", async () => {
+  const { createEndpointMonitor, urlProblem } = await import("../src/monitor.js");
+  assert.equal(urlProblem("http://api.example.com/x"), "Use an https:// address.");
+  assert.match(urlProblem("https://127.0.0.1/x"), /public/);
+  assert.match(urlProblem("https://api.example.com:8443/x"), /public/);
+  assert.match(urlProblem("https://router.local/x"), /public/);
+  assert.equal(urlProblem("https://api.example.com/paid"), null);
+  const challenge = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [{ network: "eip155:8453" }, { network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" }] })).toString("base64");
+  const answers = {
+    "https://good.example/paid": () => new Response("{}", { status: 402, headers: { "payment-required": challenge } }),
+    "https://body.example/paid": () => new Response(JSON.stringify({ x402Version: 1, accepts: [{ network: "base" }] }), { status: 402 }),
+    "https://free.example/paid": () => new Response("hi", { status: 200 }),
+    "https://empty.example/paid": () => new Response("{}", { status: 402 }),
+    "https://broken.example/paid": () => new Response("oops", { status: 502 }),
+  };
+  const lookup = async (h) => (h === "private.example" ? [{ address: "10.0.0.5" }] : h === "nowhere.example" ? [] : [{ address: "93.184.216.34" }]);
+  const m = createEndpointMonitor({ fetch: async (url) => answers[url](), lookup });
+  const good = await m.check("https://good.example/paid");
+  assert.equal(good.state, "ok");
+  assert.deepEqual(good.networks, ["eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"]);
+  assert.equal((await m.check("https://body.example/paid")).state, "ok");
+  assert.match((await m.check("https://free.example/paid")).note, /200 instead of 402: it answers without asking for payment/);
+  assert.match((await m.check("https://empty.example/paid")).note, /without an x402 challenge/);
+  assert.match((await m.check("https://broken.example/paid")).note, /server has an error/);
+  assert.match((await m.check("https://private.example/paid")).note, /private network/);
+  assert.match((await m.check("https://nowhere.example/paid")).note, /doesn't resolve/);
+});
+
+test("endpoint monitor in the account: free watches 1, an alert after two failed checks, and one when it's back", async () => {
+  let t = Date.now(), up = true;
+  const endpointMonitor = { check: async (url) => (url.includes("other") || up ? { state: "ok", status: 402, ms: 80, note: "Asks for payment correctly (eip155:8453).", networks: ["eip155:8453"] } : { state: "down", status: 502, ms: 40, note: "Answers HTTP 502 instead of 402: the server has an error." }) };
+  const { base, server, tg, accounts } = await boot({ now: () => t, endpointMonitor });
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    const code = (await a.call("POST", "/api/telegram/link", {})).body.url.split("start=")[1];
+    await fetch(`${base}/telegram/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": "s3cret-hook" }, body: JSON.stringify({ message: { text: `/start ${code}`, chat: { id: 777, type: "private" }, from: { id: 777 } } }) });
+    assert.equal((await a.call("POST", "/api/monitors", { url: "http://insecure.example/x" })).status, 400);
+    const added = await a.call("POST", "/api/monitors", { url: "https://shop.example/paid" });
+    assert.equal(added.status, 200);
+    assert.equal(added.body.max, 1);
+    assert.equal(added.body.monitors[0].last.state, "ok");
+    assert.equal((await a.call("POST", "/api/monitors", { url: "https://shop.example/paid" })).status, 409);
+    const second = await a.call("POST", "/api/monitors", { url: "https://other.example/paid" });
+    assert.equal(second.status, 403); // free: 1
+    assert.match(second.body.message, /Pro watches up to 10/);
+
+    const alerts = () => tg.calls.filter((c) => c.method === "sendMessage" && c.body.chat_id === "777").map((c) => c.body.text);
+    up = false;
+    t += 61 * 60_000; assert.equal(await accounts.checkMonitors(), 1);
+    assert.equal(alerts().length, 0); // one failure: no alert yet
+    t += 61 * 60_000; await accounts.checkMonitors();
+    assert.match(alerts().at(-1), /stopped working for paying agents:\nGET https:\/\/shop\.example\/paid\nAnswers HTTP 502/);
+    t += 61 * 60_000; await accounts.checkMonitors();
+    assert.equal(alerts().length, 1); // still down: no repeat
+    up = true;
+    t += 61 * 60_000; await accounts.checkMonitors();
+    assert.match(alerts().at(-1), /works again/);
+    t += 10 * 60_000; assert.equal(await accounts.checkMonitors(), 0); // checked within the hour already
+    const list = (await a.call("GET", "/api/monitors")).body;
+    assert.equal(list.telegram, true);
+    assert.equal(list.monitors[0].last.state, "ok");
+    const id = list.monitors[0].id;
+    assert.equal((await a.call("POST", `/api/monitors/${id}/check`, {})).status, 200);
+    assert.deepEqual((await a.call("DELETE", `/api/monitors/${id}`)).body.monitors, []);
   } finally { server.close(); }
 });

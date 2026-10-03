@@ -18,14 +18,15 @@ import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
 import { weekOf, formatDigest } from "./digest.js";
+import { createEndpointMonitor, urlProblem } from "./monitor.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
 
 export const PLANS = {
-  free: { name: "free", maxAgents: 1, receiptDays: 7 },
-  pro: { name: "pro", maxAgents: null, receiptDays: 90 },
-  admin: { name: "owner", maxAgents: null, receiptDays: 90 },
+  free: { name: "free", maxAgents: 1, receiptDays: 7, maxMonitors: 1 },
+  pro: { name: "pro", maxAgents: null, receiptDays: 90, maxMonitors: 10 },
+  admin: { name: "owner", maxAgents: null, receiptDays: 90, maxMonitors: 50 },
 };
 const DAY = 86_400_000;
 export const PERIOD_MS = 30 * DAY;
@@ -61,7 +62,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor() }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -206,7 +207,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       try { a = await syncAuto(a, fresh ? { maxAgeMs: 0 } : {}); } catch (err) { console.warn(`[subscription] ${err.message}`); }
       const plan = planOf(a);
       return {
-        id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays },
+        id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
         chain: a.admin ? null : isSol(a) ? "solana" : "ethereum",
         auto: subscription && !a.admin && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
@@ -418,6 +419,72 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       }
       return sent;
     },
+    // ---------- endpoint monitor (sellers: is my x402 endpoint still payable?) ----------
+    // Up to plan.maxMonitors endpoints per account, checked every hour; an alert on Telegram after
+    // two failed checks in a row, and again when it works again.
+    async monitors(id) {
+      const a = await account(id);
+      const plan = planOf(a), list = (id === ADMIN ? (await g.getAccount(ADMIN))?.monitors : a?.monitors) ?? [];
+      return { max: plan.maxMonitors, telegram: !!(a?.telegram?.chatId), monitors: list.map((m, i) => ({ ...m, paused: i >= plan.maxMonitors })) };
+    },
+    async addMonitor(id, { url, method = "GET" } = {}) {
+      const problem = urlProblem(url);
+      if (problem) throw Object.assign(new Error(problem), { status: 400 });
+      if (!["GET", "POST"].includes(method)) throw Object.assign(new Error('method must be "GET" or "POST"'), { status: 400 });
+      const clean = new URL(String(url).trim()).href;
+      return serial(id, async () => {
+        const a = await account(id), rec = (id === ADMIN ? await g.getAccount(ADMIN) : a) ?? { id };
+        const list = rec.monitors ?? [], plan = planOf(a);
+        if (list.some((m) => m.url === clean && m.method === method)) throw Object.assign(new Error("You're already watching that endpoint."), { status: 409 });
+        if (list.length >= plan.maxMonitors) throw Object.assign(new Error(plan.name === "free" ? "The free plan watches 1 endpoint. Pro watches up to 10." : `You can watch up to ${plan.maxMonitors} endpoints.`), { status: 403 });
+        const last = await endpointMonitor.check(clean, method).catch((err) => ({ state: "down", status: 0, ms: 0, note: err.message }));
+        const m = { id: rand(6), url: clean, method, addedAt: now(), last: { ...last, at: now() }, fails: last.state === "down" ? 1 : 0, alerted: false };
+        await g.putAccount({ ...rec, monitors: [...list, m] });
+        usage.record("monitor_added", { account: id, input: { host: new URL(clean).host }, result: { state: last.state } });
+        return api.monitors(id);
+      });
+    },
+    async removeMonitor(id, monitorId) {
+      return serial(id, async () => {
+        const rec = (await g.getAccount(id)) ?? { id };
+        await g.putAccount({ ...rec, monitors: (rec.monitors ?? []).filter((m) => m.id !== monitorId) });
+        return api.monitors(id);
+      });
+    },
+    // One check (now, or the hourly round): updates the record and sends an alert when it changes.
+    async checkMonitor(id, monitorId, { alert = true } = {}) {
+      const rec = await g.getAccount(id);
+      const m = rec?.monitors?.find((x) => x.id === monitorId);
+      if (!m) throw Object.assign(new Error("no such endpoint"), { status: 404 });
+      const r = await endpointMonitor.check(m.url, m.method).catch((err) => ({ state: "down", status: 0, ms: 0, note: err.message }));
+      const fails = r.state === "down" ? (m.fails ?? 0) + 1 : 0;
+      let alerted = m.alerted, message = null;
+      if (fails >= 2 && !m.alerted) { alerted = true; message = `⚠️ Your x402 endpoint stopped working for paying agents:\n${m.method} ${m.url}\n${r.note}\n\nChecked twice, an hour apart. Diagnose it for free: https://x402-doctor.fizzl.eu/?url=${encodeURIComponent(m.url)}`; }
+      if (r.state === "ok" && m.alerted) { alerted = false; message = `✅ Your x402 endpoint works again:\n${m.method} ${m.url}\n${r.note}`; }
+      await serial(id, async () => {
+        const cur = await g.getAccount(id);
+        await g.putAccount({ ...cur, monitors: (cur.monitors ?? []).map((x) => (x.id === monitorId ? { ...x, last: { ...r, at: now() }, fails, alerted } : x)) });
+      });
+      if (message && alert) {
+        const chat = (await account(id))?.telegram?.chatId;
+        if (telegram && chat) await telegram.send(chat, message).catch((err) => console.warn(`[monitor] ${err.message}`));
+        usage.record("monitor_alert", { account: id, input: { host: new URL(m.url).host }, result: { state: r.state } });
+      }
+      return r;
+    },
+    async checkMonitors() {
+      let checked = 0;
+      for (const rec of await g.listAccounts()) {
+        if (!rec.monitors?.length) continue;
+        const plan = planOf(await account(rec.id));
+        for (const m of rec.monitors.slice(0, plan.maxMonitors)) {
+          if (m.last?.at && now() - m.last.at < 50 * 60_000) continue; // checked within the hour ("Check now")
+          try { await api.checkMonitor(rec.id, m.id); checked++; } catch (err) { console.warn(`[monitor] ${err.message}`); }
+        }
+      }
+      return checked;
+    },
+
     // The owner's weekly summary on Telegram: Monday from 9:00 Amsterdam time, once per week
     // (remembered on the owner's record, so a restart doesn't send it twice). force: send now.
     async weeklyDigest({ summary = null, force = false } = {}) {

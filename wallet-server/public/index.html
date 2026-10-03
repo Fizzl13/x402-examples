@@ -278,6 +278,13 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .mw-links a { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; color: var(--soft); text-decoration: none; font-size: 13px; }
 .mw-links a:hover, .mw-links a:focus-visible { border-color: var(--mint); color: var(--mint); }
 @media (max-width: 420px) { .mw-phone { flex-direction: column; align-items: flex-start; } }
+.monitor { margin-top: 14px; display: grid; gap: 10px; }
+.monlist { display: grid; gap: 8px; }
+.monrow { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.monmain { display: grid; gap: 2px; min-width: 0; } .monmain b { overflow-wrap: anywhere; font-size: 13px; color: var(--text); }
+.mondot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); } .mondot.ok { background: var(--mint); } .mondot.down { background: var(--rose); } .mondot.paused { background: var(--amber); }
+.monact { white-space: nowrap; font-size: 13px; }
+@media (max-width: 520px) { .monrow { grid-template-columns: 12px minmax(0,1fr); } .monact { grid-column: 2; } }
 .fund { display: grid; gap: 8px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(97,245,195,.04); }
 .madewallet { display: grid; gap: 8px; }
 .madewallet code { overflow-wrap: anywhere; }
@@ -621,6 +628,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <article class="card" id="planCard"></article>
         <article class="card" id="tgCard"></article>
       </div>
+      <article class="card monitor" id="monitorCard" hidden>
+        <span class="tag">ENDPOINT MONITOR · FOR X402 SELLERS</span>
+        <div class="big" style="font-size:22px">Is your x402 endpoint still payable?</div>
+        <p class="note" style="margin:0">Every hour we call your endpoint the way a paying agent does (without paying) and check that it still answers 402 with a valid x402 challenge. If it breaks, you get a Telegram message. <span id="monLimit"></span></p>
+        <form class="addform" id="monForm"><input id="monUrl" type="url" required placeholder="https://api.example.com/paid" aria-label="Your x402 endpoint" style="flex:1;min-width:200px"><select id="monMethod" aria-label="Method"><option>GET</option><option>POST</option></select><button class="button primary small" type="submit">Watch</button></form>
+        <div class="msg" id="monMsg" role="status"></div>
+        <div id="monList"></div>
+      </article>
       <div id="deleteBox" hidden style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="link" type="button" id="deleteAccount">Delete my account</button><span class="msg" id="deleteMsg" role="status"></span></div>
     </section>
   </div>
@@ -1140,9 +1155,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (canBuy) {
       const proNow = me.plan === "pro";
       $("#buyFoot").textContent = proNow ? `+ 30 days Pro · $${me.billing.priceUsdc}` : `★ Go Pro · $${me.billing.priceUsdc}`;
-      $("#buyFootNote").textContent = proNow ? `Pro until ${day(me.proUntil ?? me.paidUntil)}` : "Unlimited agents, receipts kept 90 days";
+      $("#buyFootNote").textContent = proNow ? `Pro until ${day(me.proUntil ?? me.paidUntil)}` : "Unlimited agents, 90-day receipts, 10 watched endpoints";
     }
     $("#deleteBox").hidden = me.admin || DEMO;
+    if (!DEMO) loadMonitors();
     renderFollow(); setupAgents();
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
@@ -1164,7 +1180,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? "Pro" : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
-      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you on Telegram 3 days before it ends. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
       ${netPick}
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
       <div class="msg" id="payMsg" role="status"></div>
@@ -1190,6 +1206,32 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const open = list.filter((w) => !w.refundedAt);
     box.innerHTML = !list.length ? "" : `<p class="note" style="margin:0"><b style="color:#fff">Withdrawals</b>${open.length ? ` · <span style="color:var(--amber)">${open.length} to refund</span>` : ""}</p>${list.slice(0, 10).map((w) => `<div class="paylist" style="margin:0"><div><span>${esc(day(w.at))} · ${esc(w.refundUsdc)} USDC on ${esc(w.network)} to <code>${esc(w.to.slice(0, 6))}…${esc(w.to.slice(-4))}</code></span>${w.refundedAt ? `<span class="note">refunded</span>` : `<span><button class="link" type="button" data-copy="${esc(w.to)}">Copy address</button> · <button class="link" type="button" data-refunded="${esc(w.id)}">Mark refunded</button></span>`}</div></div>`).join("")}`;
   }
+  // ---------- endpoint monitor ----------
+  const ago = (t) => { const m = Math.round((Date.now() - t) / 60_000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+  function renderMonitors(r) {
+    $("#monitorCard").hidden = false;
+    const free = me?.plan === "free";
+    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10` : ""}.${r.telegram ? "" : ` <b style="color:var(--amber)">Connect Telegram (above) to get the alerts.</b>`}`;
+    $("#monList").innerHTML = r.monitors.length ? `<div class="monlist">${r.monitors.map((m) => {
+      const st = m.paused ? "paused" : m.last?.state === "ok" ? "ok" : "down";
+      const label = { ok: "Payable", down: "Not payable", paused: "Paused (over your plan)" }[st];
+      return `<div class="monrow"><span class="mondot ${st}" aria-hidden="true"></span><div class="monmain"><b>${esc(m.method)} ${esc(m.url.replace(/^https:\/\//, ""))}</b><span class="note">${esc(label)}${m.last ? ` · ${esc(m.last.note)}${m.last.ms ? ` · ${esc(m.last.ms)} ms` : ""} · ${esc(ago(m.last.at))}` : ""}</span></div><div class="monact"><button class="link" type="button" data-moncheck="${esc(m.id)}">Check now</button> <button class="link" type="button" data-monrm="${esc(m.id)}">Remove</button></div></div>`;
+    }).join("")}</div>` : `<p class="note" style="margin:0">No endpoints yet. Add the paid URL agents call, e.g. https://api.example.com/v1/quote.</p>`;
+  }
+  async function loadMonitors() { if (DEMO || !me || me.admin === undefined) return; try { renderMonitors(await api("GET", "/api/monitors")); } catch {} }
+  $("#monForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const say = (t, cls = "") => { $("#monMsg").textContent = t; $("#monMsg").className = `msg ${cls}`; };
+    const btn = $("#monForm button"); btn.disabled = true; say("Checking it now…");
+    try { renderMonitors(await post("/api/monitors", { url: $("#monUrl").value.trim(), method: $("#monMethod").value })); $("#monUrl").value = ""; say("Added. It's checked every hour from now on.", "good"); }
+    catch (err) { say(err.message, "bad"); }
+    finally { btn.disabled = false; }
+  });
+  $("#monList").addEventListener("click", async (e) => {
+    const c = e.target.closest("[data-moncheck]"), r = e.target.closest("[data-monrm]");
+    if (c) { c.textContent = "Checking…"; try { renderMonitors(await post(`/api/monitors/${encodeURIComponent(c.dataset.moncheck)}/check`, {})); } catch (err) { c.textContent = err.message; } }
+    if (r) { try { renderMonitors(await api("DELETE", `/api/monitors/${encodeURIComponent(r.dataset.monrm)}`)); } catch {} }
+  });
   // ---------- automatic payment (the subscription contract) ----------
   const word = (v) => BigInt(v).toString(16).padStart(64, "0");
   const addrWord = (a) => a.slice(2).toLowerCase().padStart(64, "0");
