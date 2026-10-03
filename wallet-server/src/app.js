@@ -200,6 +200,19 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     await accounts.deleteAccount(req.account);
     res.set("set-cookie", auth.logoutCookie()).json({ ok: true });
   }));
+  // The EU right of withdrawal: one click, then a confirmation (the "withdrawal function" consumer law asks for).
+  owner.post("/billing/withdraw", wrap(async (req, res) => {
+    if (req.body?.confirm !== "withdraw") return res.status(400).json({ error: "bad_request", message: 'send { "confirm": "withdraw" }' });
+    res.json(await accounts.withdraw(req.account));
+  }));
+  owner.get("/admin/withdrawals", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.json({ withdrawals: await accounts.withdrawals() });
+  }));
+  owner.post("/admin/withdrawals/:id/refunded", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.json(await accounts.markRefunded(req.params.id, req.body?.tx));
+  }));
   owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
   // The owner's Stats tab: the website, the wallet and the four services, from the usage log.
   owner.get("/admin/stats", wrap(async (req, res) => {
@@ -247,7 +260,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.set("content-security-policy", CSP);
     res.type("html").send(page);
   });
-  // Who runs the service comes from the environment (OPERATOR_NAME, CONTACT_EMAIL), not from the code.
+  // Who runs the service comes from the environment (OPERATOR_NAME, OPERATOR_ADDRESS, CONTACT_EMAIL), not from the code.
   // /skill.md: instructions an agent reads and follows ("Connect to wallet.fizzl.eu/skill.md"),
   // with this server's own address in them.
   let skill;
@@ -263,6 +276,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.set("content-security-policy", CSP);
     res.type("html").send(legal.get(req.path)
       .replaceAll("{{OPERATOR}}", operator.name ? escapeHtml(operator.name) : missing("OPERATOR_NAME"))
+      .replaceAll("{{ADDRESS_LINE}}", operator.address ? ` Address: ${escapeHtml(operator.address)}.` : "")
+      .replaceAll("{{ADDRESS_COMMA}}", operator.address ? `, ${escapeHtml(operator.address)}` : "")
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));

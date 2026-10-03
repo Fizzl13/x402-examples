@@ -781,7 +781,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (method === "GET" && path === "/api/me") {
         return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
           proUntil: Date.now() + 23 * 86_400_000, auto: { contract: "0x0000000000000000000000000000000000000000", on: true, nextCharge: Date.now() + 23 * 86_400_000, paidThrough: Date.now() + 23 * 86_400_000, monthsApproved: 11, balanceUsdc: 42 },
-          payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], telegram: { linked: true, username: "you" }, follow: D.follow,
+          payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], withdrawal: { done: false, deadline: Date.now() + 7 * 86_400_000, refundUsdc: 3.83 }, telegram: { linked: true, username: "you" }, follow: D.follow,
           billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
             chains: [[8453, "Base", "https://basescan.org"], [42161, "Arbitrum", "https://arbiscan.io"], [10, "Optimism", "https://optimistic.etherscan.io"], [137, "Polygon", "https://polygonscan.com"], [1, "Ethereum", "https://etherscan.io"]].map(([chainId, name, explorer]) => ({ chainId, name, explorer, nativeSymbol: chainId === 137 ? "POL" : "ETH" })) } };
       }
@@ -1078,7 +1078,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#deleteBox").hidden = me.admin || DEMO;
     renderFollow(); setupAgents();
     if (me.admin) {
-      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
+      if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
       $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
       if (!DEMO) api("GET", "/api/admin/subscription").then(renderSetup, () => {});
       return;
@@ -1102,11 +1103,42 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="msg" id="payMsg" role="status"></div>
       ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
       <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
+      ${withdrawHtml()}
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     }
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
+  }
+  // ---------- the EU right of withdrawal: a button, then a confirmation ----------
+  function withdrawHtml() {
+    const w = me.withdrawal;
+    if (!w) return "";
+    if (w.done) return `<p class="note" style="margin:0" id="withdrawDone">You withdrew from Pro on ${esc(day(w.at))}. ${w.refunded ? `Your refund of ${esc(w.refundUsdc)} USDC has been sent.` : `Your refund of ${esc(w.refundUsdc)} USDC is on its way, within 14 days of that date.`}</p>`;
+    return `<div class="withdraw" style="border-top:1px solid var(--line);padding-top:10px;display:grid;gap:6px">
+      <p class="note" style="margin:0"><b style="color:#fff">Right of withdrawal:</b> until ${esc(day(w.deadline))} you can withdraw from Pro without giving a reason. Pro ends right away and you get the unused part back: now ${esc(w.refundUsdc)} USDC, to the address you paid from. <a href="/terms#withdrawal-form" style="text-decoration:underline">Terms</a></p>
+      <div class="btns" style="margin:0"><button class="button ghost small" type="button" id="withdrawBtn">Withdraw from Pro</button></div>
+      <div class="msg" id="withdrawMsg" role="status"></div></div>`;
+  }
+  async function withdrawAction(btn) {
+    const say = (t, cls = "") => { const m = $("#withdrawMsg"); m.textContent = t; m.className = `msg ${cls}`; };
+    if (btn.dataset.confirm !== "1") {
+      btn.dataset.confirm = "1";
+      btn.textContent = "Confirm withdrawal";
+      btn.classList.replace("ghost", "primary");
+      return say(`Press again to confirm: Pro ends now and ${me.withdrawal.refundUsdc} USDC is refunded.`);
+    }
+    if (DEMO) return say("This is the demo: nothing happens. On your own account this withdraws from Pro.", "good");
+    try {
+      me = await post("/api/billing/withdraw", { confirm: "withdraw" });
+      renderAccount();
+    } catch (err) { btn.dataset.confirm = ""; btn.textContent = "Withdraw from Pro"; btn.classList.replace("primary", "ghost"); say(err.message, "bad"); }
+  }
+  function renderWithdrawals(list) {
+    const box = $("#ownerWithdrawals");
+    if (!box) return;
+    const open = list.filter((w) => !w.refundedAt);
+    box.innerHTML = !list.length ? "" : `<p class="note" style="margin:0"><b style="color:#fff">Withdrawals</b>${open.length ? ` · <span style="color:var(--amber)">${open.length} to refund</span>` : ""}</p>${list.slice(0, 10).map((w) => `<div class="paylist" style="margin:0"><div><span>${esc(day(w.at))} · ${esc(w.refundUsdc)} USDC on ${esc(w.network)} to <code>${esc(w.to.slice(0, 6))}…${esc(w.to.slice(-4))}</code></span>${w.refundedAt ? `<span class="note">refunded</span>` : `<span><button class="link" type="button" data-copy="${esc(w.to)}">Copy address</button> · <button class="link" type="button" data-refunded="${esc(w.id)}">Mark refunded</button></span>`}</div></div>`).join("")}`;
   }
   // ---------- automatic payment (the subscription contract) ----------
   const word = (v) => BigInt(v).toString(16).padStart(64, "0");
@@ -1185,6 +1217,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const cp = e.target.closest("button[data-copy]");
     if (cp) { const was = cp.textContent; const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = was; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
     if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
+    const wd = e.target.closest("#withdrawBtn");
+    if (wd) { wd.disabled = true; try { await withdrawAction(wd); } finally { if (wd.isConnected) wd.disabled = false; } return; }
+    const rf = e.target.closest("[data-refunded]");
+    if (rf) { rf.disabled = true; try { await post(`/api/admin/withdrawals/${encodeURIComponent(rf.dataset.refunded)}/refunded`, {}); renderWithdrawals((await api("GET", "/api/admin/withdrawals")).withdrawals); } catch (err) { rf.textContent = err.message; } return; }
     const del = e.target.closest("#deleteAccount");
     if (del) {
       if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = "Sure? Agents, rules, receipts and the Telegram link are deleted. Click again to delete."; return; }

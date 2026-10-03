@@ -583,6 +583,49 @@ test("delete my account: everything goes except payment records; the agent key s
   } finally { server.close(); }
 });
 
+test("right of withdrawal: within 14 days, one click plus a confirmation; Pro ends, the owner is told what to refund", async () => {
+  let t = Date.now();
+  const c = chain(() => Math.floor(t / 1000));
+  const { base, server, tg, owner, accounts } = await boot({ rpc: c.rpc, now: () => t });
+  try {
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    assert.equal((await a.call("GET", "/api/me")).body.withdrawal, null); // nothing paid, nothing to withdraw
+    await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5) });
+    t += 6 * 86_400_000;
+    const me = (await a.call("GET", "/api/me")).body;
+    assert.equal(me.plan, "pro");
+    assert.equal(me.withdrawal.done, false);
+    assert.equal(me.withdrawal.refundUsdc, 4); // 6 of 30 days used: $1
+    assert.equal((await a.call("POST", "/api/billing/withdraw", {})).status, 400); // needs the confirmation
+    const done = await a.call("POST", "/api/billing/withdraw", { confirm: "withdraw" });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.plan, "free"); // right away, no grace days
+    assert.equal(done.body.withdrawal.done, true);
+    const told = tg.calls.filter((x) => x.method === "sendMessage" && x.body.chat_id === "4242").at(-1);
+    assert.match(told.body.text, /refund 4 USDC on Base to 0x/i);
+    assert.equal((await a.call("POST", "/api/billing/withdraw", { confirm: "withdraw" })).body.withdrawal.done, true); // twice is once
+    assert.equal(await accounts.remind(), 0); // no "Pro has ended" reminders after a withdrawal
+    // The owner sees it and marks it refunded; customers can't.
+    assert.equal((await a.call("GET", "/api/admin/withdrawals")).status, 403);
+    const list = (await owner("GET", "/api/admin/withdrawals")).body.withdrawals;
+    assert.equal(list.length, 1);
+    assert.equal(list[0].refundUsdc, 4);
+    assert.equal((await owner("POST", `/api/admin/withdrawals/${list[0].id}/refunded`, { tx: "0xabc" })).status, 200);
+    assert.equal((await a.call("GET", "/api/me")).body.withdrawal.refunded, true);
+    // Paying again later is a normal new Pro period.
+    await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5) });
+    assert.equal((await a.call("GET", "/api/me")).body.plan, "pro");
+    // After 14 days the button is gone.
+    const bob = customer();
+    const b = await signInAs(base, bob);
+    await b.call("POST", "/api/billing/claim", { txHash: c.pay(bob.address, 5) });
+    t += 15 * 86_400_000;
+    assert.equal((await b.call("GET", "/api/me")).body.withdrawal, null);
+    assert.equal((await b.call("POST", "/api/billing/withdraw", { confirm: "withdraw" })).status, 409);
+  } finally { server.close(); }
+});
+
 test("privacy statement, served with the operator from the environment; fonts from this server", async () => {
   const off = await boot();
   try {
@@ -601,6 +644,9 @@ test("privacy statement, served with the operator from the environment; fonts fr
     const terms = await (await fetch(`${on.base}/terms`)).text();
     assert.ok(terms.includes("Frits &lt;Test&gt;"));
     assert.match(terms, /right of withdrawal/);
+    assert.match(terms, /Model withdrawal form/);
+    assert.match(terms, /Withdraw from Pro/);
+    assert.doesNotMatch(terms, /Address:/); // no OPERATOR_ADDRESS set: no address line
     assert.match(terms, /\$5 per 30 days/);
     assert.doesNotMatch(terms, /\{\{/);
     const dash = await (await fetch(`${on.base}/`)).text();
