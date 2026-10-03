@@ -17,6 +17,7 @@ import { createWallet, hashKey } from "./wallet.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
+import { weekOf, formatDigest } from "./digest.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -416,6 +417,18 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         } catch (err) { console.warn(`[refunds] ${err.message}`); }
       }
       return sent;
+    },
+    // The owner's weekly summary on Telegram: Monday from 9:00 Amsterdam time, once per week
+    // (remembered on the owner's record, so a restart doesn't send it twice). force: send now.
+    async weeklyDigest({ summary = null, force = false } = {}) {
+      if (!telegram || !adminChatId) return { sent: false, reason: "Telegram isn't set up for you (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)." };
+      const { monday, due } = weekOf(now());
+      const rec = (await g.getAccount(ADMIN)) ?? { id: ADMIN };
+      if (!force && (!due || rec.digestWeek === monday)) return { sent: false, reason: "not due" };
+      const text = formatDigest({ summary, refunds: await api.withdrawals(), dashboardUrl: /^https:\/\//.test(publicUrl || "") ? publicUrl : null });
+      await telegram.send(adminChatId, text);
+      if (!force) await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), digestWeek: monday });
+      return { sent: true, text };
     },
     // For the owner: withdrawals and whether they've been refunded.
     async withdrawals() {

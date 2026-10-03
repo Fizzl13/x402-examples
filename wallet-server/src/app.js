@@ -222,6 +222,14 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!stats) return res.status(503).json({ error: "unavailable", message: "Statistics are not set up on this server." });
     res.json(await stats.summary(Number(req.query.days) || 30));
   }));
+  // The weekly summary on Telegram, now (it also goes out by itself on Monday morning).
+  owner.post("/admin/digest", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    const summary = stats?.enabled ? await stats.summary(7).catch(() => null) : null;
+    const r = await accounts.weeklyDigest({ summary, force: true });
+    if (!r.sent) return res.status(409).json({ error: "not_sent", message: r.reason });
+    res.json(r);
+  }));
   owner.get("/admin/subscription", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
     res.json(await accounts.subscriptionSetup());
