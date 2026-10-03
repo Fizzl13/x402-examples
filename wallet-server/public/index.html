@@ -1111,28 +1111,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
   }
   // ---------- the EU right of withdrawal: a button, then a confirmation ----------
+  // The withdrawal itself is on the terms page (/terms#withdraw); here only a quiet link while it's possible.
   function withdrawHtml() {
     const w = me.withdrawal;
-    if (!w) return "";
-    if (w.done) return `<p class="note" style="margin:0" id="withdrawDone">You withdrew from Pro on ${esc(day(w.at))}. ${w.refunded ? `Your refund of ${esc(w.refundUsdc)} USDC has been sent.` : `Your refund of ${esc(w.refundUsdc)} USDC is on its way, within 14 days of that date.`}</p>`;
-    return `<div class="withdraw" style="border-top:1px solid var(--line);padding-top:10px;display:grid;gap:6px">
-      <p class="note" style="margin:0"><b style="color:#fff">Right of withdrawal:</b> until ${esc(day(w.deadline))} you can withdraw from Pro without giving a reason. Pro ends right away and you get the unused part back: now ${esc(w.refundUsdc)} USDC, to the address you paid from. <a href="/terms#withdrawal-form" style="text-decoration:underline">Terms</a></p>
-      <div class="btns" style="margin:0"><button class="button ghost small" type="button" id="withdrawBtn">Withdraw from Pro</button></div>
-      <div class="msg" id="withdrawMsg" role="status"></div></div>`;
-  }
-  async function withdrawAction(btn) {
-    const say = (t, cls = "") => { const m = $("#withdrawMsg"); m.textContent = t; m.className = `msg ${cls}`; };
-    if (btn.dataset.confirm !== "1") {
-      btn.dataset.confirm = "1";
-      btn.textContent = "Confirm withdrawal";
-      btn.classList.replace("ghost", "primary");
-      return say(`Press again to confirm: Pro ends now and ${me.withdrawal.refundUsdc} USDC is refunded.`);
-    }
-    if (DEMO) return say("This is the demo: nothing happens. On your own account this withdraws from Pro.", "good");
-    try {
-      me = await post("/api/billing/withdraw", { confirm: "withdraw" });
-      renderAccount();
-    } catch (err) { btn.dataset.confirm = ""; btn.textContent = "Withdraw from Pro"; btn.classList.replace("primary", "ghost"); say(err.message, "bad"); }
+    if (!w || (w.done && w.refunded)) return "";
+    return `<p class="note" style="margin:0">${w.done ? `You withdrew from Pro on ${esc(day(w.at))}; ${esc(w.refundUsdc)} USDC is on its way.` : `<a href="/terms#withdraw" style="color:inherit;text-decoration:underline">Withdraw from contract</a> (until ${esc(day(w.deadline))})`}</p>`;
   }
   function renderWithdrawals(list) {
     const box = $("#ownerWithdrawals");
@@ -1217,8 +1200,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const cp = e.target.closest("button[data-copy]");
     if (cp) { const was = cp.textContent; const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = was; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
     if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
-    const wd = e.target.closest("#withdrawBtn");
-    if (wd) { wd.disabled = true; try { await withdrawAction(wd); } finally { if (wd.isConnected) wd.disabled = false; } return; }
     const rf = e.target.closest("[data-refunded]");
     if (rf) { rf.disabled = true; try { await post(`/api/admin/withdrawals/${encodeURIComponent(rf.dataset.refunded)}/refunded`, {}); renderWithdrawals((await api("GET", "/api/admin/withdrawals")).withdrawals); } catch (err) { rf.textContent = err.message; } return; }
     const del = e.target.closest("#deleteAccount");

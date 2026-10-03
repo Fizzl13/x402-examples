@@ -88,8 +88,41 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <ul>
     <li>You can stop Pro at any time: just don't pay again, or turn off automatic payment. You can delete your account on the dashboard. There are no refunds for the rest of a period you paid for, except as below or where the law requires it.</li>
     <li><b>Consumers in the EU:</b> by paying, you ask us to start Pro right away. You can still withdraw within 14 days of your first Pro payment, without giving a reason. Pro then ends right away and you're on Free; nothing is deleted. We refund the part of what you paid that you haven't used yet (pro rata, $5 per 30 days), in USDC to the address you paid from, within 14 days.</li>
-    <li><b>How to withdraw:</b> on the dashboard, open <i>Account</i> and press <b>Withdraw from Pro</b>, then confirm. You get a confirmation on the screen (and on Telegram, if connected). If automatic payment is on, turn it off first; it lives on-chain, so only your wallet can stop it. You can also withdraw by e-mail to {{CONTACT}}, for example with the form below. Either way, it's on time if you send it within the 14 days.</li>
+    <li><b>How to withdraw:</b> use the <b>Withdraw from contract</b> button below, while signed in, then confirm. You get a confirmation on the screen (and on Telegram, if connected). If automatic payment is on, turn it off first; it lives on-chain, so only your wallet can stop it. You can also withdraw by e-mail to {{CONTACT}}, for example with the form below. Either way, it's on time if you send it within the 14 days.</li>
   </ul>
+  <div class="box" id="withdraw" style="margin-bottom:14px">
+    <p style="margin:0 0 8px"><b>Withdraw from contract</b></p>
+    <p class="note" id="wdText" style="margin:0 0 10px">Sign in on the <a href="/">dashboard</a> first, then come back to this page.</p>
+    <button type="button" id="wdBtn" hidden style="font:700 13px/1 'DM Sans',Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:12px 18px;border-radius:999px;border:1px solid var(--mint);background:transparent;color:var(--mint);cursor:pointer">Withdraw from contract</button>
+    <p class="note" id="wdMsg" role="status" style="margin:8px 0 0"></p>
+  </div>
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id), day = (t) => new Date(t).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+    const show = (me) => {
+      const w = me.withdrawal, b = $("wdBtn");
+      b.hidden = true;
+      if (!w) return void ($("wdText").textContent = "There's nothing to withdraw from: no Pro payment in the last 14 days on this account.");
+      if (w.done) return void ($("wdText").textContent = `You withdrew from Pro on ${day(w.at)}. ${w.refunded ? `Your refund of ${w.refundUsdc} USDC has been sent.` : `Your refund of ${w.refundUsdc} USDC is on its way, within 14 days of that date.`}`);
+      $("wdText").textContent = `Until ${day(w.deadline)} you can withdraw from Pro without giving a reason. Pro ends right away and you get the unused part back: now ${w.refundUsdc} USDC, to ${me.address.slice(0, 6)}…${me.address.slice(-4)}, the address you paid from.`;
+      b.hidden = false;
+    };
+    fetch("/api/me", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((me) => { if (me && !me.admin) show(me); }, () => {});
+    $("wdBtn").addEventListener("click", async () => {
+      const b = $("wdBtn");
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm withdrawal"; $("wdMsg").textContent = "Press again to confirm: Pro ends now and the amount above is refunded."; return; }
+      b.disabled = true;
+      try {
+        const r = await fetch("/api/billing/withdraw", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: "withdraw" }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.message || d.error || `HTTP ${r.status}`);
+        $("wdMsg").textContent = "Done. We've received your withdrawal.";
+        show(d);
+      } catch (err) { $("wdMsg").textContent = err.message; b.dataset.confirm = ""; b.textContent = "Withdraw from contract"; }
+      finally { b.disabled = false; }
+    });
+  })();
+  </script>
   <div class="box" id="withdrawal-form">
     <p><b>Model withdrawal form</b> (only fill in and send this form if you want to withdraw from the contract)</p>
     <p>To: {{OPERATOR}}, trading as Fizzl{{ADDRESS_COMMA}}, {{CONTACT}}<br>

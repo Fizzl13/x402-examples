@@ -645,7 +645,7 @@ test("privacy statement, served with the operator from the environment; fonts fr
     assert.ok(terms.includes("Frits &lt;Test&gt;"));
     assert.match(terms, /right of withdrawal/);
     assert.match(terms, /Model withdrawal form/);
-    assert.match(terms, /Withdraw from Pro/);
+    assert.match(terms, /id="withdraw"/); // the withdrawal button lives on the terms page
     assert.doesNotMatch(terms, /Address:/); // no OPERATOR_ADDRESS set: no address line
     assert.match(terms, /\$5 per 30 days/);
     assert.doesNotMatch(terms, /\{\{/);
