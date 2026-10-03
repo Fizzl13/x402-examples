@@ -68,7 +68,7 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 #app[data-tab] section[data-tab] { display: none; }
 #app .section { padding-block: 28px; }
 #app h2 { font-size: clamp(28px, 3.4vw, 44px); margin-bottom: 20px; }
-#app[data-tab="overview"] section[data-tab="overview"], #app[data-tab="find"] section[data-tab="find"], #app[data-tab="agents"] section[data-tab="agents"], #app[data-tab="purchases"] section[data-tab="purchases"], #app[data-tab="account"] section[data-tab="account"]:not([hidden]) { display: block; }
+#app[data-tab="overview"] section[data-tab="overview"], #app[data-tab="find"] section[data-tab="find"], #app[data-tab="agents"] section[data-tab="agents"], #app[data-tab="purchases"] section[data-tab="purchases"], #app[data-tab="account"] section[data-tab="account"]:not([hidden]), #app[data-tab="stats"] section[data-tab="stats"] { display: block; }
 #app[data-tab="overview"] section.overview { display: grid; }
 @media (max-width: 600px) {
   .tabs { position: fixed; top: auto; bottom: 0; left: 0; right: 0; margin: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)); justify-content: space-around; border-bottom: 0; border-top: 1px solid var(--line); background: rgba(2,7,8,.94); }
@@ -84,6 +84,48 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .overview .stat:hover { border-color: var(--mint); }
 .overview .actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
 @media (max-width: 760px) { .overview { grid-template-columns: 1fr 1fr; } .overview .day { grid-column: 1 / -1; } }
+/* Stats (owner only): hero numbers, one small column chart per measure, the funnel, tables */
+.statsbar { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; color: var(--soft); font: 700 11px/1 var(--body); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--mint); color: #02100c; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { padding: 16px 18px; display: grid; gap: 4px; }
+.kpi b { font: 700 34px/1 var(--display); color: var(--text); font-variant-numeric: tabular-nums; }
+.kpi small { color: var(--muted); font-size: 12px; }
+.kpi .up { color: var(--mint); } .kpi .down { color: var(--rose); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.chart { padding: 16px 18px; display: grid; gap: 8px; position: relative; }
+.chart header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.chart header b { color: var(--text); font-size: 14px; }
+.chart header span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart .plot { position: relative; padding-left: 40px; }
+.chart .plot .ymax, .chart .plot .yzero { position: absolute; left: 0; width: 34px; text-align: right; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart .plot .ymax { top: -2px; } .chart .plot .yzero { bottom: -4px; }
+.chart .xlab { display: flex; justify-content: space-between; padding-left: 40px; color: var(--muted); font-size: 10px; }
+.chart svg { width: 100%; height: 110px; display: block; }
+.chart svg .grid { stroke: rgba(244,248,247,.10); stroke-width: 1; }
+.chart svg .tick { fill: var(--muted); font: 10px var(--body); }
+.chart svg .bar { fill: #22a87c; }
+.chart svg g.col:hover .bar, .chart svg g.col:focus .bar { fill: #61f5c3; }
+.chart svg g.col { outline: none; }
+.tip { position: absolute; pointer-events: none; background: #0b1f1c; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--text); white-space: nowrap; transform: translate(-50%, -110%); z-index: 2; }
+.tip small { color: var(--muted); display: block; }
+.chart details summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.chart details table, .stable table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart details td, .stable td, .stable th { padding: 4px 6px; border-bottom: 1px solid rgba(244,248,247,.06); text-align: left; }
+.stable th { color: var(--muted); font-weight: 600; } .stable td:last-child, .stable th:last-child { text-align: right; }
+.funnel { padding: 16px 18px; display: grid; gap: 8px; margin-bottom: 14px; }
+.funnel .frow { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 90px; gap: 10px; align-items: center; font-size: 13px; }
+.funnel .frow span:first-child { color: var(--soft); }
+.funnel .track { height: 14px; border-radius: 0 4px 4px 0; background: rgba(244,248,247,.05); position: relative; }
+.funnel .track i { position: absolute; inset: 0 auto 0 0; background: #22a87c; border-radius: 0 4px 4px 0; min-width: 2px; }
+.funnel .frow em { font-style: normal; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.funnel .frow em small { color: var(--muted); }
+.stables { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.stable { padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
+.snote { padding: 14px 16px; margin-bottom: 14px; border-color: var(--amber); display: grid; gap: 8px; }
+@media (max-width: 760px) { .kpis { grid-template-columns: 1fr 1fr; } .funnel .frow { grid-template-columns: minmax(0, 1fr) 70px; } .funnel .track { grid-column: 1 / -1; grid-row: 2; } }
 /* agents: the explanation folds away */
 .howto { margin-top: 20px; border: 1px dashed var(--line); border-radius: 16px; padding: 12px 16px; }
 .howto > summary { cursor: pointer; color: var(--mint); font: 700 11px/1.4 var(--body); letter-spacing: 2px; text-transform: uppercase; list-style: none; }
@@ -385,6 +427,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <button type="button" role="tab" data-go="agents" aria-selected="false"><span class="ti" aria-hidden="true">◎</span><span>Agents</span></button>
       <button type="button" role="tab" data-go="purchases" aria-selected="false"><span class="ti" aria-hidden="true">≡</span><span>Purchases</span></button>
       <button type="button" role="tab" data-go="account" aria-selected="false"><span class="ti" aria-hidden="true">◐</span><span>Account</span></button>
+      <button type="button" role="tab" data-go="stats" aria-selected="false" id="statsTab" hidden><span class="ti" aria-hidden="true">▤</span><span>Stats</span></button>
     </nav>
 
     <section class="overview" id="overviewSec" data-tab="overview">
@@ -527,6 +570,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="rows" id="events"></div>
     </section>
 
+    <section class="section" id="statsSec" data-tab="stats">
+      <div class="eyebrow"><i></i>STATS <span style="color:var(--dim)">/</span> ONLY YOU SEE THIS</div>
+      <div class="statsbar"><h2 style="margin:0">YOUR NUMBERS.<br><span>WEBSITE TO PRO.</span></h2>
+        <div class="seg" role="group" aria-label="Period"><button type="button" data-days="7" aria-pressed="false">7 days</button><button type="button" data-days="30" aria-pressed="true">30 days</button></div></div>
+      <div id="statsOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
+    </section>
+
     <section class="section" id="accountSec" data-tab="account" hidden>
       <div class="eyebrow"><i></i>06 / YOUR ACCOUNT</div>
       <div class="account">
@@ -544,6 +594,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 (() => {
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // Which Fizzl site sent the visitor here (?ref=fizzl.eu), kept for this tab only and sent once at sign-up.
+  { const r = new URLSearchParams(location.search).get("ref"); if (r && /^([a-z0-9-]+\.)?fizzl\.eu$/i.test(r)) { try { sessionStorage.setItem("aw_ref", r.toLowerCase()); } catch {} } }
+  const signupRef = () => { try { return sessionStorage.getItem("aw_ref") || undefined; } catch { return undefined; } };
   const STEPS = [0, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 100];
   const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -558,12 +611,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   };
 
   // ---------- tabs: Overview · Find · Agents · Purchases · Account (the address bar keeps the tab: #/find) ----------
-  const TABS = ["overview", "find", "agents", "purchases", "account"];
+  const TABS = ["overview", "find", "agents", "purchases", "account", "stats"];
   function showTab(tab, { push = true } = {}) {
     if (!TABS.includes(tab)) tab = "overview";
     $("#app").dataset.tab = tab;
     document.querySelectorAll("#tabs [data-go]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.go === tab)));
     if (push && location.hash !== `#/${tab}`) history.replaceState(null, "", `${location.pathname}${location.search}#/${tab}`);
+    if (tab === "stats") setTimeout(() => loadStats(), 0); // after the page script has run
   }
   // Show the tab an element lives in (for links like "Needs you", the plan badge, "Test my setup").
   function reveal(el) { const sec = el?.closest("section[data-tab]"); if (sec) showTab(sec.dataset.tab); }
@@ -807,7 +861,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const address = publicKey.toString();
       const { nonce, message } = await post("/api/signin/message", { address, chain: "solana" });
       const { signature } = await sol.signMessage(new TextEncoder().encode(message), "utf8");
-      await post("/api/signin", { nonce, signature: b58(signature) });
+      await post("/api/signin", { nonce, signature: b58(signature), ref: signupRef() });
       try { localStorage.setItem("aw_wallet", "solana:phantom"); } catch {}
       start();
     } catch (err) { $("#walletErr").textContent = walletError(err); }
@@ -874,7 +928,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const [address] = await eth.request({ method: "eth_requestAccounts" });
       const { nonce, message } = await post("/api/signin/message", { address });
       const signature = await eth.request({ method: "personal_sign", params: [hexUtf8(message), address] });
-      await post("/api/signin", { nonce, signature });
+      await post("/api/signin", { nonce, signature, ref: signupRef() });
       try { localStorage.setItem("aw_wallet", w.info.rdns); } catch {}
       start();
     } catch (err) { $("#walletErr").textContent = walletError(err); }
@@ -1010,6 +1064,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       : `<a href="#accountSec" class="plan-badge ${me.plan === "free" ? "free" : ""}" style="text-decoration:none">${esc(me.plan)}</a>`}`;
     $("#accountSec").hidden = false;
     $("#footAccount").hidden = false;
+    $("#statsTab").hidden = !me.admin;
+    if (!me.admin && $("#app").dataset.tab === "stats") showTab("overview");
+    if (me.admin && $("#app").dataset.tab === "stats") loadStats();
     // The buy button in the footer (like + Add agent at the top): Pro for $5, or 30 more days.
     const canBuy = !me.admin && !!me.billing;
     $("#footBuy").hidden = !canBuy;
@@ -1401,6 +1458,97 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       renderFollow();
     } catch (err) { $("#followMsg").textContent = err.message; $("#followMsg").className = "msg bad"; }
   });
+
+  // ---------- Stats (owner only): the website, the wallet and the four services, from the usage log ----------
+  let statsDays = 30, statsBusy = false;
+  const n0 = (v) => (Number(v) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const shortDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString([], { day: "numeric", month: "short" });
+  // A clean axis top: 1, 2, 5 × 10^n at or above the largest value.
+  const niceMax = (m) => { if (m <= 0) return 1; const p = 10 ** Math.floor(Math.log10(m)); for (const f of [1, 2, 5, 10]) if (f * p >= m) return f * p; return 10 * p; };
+  function columnChart(title, values, days, { money = false } = {}) {
+    // The svg is stretched to the card's width (preserveAspectRatio none), so it holds only marks and
+    // hairlines; the axis labels are HTML around it and never get distorted.
+    const W = 600, H = 100, max = niceMax(Math.max(...values)), slot = W / values.length, bw = Math.min(24, Math.max(2, slot - 2));
+    const fmt = (v) => (money ? `$${n0(v)}` : n0(v));
+    const total = values.reduce((a, b) => a + b, 0);
+    const y = (v) => H - (v / max) * (H - 4);
+    const cols = values.map((v, i) => {
+      const x = i * slot + (slot - bw) / 2, top = y(v), h = H - top, r = Math.min(4, h, bw / 2);
+      const d = h <= 0 ? "" : `M${x},${H} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${H} Z`;
+      return `<g class="col" tabindex="0" data-tip="${esc(shortDay(days[i]))}|${esc(fmt(v))}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/>${d ? `<path class="bar" d="${d}"/>` : ""}</g>`;
+    }).join("");
+    return `<article class="card chart"><header><b>${esc(title)}</b><span>${esc(fmt(total))} in ${days.length} days</span></header>
+      <div class="plot"><span class="ymax">${esc(fmt(max))}</span><span class="yzero">0</span>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(title)} per day, ${esc(fmt(total))} in total"><line class="grid" x1="0" x2="${W}" y1="${y(max)}" y2="${y(max)}" vector-effect="non-scaling-stroke"/><line class="grid" x1="0" x2="${W}" y1="${H}" y2="${H}" vector-effect="non-scaling-stroke"/>${cols}</svg></div>
+      <div class="xlab"><span>${esc(shortDay(days[0]))}</span><span>${esc(shortDay(days.at(-1)))}</span></div><div class="tip" hidden></div>
+      <details><summary>Show as table</summary><table>${days.map((d, i) => `<tr><td>${esc(shortDay(d))}</td><td style="text-align:right">${esc(fmt(values[i]))}</td></tr>`).join("")}</table></details></article>`;
+  }
+  // The svg is stretched to the card width, so bars are paths (crisp at any width) and the tooltip follows the pointer.
+  $("#statsOut").addEventListener("pointermove", (e) => {
+    const col = e.target.closest?.("g.col"), card = e.target.closest?.(".chart"); if (!card) return;
+    const tip = card.querySelector(".tip");
+    if (!col) { tip.hidden = true; return; }
+    const [d, v] = col.dataset.tip.split("|"), box = card.getBoundingClientRect(), r = col.getBoundingClientRect();
+    tip.innerHTML = `<small>${esc(d)}</small>${esc(v)}`; tip.hidden = false;
+    tip.style.left = `${Math.min(Math.max(r.left + r.width / 2 - box.left, 50), box.width - 50)}px`; tip.style.top = `${r.top - box.top + 20}px`;
+  });
+  $("#statsOut").addEventListener("pointerleave", () => document.querySelectorAll("#statsOut .tip").forEach((t) => { t.hidden = true; }), true);
+  $("#statsOut").addEventListener("focusin", (e) => { const col = e.target.closest?.("g.col"); if (col) col.dispatchEvent(new PointerEvent("pointermove", { bubbles: true })); });
+  const tableCard = (title, rows, head = "Count", money = false) => `<article class="card stable"><span class="tag">${esc(title)}</span>${rows.length ? `<table><tr><th></th><th>${esc(head)}</th></tr>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(money ? `$${n0(v)}` : n0(v))}</td></tr>`).join("")}</table>` : `<p class="note" style="margin:0">Nothing yet.</p>`}</article>`;
+  function deltaTxt(now, before, money = false) {
+    if (!before && !now) return `<small>no data yet</small>`;
+    const d = now - before;
+    return `<small><span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "="} ${esc(money ? `$${n0(Math.abs(d))}` : n0(Math.abs(d)))}</span> vs the ${statsDays} days before</small>`;
+  }
+  async function loadStats() {
+    if (statsBusy || !me?.admin) return;
+    statsBusy = true;
+    document.querySelectorAll("#statsSec .seg button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.days) === statsDays)));
+    const out = $("#statsOut");
+    if (!out.dataset.loaded) out.innerHTML = `<p class="note">Reading the usage log…</p>`;
+    try {
+      const s = await api("GET", `/api/admin/stats?days=${statsDays}`);
+      const k = s.kpi, p = s.prev, rev = k.serviceUsd + k.proUsd, prevRev = p.serviceUsd + p.proUsd;
+      const notes = [
+        !s.logging.site ? `<b>The website counter hasn't counted anything yet.</b> It is in the pages of fizzl.eu and its subdomains once those are deployed: <code>&lt;script defer src="https://wallet.fizzl.eu/s.js"&gt;&lt;/script&gt;</code>` : "",
+        !s.logging.wallet ? `<b>No wallet events yet.</b> Set <code>USAGE_LOG_TOKEN</code> on fizzl-wallet-server in Render (the same token as the other services).` : "",
+      ].filter(Boolean);
+      const top = s.funnel[0][1] || 0;
+      out.innerHTML = `${notes.length ? `<div class="card snote">${notes.map((n) => `<p class="note" style="margin:0">${n}</p>`).join("")}</div>` : ""}
+        <div class="kpis">
+          <article class="card kpi"><span class="tag">WEBSITE VISITS</span><b>${esc(n0(k.siteViews))}</b>${deltaTxt(k.siteViews, p.siteViews)}</article>
+          <article class="card kpi"><span class="tag">WALLET SIGN-UPS</span><b>${esc(n0(k.signups))}</b>${deltaTxt(k.signups, p.signups)}</article>
+          <article class="card kpi"><span class="tag">PURCHASES BY AGENTS</span><b>${esc(n0(k.purchases))}</b>${deltaTxt(k.purchases, p.purchases)}</article>
+          <article class="card kpi"><span class="tag">REVENUE</span><b>$${esc(n0(rev))}</b>${deltaTxt(rev, prevRev, true)}<small>services $${esc(n0(k.serviceUsd))} · Pro $${esc(n0(k.proUsd))}</small></article>
+        </div>
+        <article class="card funnel"><span class="tag">FROM THE WEBSITE TO PRO · ${esc(shortDay(s.from))} – ${esc(shortDay(s.to))}</span>
+          ${s.funnel.map(([label, v]) => `<div class="frow"><span>${esc(label)}</span><span class="track" aria-hidden="true"><i style="width:${top ? Math.max(0.5, (v / top) * 100) : 0}%"></i></span><em>${esc(n0(v))}${top && v !== top ? ` <small>${esc(Math.round((v / top) * 1000) / 10)}%</small>` : ""}</em></div>`).join("")}
+          <p class="note" style="margin:0">A sign-up counts as "from the website" when the visitor came through a link on fizzl.eu or a subdomain. No cookies: the site's name travels in the link, nothing about the person.</p>
+        </article>
+        <div class="charts">
+          ${columnChart("Website visits", s.series.siteViews, s.dayKeys)}
+          ${columnChart("Wallet sign-ups", s.series.signups, s.dayKeys)}
+          ${columnChart("Purchases by agents in the wallet", s.series.purchases, s.dayKeys)}
+          ${columnChart("Paid calls to your 4 services", s.series.paidCalls, s.dayKeys)}
+          ${columnChart("Revenue (services + Pro)", s.series.revenue, s.dayKeys, { money: true })}
+        </div>
+        <article class="card stable" style="margin-bottom:14px"><span class="tag">YOUR 4 SERVICES · OUTSIDE USE</span>
+          <table><tr><th>Service</th><th>Paid calls</th><th>Revenue</th><th>Price shown (402)</th><th>Payers</th><th>Visitors</th></tr>
+          ${s.services.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(n0(x.paid))}</td><td>$${esc(n0(x.usd))}</td><td>${esc(n0(x.quotes))}</td><td>${esc(n0(x.payers))}</td><td>${esc(n0(x.visitors))}</td></tr>`).join("")}</table>
+          <p class="note" style="margin:0">Your own wallets and monitors are left out (scripts/known.json in the usage log).</p></article>
+        <div class="stables">
+          ${tableCard("Top pages", s.tables.pages, "Views")}
+          ${tableCard("Clicks from the website", s.tables.out, "Clicks")}
+          ${tableCard("Where agents bought", s.tables.hosts, "Purchases")}
+          ${tableCard("Searches in the wallet", s.tables.searches, "Searches")}
+          ${tableCard("Searches that found nothing", s.tables.noResults, "Searches")}
+          ${tableCard("Test my setup: what fails", s.tables.setupFails, "Times")}
+        </div>`;
+      out.dataset.loaded = "1";
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<div class="card snote"><p class="note" style="margin:0">${esc(err.message)}</p></div>`; }
+    finally { statsBusy = false; }
+  }
+  $("#statsSec").addEventListener("click", (e) => { const b = e.target.closest(".seg button[data-days]"); if (!b) return; statsDays = Number(b.dataset.days); loadStats(); });
 
   // Purchases: what the agents bought, newest first, each opening its receipt.
   let buys = [];

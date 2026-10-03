@@ -25,6 +25,8 @@ export function agentOf(userAgent) {
   return (ua.split(/[\s;(]/)[0] || ua).slice(0, 60);
 }
 // The host a purchase went to (from the URL the agent named), or null.
+// A Fizzl site (fizzl.eu or one of its subdomains) given as where someone came from, or undefined.
+export const fizzlSite = (v) => (typeof v === "string" && /^([a-z0-9-]+\.)?fizzl\.eu$/i.test(v) ? v.toLowerCase() : undefined);
 export const hostOf = (url) => { try { const u = new URL(url); return /^https?:$/.test(u.protocol) ? u.hostname : null; } catch { return null; } };
 
 export function createUsage({ token = null, repo = "Fizzl13/usage-log", salt = null, ownWallets = [], fetch: fetchImpl = globalThis.fetch, now = () => new Date(), log = console, batchMs = 3000 } = {}) {
@@ -59,7 +61,7 @@ export function createUsage({ token = null, repo = "Fizzl13/usage-log", salt = n
       if (batchMs) await new Promise((ok) => setTimeout(ok, batchMs).unref?.());
       while (queue.length) {
         const byFile = new Map();
-        for (const e of queue.splice(0)) { const p = `events/wallet/${e.t.slice(0, 10)}.jsonl`; if (!byFile.has(p)) byFile.set(p, []); byFile.get(p).push(JSON.stringify(e)); }
+        for (const e of queue.splice(0)) { const p = `events/${e.service}/${e.t.slice(0, 10)}.jsonl`; if (!byFile.has(p)) byFile.set(p, []); byFile.get(p).push(JSON.stringify(e)); }
         for (const [p, lines] of byFile) { try { await append(p, lines); } catch (err) { log.error(`[usage] ${err.message}; ${lines.length} event(s) dropped`); } }
       }
     })().finally(() => { flushing = null; if (queue.length) flush(); });
@@ -69,9 +71,10 @@ export function createUsage({ token = null, repo = "Fizzl13/usage-log", salt = n
   return {
     enabled: Boolean(token),
     // record("purchase", { account, via, agent, input, result }): what happened, never who.
-    record(route, { account = null, via = undefined, agent = undefined, input = undefined, result = undefined, usd = undefined } = {}) {
+    // service "site" is the website counter (events/site/); ref is the Fizzl site an account came from.
+    record(route, { account = null, via = undefined, agent = undefined, input = undefined, result = undefined, usd = undefined, ref = undefined, service = "wallet" } = {}) {
       if (!token) return;
-      const e = { t: now().toISOString(), service: "wallet", route, via, acct: code(account), ...(account && isOwn(account) ? { own: true } : {}), agent, status: 200, paid: false, usd, input: clean(input), result: clean(result) };
+      const e = { t: now().toISOString(), service, route, via, acct: code(account), ...(account && isOwn(account) ? { own: true } : {}), agent, ref, status: 200, paid: false, usd, input: clean(input), result: clean(result) };
       queue.push(Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined)));
       if (queue.length > 2000) queue.splice(0, queue.length - 2000);
       flush();
