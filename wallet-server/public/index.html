@@ -422,11 +422,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           </div>
           <div><span class="tag">OPEN IN YOUR WALLET APP</span><div class="mw-links" id="mwApps"></div></div>
           <div><span class="tag">NO WALLET YET?</span><div class="mw-links">
-            <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer">MetaMask</a>
-            <a href="https://www.coinbase.com/wallet/downloads" target="_blank" rel="noopener noreferrer">Coinbase Wallet</a>
-            <a href="https://rabby.io/" target="_blank" rel="noopener noreferrer">Rabby</a>
-            <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer">Phantom</a>
-            <a href="https://trustwallet.com/download" target="_blank" rel="noopener noreferrer">Trust Wallet</a>
+            <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer"><img src="/icons/metamask.svg" alt="">MetaMask</a>
+            <a href="https://www.coinbase.com/wallet/downloads" target="_blank" rel="noopener noreferrer"><img src="/icons/coinbase.svg" alt="">Coinbase Wallet</a>
+            <a href="https://rabby.io/" target="_blank" rel="noopener noreferrer"><img src="/icons/rabby.svg" alt="">Rabby</a>
+            <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer"><img src="/icons/phantom.svg" alt="">Phantom</a>
+            <a href="https://trustwallet.com/download" target="_blank" rel="noopener noreferrer"><img src="/icons/trust.svg" alt="">Trust Wallet</a>
           </div><p class="note" style="margin:6px 0 0">Install one, reload this page, and it shows up above. Use a separate wallet for your agents, never your savings.</p></div>
         </div>
         <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom on Ethereum or Solana, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base or Solana.</p>
@@ -930,6 +930,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   const allWallets = () => [...wallets.values(), ...fallbackWallets()];
   const safeIcon = (i) => (typeof i === "string" && /^data:image\/(svg\+xml|png|webp|jpeg|gif)[;,]/.test(i) ? i : null);
+  // Our own copy of the big wallets' logos, for wallets that don't send an icon themselves.
+  const walletLogo = (name) => { const n = String(name || "").toLowerCase(); const id = n.includes("metamask") ? "metamask" : n.includes("phantom") ? "phantom" : n.includes("coinbase") ? "coinbase" : n.includes("trust") ? "trust" : n.includes("rabby") ? "rabby" : n.includes("okx") ? "okx" : null; return id ? `/icons/${id}.svg` : null; };
   function renderWallets() {
     const list = allWallets();
     const sol = solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1"><img src="/icons/phantom.svg" alt="">Connect Phantom (Solana)</button>` : "";
@@ -939,7 +941,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ? `<a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}"><img src="/icons/metamask.svg" alt="">Open in the MetaMask app</a><a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}"><img src="/icons/phantom.svg" alt="">Open in the Phantom app</a>`
       : "";
     $("#walletList").innerHTML = sol + apps + (list.length
-      ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : /phantom/i.test(w.info.name) ? `<img src="/icons/phantom.svg" alt="">` : /metamask/i.test(w.info.name) ? `<img src="/icons/metamask.svg" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
+      ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : walletLogo(w.info.name) ? `<img src="${walletLogo(w.info.name)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
       : apps ? `<p class="note" style="margin:0">Your wallet app has its own browser: these buttons open this page there, so you can sign in. Another app? See "Other wallets".</p>`
       : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`);
   }
@@ -960,7 +962,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     p.hidden = !open;
     $("#moreWallets").setAttribute("aria-expanded", String(open));
     if (open) {
-      const logo = { MetaMask: "metamask", Phantom: "phantom" };
+      const logo = { MetaMask: "metamask", Phantom: "phantom", "Coinbase Wallet": "coinbase", "Trust Wallet": "trust", "OKX Wallet": "okx" };
       $("#mwApps").innerHTML = walletAppLinks().map(([n, h]) => `<a href="${esc(h)}" rel="noopener noreferrer">${logo[n] ? `<img src="/icons/${logo[n]}.svg" alt="">` : ""}${esc(n)}</a>`).join("");
       $("#mwQr").hidden = isPhone; // on a phone the app links are the way; the QR is for computers
     }
