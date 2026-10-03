@@ -4,18 +4,19 @@
 // to /telegram/webhook. Every request works only on its own account.
 import express from "express";
 import { PAY_CHAINS } from "./accounts.js";
-import { noUsage, agentOf } from "./usage.js";
+import { noUsage, agentOf, fizzlSite } from "./usage.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
+const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -115,6 +116,24 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // The dashboard tells which buttons people use on search results (Connect, one request, website, a Fizzl
   // service, a new provider): only the kind of button, where, and the seller's host name.
   const CLICKS = new Set(["connect", "request", "website", "all_services", "fizzl_connect", "fizzl_request", "skill_line"]);
+  // The visitor counter on fizzl.eu and its subdomains (public/s.js): a page view, or a click to the
+  // wallet or a service. No cookies, no IP address, nothing about the visitor; Do Not Track is respected.
+  const siteOrigin = (o) => { try { const u = new URL(o); return u.protocol === "https:" && fizzlSite(u.hostname) ? u.hostname : null; } catch { return null; } };
+  app.options("/api/public/usage/site", (req, res) => {
+    const site = siteOrigin(req.get("origin"));
+    if (site) res.set({ "access-control-allow-origin": `https://${site}`, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type", "access-control-max-age": "86400", vary: "origin" });
+    res.status(204).end();
+  });
+  app.post("/api/public/usage/site", express.text({ type: "*/*", limit: "2kb" }), slowDown, (req, res) => {
+    const site = siteOrigin(req.get("origin"));
+    if (site) res.set({ "access-control-allow-origin": `https://${site}`, vary: "origin" });
+    let b = {};
+    try { b = typeof req.body === "string" ? JSON.parse(req.body) : req.body ?? {}; } catch {}
+    const path = typeof b.path === "string" && /^\/[\w\-./%~]*$/.test(b.path) ? b.path.slice(0, 120) : "/";
+    const to = typeof b.to === "string" && /^[a-z0-9.-]{1,120}$/i.test(b.to) ? b.to.toLowerCase() : undefined;
+    if (site && (b.kind === "view" || (b.kind === "out" && to))) usage.record(b.kind, { service: "site", via: site, agent: agentOf(req.get("user-agent")), input: { site, path, to } });
+    res.status(204).end();
+  });
   app.post("/api/public/usage/click", slowDown, (req, res) => {
     const kind = req.body?.kind, host = typeof req.body?.host === "string" && /^[a-z0-9.-]{1,120}$/i.test(req.body.host) ? req.body.host.toLowerCase() : undefined;
     const from = ["search", "new", "fizzl", "agents"].includes(req.body?.from) ? req.body.from : undefined;
@@ -138,7 +157,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   }));
   app.post("/api/signin", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
-    const id = await accounts.signIn(req.body?.nonce, req.body?.signature);
+    const id = await accounts.signIn(req.body?.nonce, req.body?.signature, { ref: req.body?.ref });
     res.set("set-cookie", auth.sessionFor(id)).json({ ok: true });
   }));
   app.post("/api/logout", (_req, res) => res.set("set-cookie", auth.logoutCookie()).json({ ok: true }));
@@ -182,6 +201,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.set("set-cookie", auth.logoutCookie()).json({ ok: true });
   }));
   owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
+  // The owner's Stats tab: the website, the wallet and the four services, from the usage log.
+  owner.get("/admin/stats", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    if (!stats) return res.status(503).json({ error: "unavailable", message: "Statistics are not set up on this server." });
+    res.json(await stats.summary(Number(req.query.days) || 30));
+  }));
   owner.get("/admin/subscription", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
     res.json(await accounts.subscriptionSetup());
@@ -207,12 +232,18 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   }));
 
   // ---------- dashboard, privacy statement, terms, fonts (served here: nothing loads from third parties) ----------
+  // The website counter script for fizzl.eu and its subdomains: <script defer src="https://wallet.fizzl.eu/s.js"></script>
+  let counter;
+  app.get("/s.js", (_req, res) => {
+    counter ??= readFileSync(COUNTER, "utf8");
+    res.set({ "cache-control": "public, max-age=3600", "access-control-allow-origin": "*" }).type("application/javascript").send(counter);
+  });
   app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
   let page;
   const legal = new Map();
   app.get(["/", "/index.html", "/demo"], (req, res) => {
     page ??= readFileSync(DASHBOARD, "utf8");
-    usage.record("page", { via: req.path === "/demo" ? "demo" : "dashboard", agent: agentOf(req.get("user-agent")) });
+    usage.record("page", { via: req.path === "/demo" ? "demo" : "dashboard", agent: agentOf(req.get("user-agent")), input: { ref: fizzlSite(req.query.ref) } });
     res.set("content-security-policy", CSP);
     res.type("html").send(page);
   });

@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -49,7 +49,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
     ...(usage ? { usage } : {}),
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}) });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -318,9 +318,9 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
 
 // ---------- hosted accounts: wallet sign-in, isolation, Telegram links, Pro ----------
 
-async function signInAs(base, account) {
+async function signInAs(base, account, { ref } = {}) {
   const m = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account.address }) })).json();
-  const r = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: m.nonce, signature: await account.signMessage({ message: m.message }) }) });
+  const r = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: m.nonce, signature: await account.signMessage({ message: m.message }), ref }) });
   const cookie = r.headers.get("set-cookie")?.split(";")[0];
   const call = async (method, path, body) => {
     const res = await fetch(base + path, { method, headers: { cookie, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -1156,5 +1156,81 @@ test("usage statistics: anonymous events in the usage-log repo; no addresses, ke
     assert.match(by("signup")[0].acct, /^[0-9a-f]{12}$/);
     assert.equal(by("signup")[1].own, true);
     for (const secret of [bob.address.toLowerCase(), bob.address, alice.address.toLowerCase(), key, "bob-research", "SECRET", "private research"]) assert.ok(!text.includes(secret), `the log must not contain ${secret}`);
+  } finally { server.close(); }
+});
+
+// A fake GitHub contents API over a Map of path -> text (directory listings with a sha per file).
+function fakeGithub(files) {
+  const reads = [];
+  const sha = (t) => `sha${t.length}_${t.split("\n").length}`;
+  const fetchImpl = async (url, init = {}) => {
+    const path = decodeURIComponent(new URL(url).pathname.split("/contents/")[1]);
+    if ((init.method ?? "GET") === "PUT") { files.set(path, Buffer.from(JSON.parse(init.body).content, "base64").toString("utf8")); return Response.json({}, { status: 201 }); }
+    reads.push(path);
+    if (files.has(path)) return (init.headers?.accept ?? "").includes("raw") ? new Response(files.get(path)) : Response.json({ sha: sha(files.get(path)), content: Buffer.from(files.get(path)).toString("base64") });
+    const dir = [...files.keys()].filter((k) => k.startsWith(`${path}/`)).map((k) => ({ name: k.slice(path.length + 1), sha: sha(files.get(k)) }));
+    return dir.length ? Response.json(dir) : new Response("", { status: 404 });
+  };
+  return { fetchImpl, reads };
+}
+
+test("website counter, sign-up source and the owner's Stats tab: from website visits to Pro", async () => {
+  const { createUsage } = await import("../src/usage.js");
+  const { createStats } = await import("../src/stats.js");
+  const files = new Map([["scripts/known.json", JSON.stringify({ own_wallets: ["0x6B0F4651eD42893ab58139938175E4a69f175F25"], monitor_agents: "bot|monitor", probe_pairs: [] })]]);
+  const gh = fakeGithub(files);
+  const usage = createUsage({ token: "t", salt: "s", fetch: gh.fetchImpl, batchMs: 0 });
+  const stats = createStats({ token: "t", fetch: gh.fetchImpl, cacheMs: 0 });
+  const { base, server, owner, agentCall } = await boot({ usage, stats });
+  try {
+    const site = (body, origin = "https://fizzl.eu", ua = "Mozilla/5.0 Chrome/120 Safari/537") => fetch(`${base}/api/public/usage/site`, { method: "POST", headers: { origin, "content-type": "text/plain", "user-agent": ua }, body: JSON.stringify(body) });
+    const ok = await site({ kind: "view", path: "/" });
+    assert.equal(ok.status, 204);
+    assert.equal(ok.headers.get("access-control-allow-origin"), "https://fizzl.eu");
+    await site({ kind: "view", path: "/tools" }, "https://ai.fizzl.eu");
+    await site({ kind: "out", path: "/", to: "wallet.fizzl.eu" });
+    await site({ kind: "view", path: "/" }, "https://evil.example"); // not a Fizzl site: not counted
+    await site({ kind: "view", path: "/" }, "https://fizzl.eu", "Googlebot/2.1"); // a bot: logged, but left out of the stats
+    const pre = await fetch(`${base}/api/public/usage/site`, { method: "OPTIONS", headers: { origin: "https://lab.fizzl.eu" } });
+    assert.equal(pre.headers.get("access-control-allow-origin"), "https://lab.fizzl.eu");
+    assert.match(await (await fetch(`${base}/s.js`)).text(), /doNotTrack/);
+
+    // A visitor comes from fizzl.eu, signs up, adds an agent and buys; another signs up directly.
+    await fetch(`${base}/?ref=fizzl.eu`, { headers: { "user-agent": "Mozilla/5.0 Chrome/120 Safari/537" } });
+    const a = await signInAs(base, customer(), { ref: "fizzl.eu" });
+    const { body: { key } } = await a.call("POST", "/api/agents", { name: "a-bot" });
+    await agentCall(key)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(1), purchase: { url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT" } });
+    await signInAs(base, customer(), { ref: "https://phishing.example" }); // not a Fizzl site: no source
+    await new Promise((r) => setTimeout(r, 30));
+    await usage.flush();
+    const day = new Date().toISOString().slice(0, 10);
+    files.set(`events/presign/${day}.jsonl`, [
+      { t: new Date().toISOString(), service: "presign", route: "check", paid: true, usd: 0.01, payer: "0xabc", visitor: "v1" },
+      { t: new Date().toISOString(), service: "presign", route: "check", paid: true, usd: 0.01, payer: "0x6B0F4651eD42893ab58139938175E4a69f175F25" }, // your own wallet
+      { t: new Date().toISOString(), service: "presign", route: "check", quote: true, visitor: "v2" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const walletLog = files.get(`events/wallet/${day}.jsonl`);
+    assert.match(walletLog, /"route":"signup"[^\n]*"ref":"fizzl.eu"/);
+    assert.match(walletLog, /"route":"agent_added"[^\n]*"ref":"fizzl.eu"/);
+    assert.doesNotMatch(walletLog, /phishing/);
+    assert.match(files.get(`events/site/${day}.jsonl`), /"site":"ai.fizzl.eu"/);
+    assert.doesNotMatch(files.get(`events/site/${day}.jsonl`), /evil/);
+
+    // Only the owner sees the stats.
+    const c = await signInAs(base, customer());
+    assert.equal((await c.call("GET", "/api/admin/stats")).status, 403);
+    const s = (await owner("GET", "/api/admin/stats?days=7")).body;
+    assert.equal(s.days, 7);
+    assert.equal(s.dayKeys.at(-1), day);
+    assert.deepEqual([s.kpi.siteViews, s.kpi.clicksToWallet, s.kpi.signups, s.kpi.agentsAdded, s.kpi.purchases, s.kpi.paidCalls, s.kpi.serviceUsd], [2, 1, 3, 1, 1, 1, 0.01]);
+    assert.deepEqual(s.funnel.map(([, v]) => v), [2, 1, 1, 1, 1, 1, 0]);
+    assert.equal(s.series.siteViews.at(-1), 2);
+    assert.deepEqual(s.services.find((x) => x.id === "presign"), { id: "presign", name: "presign-guard", paid: 1, usd: 0.01, quotes: 1, payers: 1, visitors: 2 });
+    assert.deepEqual(s.tables.hosts, [["ichimoku-signal.fizzl.eu", 1]]);
+    assert.deepEqual(s.tables.sites, [["fizzl.eu", 1], ["ai.fizzl.eu", 1]]);
+    // Unchanged days are not downloaded again.
+    const before = gh.reads.filter((r) => r.endsWith(".jsonl")).length;
+    await owner("GET", "/api/admin/stats?days=7");
+    assert.equal(gh.reads.filter((r) => r.endsWith(".jsonl")).length, before);
   } finally { server.close(); }
 });

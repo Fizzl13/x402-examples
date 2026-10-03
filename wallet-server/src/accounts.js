@@ -16,7 +16,7 @@ import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decod
 import { createWallet, hashKey } from "./wallet.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
-import { noUsage } from "./usage.js";
+import { noUsage, fizzlSite } from "./usage.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -122,7 +122,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       store: store.scope(id),
       now,
       plan: async () => planOf(await account(id)),
-      track: (route, fields) => usage.record(route, { account: id, ...fields }),
+      track: (route, fields) => { account(id).then((a) => usage.record(route, { account: id, ref: a?.ref, ...fields }), () => usage.record(route, { account: id, ...fields })); },
       notify: async (approval, spending) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.notify(a.telegram.chatId, approval, spending);
@@ -160,18 +160,20 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return { nonce, message };
     },
     // Returns the account id (lowercase address) for a valid signature over a message this server made.
-    async signIn(nonce, signature) {
+    // ref: the Fizzl site the visitor came from (kept on a new account, for the owner's statistics).
+    async signIn(nonce, signature, { ref = null } = {}) {
       const pending = typeof nonce === "string" ? await g.takeOnce("siwe", nonce) : null;
       if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
-      if (pending.chain === "solana") return solanaSignIn(pending, signature);
+      if (pending.chain === "solana") return solanaSignIn(pending, signature, fizzlSite(ref));
       let ok = false;
       try { ok = await verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; }
       if (!ok && billing.publicClient) { try { ok = await billing.publicClient.verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; } }
       if (!ok) throw Object.assign(new Error("that signature does not match"), { status: 401 });
       const id = pending.address.toLowerCase();
       const existing = await g.getAccount(id);
-      if (!existing || existing.deletedAt) await g.putAccount({ id, address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: existing?.autoPayments ?? [], telegram: null });
-      usage.record(!existing || existing.deletedAt ? "signup" : "signin", { account: id, input: { chain: "ethereum" } });
+      const fresh = !existing || existing.deletedAt;
+      if (fresh) await g.putAccount({ id, address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: existing?.autoPayments ?? [], telegram: null, ...(fizzlSite(ref) ? { ref: fizzlSite(ref) } : {}) });
+      usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? fizzlSite(ref) : existing.ref, input: { chain: "ethereum" } });
       return id;
     },
 
@@ -421,7 +423,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
           charged++;
           await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid automatically: ${Number(priceUnits) / 1e6} USDC, until ${date(after.auto.paidThrough)}` });
           await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? after, { autoPayments: [...((await g.getAccount(a.id))?.autoPayments ?? []), { tx, amount: (Number(priceUnits) / 1e6).toString(), at: now(), paidThrough: after.auto.paidThrough }] }));
-          usage.record("pro_paid", { account: a.id, usd: Number(priceUnits) / 1e6, input: { network: "Base", months: 1, automatic: true } });
+          usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(priceUnits) / 1e6, input: { network: "Base", months: 1, automatic: true } });
           if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Paid automatically: ${Number(priceUnits) / 1e6} USDC for Fizzl wallet Pro, until ${date(after.auto.paidThrough)}. Thank you!`).catch(() => {});
         } catch (err) { failed++; console.warn(`[charge] ${a.address}: ${err.message}`); }
       }
@@ -458,12 +460,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     await g.putOnce("siwe", nonce, { address, message, chain: "solana" }, NONCE_TTL_S);
     return { nonce, message };
   }
-  async function solanaSignIn(pending, signature) {
+  async function solanaSignIn(pending, signature, ref) {
     if (!verifySolanaSignature(pending.address, pending.message, signature)) throw Object.assign(new Error("that signature does not match"), { status: 401 });
     const id = `sol:${pending.address}`;
     const existing = await g.getAccount(id);
-    if (!existing || existing.deletedAt) await g.putAccount({ id, chain: "solana", address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null });
-    usage.record(!existing || existing.deletedAt ? "signup" : "signin", { account: id, input: { chain: "solana" } });
+    const fresh = !existing || existing.deletedAt;
+    if (fresh) await g.putAccount({ id, chain: "solana", address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null, ...(ref ? { ref } : {}) });
+    usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? ref : existing.ref, input: { chain: "solana" } });
     return id;
   }
   async function claimSolana(a, signature) {
@@ -491,7 +494,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
-    usage.record("pro_paid", { account: a.id, usd: Number(paid) / 1e6, input: { network: isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base", months } });
+    usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base", months } });
     await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
   }
