@@ -681,6 +681,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let state = null, editing = false, timer = null, howtoSet = false;
   const openAgents = new Set(); // compact agent rows the owner opened (kept through the refresh)
+  const triedSite = new Set(); // agents without a site we tried to fill in once (this page load)
 
   let api = async function (method, path, body) {
     const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
@@ -1504,6 +1505,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (!results.length) { out.innerHTML = `${catBar}<p class="note" style="margin:0">Nothing found ${what}${max ? ` up to $${esc(max)}` : ""}. Try other words, another category or a higher price${filtCount() ? `, or <button class="link" type="button" id="noFilters">clear the filters</button>` : ""}.</p>`; return; }
       out.innerHTML = `${catBar}${!q && cat && at === 1 ? fizzlBlock(cat.id) : ""}<p class="note" style="margin:0">${range} ${!q ? `provider${total === 1 ? "" : "s"}` : `paid service${total === 1 ? "" : "s"}`} ${what}${!q ? (filt.sort === "best" ? " (one card per provider: those with a skill.md first, then those x402 Doctor has seen paying out day after day, then new ones, then the cheapest)" : " (one card per provider)") : ""}. Listings from the public x402 catalog, written by the sellers: not recommendations. Your agent pays through this wallet, so your rules and the safety check apply.${results.some((r) => r.skill) ? ` <b style="color:var(--mint)">🤖 skill.md</b>: the seller publishes instructions your agent can follow; paste "Connect to …/skill.md" and it learns the whole service.` : ""}</p>
         <div class="hits">${results.map((r) => {
+          foundHosts.add(r.host);
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
           return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}${recordTag(r.record)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
@@ -1888,18 +1890,37 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   });
   // A name from whatever was typed or pasted: an address becomes its host's first part
   // (https://x402-doctor.fizzl.eu/mcp -> x402-doctor), other characters the server refuses become "-".
+  // Where a new agent lives, filled in for the owner: the address they pasted as its name, a name that is
+  // a domain, a Fizzl service's name, or a seller they found in Find (by the first part of its host name).
+  let pastedSite = null;
+  const foundHosts = new Set();
+  function guessSite(name) {
+    const n = String(name ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+    if (!n) return null;
+    if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(n)) return `https://${n}/`;
+    const fz = FIZZL_AGENTS.find((a) => a.name.toLowerCase().replace(/\s+/g, "-") === n || new URL(a.site).hostname.split(".")[0] === n);
+    if (fz) return `${fz.site}/`;
+    const host = [...foundHosts].find((h) => h.replace(/^www\./, "").split(".")[0] === n);
+    return host ? `https://${host}/` : null;
+  }
   function agentNameFrom(input) {
     let v = input.trim();
     try { const u = new URL(v); if (/^https?:$/.test(u.protocol)) v = u.hostname.replace(/^www\./, "").split(".")[0]; } catch {}
     return v.replace(/[^\w .-]+/g, "-").replace(/-{2,}/g, "-").replace(/^[-. ]+|[-. ]+$/g, "").slice(0, 40);
   }
-  $("#agentName").addEventListener("paste", () => setTimeout(() => { const i = $("#agentName"); const n = agentNameFrom(i.value); if (n && n !== i.value) i.value = n; }));
+  $("#agentName").addEventListener("paste", () => setTimeout(() => {
+    const i = $("#agentName");
+    try { const u = new URL(i.value.trim()); if (u.protocol === "https:") pastedSite = `${u.origin}/`; } catch {}
+    const n = agentNameFrom(i.value); if (n && n !== i.value) i.value = n;
+  }));
   $("#addForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
       const name = agentNameFrom($("#agentName").value);
       $("#agentName").value = name;
-      const { agent, key } = await api("POST", "/api/agents", { name });
+      const site = pastedSite || guessSite(name);
+      pastedSite = null;
+      const { agent, key } = await api("POST", "/api/agents", { name, ...(site ? { site } : {}) });
       $("#agentName").value = "";
       $("#newKey").innerHTML = `<div class="card newkey"><span class="tag">KEY FOR ${esc(agent.name)} · SHOWN ONCE</span><code id="keyText">${esc(key)}</code><div class="addform"><button class="button small" id="copyKey" type="button">Copy</button><button class="button ghost small" id="hideKey" type="button">I've stored it</button></div><span class="note">Put it in the agent's environment as WALLET_SERVER_KEY. It is not stored here, only its hash: lost means make a new agent.</span>${setupHtml(key)}</div>`;
       $("#copyKey").onclick = () => navigator.clipboard?.writeText(key).then(() => { $("#copyKey").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#keyText")); });
@@ -2185,6 +2206,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div>${buttons}</article>`;
     }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
     setupAgents();
+    for (const a of s.agents) {
+      if (a.site || DEMO || triedSite.has(a.id)) continue;
+      triedSite.add(a.id);
+      const g = guessSite(a.name);
+      if (g) api("PUT", `/api/agents/${encodeURIComponent(a.id)}/site`, { site: g }).then(() => refresh(), () => {});
+    }
     // events
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
     const line = (e) => ({

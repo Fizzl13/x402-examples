@@ -290,14 +290,14 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
 
     async setPaused(v, by = "dashboard") { await store.setPaused(v); await log(v ? "paused" : "resumed", { by }); },
 
-    async addAgent(name) {
+    async addAgent(name, site = null) {
       if (typeof name !== "string" || !/^[\w .-]{1,40}$/.test(name)) throw Object.assign(new Error("name: 1-40 letters, digits, spaces, . _ -"), { status: 400 });
       const { maxAgents } = await plan();
       const count = (await store.listAgents()).length;
       if (maxAgents && count >= maxAgents) throw Object.assign(new Error(`The free plan has ${maxAgents} agent${maxAgents === 1 ? "" : "s"}. Upgrade to Pro for more.`), { status: 403 });
       if (count >= 50) throw Object.assign(new Error("50 agents is the most one account can have."), { status: 403 });
       const key = `awk_${randomBytes(24).toString("base64url")}`;
-      const agent = { id: id("ag"), name, keyHash: hashKey(key), createdAt: now(), paused: false, lastSeen: null };
+      const agent = { id: id("ag"), name, keyHash: hashKey(key), createdAt: now(), paused: false, lastSeen: null, site: cleanSite(site, { lenient: true }) };
       await store.putAgent(agent);
       await store.indexKey(agent.keyHash, agent.id);
       await log("agent_added", { agent: name });
@@ -335,13 +335,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     },
     // Where the agent lives (its site or app page), shown as a link on its card. Null clears it.
     async setAgentSite(agentId, site) {
-      let clean = null;
-      if (site !== null && site !== "") {
-        let u = null;
-        try { u = new URL(String(site).trim()); } catch {}
-        if (!u || u.protocol !== "https:" || u.href.length > 200 || u.username || u.password) throw Object.assign(new Error("site must be an https:// address"), { status: 400 });
-        clean = u.href;
-      }
+      const clean = cleanSite(site);
       return locked(async () => {
         const a = await store.getAgent(agentId);
         if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
@@ -374,3 +368,15 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
 }
 
 const publicAgent = ({ keyHash, ...a }) => a;
+// An agent's site: an https address (at most 200 characters, no user:password), or null.
+// lenient: a bad value is dropped instead of refused (a guess made while adding an agent).
+function cleanSite(site, { lenient = false } = {}) {
+  if (site === null || site === undefined || site === "") return null;
+  let u = null;
+  try { u = new URL(String(site).trim()); } catch {}
+  if (!u || u.protocol !== "https:" || u.href.length > 200 || u.username || u.password) {
+    if (lenient) return null;
+    throw Object.assign(new Error("site must be an https:// address"), { status: 400 });
+  }
+  return u.href;
+}
