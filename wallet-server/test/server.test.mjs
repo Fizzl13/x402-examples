@@ -444,6 +444,11 @@ test("an agent's site: https only, shown on the agent, cleared with an empty val
     assert.equal((await owner("GET", "/api/state")).body.agents.find((a) => a.id === agent.id).site, "https://ichimoku-signal.fizzl.eu/");
     assert.equal((await owner("PUT", `/api/agents/${agent.id}/site`, { site: "" })).body.site, null);
     assert.equal((await owner("PUT", "/api/agents/nope/site", { site: "https://a.example" })).status, 404);
+    // Given when adding (a guess by the page): kept when https, dropped (not refused) otherwise.
+    assert.equal((await owner("POST", "/api/agents", { name: "with-site", site: "https://shop.example/" })).body.agent.site, "https://shop.example/");
+    const bad = await owner("POST", "/api/agents", { name: "bad-site", site: "http://shop.example/" });
+    assert.equal(bad.status, 200);
+    assert.equal(bad.body.agent.site, null);
   } finally { server.close(); }
 });
 
