@@ -8,6 +8,19 @@ import { isIP } from "node:net";
 export const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
 const TTL_MS = 60 * 60 * 1000;
 const PAGES = 20;
+// Fizzl's own services moved from onrender.com to fizzl.eu; the Bazaar still lists some old addresses.
+// An old host is left out of the catalog once its new host is listed too, so Find shows each service once.
+export const MOVED_HOSTS = {
+  "x402-doctor.onrender.com": "x402-doctor.fizzl.eu",
+  "presign-guard.onrender.com": "presign-guard.fizzl.eu",
+  "ichimoku-signal.onrender.com": "ichimoku-signal.fizzl.eu",
+  "smartcontractexplainer.onrender.com": "plaintext.fizzl.eu",
+};
+export function withoutMovedHosts(all, moved = MOVED_HOSTS) {
+  const hostOf = (item) => { try { return new URL(item.resource).hostname; } catch { return ""; } };
+  const listed = new Set(all.map(hostOf));
+  return all.filter((item) => { const to = moved[hostOf(item)]; return !to || !listed.has(to); });
+}
 
 // USDC per network (CAIP-2), 6 decimals on each.
 const USDC = {
@@ -115,10 +128,10 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         all.push(...batch);
         if (batch.length < 500) break;
       }
-      items = all; at = now();
-      const fresh = await track(all).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
-      if (fresh.length && onNew) announce(all, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
-      return all;
+      items = withoutMovedHosts(all); at = now();
+      const fresh = await track(items).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
+      if (fresh.length && onNew) announce(items, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
+      return items;
     })().finally(() => { loading = null; });
     return loading;
   }
