@@ -1996,6 +1996,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const proofUrl = !p.demo && st?.transaction && st?.network ? `https://x402-doctor.fizzl.eu/settlement?tx=${encodeURIComponent(st.transaction)}&network=${encodeURIComponent(st.network)}` : null;
     const onchain = txUrl || proofUrl ? `<p class="note onchain" style="margin:10px 0 0">On the blockchain: ${[txUrl ? ext(txUrl, "view the transaction") : "", proofUrl ? ext(proofUrl, "check the proof") : ""].filter(Boolean).join(" · ")}</p>` : "";
     const statusText = { signed: "signed", signing: "signing", failed: "failed" }[p.status] ?? p.status;
+    // The seller's own site (its home page, or Fizzl's page for a Fizzl service), to see who you bought from.
+    const site = siteOf(p);
+    const sellerLine = site ? `<p class="note" style="margin:10px 0 0">Seller: ${ext(site.url, `${site.label} ↗`)}</p>` : "";
     // For people: who bought what, in one sentence; the steps it went through; what came back.
     const seller = sellerOf(p);
     const amount = p.amounts?.join(" + ") || "nothing";
@@ -2019,7 +2022,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h3 id="rcTitle">${esc(what ?? "A payment without a description")}</h3>
       <div class="top"><span class="amt num">${esc(amount)}</span><span class="pill p-${esc(p.status)}">${esc({ signed: "Paid", signing: "Paying…", failed: "Not paid" }[p.status] ?? p.status)}</span></div>
     </div>
-    <div class="rc-sec">${plain}${stepsHtml}${p.status === "signed" ? onchain : ""}</div>
+    <div class="rc-sec">${plain}${stepsHtml}${p.status === "signed" ? onchain : ""}${sellerLine}</div>
     ${got ? `<div class="rc-sec"><span class="tag">WHAT YOUR AGENT GOT</span>${got}</div>` : ""}
     <details class="tech"><summary>Technical details</summary>
     <dl>
@@ -2049,6 +2052,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (known) return `<b>${esc(known.name)}</b>`;
     if (host) return `<b>${esc(host)}</b>`;
     return p.to && isAddr(p.to) ? `the address <code>${esc(p.to.slice(0, 6))}…${esc(p.to.slice(-4))}</code>` : "someone";
+  }
+  function siteOf(p) {
+    let u = null;
+    try { u = p.what?.url ? new URL(p.what.url) : null; } catch {}
+    if (!u || u.protocol !== "https:") return null;
+    const known = FIZZL_AGENTS.find((a) => new URL(a.site).host === u.host);
+    return known ? { url: known.site, label: new URL(known.site).host } : { url: `${u.origin}/`, label: u.host };
   }
   const isApiCall = (p) => !!p.what?.url || p.method === "signTypedData";
 
