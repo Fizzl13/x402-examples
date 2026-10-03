@@ -606,6 +606,17 @@ test("right of withdrawal: within 14 days, one click plus a confirmation; Pro en
     assert.match(told.body.text, /refund 4 USDC on Base to 0x/i);
     assert.equal((await a.call("POST", "/api/billing/withdraw", { confirm: "withdraw" })).body.withdrawal.done, true); // twice is once
     assert.equal(await accounts.remind(), 0); // no "Pro has ended" reminders after a withdrawal
+    // Not refunded yet: the owner is reminded on day 10 and day 13, each once.
+    const ownerTexts = () => tg.calls.filter((x) => x.method === "sendMessage" && x.body.chat_id === "4242").map((x) => x.body.text);
+    assert.equal(await accounts.remindRefunds(), 0);
+    t += 10 * 86_400_000;
+    assert.equal(await accounts.remindRefunds(), 1);
+    assert.match(ownerTexts().at(-1), /Refund still to send: 4 USDC on Base to 0x.*4 days left/);
+    assert.equal(await accounts.remindRefunds(), 0);
+    t += 3 * 86_400_000;
+    assert.equal(await accounts.remindRefunds(), 1);
+    assert.match(ownerTexts().at(-1), /1 day left/);
+    assert.equal(await accounts.remindRefunds(), 0);
     // The owner sees it and marks it refunded; customers can't.
     assert.equal((await a.call("GET", "/api/admin/withdrawals")).status, 403);
     const list = (await owner("GET", "/api/admin/withdrawals")).body.withdrawals;
@@ -613,6 +624,8 @@ test("right of withdrawal: within 14 days, one click plus a confirmation; Pro en
     assert.equal(list[0].refundUsdc, 4);
     assert.equal((await owner("POST", `/api/admin/withdrawals/${list[0].id}/refunded`, { tx: "0xabc" })).status, 200);
     assert.equal((await a.call("GET", "/api/me")).body.withdrawal.refunded, true);
+    t += 4 * 86_400_000;
+    assert.equal(await accounts.remindRefunds(), 0); // refunded: no more reminders
     // Paying again later is a normal new Pro period.
     await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5) });
     assert.equal((await a.call("GET", "/api/me")).body.plan, "pro");
