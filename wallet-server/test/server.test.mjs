@@ -451,7 +451,7 @@ test("free plan: one agent; a second is refused, and paused if it already exists
   } finally { server.close(); }
 });
 
-test("Pro 20: $9 per 30 days for 20 watched endpoints; a pasted $9 hash counts as Pro 20; Pro alone stays at 10", async () => {
+test("Pro 20 ($9, 20 endpoints) and Pro Unlimited ($20); a pasted $9 hash counts as Pro 20; Pro alone stays at 10", async () => {
   const c = chain();
   const endpointMonitor = { check: async () => ({ state: "ok", status: 402, ms: 10, note: "ok" }) };
   const { base, server, accounts } = await boot({ rpc: c.rpc, endpointMonitor });
@@ -481,6 +481,16 @@ test("Pro 20: $9 per 30 days for 20 watched endpoints; a pasted $9 hash counts a
     assert.match((await cc.call("POST", "/api/monitors", { url: "https://c99.example/paid" })).body.message, /Pro 20 watches 20/);
     // Withdrawal within 14 days: pro rata at $9 per 30 days.
     assert.ok(me.withdrawal.refundUsdc <= 9 && me.withdrawal.refundUsdc > 8.9);
+    // Pro Unlimited: $20, asked for (a pasted $20 without a plan is 4 months of Pro); 250 as fair use.
+    const dave = customer(), d = await signInAs(base, dave);
+    const unl = (await d.call("POST", "/api/billing/claim", { txHash: c.pay(dave.address, 20), tier: "unlimited" })).body;
+    assert.equal(unl.tier, "unlimited");
+    assert.equal(unl.limits.maxMonitors, 250);
+    assert.equal(unl.billing.priceUnlimitedUsdc, 20);
+    const erin = customer(), e = await signInAs(base, erin);
+    const four = (await e.call("POST", "/api/billing/claim", { txHash: c.pay(erin.address, 20) })).body;
+    assert.equal(four.tier, null);
+    assert.equal(four.payments.at(-1).months, 4);
     void accounts;
   } finally { server.close(); }
 });
