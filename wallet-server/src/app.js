@@ -185,6 +185,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/pause", wrap(async (req, res) => { await req.wallet.setPaused(!!req.body?.paused); res.json({ ok: true }); }));
   owner.post("/agents", wrap(async (req, res) => res.json(await req.wallet.addAgent(req.body?.name))));
   owner.post("/agents/:id/pause", wrap(async (req, res) => res.json(await req.wallet.setAgentPaused(req.params.id, !!req.body?.paused))));
+  owner.put("/agents/:id/site", wrap(async (req, res) => res.json(await req.wallet.setAgentSite(req.params.id, req.body?.site ?? null))));
   owner.put("/agents/:id/address", wrap(async (req, res) => res.json(await req.wallet.setAgentAddress(req.params.id, req.body?.address || null))));
   owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
   owner.put("/follow", wrap(async (req, res) => res.json(await accounts.setFollow(req.account, req.body?.categories))));

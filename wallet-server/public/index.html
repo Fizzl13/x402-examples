@@ -181,6 +181,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .agentrow .btns { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 14px; }
 .agentfilter { display: block; width: 100%; box-sizing: border-box; min-height: 42px; margin: 0 0 10px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; }
 .agentfilter[hidden] { display: none; }
+.agentsite { overflow-wrap: anywhere; } .agentsite a { color: var(--mint); } .agentrow .agentsite { padding: 0 16px 8px; }
 .skillbox { padding: 18px 20px; display: grid; gap: 10px; margin-bottom: 16px; border-color: var(--mint); }
 .skillbox .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .skillbox code { display: block; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 14px/1.4 ui-monospace, Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
@@ -900,6 +901,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         D.agents.push(agent); D.events.unshift({ at: Date.now(), type: "agent_added", agent: body.name });
         return { agent, key: "awk_demo_" + Math.random().toString(36).slice(2, 14) + " (demo key, works nowhere)" };
       }
+      if (method === "PUT" && (m = /^\/api\/agents\/(.+)\/site$/.exec(path))) { const a = D.agents.find((x) => x.id === m[1]); if (a) a.site = body.site ? (/^https:\/\//.test(body.site) ? body.site : (() => { throw Object.assign(new Error("site must be an https:// address"), { status: 400 }); })()) : null; return a; }
       if (method === "POST" && (m = /^\/api\/agents\/(.+)\/pause$/.exec(path))) { const a = D.agents.find((x) => x.id === m[1]); if (a) { a.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: a.paused ? "agent_paused" : "agent_resumed", agent: a.name }); } return a; }
       if (method === "DELETE" && (m = /^\/api\/agents\/(.+)$/.exec(path))) { const a = D.agents.find((x) => x.id === m[1]); D.agents = D.agents.filter((x) => x.id !== m[1]); if (a) D.events.unshift({ at: Date.now(), type: "agent_removed", agent: a.name }); return { ok: true }; }
       return {};
@@ -1871,6 +1873,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#agents").addEventListener("click", async (e) => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     const id = b.dataset.id;
+    if (b.dataset.act === "site") {
+      const v = prompt("Where does this agent live? Its site or app page (https://…). Leave empty to remove.", b.dataset.site || "https://");
+      if (v === null) return;
+      try { await api("PUT", `/api/agents/${encodeURIComponent(id)}/site`, { site: v.trim() === "https://" ? "" : v.trim() }); } catch (err) { alert(err.message); }
+      return refresh();
+    }
     if (b.dataset.act === "pause") await api("POST", `/api/agents/${encodeURIComponent(id)}/pause`, { paused: b.dataset.paused !== "true" });
     if (b.dataset.act === "remove") {
       if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Sure? Its key stops working"; return; }
@@ -1996,6 +2004,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const proofUrl = !p.demo && st?.transaction && st?.network ? `https://x402-doctor.fizzl.eu/settlement?tx=${encodeURIComponent(st.transaction)}&network=${encodeURIComponent(st.network)}` : null;
     const onchain = txUrl || proofUrl ? `<p class="note onchain" style="margin:10px 0 0">On the blockchain: ${[txUrl ? ext(txUrl, "view the transaction") : "", proofUrl ? ext(proofUrl, "check the proof") : ""].filter(Boolean).join(" · ")}</p>` : "";
     const statusText = { signed: "signed", signing: "signing", failed: "failed" }[p.status] ?? p.status;
+    // The seller's own site (its home page, or Fizzl's page for a Fizzl service), to see who you bought from.
+    const site = siteOf(p);
+    const sellerLine = site ? `<p class="note" style="margin:10px 0 0">Seller: ${ext(site.url, `${site.label} ↗`)}</p>` : "";
     // For people: who bought what, in one sentence; the steps it went through; what came back.
     const seller = sellerOf(p);
     const amount = p.amounts?.join(" + ") || "nothing";
@@ -2019,7 +2030,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h3 id="rcTitle">${esc(what ?? "A payment without a description")}</h3>
       <div class="top"><span class="amt num">${esc(amount)}</span><span class="pill p-${esc(p.status)}">${esc({ signed: "Paid", signing: "Paying…", failed: "Not paid" }[p.status] ?? p.status)}</span></div>
     </div>
-    <div class="rc-sec">${plain}${stepsHtml}${p.status === "signed" ? onchain : ""}</div>
+    <div class="rc-sec">${plain}${stepsHtml}${p.status === "signed" ? onchain : ""}${sellerLine}</div>
     ${got ? `<div class="rc-sec"><span class="tag">WHAT YOUR AGENT GOT</span>${got}</div>` : ""}
     <details class="tech"><summary>Technical details</summary>
     <dl>
@@ -2049,6 +2060,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (known) return `<b>${esc(known.name)}</b>`;
     if (host) return `<b>${esc(host)}</b>`;
     return p.to && isAddr(p.to) ? `the address <code>${esc(p.to.slice(0, 6))}…${esc(p.to.slice(-4))}</code>` : "someone";
+  }
+  function siteOf(p) {
+    let u = null;
+    try { u = p.what?.url ? new URL(p.what.url) : null; } catch {}
+    if (!u || u.protocol !== "https:") return null;
+    const known = FIZZL_AGENTS.find((a) => new URL(a.site).host === u.host);
+    return known ? { url: known.site, label: new URL(known.site).host } : { url: `${u.origin}/`, label: u.host };
   }
   const isApiCall = (p) => !!p.what?.url || p.method === "signTypedData";
 
@@ -2160,9 +2178,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#agents").innerHTML = s.agents.length ? (shown.length ? shown.map((a) => {
       const st = a.paused ? ["paused", "var(--dim)"] : pending.some((p) => p.agent === a.id) ? ["waiting for you", "var(--amber)"] : ["active", "var(--mint)"];
       const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
-      const buttons = `<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
+      const host = (() => { try { return a.site ? new URL(a.site).host : null; } catch { return null; } })();
+      const siteLine = `<div class="note agentsite">${host ? `<a href="${esc(a.site)}" target="_blank" rel="noopener noreferrer nofollow">${esc(host)} ↗</a> · <button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="${esc(a.site)}">change</button>` : `<button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="">+ Add where this agent lives (its site)</button>`}</div>`;
+      const buttons = `${siteLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
       if (compact) return `<details class="card agentrow" data-agent="${esc(a.id)}"${openAgents.has(a.id) ? " open" : ""}><summary><span class="rowdot" style="color:${st[1]}" aria-hidden="true"></span><span class="name">${esc(a.name)}</span><span class="state" style="color:${st[1]}">${st[0]}</span><span class="meta">spent ${esc(spent)} · seen ${a.lastSeen ? time(a.lastSeen) : "never"}</span></summary>${buttons}</details>`;
-      return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div><div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div></article>`;
+      return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div>${buttons}</article>`;
     }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
     setupAgents();
     // events
