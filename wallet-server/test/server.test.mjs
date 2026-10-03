@@ -367,6 +367,15 @@ test("sign in with a wallet: a free signature over a message this server made, o
     assert.equal(me.billing.payTo, PAY_TO);
     assert.equal(me.billing.priceUsdc, 5);
 
+    // A wallet on another network (Phantom starts on Ethereum) gets a message naming that chain,
+    // since some wallets refuse to sign one that names another; signing in works the same.
+    const eth = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: alice.address, chainId: 1 }) })).json();
+    assert.match(eth.message, /Chain ID: 1\n/);
+    const ok = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: eth.nonce, signature: await alice.signMessage({ message: eth.message }) }) });
+    assert.equal(ok.status, 200);
+    const junk = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: alice.address, chainId: "abc" }) })).json();
+    assert.match(junk.message, /Chain ID: 8453/);
+
     // Someone else's signature, a reused nonce, a made-up nonce: all refused.
     const m = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: alice.address }) })).json();
     const bad = await fetch(`${base}/api/signin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nonce: m.nonce, signature: await customer().signMessage({ message: m.message }) }) });
