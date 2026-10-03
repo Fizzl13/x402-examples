@@ -628,6 +628,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="account">
         <article class="card" id="planCard"></article>
         <article class="card" id="tgCard"></article>
+        <article class="card" id="hookCard" hidden><span class="tag">ALSO ON DISCORD OR SLACK</span><div class="monhook" id="monHook"></div></article>
       </div>
       <article class="card monitor" id="monitorCard" hidden>
         <span class="tag">ENDPOINT MONITOR · FOR X402 SELLERS</span>
@@ -636,7 +637,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <form class="addform" id="monForm"><input id="monUrl" type="url" required placeholder="https://api.example.com/paid" aria-label="Your x402 endpoint" style="flex:1;min-width:200px"><select id="monMethod" aria-label="Method"><option>GET</option><option>POST</option></select><button class="button primary small" type="submit">Watch</button></form>
         <div class="msg" id="monMsg" role="status"></div>
         <div id="monList"></div>
-        <div class="monhook" id="monHook"></div>
       </article>
       <div id="deleteBox" hidden style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="link" type="button" id="deleteAccount">Delete my account</button><span class="msg" id="deleteMsg" role="status"></span></div>
     </section>
@@ -1235,16 +1235,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   function renderMonitors(r) {
     $("#monitorCard").hidden = false;
     const free = me?.plan === "free";
-    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10` : ""}.${r.telegram || r.hook ? "" : ` <b style="color:var(--amber)">Connect Telegram (above), or add a webhook below, to get the alerts.</b>`}`;
+    $("#monLimit").innerHTML = `${esc(r.monitors.length)} of ${esc(r.max)} endpoint${r.max === 1 ? "" : "s"}${free ? ` · <b>Pro</b> watches up to 10` : ""}.${r.telegram || r.hook ? "" : ` <b style="color:var(--amber)">Connect Telegram or Discord/Slack (above) to get the alerts.</b>`}`;
     $("#monList").innerHTML = r.monitors.length ? `<div class="monlist">${r.monitors.map((m) => {
       const st = m.paused ? "paused" : m.last?.state === "ok" ? "ok" : "down";
       const label = { ok: "Payable", down: "Not payable", paused: "Paused (over your plan)" }[st];
       return `<div class="monrow"><span class="mondot ${st}" aria-hidden="true"></span><div class="monmain"><b>${esc(m.method)} ${esc(m.url.replace(/^https:\/\//, ""))}</b><span class="note">${esc(label)}${m.last ? ` · ${esc(m.last.note)}${m.last.ms ? ` · ${esc(m.last.ms)} ms` : ""} · ${esc(ago(m.last.at))}` : ""}</span></div><div class="monact"><button class="link" type="button" data-moncheck="${esc(m.id)}">Check now</button> <button class="link" type="button" data-monrm="${esc(m.id)}">Remove</button></div></div>`;
     }).join("")}</div>` : `<p class="note" style="margin:0">No endpoints yet. Add the paid URL agents call, e.g. https://api.example.com/v1/quote.</p>`;
     const kindName = { discord: "Discord", slack: "Slack", webhook: "your webhook" };
+    $("#hookCard").hidden = false;
     $("#monHook").innerHTML = r.hook
-      ? `<p class="note" style="margin:0">Alerts also go to <b style="color:#fff">${esc(kindName[r.hook.kind] ?? "your webhook")}</b> (${esc(r.hook.host)}). <button class="link" type="button" id="hookTest">Send a test</button> · <button class="link" type="button" id="hookRm">Remove</button> <span id="hookMsg" role="status"></span></p>`
-      : `<details><summary>Also send alerts to Discord, Slack or a webhook</summary><form class="addform" id="hookForm" style="margin-top:8px"><input id="hookUrl" type="url" required placeholder="https://discord.com/api/webhooks/…" aria-label="Webhook URL" style="flex:1;min-width:200px"><button class="button small" type="submit">Save</button></form><p class="note" style="margin:6px 0 0">Discord: channel settings → Integrations → Webhooks → Copy URL. Slack: an incoming webhook. Any other https URL gets JSON with the event. <span id="hookMsg" role="status"></span></p></details>`;
+      ? `<p class="note" style="margin:0">Your messages also go to <b style="color:#fff">${esc(kindName[r.hook.kind] ?? "your webhook")}</b> (${esc(r.hook.host)}): approval requests (you answer on this dashboard), endpoint alerts, Pro reminders and new providers.</p><p class="note" style="margin:0"><button class="link" type="button" id="hookTest">Send a test</button> · <button class="link" type="button" id="hookRm">Remove</button> <span id="hookMsg" role="status"></span></p>`
+      : `<p class="note" style="margin:0">Get the same messages as on Telegram in a Discord or Slack channel, or at your own webhook: approval requests (you answer on this dashboard, a channel has no buttons), endpoint alerts, Pro reminders and new providers.</p><form class="addform" id="hookForm"><input id="hookUrl" type="url" required placeholder="https://discord.com/api/webhooks/…" aria-label="Webhook URL" style="flex:1;min-width:200px"><button class="button small" type="submit">Save</button></form><p class="note" style="margin:0">Discord: channel settings → Integrations → Webhooks → Copy URL. Slack: an incoming webhook. Any other https URL gets JSON with the event. <span id="hookMsg" role="status"></span></p>`;
     usePendingWatch();
   }
   async function loadMonitors() { if (DEMO || !me || me.admin === undefined) return; try { renderMonitors(await api("GET", "/api/monitors")); } catch {} }
