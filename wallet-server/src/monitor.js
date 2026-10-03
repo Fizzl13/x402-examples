@@ -30,8 +30,17 @@ function decodeChallenge(headerValue, bodyText) {
 }
 
 export function createEndpointMonitor({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now() } = {}) {
-  /** One check: { state: "ok" | "down", status, ms, note, networks }. */
+  /** One check: { state: "ok" | "down", status, ms, note, networks, method }. When the chosen method doesn't
+   *  ask for payment but the other one (GET/POST) does, that counts as ok, with `method` saying which works. */
   async function check(url, method = "GET") {
+    const r = await checkOnce(url, method);
+    if (r.state === "ok" || r.status === 0 || r.status === 402) return { ...r, method };
+    const other = method === "POST" ? "GET" : "POST";
+    const alt = await checkOnce(url, other);
+    if (alt.state !== "ok") return { ...r, method };
+    return { ...alt, method: other, note: `${alt.note.replace(/\.$/, "")}, on ${other} (not ${method}).` };
+  }
+  async function checkOnce(url, method) {
     const problem = urlProblem(url);
     if (problem) return { state: "down", status: 0, ms: 0, note: problem };
     const host = new URL(url).hostname;
