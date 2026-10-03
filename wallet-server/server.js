@@ -26,6 +26,9 @@
 //   SOLANA_PAY_TO       optional: the Solana address that receives Pro payments; turns on sign-in
 //                       with Phantom on Solana and paying Pro in USDC on Solana
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
+//   USAGE_LOG_TOKEN     optional: anonymous usage statistics to the private usage-log repo (a fine-grained
+//                       GitHub token, Contents read/write on that repo only; the same as the other services)
+//   USAGE_LOG_SALT, USAGE_LOG_REPO, USAGE_OWN_WALLETS  optional: see src/usage.js
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
 import { createHash } from "node:crypto";
@@ -36,6 +39,7 @@ import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
 import { createCatalog, createSkillChecker } from "./src/catalog.js";
 import { createTrustIndex } from "./src/trust.js";
+import { createUsage } from "./src/usage.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
@@ -62,7 +66,10 @@ if (env.CHARGER_KEY) {
   console.log(`[subscription] charger ${account.address}`);
 }
 
+const usage = createUsage({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined, salt: env.USAGE_LOG_SALT || null, ownWallets: (env.USAGE_OWN_WALLETS ?? "").split(",") });
+if (!usage.enabled) console.warn("[usage] USAGE_LOG_TOKEN not set: usage statistics are off");
 const accounts = createAccounts({
+  usage,
   store,
   telegram,
   adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null,
@@ -76,7 +83,7 @@ const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECR
 // New sellers in the catalog go to the Telegram of accounts that follow their category.
 const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
-const app = createApp({ accounts, auth, telegram, catalog, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
+const app = createApp({ accounts, auth, telegram, catalog, usage, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 

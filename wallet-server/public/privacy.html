@@ -36,9 +36,9 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
 <header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a><a href="/">Back to the dashboard</a></div></header>
 <main class="wrap">
   <h1>Privacy statement</h1>
-  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 2 October 2026</p>
+  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 3 October 2026</p>
 
-  <p>This statement explains what personal data the Fizzl Agent Wallet processes, why, for how long, and what your rights are. We keep it short because we collect little: no passwords, no names, no e-mail addresses, no tracking.</p>
+  <p>This statement explains what personal data the Fizzl Agent Wallet processes, why, for how long, and what your rights are. We keep it short because we collect little: no passwords, no names, no e-mail addresses, no tracking across sites, only anonymous usage counts.</p>
 
   <h2>1. Who is responsible</h2>
   <p>The controller is {{OPERATOR}}, trading as Fizzl, the Netherlands. For anything about your data, contact {{CONTACT}}.</p>
@@ -53,6 +53,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
       <tr><td><b>What your agents ask to sign</b>: method, network, recipient address, amounts, the safety verdict from presign-guard, what the agent says it is buying (a URL and a description, if your agent sends them), and what it got back (the paid service's answer, up to 16,000 characters, if your agent sends it); your approvals and denials</td><td>To check requests against your rules, ask you for approval, and show you receipts (including what was bought) and an activity log</td><td>Contract</td></tr>
       <tr><td><b>Telegram</b> (only if you connect it): your chat id, user id and username</td><td>To send you approval requests, plan reminders, a test message when you ask for one, and alerts about new providers in the categories you follow (if you pick any); and to accept your taps</td><td>Contract</td></tr>
       <tr><td><b>Payments for Pro</b>: transaction hashes, amounts, dates, until when you paid; for automatic payment, what the subscription contract and USDC show for your address (next payment date, paid-through date, the approval you gave, your USDC balance)</td><td>To give you Pro, remind you before a payment, and keep the records the law requires</td><td>Contract; legal obligation for bookkeeping (art. 6(1)(c))</td></tr>
+      <tr><td><b>Anonymous usage statistics</b>: that something happened (a sign-up, an agent added, a purchase allowed or asked, an approval and how fast, a search and how many results, which button on a search result was used, the result of Test my setup, a Pro payment), with the time, the seller's host name and amount for a purchase, and a short code instead of your account. Never your address, keys, Telegram details, what was bought or the receipts. The code is made with a secret and can't be turned back into your address.</td><td>To see how the wallet is used and where people get stuck, so we can improve it</td><td>Legitimate interest: improving the service (art. 6(1)(f))</td></tr>
       <tr><td><b>Your IP address</b>, briefly</td><td>Held in memory only, to slow down repeated wrong logins and sign-in floods. Not stored by us.</td><td>Legitimate interest: security (art. 6(1)(f))</td></tr>
     </tbody>
   </table></div>
@@ -63,7 +64,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
     <li><b>aw_session</b>: a signed cookie that keeps you signed in, for 7 days. It is strictly necessary, so no consent banner is needed.</li>
     <li><b>aw_wallet</b> (local storage, only in your browser): which wallet you signed in with, so the right one opens when you pay.</li>
   </ul>
-  <p>No analytics, no advertising, no tracking pixels, no third-party scripts. Even the fonts are served from this server.</p>
+  <p>No third-party analytics, no advertising, no tracking pixels, no third-party scripts, and no cookies for statistics: the anonymous counts above are made on our own server. Even the fonts are served from this server.</p>
 
   <h2>4. What we never do</h2>
   <ul>
@@ -75,6 +76,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <ul>
     <li><b>Render</b> (hosting, EU region Frankfurt). Render may keep server logs, including IP addresses, for a limited time.</li>
     <li><b>Upstash</b> (the database that stores the data above).</li>
+    <li><b>GitHub</b> (a private repository that holds the anonymous usage statistics).</li>
     <li><b>Telegram</b>, only if you connect it. Messages go through Telegram, under <a href="https://telegram.org/privacy" rel="noopener noreferrer">Telegram's privacy policy</a>.</li>
     <li><b>RPC providers</b> for Base, Arbitrum, Optimism, Polygon, Ethereum and Solana, to read public blockchain data about payments.</li>
   </ul>
@@ -94,6 +96,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
       <tr><td>Activity log</td><td>The latest 500 events</td></tr>
       <tr><td>Payment records for Pro</td><td>7 years (Dutch bookkeeping law), also after you delete your account</td></tr>
       <tr><td>Sign-in codes and Telegram link codes</td><td>10 to 15 minutes, used once</td></tr>
+      <tr><td>Anonymous usage statistics</td><td>At most 2 years. They can't be linked back to you, so they stay when you delete your account.</td></tr>
     </tbody>
   </table></div>
 

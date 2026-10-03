@@ -16,6 +16,7 @@ import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decod
 import { createWallet, hashKey } from "./wallet.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
+import { noUsage } from "./usage.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -58,7 +59,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {} }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -121,6 +122,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       store: store.scope(id),
       now,
       plan: async () => planOf(await account(id)),
+      track: (route, fields) => usage.record(route, { account: id, ...fields }),
       notify: async (approval, spending) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.notify(a.telegram.chatId, approval, spending);
@@ -169,6 +171,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const id = pending.address.toLowerCase();
       const existing = await g.getAccount(id);
       if (!existing || existing.deletedAt) await g.putAccount({ id, address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: existing?.autoPayments ?? [], telegram: null });
+      usage.record(!existing || existing.deletedAt ? "signup" : "signin", { account: id, input: { chain: "ethereum" } });
       return id;
     },
 
@@ -213,6 +216,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(id);
       if (!a || a.admin) return { ok: true };
       await serial(id, async () => touch((await g.getAccount(id)) ?? a, { telegram: null }));
+      usage.record("telegram_unlinked", { account: id });
       return { ok: true };
     },
     // /start <code> from a private chat: link it. Returns the reply text.
@@ -224,6 +228,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(pending.account);
       if (!a) return "That account no longer exists.";
       await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { telegram: { chatId: String(chat.id), userId: String(from.id), username: from.username ?? null, linkedAt: now() } }));
+      usage.record("telegram_linked", { account: a.id });
       return `Connected ✓ Approval requests for ${short(a.address)} come here now. You can disconnect on the dashboard.`;
     },
     // A button tap: only the linked user of the account the approval belongs to may decide.
@@ -286,6 +291,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
           catch (err) { add("telegram", "fail", "Approvals on your phone", `The test message didn't arrive (${err.message}).`, "Did you block the bot? Disconnect Telegram and connect it again."); }
         }
       }
+      const ids = (st) => checks.filter((c) => c.status === st).map((c) => c.id).join(",");
+      usage.record("setup_check", { account: id, result: { ready: checks.every((c) => c.status !== "fail"), fail: ids("fail") || "none", warn: ids("warn") || "none", telegram_test: testTelegram || undefined } });
       return { agent: agent ? { id: agent.id, name: agent.name, address: agent.address ?? null } : null, checks, ready: checks.every((c) => c.status !== "fail") };
     },
 
@@ -293,10 +300,11 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async setFollow(id, categories) {
       if (!Array.isArray(categories) || categories.length > 20 || categories.some((c) => !FOLLOWABLE.has(c))) throw Object.assign(new Error(`categories: a list of ${[...FOLLOWABLE].join(", ")}`), { status: 400 });
       const follow = [...new Set(categories)];
-      if (id === ADMIN) { await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), follow }); return { follow }; }
+      if (id === ADMIN) { await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), follow }); usage.record("follow", { account: id, input: { categories: follow.join(",") || "none" } }); return { follow }; }
       const a = await account(id);
       if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
       await serial(id, async () => touch((await g.getAccount(id)) ?? a, { follow }));
+      usage.record("follow", { account: id, input: { categories: follow.join(",") || "none" } });
       return { follow };
     },
     // `providers`: sellers that just appeared ({ origin, host, category, description, cheapest, networks, skill }).
@@ -322,6 +330,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         lines.push(`Listings are written by the sellers, not recommendations. Search them in your wallet: ${site.origin}`, "Change which categories you follow there, under Find services.");
         try { await telegram.send(a.telegram.chatId, lines.join("\n")); sent++; } catch (err) { console.warn(`[alerts] ${err.message}`); }
       }
+      usage.record("alerts_sent", { result: { providers: providers.length, messages: sent } });
       return sent;
     },
 
@@ -337,6 +346,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return serial(id, async () => {
         await store.wipe(id);
         wallets.delete(id);
+        usage.record("account_deleted", { account: id });
         const kept = { id, address: a.address, deletedAt: now(), payments: a.payments ?? [], autoPayments: a.autoPayments ?? [], paidUntil: 0 };
         await g.putAccount(kept);
         return { ok: true };
@@ -411,6 +421,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
           charged++;
           await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid automatically: ${Number(priceUnits) / 1e6} USDC, until ${date(after.auto.paidThrough)}` });
           await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? after, { autoPayments: [...((await g.getAccount(a.id))?.autoPayments ?? []), { tx, amount: (Number(priceUnits) / 1e6).toString(), at: now(), paidThrough: after.auto.paidThrough }] }));
+          usage.record("pro_paid", { account: a.id, usd: Number(priceUnits) / 1e6, input: { network: "Base", months: 1, automatic: true } });
           if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Paid automatically: ${Number(priceUnits) / 1e6} USDC for Fizzl wallet Pro, until ${date(after.auto.paidThrough)}. Thank you!`).catch(() => {});
         } catch (err) { failed++; console.warn(`[charge] ${a.address}: ${err.message}`); }
       }
@@ -452,6 +463,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const id = `sol:${pending.address}`;
     const existing = await g.getAccount(id);
     if (!existing || existing.deletedAt) await g.putAccount({ id, chain: "solana", address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null });
+    usage.record(!existing || existing.deletedAt ? "signup" : "signin", { account: id, input: { chain: "solana" } });
     return id;
   }
   async function claimSolana(a, signature) {
@@ -479,6 +491,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     await touch(a, { paidUntil, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
+    usage.record("pro_paid", { account: a.id, usd: Number(paid) / 1e6, input: { network: isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base", months } });
     await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
   }

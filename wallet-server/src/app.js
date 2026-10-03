@@ -4,6 +4,7 @@
 // to /telegram/webhook. Every request works only on its own account.
 import express from "express";
 import { PAY_CHAINS } from "./accounts.js";
+import { noUsage, agentOf } from "./usage.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -14,7 +15,7 @@ const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -79,7 +80,14 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const networks = typeof req.query.net === "string" ? req.query.net.split(",").filter((n) => NETWORKS.includes(n)) : null;
     const flag = (k) => req.query[k] === "1" || req.query[k] === "true";
     const sort = ["cheap", "record"].includes(req.query.sort) ? req.query.sort : "best";
-    try { res.json(await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 20, category, page, networks, fresh: flag("new"), skill: flag("skill"), reliable: flag("reliable"), sort })); } catch (err) { down(res, err); }
+    try {
+      const r = await catalog.search(q, { maxUsd: max > 0 ? max : Infinity, limit: 20, category, page, networks, fresh: flag("new"), skill: flag("skill"), reliable: flag("reliable"), sort });
+      // What people look for, and what they don't find (anonymous; signed-in searches carry the account code).
+      usage.record("search", { account: req.account ?? null, via: req.account ? "dashboard" : "public", agent: req.account ? undefined : agentOf(req.get("user-agent")),
+        input: { q: q.trim().toLowerCase() || undefined, cat: category ?? undefined, max: max > 0 ? max : undefined, net: networks?.join(",") || undefined, reliable: flag("reliable") || undefined, skill: flag("skill") || undefined, new: flag("new") || undefined, sort: sort !== "best" ? sort : undefined, page: page > 1 ? page : undefined },
+        result: { total: r.total, top: r.results[0]?.host } });
+      res.json(r);
+    } catch (err) { down(res, err); }
   }));
   services.get("/categories", wrap(async (req, res) => {
     if (!catalog) return unavailable(res);
@@ -89,7 +97,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   services.get("/new", wrap(async (req, res) => {
     if (!catalog) return unavailable(res);
     const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
-    try { res.json(await catalog.newProviders({ days })); } catch (err) { down(res, err); }
+    try {
+      const r = await catalog.newProviders({ days });
+      usage.record("new_providers", { account: req.account ?? null, via: req.account ? "dashboard" : "public", result: { count: r.providers.length } });
+      res.json(r);
+    } catch (err) { down(res, err); }
   }));
   // The demo: at most 60 searches a minute per address.
   const hits = new Map();
@@ -100,6 +112,18 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     next();
   };
   app.use("/api/public/services", slowDown, services);
+  // The dashboard tells which buttons people use on search results (Connect, one request, website, a Fizzl
+  // service, a new provider): only the kind of button, where, and the seller's host name.
+  const CLICKS = new Set(["connect", "request", "website", "all_services", "fizzl_connect", "fizzl_request", "skill_line"]);
+  app.post("/api/public/usage/click", slowDown, (req, res) => {
+    const kind = req.body?.kind, host = typeof req.body?.host === "string" && /^[a-z0-9.-]{1,120}$/i.test(req.body.host) ? req.body.host.toLowerCase() : undefined;
+    const from = ["search", "new", "fizzl", "agents"].includes(req.body?.from) ? req.body.from : undefined;
+    if (CLICKS.has(kind)) {
+      const account = auth.subject(req.get("cookie")) ?? null;
+      usage.record("click", { account, via: account ? "dashboard" : req.body?.demo === true ? "demo" : "public", input: { kind, host, from } });
+    }
+    res.status(204).end();
+  });
 
   // ---------- sign-in ----------
   app.post("/api/login", (req, res) => {
@@ -186,8 +210,9 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
   let page;
   const legal = new Map();
-  app.get(["/", "/index.html", "/demo"], (_req, res) => {
+  app.get(["/", "/index.html", "/demo"], (req, res) => {
     page ??= readFileSync(DASHBOARD, "utf8");
+    usage.record("page", { via: req.path === "/demo" ? "demo" : "dashboard", agent: agentOf(req.get("user-agent")) });
     res.set("content-security-policy", CSP);
     res.type("html").send(page);
   });

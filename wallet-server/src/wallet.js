@@ -10,6 +10,7 @@ import { normalizeLimits, spendFor, evaluate } from "presign-guard-wallet/limits
 import { PRESIGN_SIGNERS } from "presign-guard-wallet";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { formatUnits } from "viem";
+import { hostOf } from "./usage.js";
 
 export const DEFAULT_POLICY = { tokens: { USDC: { perTx: "5", perDay: "20" } }, unknownTokens: "ask", window: "24h" };
 export const APPROVAL_TTL_MS = 10 * 60_000;
@@ -57,10 +58,15 @@ const verdictView = (v) => (v ? {
 // plan(): what this account may use; null fields mean unlimited (a self-hosted server, or Pro).
 const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
 
-export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED } = {}) {
+// track(route, { input, result, usd }): anonymous usage statistics (src/usage.js): the seller's host and
+// the amount of a purchase, never who, what for, or to which address.
+export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {} } = {}) {
   let queue = Promise.resolve();
   const locked = (fn) => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
   const waiters = new Map(); // approval id -> Set of resolve functions (long polls)
+  const usdcOf = (charges) => { const u = charges.filter((c) => c.budget === "USDC").reduce((n, c) => n + BigInt(c.amount), 0n); return u ? Number(fmt(u)) : undefined; };
+  const bought = (method, purchase) => hostOf(purchase?.url) ?? (method === "signTypedData" ? "x402 (no url)" : "transfer");
+  const safeTrack = (...a) => { try { track(...a); } catch {} };
 
   async function policyNow() {
     const raw = (await store.getPolicy()) ?? DEFAULT_POLICY;
@@ -127,8 +133,8 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     // An agent asks before it signs. Returns { status: "ok", entries } | { status: "pending", approvalId, summary }
     // | { status: "denied", reasons, summary } | { status: "paused" }.
     reserve: (agent, { method, request, verdict, purchase: rawPurchase }) => locked(async () => {
-      if (await store.getPaused()) return { status: "paused", summary: "all agents are paused" };
-      if (agent.paused) return { status: "paused", summary: `${agent.name} is paused` };
+      if (await store.getPaused()) { safeTrack("purchase", { input: { host: bought(method, cleanPurchase(rawPurchase)), method }, result: { outcome: "paused" } }); return { status: "paused", summary: "all agents are paused" }; }
+      if (agent.paused) { safeTrack("purchase", { input: { host: bought(method, cleanPurchase(rawPurchase)), method }, result: { outcome: "paused" } }); return { status: "paused", summary: `${agent.name} is paused` }; }
       const { maxAgents } = await plan();
       if (maxAgents) {
         const first = (await store.listAgents()).sort((x, y) => x.createdAt - y.createdAt).slice(0, maxAgents).map((a) => a.id);
@@ -151,11 +157,13 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         const entries = await book(agent, charges, info);
         const p = await openPurchase(agent, { method, chainId: request.chainId, to: info.to, entries, verdict: verdictView(trusted), purchase });
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
+        safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }
       const summary = result.reasons.map((r) => r.message).join("; ");
       if (result.hardStop) {
         await log("blocked", { agent: agent.name, method, summary, what: purchase?.description ?? purchase?.url ?? null });
+        safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "blocked", verdict: trusted?.verdict ?? "none", why: result.reasons.map((r) => r.code).filter(Boolean).join(",") || undefined } });
         return { status: "denied", reasons: result.reasons, summary };
       }
       const approval = {
@@ -165,6 +173,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       };
       await store.putApproval(approval);
       await log("asked", { agent: agent.name, method, summary, approval: approval.id, what: purchase?.description ?? purchase?.url ?? null });
+      safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "asked", verdict: trusted?.verdict ?? "none" } });
       notify(approval, await summarize(policy, used)).catch((err) => console.warn(`[notify] ${err.message}`));
       return { status: "pending", approvalId: approval.id, summary, expiresAt: approval.expiresAt };
     }),
@@ -187,6 +196,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       const next = { ...a, status: approved ? "approved" : "denied", decidedAt: now(), decidedBy: by, entries, purchaseId };
       await store.putApproval(next);
       await log(approved ? "approved" : "denied", { agent: a.agentName, method: a.method, summary: a.summary, by, ...(purchaseId ? { purchase: purchaseId } : {}), what: a.purchase?.description ?? a.purchase?.url ?? null });
+      safeTrack("approval", { usd: usdcOf(a.charges ?? []), input: { host: bought(a.method, a.purchase) }, result: { decision: approved ? "approved" : "denied", via: by === "dashboard" ? "dashboard" : "telegram", seconds: Math.round((now() - a.createdAt) / 1000) } });
       wake(next);
       Promise.resolve(onSettled(next)).catch(() => {});
       return next;
@@ -198,7 +208,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         const found = await store.getApproval(approvalId);
         if (!found || found.agent !== agent.id) throw Object.assign(new Error("no such approval"), { status: 404 });
         const a = expire(found);
-        if (a !== found) { await store.putApproval(a); await log("expired", { agent: a.agentName, method: a.method, summary: a.summary }); Promise.resolve(onSettled(a)).catch(() => {}); }
+        if (a !== found) { await store.putApproval(a); await log("expired", { agent: a.agentName, method: a.method, summary: a.summary }); safeTrack("approval", { usd: usdcOf(a.charges ?? []), input: { host: bought(a.method, a.purchase) }, result: { decision: "expired" } }); Promise.resolve(onSettled(a)).catch(() => {}); }
         return a;
       };
       let a = await read();
@@ -291,6 +301,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       await store.putAgent(agent);
       await store.indexKey(agent.keyHash, agent.id);
       await log("agent_added", { agent: name });
+      safeTrack("agent_added", { result: { agents: count + 1 } });
       return { agent: publicAgent(agent), key };
     },
     async setAgentPaused(agentId, v) {
@@ -305,6 +316,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
       await store.deleteAgent(agentId);
       await log("agent_removed", { agent: a.name });
+      safeTrack("agent_removed", {});
     },
     // Any call from an agent counts as contact (written at most once a minute).
     async seen(agent) {

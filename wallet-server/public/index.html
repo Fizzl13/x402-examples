@@ -465,7 +465,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="card skillbox">
         <span class="tag">THE QUICKEST WAY TO CONNECT AN AGENT</span>
         <p style="margin:0">Paste this into Claude, Cursor or any agent. It reads the steps and walks you through them:</p>
-        <div class="copy"><code id="skillLine">Connect to wallet.fizzl.eu/skill.md</code><button class="button primary small" type="button" id="skillCopy" data-copy="Connect to wallet.fizzl.eu/skill.md">Copy</button></div>
+        <div class="copy"><code id="skillLine">Connect to wallet.fizzl.eu/skill.md</code><button class="button primary small" type="button" id="skillCopy" data-track="skill_line" data-from="agents" data-copy="Connect to wallet.fizzl.eu/skill.md">Copy</button></div>
         <p class="note" style="margin:0">You stay in charge: it never asks you to paste a private key into the chat. <a href="/skill.md" target="_blank" rel="noopener" style="text-decoration:underline">Read what your agent will read</a></p>
       </div>
       <div class="card explain">
@@ -539,7 +539,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // Show the tab an element lives in (for links like "Needs you", the plan badge, "Test my setup").
   function reveal(el) { const sec = el?.closest("section[data-tab]"); if (sec) showTab(sec.dataset.tab); }
   const scrollTo = (el, block = "start") => el?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block });
+  // Which buttons people use (anonymous counts for the owner: the kind of button and the seller's host).
+  const trackClick = (el) => {
+    try {
+      const box = el.closest("[data-host],[data-from]");
+      const body = JSON.stringify({ kind: el.dataset.track, host: el.dataset.host ?? box?.dataset.host, from: el.dataset.from ?? box?.dataset.from, demo: DEMO || undefined });
+      if (!navigator.sendBeacon?.("/api/public/usage/click", new Blob([body], { type: "application/json" }))) fetch("/api/public/usage/click", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => {});
+    } catch {}
+  };
   document.addEventListener("click", (e) => {
+    const tracked = e.target.closest("[data-track]");
+    if (tracked) trackClick(tracked);
     const go = e.target.closest("#tabs [data-go]");
     if (go) { showTab(go.dataset.go); scrollTo($("#app"), "start"); window.scrollTo({ top: 0 }); return; }
     const a = e.target.closest('a[href^="#"]');
@@ -1162,7 +1172,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     return `<div class="fromfizzl"><span class="tag">FROM FIZZL · THE MAKERS OF THIS WALLET</span><p class="note" style="margin:0">Our own services in this category, shown first because they're ours. The catalog below is ranked the same for everyone.</p>
       <div class="hits">${mine.map((a) => { const connect = `Connect to ${a.site.replace(/^https:\/\//, "")}/skill.md`; return `<article class="card hit"><header><span class="host">${esc(a.name)}<span class="skilltag">🤖 skill.md</span></span><span class="prices"><span>${esc(a.price)}</span></span></header>
         <p class="note" style="margin:0">${esc(a.what)}</p>
-        <div class="btns"><button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(a.ask)}">Copy one request</button><a class="button ghost small" href="${esc(a.site)}" target="_blank" rel="noopener noreferrer">All endpoints ↗</a></div></article>`; }).join("")}</div></div>`;
+        <div class="btns" data-host="${esc(new URL(a.site).hostname)}" data-from="fizzl"><button class="button primary small" type="button" data-track="fizzl_connect" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-track="fizzl_request" data-copy="${esc(a.ask)}">Copy one request</button><a class="button ghost small" data-track="website" href="${esc(a.site)}" target="_blank" rel="noopener noreferrer">All endpoints ↗</a></div></article>`; }).join("")}</div></div>`;
   }
   // Filters: networks, only reliable / with a skill.md / new, and the order. Remembered in this browser.
   let filt = { net: [], reliable: false, skill: false, fresh: false, sort: "best" };
@@ -1215,7 +1225,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}${recordTag(r.record)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
             <span class="url">${r.endpoints > 1 ? `${esc(r.endpoints)} paid endpoints · cheapest: ` : ""}${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
-            <div class="btns">${connect ? `<button class="button primary small" type="button" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-copy="${esc(ask)}">Copy request for your agent</button>`}${r.endpoints > 1 ? `<button class="button ghost small" type="button" data-q-host="${esc(r.host)}">All ${esc(r.endpoints)} services</button>` : ""}<a class="button ghost small" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
+            <div class="btns" data-host="${esc(r.host)}" data-from="search">${connect ? `<button class="button primary small" type="button" data-track="connect" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-track="request" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-track="request" data-copy="${esc(ask)}">Copy request for your agent</button>`}${r.endpoints > 1 ? `<button class="button ghost small" type="button" data-track="all_services" data-q-host="${esc(r.host)}">All ${esc(r.endpoints)} services</button>` : ""}<a class="button ghost small" data-track="website" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
         }).join("")}</div>${pagerHtml(at, pages)}`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
@@ -1259,7 +1269,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="hits">${providers.map((p) => `<article class="card hit"><header><span class="host">${esc(p.host)}<span class="newtag">NEW</span>${p.skill ? `<span class="skilltag">🤖 skill.md</span>` : ""}</span><span class="prices"><span>from ${esc(usd(p.cheapest))}</span>${p.networks.map((n) => `<span>${esc(n)}</span>`).join("")}</span></header>
           ${p.description ? `<p class="note" style="margin:0">${esc(p.description)}</p>` : ""}
           <span class="url">first seen ${esc(new Date(p.firstSeen).toLocaleDateString())} · ${esc(p.listings)} paid endpoint${p.listings === 1 ? "" : "s"}</span>
-          <div class="btns"><button class="button primary small" type="button" data-q-host="${esc(p.host)}">Show its services</button>${p.skill ? `<button class="button ghost small" type="button" data-copy="${esc(`Connect to ${p.skill.replace(/^https:\/\//, "")}`)}">Copy "Connect to …/skill.md"</button>` : ""}<a class="button ghost small" href="https://${esc(p.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`).join("")}</div>`;
+          <div class="btns" data-host="${esc(p.host)}" data-from="new"><button class="button primary small" type="button" data-track="all_services" data-q-host="${esc(p.host)}">Show its services</button>${p.skill ? `<button class="button ghost small" type="button" data-track="connect" data-copy="${esc(`Connect to ${p.skill.replace(/^https:\/\//, "")}`)}">Copy "Connect to …/skill.md"</button>` : ""}<a class="button ghost small" data-track="website" href="https://${esc(p.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`).join("")}</div>`;
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
   }
   $("#newBtn").addEventListener("click", showNew);
