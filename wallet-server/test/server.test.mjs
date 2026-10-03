@@ -38,7 +38,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -47,8 +47,9 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     store, telegram, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
     billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
+    ...(usage ? { usage } : {}),
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}) });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -1100,5 +1101,60 @@ test("search filters: network, new, skill.md, reliable, and sorting", async () =
     const onlyReliable = (await owner("GET", "/api/services/search?reliable=1")).body;
     assert.deepEqual(onlyReliable.results.map((r) => [r.host, r.endpoints]), [["both.example", 1]]);
     assert.equal((await owner("GET", "/api/services/search?net=Base")).body.total, 0); // a network alone isn't a search
+  } finally { server.close(); }
+});
+
+test("usage statistics: anonymous events in the usage-log repo; no addresses, keys, Telegram ids or what was bought", async () => {
+  const { createUsage } = await import("../src/usage.js");
+  const files = new Map(); // path -> text, a fake GitHub contents API
+  const gh = async (url, init = {}) => {
+    const path = new URL(url).pathname.split("/contents/")[1];
+    if ((init.method ?? "GET") === "GET") return files.has(path) ? Response.json({ sha: "s", content: Buffer.from(files.get(path)).toString("base64") }) : new Response("", { status: 404 });
+    files.set(path, Buffer.from(JSON.parse(init.body).content, "base64").toString("utf8"));
+    return Response.json({}, { status: 201 });
+  };
+  const alice = customer();
+  const usage = createUsage({ token: "ghp_test", salt: "s3cret", fetch: gh, batchMs: 0, ownWallets: [alice.address] });
+  const { createCatalog } = await import("../src/catalog.js");
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items: [{ resource: "https://shop.example/signal", description: "Crypto trend signal", accepts: [{ scheme: "exact", network: "eip155:8453", asset: USDC, amount: "20000", payTo: PAY_TO }] }] }) });
+  const { base, server, agentCall } = await boot({ usage, catalog });
+  try {
+    const bob = customer();
+    const b = await signInAs(base, bob);
+    await signInAs(base, bob); // a second sign-in
+    const { body: { key } } = await b.call("POST", "/api/agents", { name: "bob-research" });
+    await agentCall(key)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(1), purchase: { url: "https://shop.example/signal?pair=SECRET", description: "Bob's private research note" } });
+    await agentCall(key)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(9) }); // over the limit: asked
+    await b.call("GET", "/api/services/search?q=Crypto%20Signal&net=Base");
+    await fetch(`${base}/api/public/services/search?q=weather`, { headers: { "user-agent": "python-requests/2.32" } });
+    await fetch(`${base}/api/public/usage/click`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "connect", host: "shop.example", from: "search", demo: true }) });
+    await fetch(`${base}/api/public/usage/click`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "anything", host: "<script>" }) });
+    await b.call("POST", "/api/setup/check", {});
+    await signInAs(base, alice);
+    await fetch(`${base}/demo`);
+    await usage.flush();
+
+    const day = new Date().toISOString().slice(0, 10);
+    const text = files.get(`events/wallet/${day}.jsonl`);
+    const events = text.trim().split("\n").map((l) => JSON.parse(l));
+    const by = (route) => events.filter((e) => e.route === route);
+    assert.equal(by("signup").length, 2);
+    assert.equal(by("signin").length, 1);
+    assert.equal(by("agent_added")[0].result.agents, 1);
+    const [ok, asked] = by("purchase");
+    assert.deepEqual([ok.input.host, ok.usd, ok.result.outcome], ["shop.example", 1, "ok"]);
+    assert.deepEqual([asked.input.host, asked.usd, asked.result.outcome], ["transfer", 9, "asked"]);
+    const [mine, pub] = by("search");
+    assert.deepEqual([mine.via, mine.input.q, mine.input.net, mine.result.total, mine.result.top], ["dashboard", "crypto signal", "Base", 1, "shop.example"]);
+    assert.deepEqual([pub.via, pub.agent, pub.result.total], ["public", "python-requests/2.32", 0]);
+    assert.deepEqual(by("click").map((e) => [e.via, e.input.kind, e.input.host]), [["demo", "connect", "shop.example"]]); // unknown kinds are not logged
+    assert.deepEqual([by("setup_check")[0].result.fail, by("setup_check")[0].result.warn], ["none", "balance,telegram"]); // the agent reached the wallet; no address or Telegram yet
+    assert.equal(by("page")[0].via, "demo");
+    // The same account always has the same code; your own wallets are marked; nothing personal is in the log.
+    assert.equal(new Set(by("purchase").map((e) => e.acct)).size, 1);
+    assert.equal(by("purchase")[0].acct, by("signup")[0].acct);
+    assert.match(by("signup")[0].acct, /^[0-9a-f]{12}$/);
+    assert.equal(by("signup")[1].own, true);
+    for (const secret of [bob.address.toLowerCase(), bob.address, alice.address.toLowerCase(), key, "bob-research", "SECRET", "private research"]) assert.ok(!text.includes(secret), `the log must not contain ${secret}`);
   } finally { server.close(); }
 });
