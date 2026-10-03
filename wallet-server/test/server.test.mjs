@@ -862,6 +862,7 @@ test("search bar: paid APIs from the x402 catalog, USDC on the networks we know,
     assert.equal(r.results[2].prices[0].network, "Arbitrum");
     assert.equal((await owner("GET", "/api/services/search?q=crypto%20trend&max=0.01")).body.results.map((x) => x.host).join(), "cheap.example");
     assert.equal((await owner("GET", "/api/services/search?q=weather")).body.results[0].description, "Weather forecast <script>alert(1)</script>"); // data, escaped by the page
+    assert.equal((await owner("GET", `/api/services/search?q=${encodeURIComponent("Wat is het weer de komende dagen?")}`)).body.results[0].host, "weather.example"); // plain Dutch works too
     assert.equal((await owner("GET", "/api/services/search?q=a")).body.results.length, 0);
     assert.equal(calls, 1); // the catalog is fetched once and kept
   } finally { server.close(); }
