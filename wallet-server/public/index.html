@@ -269,6 +269,13 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .fz .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
 .fz .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
 .newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
+.setup { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+.newkey .setup-steps code { display: inline; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.setup-steps { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.setup-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.setup-tabs button { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--soft); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+.setup-tabs button.on { background: var(--mint); border-color: var(--mint); color: #02100c; font-weight: 700; }
+.setup-code { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(2,10,10,.7); font: 12px/1.45 ui-monospace, Menlo, monospace; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 380px; overflow: auto; }
 .newkey code { display: block; padding: 10px 12px; border-radius: 10px; background: rgba(2,10,10,.7); font: 13px/1.4 ui-monospace, Menlo, monospace; overflow-wrap: anywhere; color: var(--mint); }
 .addform { display: flex; gap: 8px; flex-wrap: wrap; }
 .addform input { flex: 1 1 200px; min-height: 42px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
@@ -1672,12 +1679,52 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#agentName").value = name;
       const { agent, key } = await api("POST", "/api/agents", { name });
       $("#agentName").value = "";
-      $("#newKey").innerHTML = `<div class="card newkey"><span class="tag">KEY FOR ${esc(agent.name)} · SHOWN ONCE</span><code id="keyText">${esc(key)}</code><div class="addform"><button class="button small" id="copyKey" type="button">Copy</button><button class="button ghost small" id="hideKey" type="button">I've stored it</button></div><span class="note">Put it in the agent's environment as WALLET_SERVER_KEY. It is not stored here, only its hash: lost means make a new agent.</span></div>`;
+      $("#newKey").innerHTML = `<div class="card newkey"><span class="tag">KEY FOR ${esc(agent.name)} · SHOWN ONCE</span><code id="keyText">${esc(key)}</code><div class="addform"><button class="button small" id="copyKey" type="button">Copy</button><button class="button ghost small" id="hideKey" type="button">I've stored it</button></div><span class="note">Put it in the agent's environment as WALLET_SERVER_KEY. It is not stored here, only its hash: lost means make a new agent.</span>${setupHtml(key)}</div>`;
       $("#copyKey").onclick = () => navigator.clipboard?.writeText(key).then(() => { $("#copyKey").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#keyText")); });
       $("#hideKey").onclick = () => { $("#newKey").innerHTML = ""; };
+      wireSetup(key);
       refresh();
     } catch (err) { alertInline(err.message); }
   });
+  // Ready-to-paste setup for the new key: the wallet server's address and the key filled in;
+  // only the agent wallet's own private key is left for the user (this page never sees it).
+  const SETUP_CLIENTS = [["desktop", "Claude Desktop"], ["code", "Claude Code"], ["cursor", "Cursor"], ["env", "Other"]];
+  function setupText(client, key) {
+    const url = /^https:\/\//.test(location.origin) ? location.origin : "https://wallet.fizzl.eu";
+    const env = { AGENT_KEY: "0x…your agent wallet's private key…", WALLET_SERVER_URL: url, WALLET_SERVER_KEY: key };
+    const json = JSON.stringify({ mcpServers: { wallet: { command: "npx", args: ["-y", "presign-guard-wallet-mcp"], env } } }, null, 2);
+    if (client === "code") return `claude mcp add wallet \\\n  -e AGENT_KEY=0x…your-agent-wallet-private-key… \\\n  -e WALLET_SERVER_URL=${url} \\\n  -e WALLET_SERVER_KEY=${key} \\\n  -- npx -y presign-guard-wallet-mcp`;
+    if (client === "env") return Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n# then run: npx -y presign-guard-wallet-mcp (an MCP server over stdio)";
+    return json;
+  }
+  const SETUP_WHERE = {
+    desktop: "Claude Desktop → Settings → Developer → Edit Config (claude_desktop_config.json). Already have servers there? Add only the \"wallet\" part inside mcpServers. Then quit Claude Desktop fully and open it again.",
+    code: "Run this in a terminal.",
+    cursor: "Cursor → Settings → MCP → Add new global MCP server (~/.cursor/mcp.json).",
+    env: "For any MCP client or your own agent: these environment variables.",
+  };
+  function setupHtml(key) {
+    if (DEMO) return "";
+    return `<div class="setup"><span class="tag">SET UP YOUR AGENT</span>
+      <ol class="note setup-steps"><li>Make a <b>separate wallet</b> for this agent (a new account in MetaMask) with only what it may spend: a few dollars of USDC on Base. Never your main wallet.</li><li>Pick your app, copy, and replace <code>0x…</code> with that wallet's private key. It stays on your computer; this page never sees it.</li></ol>
+      <div class="setup-tabs" role="tablist">${SETUP_CLIENTS.map(([id, label], i) => `<button type="button" role="tab" class="${i ? "" : "on"}" data-setup="${id}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
+      <p class="note" id="setupWhere" style="margin:0">${esc(SETUP_WHERE.desktop)}</p>
+      <pre class="setup-code" id="setupCode">${esc(setupText("desktop", key))}</pre>
+      <div class="addform"><button class="button small" id="copySetup" type="button">Copy</button></div>
+      <p class="note" style="margin:0">Then ask your agent: <i>"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"</i>. Or run <b>Test my setup</b> on its card first.</p></div>`;
+  }
+  function wireSetup(key) {
+    if (DEMO || !$("#setupCode")) return;
+    let client = "desktop";
+    for (const b of document.querySelectorAll("[data-setup]")) b.onclick = () => {
+      client = b.dataset.setup;
+      for (const o of document.querySelectorAll("[data-setup]")) { o.classList.toggle("on", o === b); o.setAttribute("aria-selected", String(o === b)); }
+      $("#setupCode").textContent = setupText(client, key);
+      $("#setupWhere").textContent = SETUP_WHERE[client];
+      $("#copySetup").textContent = "Copy";
+    };
+    $("#copySetup").onclick = () => navigator.clipboard?.writeText(setupText(client, key)).then(() => { $("#copySetup").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#setupCode")); });
+  }
   function alertInline(msg) { $("#newKey").innerHTML = `<p class="err">${esc(msg)}</p>`; }
 
   // ---------- receipts ----------
