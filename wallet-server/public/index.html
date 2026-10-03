@@ -278,7 +278,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .mw-links a { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; color: var(--soft); text-decoration: none; font-size: 13px; }
 .mw-links a:hover, .mw-links a:focus-visible { border-color: var(--mint); color: var(--mint); }
 @media (max-width: 420px) { .mw-phone { flex-direction: column; align-items: flex-start; } }
-.monitor { margin-top: 14px; display: grid; gap: 10px; }
+.monitor { margin-top: 14px; display: grid; gap: 10px; padding: 22px; }
 .monlist { display: grid; gap: 8px; }
 .monrow { display: grid; grid-template-columns: 12px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
 .monmain { display: grid; gap: 2px; min-width: 0; } .monmain b { overflow-wrap: anywhere; font-size: 13px; color: var(--text); }
@@ -423,6 +423,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <div class="card">
       <span class="tag">Fizzl Agent Wallet</span>
       <h3>Spending limits and phone approvals for your AI agents</h3>
+      <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
         <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
@@ -881,6 +882,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
 
   function showLogin() {
+    if (pendingWatch) { $("#watchHint").hidden = false; $("#watchHint").innerHTML = `Sign in with your wallet to watch <b style="color:#fff;word-break:break-all">${esc(pendingWatch.url.replace(/^https:\/\//, ""))}</b>. One endpoint is free; no e-mail needed.`; }
     $("#app").hidden = true; $("#logout").hidden = true; $("#addAgentTop").hidden = true; $("#who").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out");
     fetch("/api/config").then((r) => r.json()).then((c) => {
       $("#walletLogin").hidden = !c.wallet;
@@ -1207,6 +1209,27 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     box.innerHTML = !list.length ? "" : `<p class="note" style="margin:0"><b style="color:#fff">Withdrawals</b>${open.length ? ` · <span style="color:var(--amber)">${open.length} to refund</span>` : ""}</p>${list.slice(0, 10).map((w) => `<div class="paylist" style="margin:0"><div><span>${esc(day(w.at))} · ${esc(w.refundUsdc)} USDC on ${esc(w.network)} to <code>${esc(w.to.slice(0, 6))}…${esc(w.to.slice(-4))}</code></span>${w.refundedAt ? `<span class="note">refunded</span>` : `<span><button class="link" type="button" data-copy="${esc(w.to)}">Copy address</button> · <button class="link" type="button" data-refunded="${esc(w.id)}">Mark refunded</button></span>`}</div></div>`).join("")}`;
   }
   // ---------- endpoint monitor ----------
+  // "Watch this endpoint" links from x402 Doctor: /?watch=<url>&method=POST#/account. Kept for this tab
+  // through the sign-in, then filled into the form (the seller still clicks Watch themselves).
+  let pendingWatch = null;
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get("watch")) {
+      pendingWatch = { url: q.get("watch").slice(0, 500), method: q.get("method")?.toUpperCase() === "POST" ? "POST" : "GET" };
+      sessionStorage.setItem("fizzl.watch", JSON.stringify(pendingWatch));
+      q.delete("watch"); q.delete("method");
+      history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}#/account`);
+    } else pendingWatch = JSON.parse(sessionStorage.getItem("fizzl.watch") || "null");
+  } catch {}
+  function usePendingWatch() {
+    if (!pendingWatch) return;
+    const w = pendingWatch; pendingWatch = null;
+    try { sessionStorage.removeItem("fizzl.watch"); } catch {}
+    $("#monUrl").value = w.url; $("#monMethod").value = w.method;
+    $("#monMsg").textContent = "From x402 Doctor: click Watch to add this endpoint."; $("#monMsg").className = "msg good";
+    showTab("account");
+    setTimeout(() => { scrollTo($("#monitorCard"), "center"); $("#monForm button").focus({ preventScroll: true }); }, 60);
+  }
   const ago = (t) => { const m = Math.round((Date.now() - t) / 60_000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
   function renderMonitors(r) {
     $("#monitorCard").hidden = false;
@@ -1217,6 +1240,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const label = { ok: "Payable", down: "Not payable", paused: "Paused (over your plan)" }[st];
       return `<div class="monrow"><span class="mondot ${st}" aria-hidden="true"></span><div class="monmain"><b>${esc(m.method)} ${esc(m.url.replace(/^https:\/\//, ""))}</b><span class="note">${esc(label)}${m.last ? ` · ${esc(m.last.note)}${m.last.ms ? ` · ${esc(m.last.ms)} ms` : ""} · ${esc(ago(m.last.at))}` : ""}</span></div><div class="monact"><button class="link" type="button" data-moncheck="${esc(m.id)}">Check now</button> <button class="link" type="button" data-monrm="${esc(m.id)}">Remove</button></div></div>`;
     }).join("")}</div>` : `<p class="note" style="margin:0">No endpoints yet. Add the paid URL agents call, e.g. https://api.example.com/v1/quote.</p>`;
+    usePendingWatch();
   }
   async function loadMonitors() { if (DEMO || !me || me.admin === undefined) return; try { renderMonitors(await api("GET", "/api/monitors")); } catch {} }
   $("#monForm").addEventListener("submit", async (e) => {
