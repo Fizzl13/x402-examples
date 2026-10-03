@@ -298,6 +298,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .receipt .plain b { color: var(--text); }
 .receipt .pill { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; border: 1px solid currentColor; }
 .receipt .p-signed { color: var(--mint); } .receipt .p-signing { color: var(--cyan); } .receipt .p-failed { color: var(--rose); }
+.onchain a { color: var(--mint); text-decoration: underline; }
 .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .steps li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; font-size: 13px; }
 .steps li > span:last-child { display: grid; gap: 1px; }
@@ -1701,6 +1702,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const st = p.outcome?.settlement;
     const stChain = p.demo ? null : chainOf(st?.network) ?? chain;
     const settled = st?.transaction ? (isTx(st.transaction) && stChain ? ext(`${stChain[1]}/tx/${st.transaction}`, `${st.transaction.slice(0, 10)}…${st.transaction.slice(-8)}`) : `<code>${esc(short(st.transaction))}</code>`) + (st.network ? ` <span class="note">${esc(chainOf(st.network)?.[0] ?? st.network)}</span>` : "") : null;
+    // The payment on the blockchain: the explorer, and x402 Doctor's free proof check (it reads the chain itself).
+    const solTx = !p.demo && st?.transaction && /^solana:/.test(st.network || "") ? `https://solscan.io/tx/${encodeURIComponent(st.transaction)}` : null;
+    const txUrl = solTx ?? (!p.demo && st?.transaction && isTx(st.transaction) && stChain ? `${stChain[1]}/tx/${st.transaction}` : null);
+    const proofUrl = !p.demo && st?.transaction && st?.network ? `https://x402-doctor.fizzl.eu/settlement?tx=${encodeURIComponent(st.transaction)}&network=${encodeURIComponent(st.network)}` : null;
+    const onchain = txUrl || proofUrl ? `<p class="note onchain" style="margin:10px 0 0">On the blockchain: ${[txUrl ? ext(txUrl, "view the transaction") : "", proofUrl ? ext(proofUrl, "check the proof") : ""].filter(Boolean).join(" · ")}</p>` : "";
     const statusText = { signed: "signed", signing: "signing", failed: "failed" }[p.status] ?? p.status;
     // For people: who bought what, in one sentence; the steps it went through; what came back.
     const seller = sellerOf(p);
@@ -1725,7 +1731,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h3 id="rcTitle">${esc(what ?? "A payment without a description")}</h3>
       <div class="top"><span class="amt num">${esc(amount)}</span><span class="pill p-${esc(p.status)}">${esc({ signed: "Paid", signing: "Paying…", failed: "Not paid" }[p.status] ?? p.status)}</span></div>
     </div>
-    <div class="rc-sec">${plain}${stepsHtml}</div>
+    <div class="rc-sec">${plain}${stepsHtml}${p.status === "signed" ? onchain : ""}</div>
     ${got ? `<div class="rc-sec"><span class="tag">WHAT YOUR AGENT GOT</span>${got}</div>` : ""}
     <details class="tech"><summary>Technical details</summary>
     <dl>
@@ -1740,7 +1746,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${row("Approval", p.approval ? `${esc(p.approval.summary)}<br><span class="note">approved via ${esc(p.approval.by)} at ${esc(full(p.approval.at))}</span>` : `<span class="note">within your rules, no approval needed</span>`)}
       <div class="sep"></div>
       ${row("Signed", result)}
-      ${row("Settled", settled)}
+      ${row("Settled", settled ? settled + (proofUrl ? `<br>${ext(proofUrl, "Check the proof on x402 Doctor")}` : "") : null)}
       ${row("Answer", p.outcome?.httpStatus ? `HTTP ${esc(p.outcome.httpStatus)}` : null)}
       ${p.demo ? `<div class="sep"></div><dd style="grid-column:1/-1" class="note">Demo receipt: example data, made-up hashes.</dd>` : ""}
       ${row("Problem", p.outcome?.error ? `<span style="color:var(--rose)">${esc(p.outcome.error)}</span>${p.status === "failed" ? `<br><span class="note">nothing was paid; the spending was given back</span>` : ""}` : null)}
