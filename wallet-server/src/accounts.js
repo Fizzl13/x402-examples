@@ -92,7 +92,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const isSol = (a) => a?.chain === "solana";
 
   async function account(id) {
-    if (id === ADMIN) return { id: ADMIN, admin: true, follow: (await g.getAccount(ADMIN))?.follow ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null };
+    if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
     return g.getAccount(id);
   }
   // A withdrawal (EU 14-day right) ends Pro on the spot, until the customer pays again.
@@ -146,6 +146,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       notify: async (approval, spending) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.notify(a.telegram.chatId, approval, spending);
+        // A webhook can't take an answer: it says what's waiting and links to the dashboard.
+        const hook = a?.alertHook;
+        if (hook) {
+          const what = [approval.purchase?.description, approval.purchase?.url].filter(Boolean).join(" · ");
+          const text = `🔔 ${approval.agentName} wants to sign something over your limit: ${approval.summary}${what ? `\nfor: ${what}` : ""}\npresign-guard: ${approval.verdict?.verdict ?? "no verified verdict"}\n\nApprove or deny on ${site.origin}/#/overview (no answer means no payment).`;
+          await alertHook.send(hook.url, text, { type: "approval", agent: approval.agentName, summary: approval.summary, url: approval.purchase?.url ?? null, dashboard: `${site.origin}/#/overview`, at: now() }).catch((err) => console.warn(`[approval] webhook: ${err.message}`));
+        }
       },
       onSettled: (approval) => telegram?.decided(approval),
     });
@@ -158,6 +165,17 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     await g.putAccount(next);
     return next;
   }
+
+  // Where an account's messages go: its Telegram chat, and its Discord/Slack/other webhook if it set one.
+  // Returns how many channels got it (0: none set, or all failed; callers that remember "sent" retry later).
+  async function tell(id, text, event = {}) {
+    const a = await account(id);
+    let got = 0;
+    if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, text).then(() => got++, (err) => console.warn(`[tell] telegram: ${err.message}`));
+    if (a?.alertHook) await alertHook.send(a.alertHook.url, text, { ...event, at: now() }).then(() => got++, (err) => console.warn(`[tell] webhook: ${err.message}`));
+    return got;
+  }
+  const reachable = (a) => !!(a?.telegram?.chatId || a?.alertHook);
 
   const api = {
     walletFor,
@@ -343,7 +361,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       let sent = 0;
       for (const a of list) {
         const follow = new Set(a?.follow ?? []);
-        if (!follow.size || !a.telegram?.chatId) continue;
+        if (!follow.size || !reachable(a)) continue;
         const mine = providers.filter((p) => follow.has("all") || follow.has(p.category));
         if (!mine.length) continue;
         const lines = [`🆕 ${mine.length === 1 ? "A new provider" : `${mine.length} new providers`} in the x402 catalog`, ""];
@@ -354,7 +372,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         }
         if (mine.length > 8) lines.push(`…and ${mine.length - 8} more.`, "");
         lines.push(`Listings are written by the sellers, not recommendations. Search them in your wallet: ${site.origin}`, "Change which categories you follow there, under Find services.");
-        try { await telegram.send(a.telegram.chatId, lines.join("\n")); sent++; } catch (err) { console.warn(`[alerts] ${err.message}`); }
+        if (await tell(a.id, lines.join("\n"), { type: "new_providers", count: mine.length })) sent++;
       }
       usage.record("alerts_sent", { result: { providers: providers.length, messages: sent } });
       return sent;
@@ -397,7 +415,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Withdrew from Pro: ${w.refundUsdc} USDC will be refunded to ${a.address}` });
         usage.record("pro_withdrawn", { account: id, ref: a.ref, usd: w.refundUsdc, input: { network } });
         if (telegram && adminChatId) await telegram.send(adminChatId, `Withdrawal (EU 14-day right): refund ${w.refundUsdc} USDC on ${network} to ${a.address} within 14 days. Pro has ended for this account. Mark it refunded on the owner dashboard once sent.`).catch(() => {});
-        if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `We received your withdrawal from Fizzl wallet Pro. You'll get ${w.refundUsdc} USDC back at ${a.address} within 14 days. Your account stays, on the free plan.`).catch(() => {});
+        await tell(id, `We received your withdrawal from Fizzl wallet Pro. You'll get ${w.refundUsdc} USDC back at ${a.address} within 14 days. Your account stays, on the free plan.`, { type: "pro_withdrawn" });
         return api.me(id);
       });
     },
@@ -486,10 +504,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         await g.putAccount({ ...cur, monitors: (cur.monitors ?? []).map((x) => (x.id === monitorId ? { ...x, ...(r.state === "ok" && r.method && r.method !== x.method ? { method: r.method, switchedFrom: x.method } : {}), last: { ...r, at: now() }, fails, alerted } : x)) });
       });
       if (message && alert) {
-        const chat = (await account(id))?.telegram?.chatId;
-        if (telegram && chat) await telegram.send(chat, message).catch((err) => console.warn(`[monitor] ${err.message}`));
-        const hook = (await g.getAccount(id))?.alertHook;
-        if (hook) await alertHook.send(hook.url, message, { type, url: m.url, method: m.method, note: r.note, status: r.status, at: now() }).catch((err) => console.warn(`[monitor] webhook: ${err.message}`));
+        await tell(id, message, { type, url: m.url, method: m.method, note: r.note, status: r.status });
         usage.record("monitor_alert", { account: id, input: { host: new URL(m.url).host }, result: { state: r.state } });
       }
       return r;
@@ -529,7 +544,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         if (!a?.withdrawal) throw Object.assign(new Error("no withdrawal for this account"), { status: 404 });
         await touch(a, { withdrawal: { ...a.withdrawal, refundedAt: now(), ...(tx ? { refundTx: String(tx).slice(0, 120) } : {}) } });
         usage.record("pro_refunded", { account: id, ref: a.ref, usd: a.withdrawal.refundUsdc, input: { network: a.withdrawal.network, days: Math.round((now() - a.withdrawal.at) / DAY) } });
-        if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Your refund of ${a.withdrawal.refundUsdc} USDC for Fizzl wallet Pro has been sent to ${a.withdrawal.to}.`).catch(() => {});
+        await tell(id, `Your refund of ${a.withdrawal.refundUsdc} USDC for Fizzl wallet Pro has been sent to ${a.withdrawal.to}.`, { type: "pro_refunded" });
         return { ok: true };
       });
     },
@@ -549,12 +564,11 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
     // Hourly: remind before Pro ends, and say so when it has ended. Each message once per period.
     async remind() {
-      if (!telegram) return 0;
       let sent = 0;
       const usd = `$${Number(priceUnits) / 1e6}`;
       for (const a of await g.listAccounts()) {
         const end = proUntil(a);
-        if (!end || !a.telegram?.chatId || withdrawn(a)) continue;
+        if (!end || !reachable(a) || withdrawn(a)) continue;
         const left = end - now();
         const auto = (a.auto?.dueAt ?? 0) > 0;
         let kind = null, text = null;
@@ -568,7 +582,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         else if (left <= -GRACE_MS && left > -GRACE_MS - 7 * DAY) { kind = "free"; text = "You're on the free plan now: one agent keeps working, the others are paused until you upgrade again."; }
         const tag = kind && `${kind}:${end}`;
         if (!tag || a.reminded === tag) continue;
-        try { await telegram.send(a.telegram.chatId, text); sent++; await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { reminded: tag })); } catch (err) { console.warn(`[remind] ${err.message}`); }
+        if (await tell(a.id, text, { type: `pro_${kind}` })) { sent++; await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { reminded: tag })); }
       }
       return sent;
     },
@@ -589,8 +603,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         if (why) {
           failed++;
           const tag = `fail:${a.auto.dueAt}`;
-          if (a.chargeNotice !== tag && telegram && a.telegram?.chatId) {
-            await telegram.send(a.telegram.chatId, `Automatic payment for Fizzl wallet Pro didn't go through: ${why}. Renew the approval or pay on the dashboard; Pro keeps working for 3 days.`).catch(() => {});
+          if (a.chargeNotice !== tag && reachable(a)) {
+            await tell(a.id, `Automatic payment for Fizzl wallet Pro didn't go through: ${why}. Renew the approval or pay on the dashboard; Pro keeps working for 3 days.`, { type: "auto_payment_failed" });
             await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { chargeNotice: tag }));
           }
           continue;
@@ -603,7 +617,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
           await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `Pro paid automatically: ${Number(priceUnits) / 1e6} USDC, until ${date(after.auto.paidThrough)}` });
           await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? after, { autoPayments: [...((await g.getAccount(a.id))?.autoPayments ?? []), { tx, amount: (Number(priceUnits) / 1e6).toString(), at: now(), paidThrough: after.auto.paidThrough }] }));
           usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(priceUnits) / 1e6, input: { network: "Base", months: 1, automatic: true } });
-          if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Paid automatically: ${Number(priceUnits) / 1e6} USDC for Fizzl wallet Pro, until ${date(after.auto.paidThrough)}. Thank you!`).catch(() => {});
+          await tell(a.id, `Paid automatically: ${Number(priceUnits) / 1e6} USDC for Fizzl wallet Pro, until ${date(after.auto.paidThrough)}. Thank you!`, { type: "auto_payment" });
         } catch (err) { failed++; console.warn(`[charge] ${a.address}: ${err.message}`); }
       }
       return { charged, failed };

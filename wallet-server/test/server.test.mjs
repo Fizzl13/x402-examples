@@ -112,6 +112,23 @@ test("within the rules: booked at once; spending and the dashboard show it", asy
   } finally { server.close(); }
 });
 
+test("over the limit with a webhook set: it also says what's waiting and links to the dashboard (no buttons)", async () => {
+  const hooked = [];
+  const alertHook = { send: async (url, text, event) => { hooked.push({ url, text, event }); } };
+  const { owner, agent, server } = await boot({ alertHook });
+  try {
+    assert.deepEqual((await owner("PUT", "/api/monitors/alert-hook", { url: "https://hooks.slack.com/services/T/B/x" })).body.hook, { kind: "slack", host: "hooks.slack.com" });
+    const req = txRequest(8);
+    const r = await agent("POST", "/v1/reserve", { method: "sendTransaction", request: req, verdict: await signedVerdict(req) });
+    assert.equal(r.body.status, "pending");
+    await new Promise((ok) => setTimeout(ok, 20));
+    const h = hooked.find((x) => x.event.type === "approval");
+    assert.match(h.text, /research-agent wants to sign something over your limit: 8 USDC is over the limit/);
+    assert.match(h.text, /Approve or deny on https:\/\/wallet\.test\/#\/overview/);
+    assert.equal(h.event.dashboard, "https://wallet.test/#/overview");
+  } finally { server.close(); }
+});
+
 test("over the limit: Telegram is asked, the dashboard approves, the waiting agent gets the go", async () => {
   const { owner, agent, server, tg } = await boot();
   try {
