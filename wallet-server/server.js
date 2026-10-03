@@ -90,10 +90,11 @@ const app = createApp({ accounts, auth, telegram, catalog, usage, stats, signInW
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 
-// Every hour: take automatic payments that are due, send Pro reminders on Telegram, and look for new sellers in the catalog.
+// Every hour: take automatic payments that are due, send Pro reminders (and refund reminders to you) on Telegram, and look for new sellers in the catalog.
 const hourly = async () => {
   try { const r = await accounts.chargeDue(); if (r.charged || r.failed) console.log(`[subscription] charged ${r.charged}, failed ${r.failed}`); } catch (err) { console.warn(`[subscription] ${err.message}`); }
   try { await accounts.remind(); } catch (err) { console.warn(`[remind] ${err.message}`); }
+  try { await accounts.remindRefunds(); } catch (err) { console.warn(`[refunds] ${err.message}`); }
   try { await catalog.refresh(); } catch (err) { console.warn(`[catalog] ${err.message}`); }
 };
 setTimeout(hourly, 60_000).unref();

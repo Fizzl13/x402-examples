@@ -1525,7 +1525,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!out.dataset.loaded) out.innerHTML = `<p class="note">Reading the usage log…</p>`;
     try {
       const s = await api("GET", `/api/admin/stats?days=${statsDays}`);
-      const k = s.kpi, p = s.prev, rev = k.serviceUsd + k.proUsd, prevRev = p.serviceUsd + p.proUsd;
+      const k = s.kpi, p = s.prev, rev = k.serviceUsd + k.proUsd - (k.refundUsd || 0), prevRev = p.serviceUsd + p.proUsd - (p.refundUsd || 0);
       const notes = [
         !s.logging.site ? `<b>The website counter hasn't counted anything yet.</b> It is in the pages of fizzl.eu and its subdomains once those are deployed: <code>&lt;script defer src="https://wallet.fizzl.eu/s.js"&gt;&lt;/script&gt;</code>` : "",
         !s.logging.wallet ? `<b>No wallet events yet.</b> Set <code>USAGE_LOG_TOKEN</code> on fizzl-wallet-server in Render (the same token as the other services).` : "",
@@ -1536,7 +1536,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <article class="card kpi"><span class="tag">WEBSITE VISITS</span><b>${esc(n0(k.siteViews))}</b>${deltaTxt(k.siteViews, p.siteViews)}</article>
           <article class="card kpi"><span class="tag">WALLET SIGN-UPS</span><b>${esc(n0(k.signups))}</b>${deltaTxt(k.signups, p.signups)}</article>
           <article class="card kpi"><span class="tag">PURCHASES BY AGENTS</span><b>${esc(n0(k.purchases))}</b>${deltaTxt(k.purchases, p.purchases)}</article>
-          <article class="card kpi"><span class="tag">REVENUE</span><b>$${esc(n0(rev))}</b>${deltaTxt(rev, prevRev, true)}<small>services $${esc(n0(k.serviceUsd))} · Pro $${esc(n0(k.proUsd))}</small></article>
+          <article class="card kpi"><span class="tag">REVENUE</span><b>$${esc(n0(rev))}</b>${deltaTxt(rev, prevRev, true)}<small>services $${esc(n0(k.serviceUsd))} · Pro $${esc(n0(k.proUsd))}${k.withdrawals ? ` · ${esc(n0(k.withdrawals))} withdrawal${k.withdrawals === 1 ? "" : "s"}, −$${esc(n0(k.refundUsd))}` : ""}</small></article>
         </div>
         <article class="card funnel"><span class="tag">FROM THE WEBSITE TO PRO · ${esc(shortDay(s.from))} – ${esc(shortDay(s.to))}</span>
           ${s.funnel.map(([label, v]) => `<div class="frow"><span>${esc(label)}</span><span class="track" aria-hidden="true"><i style="width:${top ? Math.max(0.5, (v / top) * 100) : 0}%"></i></span><em>${esc(n0(v))}${top && v !== top ? ` <small>${esc(Math.round((v / top) * 1000) / 10)}%</small>` : ""}</em></div>`).join("")}

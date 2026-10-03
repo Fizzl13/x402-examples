@@ -88,6 +88,8 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
           spentUsd: round2(ok.reduce((s, e) => s + (Number(e.usd) || 0), 0)),
           pro: w("pro_paid").length,
           proUsd: round2(w("pro_paid").reduce((s, e) => s + (Number(e.usd) || 0), 0)),
+          withdrawals: w("pro_withdrawn").length,
+          refundUsd: round2(w("pro_withdrawn").reduce((s, e) => s + (Number(e.usd) || 0), 0)),
           paidCalls: paid.length,
           serviceUsd: round2(paid.reduce((s, e) => s + (Number(e.usd) || 0), 0)),
         },

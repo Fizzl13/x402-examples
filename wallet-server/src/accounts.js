@@ -396,6 +396,24 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         return api.me(id);
       });
     },
+    // Hourly: remind the owner of refunds still to send (day 10 and day 13 of the 14 the law allows).
+    async remindRefunds() {
+      if (!telegram || !adminChatId) return 0;
+      let sent = 0;
+      for (const a of await g.listAccounts()) {
+        const w = a.withdrawal;
+        if (!w || w.refundedAt) continue;
+        const age = now() - w.at, stage = age >= 13 * DAY ? "13" : age >= 10 * DAY ? "10" : null;
+        if (!stage || w.reminded === stage) continue;
+        const left = Math.max(0, Math.ceil((w.at + WITHDRAW_MS - now()) / DAY));
+        try {
+          await telegram.send(adminChatId, `Refund still to send: ${w.refundUsdc} USDC on ${w.network} to ${w.to} (withdrawal of ${date(w.at)}). ${left ? `${left} day${left === 1 ? "" : "s"} left of the 14 the law allows.` : "The 14 days are up today."} Mark it refunded on the owner dashboard once sent.`);
+          sent++;
+          await serial(a.id, async () => { const cur = await g.getAccount(a.id); if (cur?.withdrawal) await touch(cur, { withdrawal: { ...cur.withdrawal, reminded: stage } }); });
+        } catch (err) { console.warn(`[refunds] ${err.message}`); }
+      }
+      return sent;
+    },
     // For the owner: withdrawals and whether they've been refunded.
     async withdrawals() {
       return (await g.listAccounts()).filter((a) => a.withdrawal).map((a) => ({ id: a.id, address: a.address, ...a.withdrawal })).sort((x, y) => y.at - x.at);
@@ -405,6 +423,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         const a = await g.getAccount(id);
         if (!a?.withdrawal) throw Object.assign(new Error("no withdrawal for this account"), { status: 404 });
         await touch(a, { withdrawal: { ...a.withdrawal, refundedAt: now(), ...(tx ? { refundTx: String(tx).slice(0, 120) } : {}) } });
+        usage.record("pro_refunded", { account: id, ref: a.ref, usd: a.withdrawal.refundUsdc, input: { network: a.withdrawal.network, days: Math.round((now() - a.withdrawal.at) / DAY) } });
         if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Your refund of ${a.withdrawal.refundUsdc} USDC for Fizzl wallet Pro has been sent to ${a.withdrawal.to}.`).catch(() => {});
         return { ok: true };
       });
