@@ -31,7 +31,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
 <header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a><a href="/">Back to the dashboard</a></div></header>
 <main class="wrap">
   <h1>Terms of service</h1>
-  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 2 October 2026</p>
+  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 3 October 2026</p>
 
   <div class="box">
     <p style="margin:0"><b>In short:</b></p>
@@ -44,7 +44,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   </div>
 
   <h2>1. Who we are</h2>
-  <p>The Fizzl Agent Wallet is offered by {{OPERATOR}}, trading as Fizzl, the Netherlands ("we", "us"). Contact: {{CONTACT}}.</p>
+  <p>The Fizzl Agent Wallet is offered by {{OPERATOR}}, trading as Fizzl, the Netherlands ("we", "us").{{ADDRESS_LINE}} Contact: {{CONTACT}}.</p>
 
   <h2>2. What the service is, and isn't</h2>
   <p>The service lets you set rules for what your AI agents may spend, asks you to approve anything above those rules (on the dashboard or on Telegram), and keeps receipts and an activity log. Agents connect with their own key and ask us before they sign. They then sign and pay themselves.</p>
@@ -78,7 +78,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
 
   <h2>6. Automatic payment</h2>
   <ul>
-    <li>Automatic payment is available for Ethereum wallets, on Base. If you turn it on, you approve our subscription contract on Base for at most 12 months of Pro ($60). After that, $5 is taken from your wallet every 30 days. The contract can only send $5 per 30 days, only to our address. Its code is public.</li>
+    <li>Automatic payment is available for Ethereum wallets, on Base. If you turn it on, you approve our subscription contract on Base for at most 12 months of Pro ($60). From then on, $5 is taken from your wallet every 30 days, until you turn it off or the approval is used up. The contract can only send $5 per 30 days, only to our address. Its code is public.</li>
     <li>We remind you on Telegram (if connected) 3 days before each payment.</li>
     <li>If a payment can't go through, for example because your approval is used up or you don't have enough USDC on Base, Pro keeps working for 3 days. After that you're on Free. Nothing is deleted, and extra agents are paused.</li>
     <li>You can turn automatic payment off at any time on the dashboard, or by setting your approval to 0 in your wallet. Time you already paid for stays.</li>
@@ -87,8 +87,50 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <h2>7. Stopping, and your right of withdrawal</h2>
   <ul>
     <li>You can stop Pro at any time: just don't pay again, or turn off automatic payment. You can delete your account on the dashboard. There are no refunds for the rest of a period you paid for, except as below or where the law requires it.</li>
-    <li><b>Consumers in the EU:</b> by paying, you ask us to start Pro right away. You can still withdraw within 14 days of your first Pro payment, by writing to {{CONTACT}}. We then refund the part of the period you haven't used, in USDC to the address you paid from, within 14 days.</li>
+    <li><b>Consumers in the EU:</b> by paying, you ask us to start Pro right away. You can still withdraw within 14 days of your first Pro payment, without giving a reason. Pro then ends right away and you're on Free; nothing is deleted. We refund the part of what you paid that you haven't used yet (pro rata, $5 per 30 days), in USDC to the address you paid from, within 14 days.</li>
+    <li><b>How to withdraw:</b> use the <b>Withdraw from contract</b> button below, while signed in, then confirm. You get a confirmation on the screen (and on Telegram, if connected). If automatic payment is on, turn it off first; it lives on-chain, so only your wallet can stop it. You can also withdraw by e-mail to {{CONTACT}}, for example with the form below. Either way, it's on time if you send it within the 14 days.</li>
   </ul>
+  <div class="box" id="withdraw" style="margin-bottom:14px">
+    <p style="margin:0 0 8px"><b>Withdraw from contract</b></p>
+    <p class="note" id="wdText" style="margin:0 0 10px">Sign in on the <a href="/">dashboard</a> first, then come back to this page.</p>
+    <button type="button" id="wdBtn" hidden style="font:700 13px/1 'DM Sans',Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:12px 18px;border-radius:999px;border:1px solid var(--mint);background:transparent;color:var(--mint);cursor:pointer">Withdraw from contract</button>
+    <p class="note" id="wdMsg" role="status" style="margin:8px 0 0"></p>
+  </div>
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id), day = (t) => new Date(t).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+    const show = (me) => {
+      const w = me.withdrawal, b = $("wdBtn");
+      b.hidden = true;
+      if (!w) return void ($("wdText").textContent = "There's nothing to withdraw from: no Pro payment in the last 14 days on this account.");
+      if (w.done) return void ($("wdText").textContent = `You withdrew from Pro on ${day(w.at)}. ${w.refunded ? `Your refund of ${w.refundUsdc} USDC has been sent.` : `Your refund of ${w.refundUsdc} USDC is on its way, within 14 days of that date.`}`);
+      $("wdText").textContent = `Until ${day(w.deadline)} you can withdraw from Pro without giving a reason. Pro ends right away and you get the unused part back: now ${w.refundUsdc} USDC, to ${me.address.slice(0, 6)}…${me.address.slice(-4)}, the address you paid from.`;
+      b.hidden = false;
+    };
+    fetch("/api/me", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((me) => { if (me && !me.admin) show(me); }, () => {});
+    $("wdBtn").addEventListener("click", async () => {
+      const b = $("wdBtn");
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm withdrawal"; $("wdMsg").textContent = "Press again to confirm: Pro ends now and the amount above is refunded."; return; }
+      b.disabled = true;
+      try {
+        const r = await fetch("/api/billing/withdraw", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: "withdraw" }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.message || d.error || `HTTP ${r.status}`);
+        $("wdMsg").textContent = "Done. We've received your withdrawal.";
+        show(d);
+      } catch (err) { $("wdMsg").textContent = err.message; b.dataset.confirm = ""; b.textContent = "Withdraw from contract"; }
+      finally { b.disabled = false; }
+    });
+  })();
+  </script>
+  <div class="box" id="withdrawal-form">
+    <p><b>Model withdrawal form</b> (only fill in and send this form if you want to withdraw from the contract)</p>
+    <p>To: {{OPERATOR}}, trading as Fizzl{{ADDRESS_COMMA}}, {{CONTACT}}<br>
+    I hereby give notice that I withdraw from my contract for the following service: Fizzl Agent Wallet Pro.<br>
+    Paid on: …<br>
+    Wallet address I signed in and paid with: …<br>
+    Date: …</p>
+  </div>
 
   <h2>8. Fair use</h2>
   <p>Don't use the service:</p>

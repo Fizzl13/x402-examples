@@ -18,6 +18,7 @@
 //   WALLET_SIGNIN       "off" for a private, owner-only server (no customer sign-in)
 //   OPERATOR_NAME       who runs the service, shown in the privacy statement (/privacy)
 //   CONTACT_EMAIL       where customers reach you about their data, shown in the privacy statement
+//   OPERATOR_ADDRESS    the address you trade from (street, postcode, town), shown in the terms (consumer law asks for it)
 //   SUBSCRIPTION_CONTRACT  optional: the deployed FizzlSubscription address (automatic Pro payments)
 //   ETHEREUM_RPC_URL, ARBITRUM_RPC_URL, OPTIMISM_RPC_URL, POLYGON_RPC_URL
 //                       optional: RPCs to check Pro payments on those networks (public ones by default)
@@ -85,7 +86,7 @@ const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECR
 const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined });
-const app = createApp({ accounts, auth, telegram, catalog, usage, stats, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null } });
+const app = createApp({ accounts, auth, telegram, catalog, usage, stats, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 

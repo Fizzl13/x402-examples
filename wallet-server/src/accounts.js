@@ -30,6 +30,7 @@ const DAY = 86_400_000;
 export const PERIOD_MS = 30 * DAY;
 export const GRACE_MS = 3 * DAY;
 export const REMIND_BEFORE_MS = 3 * DAY;
+export const WITHDRAW_MS = 14 * DAY;
 const NONCE_TTL_S = 600;
 const LINK_TTL_S = 900;
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -92,12 +93,29 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (id === ADMIN) return { id: ADMIN, admin: true, follow: (await g.getAccount(ADMIN))?.follow ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null };
     return g.getAccount(id);
   }
+  // A withdrawal (EU 14-day right) ends Pro on the spot, until the customer pays again.
+  const paidCount = (a) => (a?.payments?.length ?? 0) + (a?.autoPayments?.length ?? 0);
+  const withdrawn = (a) => Boolean(a?.withdrawal) && paidCount(a) <= a.withdrawal.paidCount;
   // Pro lasts until the later of what was paid by hand and what the subscription contract took.
-  const proUntil = (a) => Math.max(a?.paidUntil ?? 0, a?.auto?.paidThrough ?? 0);
+  const proUntil = (a) => { const end = Math.max(a?.paidUntil ?? 0, a?.auto?.paidThrough ?? 0); return withdrawn(a) ? Math.min(end, a.withdrawal.at) : end; };
   function planOf(a) {
     if (!a) return PLANS.free;
     if (a.admin) return PLANS.admin;
+    if (withdrawn(a)) return PLANS.free;
     return proUntil(a) + GRACE_MS > now() ? PLANS.pro : PLANS.free;
+  }
+  // The EU right of withdrawal: within 14 days of the first Pro payment, once. The refund is the
+  // part of what was paid that hasn't been used yet (Pro started right away, at the customer's request).
+  function withdrawalOf(a) {
+    if (!a || a.admin) return null;
+    const paid = [...(a.payments ?? []), ...(a.autoPayments ?? [])].sort((x, y) => x.at - y.at);
+    if (!paid.length) return null;
+    if (a.withdrawal) return { done: true, at: a.withdrawal.at, refundUsdc: a.withdrawal.refundUsdc, refunded: Boolean(a.withdrawal.refundedAt) };
+    const deadline = paid[0].at + WITHDRAW_MS;
+    if (now() > deadline) return null;
+    const total = paid.reduce((n, p) => n + (Number(p.amount) || 0), 0);
+    const used = ((Number(priceUnits) / 1e6) * (now() - paid[0].at)) / PERIOD_MS; // pro rata, $5 per 30 days
+    return { done: false, deadline, refundUsdc: Math.max(0, Math.floor((total - used) * 100) / 100) };
   }
   const subscription = billing.subscription && isAddress(billing.subscription) ? getAddress(billing.subscription) : null;
 
@@ -189,6 +207,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         chain: a.admin ? null : isSol(a) ? "solana" : "ethereum",
         auto: subscription && !a.admin && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
+        withdrawal: withdrawalOf(a),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         follow: a.follow ?? [],
         billing: a.admin ? null : isSol(a)
@@ -349,8 +368,44 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         await store.wipe(id);
         wallets.delete(id);
         usage.record("account_deleted", { account: id });
-        const kept = { id, address: a.address, deletedAt: now(), payments: a.payments ?? [], autoPayments: a.autoPayments ?? [], paidUntil: 0 };
+        const kept = { id, address: a.address, deletedAt: now(), payments: a.payments ?? [], autoPayments: a.autoPayments ?? [], paidUntil: 0, ...(a.withdrawal ? { withdrawal: a.withdrawal } : {}) };
         await g.putAccount(kept);
+        return { ok: true };
+      });
+    },
+
+    // ---------- the EU right of withdrawal (the "withdraw" button on the dashboard) ----------
+    // Pro ends right away; the owner is told on Telegram and refunds by hand (this server holds no
+    // money), in USDC to the address the customer paid from. Automatic payment must be off first.
+    async withdraw(id) {
+      return serial(id, async () => {
+        let a = await account(id);
+        if (!a || a.admin) throw Object.assign(new Error("nothing to withdraw from"), { status: 400 });
+        try { a = await syncAuto(a, { maxAgeMs: 0 }); } catch {}
+        const w = withdrawalOf(a);
+        if (w?.done) return api.me(id);
+        if (!w) throw Object.assign(new Error("The 14 days after your first Pro payment have passed, or you haven't paid for Pro."), { status: 409 });
+        if ((a.auto?.dueAt ?? 0) > 0) throw Object.assign(new Error("Turn off automatic payment first (it lives on-chain, so only your wallet can stop it)."), { status: 409 });
+        const paid = [...(a.payments ?? []), ...(a.autoPayments ?? [])];
+        const network = isSol(a) ? "Solana" : [...new Set(paid.map((p) => chains[p.chainId ?? 8453]?.name ?? "Base"))].join(", ");
+        await touch(a, { withdrawal: { at: now(), refundUsdc: w.refundUsdc, to: a.address, network, paidCount: paidCount(a) } });
+        await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Withdrew from Pro: ${w.refundUsdc} USDC will be refunded to ${a.address}` });
+        usage.record("pro_withdrawn", { account: id, ref: a.ref, usd: w.refundUsdc, input: { network } });
+        if (telegram && adminChatId) await telegram.send(adminChatId, `Withdrawal (EU 14-day right): refund ${w.refundUsdc} USDC on ${network} to ${a.address} within 14 days. Pro has ended for this account. Mark it refunded on the owner dashboard once sent.`).catch(() => {});
+        if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `We received your withdrawal from Fizzl wallet Pro. You'll get ${w.refundUsdc} USDC back at ${a.address} within 14 days. Your account stays, on the free plan.`).catch(() => {});
+        return api.me(id);
+      });
+    },
+    // For the owner: withdrawals and whether they've been refunded.
+    async withdrawals() {
+      return (await g.listAccounts()).filter((a) => a.withdrawal).map((a) => ({ id: a.id, address: a.address, ...a.withdrawal })).sort((x, y) => y.at - x.at);
+    },
+    async markRefunded(id, tx = null) {
+      return serial(id, async () => {
+        const a = await g.getAccount(id);
+        if (!a?.withdrawal) throw Object.assign(new Error("no withdrawal for this account"), { status: 404 });
+        await touch(a, { withdrawal: { ...a.withdrawal, refundedAt: now(), ...(tx ? { refundTx: String(tx).slice(0, 120) } : {}) } });
+        if (telegram && a.telegram?.chatId) await telegram.send(a.telegram.chatId, `Your refund of ${a.withdrawal.refundUsdc} USDC for Fizzl wallet Pro has been sent to ${a.withdrawal.to}.`).catch(() => {});
         return { ok: true };
       });
     },
@@ -375,7 +430,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const usd = `$${Number(priceUnits) / 1e6}`;
       for (const a of await g.listAccounts()) {
         const end = proUntil(a);
-        if (!end || !a.telegram?.chatId) continue;
+        if (!end || !a.telegram?.chatId || withdrawn(a)) continue;
         const left = end - now();
         const auto = (a.auto?.dueAt ?? 0) > 0;
         let kind = null, text = null;
