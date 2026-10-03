@@ -13,6 +13,7 @@ const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url)
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
+const AGENTKEY = fileURLToPath(new URL("../public/agentkey.js", import.meta.url)); // makes an agent wallet in the browser
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const ICONS = fileURLToPath(new URL("../public/icons", import.meta.url)); // wallet logos (MetaMask, Phantom) for the sign-in buttons
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -275,6 +276,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // /skill.md: instructions an agent reads and follows ("Connect to wallet.fizzl.eu/skill.md"),
   // with this server's own address in them.
   let skill;
+  app.get("/agentkey.js", (_req, res) => res.set("cache-control", "public, max-age=3600").type("text/javascript").sendFile(AGENTKEY));
   // A QR code that opens this dashboard on a phone (for "Other wallets": scan, then open it in the wallet app).
   const qrCache = new Map();
   app.get("/qr.svg", (req, res) => {
