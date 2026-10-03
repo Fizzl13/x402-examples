@@ -665,6 +665,11 @@ test("privacy statement, served with the operator from the environment; fonts fr
     const dash = await (await fetch(`${on.base}/`)).text();
     assert.match(dash, /href="\/terms"/);
     assert.doesNotMatch(dash, /googleapis|gstatic/);
+    const qr = await fetch(`${on.base}/qr.svg`);
+    assert.equal(qr.status, 200);
+    assert.match(qr.headers.get("content-type"), /image\/svg\+xml/);
+    assert.match(await qr.text(), /^<svg /); // "Other wallets": opens this page on a phone
+    assert.match(dash, /id="moreWallets"/);
     const font = await fetch(`${on.base}/fonts/dm-sans-latin-400-normal.woff2`);
     assert.equal(font.status, 200);
     assert.ok((await font.arrayBuffer()).byteLength > 5000);
