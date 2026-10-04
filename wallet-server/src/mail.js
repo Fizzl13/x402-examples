@@ -10,7 +10,10 @@ export function createMailer({ apiKey, from = "Fizzl wallet <noreply@fizzl.eu>",
         body: JSON.stringify({ from, to: [to], subject, text }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!res.ok) throw new Error(`mail service answered ${res.status}`);
+      if (!res.ok) {
+        const why = await res.json().then((j) => j?.message, () => null);
+        throw Object.assign(new Error(`mail service answered ${res.status}${why ? `: ${why}` : ""}`), { status: res.status, why });
+      }
     },
   };
 }

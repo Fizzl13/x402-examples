@@ -297,7 +297,12 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       await g.putOnce("emailcode", key, { code: createHash("sha256").update(`${key}:${code}`).digest("hex"), purpose, id, tries: 0, until: now() + EMAIL_CODE_TTL_S * 1000 }, EMAIL_CODE_TTL_S);
       const what = purpose === "link" ? "add this e-mail address to your Fizzl wallet account" : "sign in to your Fizzl wallet";
       await mailer.send(addr, `${code} is your Fizzl wallet code`, `Your code to ${what}:\n\n${code}\n\nIt works for 10 minutes. Didn't ask for it? Ignore this e-mail; nothing happens without the code.\n\nFizzl Agent Wallet · ${site.origin}`)
-        .catch((err) => { console.warn(`[mail] ${err.message}`); throw Object.assign(new Error("The e-mail couldn't be sent right now. Try again in a minute."), { status: 502 }); });
+        .catch((err) => {
+          console.warn(`[mail] ${err.message}`);
+          // The owner's setup (domain not verified yet, a wrong or restricted key) says so, instead of "try again".
+          const setup = err.status === 401 || err.status === 403 || err.status === 422;
+          throw Object.assign(new Error(setup ? `The e-mail couldn't be sent: the mail service refused it${err.why ? ` (${err.why})` : ""}. The server's mail setup needs a look.` : "The e-mail couldn't be sent right now. Try again in a minute."), { status: 502, expose: true });
+        });
       return { ok: true, expiresIn: EMAIL_CODE_TTL_S };
     },
     async emailCheck(email, code, purpose) {

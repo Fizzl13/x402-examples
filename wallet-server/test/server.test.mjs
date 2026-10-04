@@ -1814,3 +1814,14 @@ test("e-mail: off without a mail service", async () => {
     assert.equal((await jpost(base, "/api/signin/email", { email: "a@example.com" })).status, 503);
   } finally { server.close(); }
 });
+
+test("e-mail: when the mail service refuses (domain not verified), the reason is shown, not 'something went wrong'", async () => {
+  const { createMailer } = await import("../src/mail.js");
+  const mailer = createMailer({ apiKey: "re_test", fetch: async () => Response.json({ statusCode: 403, message: "The fizzl.eu domain is not verified." }, { status: 403 }) });
+  const { base, server } = await boot({ mailer });
+  try {
+    const r = await jpost(base, "/api/signin/email", { email: "a@example.com" });
+    assert.equal(r.status, 502);
+    assert.match(r.body.message, /refused it \(The fizzl\.eu domain is not verified\.\)/);
+  } finally { server.close(); }
+});
