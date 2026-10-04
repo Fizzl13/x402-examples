@@ -241,6 +241,20 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/account/email/remove", wrap(async (req, res) => res.json(await accounts.emailUnlink(req.account))));
   owner.post("/account/wallet/message", wrap(async (req, res) => res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`, req.body?.chain === "solana" ? "solana" : "ethereum", req.body?.chainId))));
   owner.post("/account/wallet", wrap(async (req, res) => res.json(await accounts.walletLink(req.account, req.body?.nonce, req.body?.signature))));
+  owner.post("/promo", wrap(async (req, res) => res.json(await accounts.promoRedeem(req.account, req.body?.code))));
+  owner.post("/feedback", wrap(async (req, res) => res.json(await accounts.feedback(req.account, req.body?.text))));
+  owner.get("/admin/promos", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.json(await accounts.promoList());
+  }));
+  owner.post("/admin/promos", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.json(await accounts.promoCreate(req.body?.days, req.body?.uses, req.body?.note));
+  }));
+  owner.post("/admin/promos/:code/stop", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.json(await accounts.promoStop(req.params.code));
+  }));
   owner.post("/passkey/new", wrap(async (req, res) => res.json(await accounts.passkeyOptions(req.account, req.hostname))));
   owner.post("/passkey/add", wrap(async (req, res) => res.json(await accounts.passkeyAdd(req.account, req.body?.answer, req.body?.label, where(req)))));
   owner.post("/passkey/remove", wrap(async (req, res) => res.json(await accounts.passkeyRemove(req.account, String(req.body?.id ?? "")))));

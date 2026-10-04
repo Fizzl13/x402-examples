@@ -1910,3 +1910,39 @@ test("passkeys: add Face ID while signed in, then sign in with it alone; checked
     assert.equal((await jpost(base, "/api/passkey/signin", key.get(lo4.body, origin))).status, 401);
   } finally { server.close(); }
 });
+
+test("tester codes: the owner makes a code for N testers; each account gets the days of Pro once; feedback reaches the owner's Telegram", async () => {
+  const { base, server, owner, tg } = await boot();
+  try {
+    assert.equal((await owner("POST", "/api/admin/promos", { days: 0, uses: 5 })).status, 400);
+    const made = (await owner("POST", "/api/admin/promos", { days: 30, uses: 2, note: "Bob · Reddit <b>" })).body.promos[0];
+    assert.equal(made.note, "Bob · Reddit b");
+    assert.match(made.code, /^TEST-[A-Z2-9]{6}$/);
+    const alice = await signInAs(base, customer());
+    assert.equal((await alice.call("GET", "/api/me")).body.plan, "free");
+    assert.equal((await alice.call("POST", "/api/promo", { code: "TEST-NOPE22" })).status, 404);
+    const me = (await alice.call("POST", "/api/promo", { code: made.code.toLowerCase() })).body;
+    assert.equal(me.plan, "pro");
+    assert.equal(me.promo.days, 30);
+    assert.ok(me.proUntil > Date.now() + 29 * 86_400_000);
+    assert.equal((await alice.call("POST", "/api/promo", { code: made.code })).status, 409, "one code per account");
+    assert.ok(tg.calls.some((c) => c.method === "sendMessage" && /Tester code TEST-\w+ \(Bob · Reddit b\) redeemed: 30 days/.test(c.body.text)));
+    const bob = await signInAs(base, customer());
+    assert.equal((await bob.call("POST", "/api/promo", { code: made.code })).status, 200);
+    const carol = await signInAs(base, customer());
+    assert.equal((await carol.call("POST", "/api/promo", { code: made.code })).status, 410, "used up after 2");
+    assert.equal((await owner("GET", "/api/admin/promos")).body.promos[0].used, 2);
+    assert.equal((await alice.call("GET", "/api/admin/promos")).status, 403, "only the owner sees codes");
+    // Stopped codes don't work.
+    const second = (await owner("POST", "/api/admin/promos", { days: 7, uses: 10 })).body.promos[0];
+    await owner("POST", `/api/admin/promos/${second.code}/stop`, {});
+    assert.equal((await carol.call("POST", "/api/promo", { code: second.code })).status, 404);
+
+    // Feedback goes to the owner's Telegram.
+    assert.equal((await alice.call("POST", "/api/feedback", { text: "hi" })).status, 400);
+    assert.equal((await alice.call("POST", "/api/feedback", { text: "The Face ID button confused me" })).status, 200);
+    assert.ok(tg.calls.some((c) => c.method === "sendMessage" && c.body.chat_id === "4242" && /Feedback from 0x.*\(pro\):\n\nThe Face ID button confused me/.test(c.body.text)));
+    for (let i = 0; i < 4; i++) await alice.call("POST", "/api/feedback", { text: `more feedback ${i}` });
+    assert.equal((await alice.call("POST", "/api/feedback", { text: "one too many" })).status, 429);
+  } finally { server.close(); }
+});
