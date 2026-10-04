@@ -41,7 +41,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
   // What the sign-in page offers.
-  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
+  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
 
   // ---------- agents ----------
   const agentOnly = async (req, res, next) => {
@@ -166,6 +166,18 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const id = await accounts.signIn(req.body?.nonce, req.body?.signature, { ref: req.body?.ref });
     res.set("set-cookie", auth.sessionFor(id)).json({ ok: true });
   }));
+  // Sign in with e-mail: a 6-digit code is mailed, then typed in.
+  app.post("/api/signin/email", wrap(async (req, res) => {
+    if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
+    if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
+    res.json(await accounts.emailCode(req.body?.email));
+  }));
+  app.post("/api/signin/email/code", wrap(async (req, res) => {
+    if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
+    if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
+    const id = await accounts.emailSignIn(req.body?.email, req.body?.code, { ref: req.body?.ref });
+    res.set("set-cookie", auth.sessionFor(id)).json({ ok: true });
+  }));
   // The installed app on a phone: it asks for a code, the customer confirms it where they are signed in, the app polls.
   app.post("/api/device/start", wrap(async (req, res) => {
     if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
@@ -212,6 +224,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.get("/push", wrap(async (req, res) => res.json(await accounts.pushDevices(req.account))));
   owner.post("/push/subscribe", wrap(async (req, res) => res.json(await accounts.pushSubscribe(req.account, req.body?.subscription, req.body?.label))));
   owner.post("/push/unsubscribe", wrap(async (req, res) => res.json(await accounts.pushUnsubscribe(req.account, String(req.body?.endpoint ?? "")))));
+  // E-mail on a wallet account (sign in with either), and a wallet on an e-mail account (to pay Pro from).
+  owner.post("/account/email", wrap(async (req, res) => res.json(await accounts.emailCode(req.body?.email, { purpose: "link", id: req.account }))));
+  owner.post("/account/email/code", wrap(async (req, res) => res.json(await accounts.emailLink(req.account, req.body?.email, req.body?.code))));
+  owner.post("/account/email/remove", wrap(async (req, res) => res.json(await accounts.emailUnlink(req.account))));
+  owner.post("/account/wallet/message", wrap(async (req, res) => res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`, req.body?.chain === "solana" ? "solana" : "ethereum", req.body?.chainId))));
+  owner.post("/account/wallet", wrap(async (req, res) => res.json(await accounts.walletLink(req.account, req.body?.nonce, req.body?.signature))));
   owner.post("/device/approve", wrap(async (req, res) => res.json(await accounts.deviceApprove(req.account, req.body?.code))));
   owner.post("/push/test", wrap(async (req, res) => res.json(await accounts.pushTest(req.account))));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));

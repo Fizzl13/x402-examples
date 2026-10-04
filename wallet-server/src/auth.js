@@ -1,6 +1,6 @@
 // Dashboard sessions: a signed cookie (HttpOnly, Secure, SameSite=Strict, 7
 // days) naming the account: "admin" (the owner, signed in with ADMIN_PASSWORD)
-// or a customer's lowercase wallet address (signed in with their wallet).
+// or a customer's lowercase wallet address (signed in with their wallet), or em:<hash> (signed in with e-mail).
 // The signing key comes from SESSION_SECRET, or else ADMIN_PASSWORD: changing
 // it logs every session out. A few wrong passwords in a row from one address
 // slow that address down; so do many wallet sign-ins.
@@ -9,7 +9,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes } from "node:crypt
 const COOKIE = "aw_session";
 const WEEK_MS = 7 * 86_400_000;
 const sha = (s) => createHash("sha256").update(String(s)).digest();
-const SUBJECT = /^(admin|0x[0-9a-f]{40}|sol:[1-9A-HJ-NP-Za-km-z]{32,44})$/; // the owner, an Ethereum or a Solana account
+const SUBJECT = /^(admin|0x[0-9a-f]{40}|sol:[1-9A-HJ-NP-Za-km-z]{32,44}|em:[0-9a-f]{40})$/; // the owner, an Ethereum, Solana or e-mail account
 
 export function createAuth({ password, secret, now = () => Date.now(), secure = true }) {
   if (password !== undefined && password !== null && password !== "" && (typeof password !== "string" || password.length < 12)) throw new Error("ADMIN_PASSWORD must be at least 12 characters");
