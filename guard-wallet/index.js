@@ -25,6 +25,12 @@
 // function, e.g. ask the user on their phone); without it, it stops. These
 // limits live in the agent's software: an agent with the raw key can go around
 // them. See limits.js for what counts as spending.
+//
+// Tempo (chain 4217, testnet 42431) is not covered by presign-guard. There the
+// wallet signs only one thing, checked here: a TIP-20 transfer or
+// transferWithMemo of USDC.e (pathUSD on the testnet), with no value attached,
+// which counts toward the USDC limits like any other USDC transfer. Anything
+// else on Tempo is refused (code "unsupported_chain").
 
 import { encodeFunctionData } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
@@ -37,7 +43,13 @@ export { memoryStore };
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
 export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
-export const VERSION = "0.6.0";
+// Tempo: the stablecoins the wallet may send there (the ones the USDC limit covers).
+export const TEMPO_TOKENS = {
+  4217: ["0x20c000000000000000000000b9537d11c60e8b50"],
+  42431: ["0x20c0000000000000000000000000000000000000"],
+};
+const TEMPO_TRANSFERS = new Set(["transfer", "transferWithMemo"]);
+export const VERSION = "0.7.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -228,10 +240,25 @@ export function guardWallet(wallet, {
     return result;
   }
 
-  async function guarded(method, original, args, rest) {
+  // Tempo: only a plain stablecoin transfer, checked here instead of by presign-guard.
+  function tempoRequest(method, args, chainId) {
+    const tokens = TEMPO_TOKENS[chainId];
+    const ok = method === "writeContract" && tokens.includes(String(args?.address ?? "").toLowerCase())
+      && TEMPO_TRANSFERS.has(args?.functionName) && !(BigInt(args?.value ?? 0n) > 0n);
+    let request = null;
+    try { request = ok ? checkRequestFor(method, args, { chainId, origin }) : null; } catch { request = null; }
+    if (!request) throw new PresignBlockedError(`on Tempo (chain ${chainId}) this wallet only sends USDC.e transfers; nothing was signed`, { code: "unsupported_chain" });
+    return request;
+  }
+
+  async function guarded(target, method, original, args, rest) {
     if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
-    const chainId = args?.chain?.id ?? wallet.chain?.id;
+    const chainId = args?.chain?.id ?? target.chain?.id;
     const run = () => original(args, ...rest);
+    if (TEMPO_TOKENS[chainId]) {
+      const request = tempoRequest(method, args, chainId);
+      return limiter ? withinLimits(method, request, null, run) : run();
+    }
     const request = checkRequestFor(method, args, { chainId, origin });
     if (!request) {
       // A contract deployment is not checked, but the value it sends still counts.
@@ -249,6 +276,14 @@ export function guardWallet(wallet, {
     pause: () => { paused = true; },
     resume: () => { paused = false; },
     paused: () => paused,
+    /**
+     * The same guard (checks, limits, pause, purchases) on another viem WalletClient, e.g. one
+     * for Tempo next to the one for Base: both spend from one budget.
+     */
+    wrap: (other) => {
+      if (!other || typeof other !== "object") throw new TypeError("wrap(wallet): wallet must be a viem WalletClient");
+      return proxyFor(other);
+    },
     /** Per token: the limits, what was spent in the current window and what is left (null without limits). */
     spending: async () => (limiter ? limiter.spending() : null),
     /**
@@ -276,12 +311,13 @@ export function guardWallet(wallet, {
     },
   };
 
-  return new Proxy(wallet, {
+  const proxyFor = (w) => new Proxy(w, {
     get(target, prop, receiver) {
       if (Object.hasOwn(extras, prop) && !(prop in target)) return extras[prop];
       const value = Reflect.get(target, prop, receiver);
       if (typeof prop !== "string" || !GUARDED.has(prop) || typeof value !== "function") return value;
-      return (args, ...rest) => guarded(prop, value.bind(target), args, rest);
+      return (args, ...rest) => guarded(target, prop, value.bind(target), args, rest);
     },
   });
+  return proxyFor(wallet);
 }
