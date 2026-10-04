@@ -7,7 +7,7 @@ Give your agents a wallet without giving them a blank cheque:
 - **[presign-guard-wallet](guard-wallet)** (npm): a viem wallet that checks every signature with presign-guard first (drainers, sanctions, unlimited approvals), keeps to your **price per purchase and daily budget**, and asks you on **Telegram** for anything above them. `npm i presign-guard-wallet`
 - **[presign-guard-agentkit](agentkit-guard)** (npm): the same for **Coinbase AgentKit** agents. Wrap the wallet provider in one line, and every transfer, swap, approval, permit and x402 payment is checked and kept to your limits. `npm i presign-guard-agentkit`
 - **[presign-guard-wallet-mcp](wallet-mcp)** (npm, MCP server): a wallet with spending limits for **Claude, Cursor and any MCP client**. The agent can pay x402 APIs and send USDC within your budget, and asks you on Telegram above it. `npx -y presign-guard-wallet-mcp`
-- **[wallet-server](wallet-server)**: one budget and one set of rules for **all** your agents, a live dashboard, approvals on the dashboard or Telegram, pause one agent or all, an activity log. It never holds keys or funds: agents still sign and pay themselves.
+- **[wallet-server](wallet-server)**: one budget and one set of rules for **all** your agents, a live dashboard, approvals on the dashboard, on your phone (installable app) or Telegram, pause one agent or all, an activity log. It never holds keys or funds: agents still sign and pay themselves.
 
 **[See the dashboard live (demo, example data) →](https://wallet.fizzl.eu/demo)**
 

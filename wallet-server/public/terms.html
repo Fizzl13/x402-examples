@@ -47,7 +47,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <p>The Fizzl Agent Wallet is offered by {{OPERATOR}}, trading as Fizzl, the Netherlands ("we", "us").{{ADDRESS_LINE}} Contact: {{CONTACT}}.</p>
 
   <h2>2. What the service is, and isn't</h2>
-  <p>The service lets you set rules for what your AI agents may spend, asks you to approve anything above those rules (on the dashboard or on Telegram), and keeps receipts and an activity log. Agents connect with their own key and ask us before they sign. They then sign and pay themselves.</p>
+  <p>The service lets you set rules for what your AI agents may spend, asks you to approve anything above those rules (on the dashboard, in the app on your phone or on Telegram), and keeps receipts and an activity log. Agents connect with their own key and ask us before they sign. They then sign and pay themselves.</p>
   <ul>
     <li><b>Not a wallet, bank or custodian.</b> We never ask for, see or store your private keys or recovery phrase, and we never hold or move your funds, except the Pro payments you send us yourself.</li>
     <li><b>Not financial advice.</b> Nothing in the service tells you what to buy or sell.</li>
@@ -66,9 +66,9 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <h2>4. Plans and prices</h2>
   <ul>
     <li><b>Free:</b> one agent; receipts kept 7 days; one watched endpoint.</li>
-    <li><b>Pro:</b> unlimited agents (up to 50); receipts kept 90 days; up to 10 watched endpoints (the endpoint monitor checks each hour whether your x402 endpoint still asks for payment correctly, and tells you on Telegram, Discord, Slack or your own webhook when it doesn't; it's a help, not a guarantee, and it never pays). It costs <b>$5 per 30 days</b>, paid in USDC on Base, Arbitrum, Optimism, Polygon, Ethereum or Solana, straight from your wallet. Paying again adds 30 days. Prices include any taxes we have to charge.</li>
+    <li><b>Pro:</b> unlimited agents (up to 50); receipts kept 90 days; up to 10 watched endpoints (the endpoint monitor checks each hour whether your x402 endpoint still asks for payment correctly, and tells you in the app on your phone, on Telegram, Discord, Slack or your own webhook when it doesn't; it's a help, not a guarantee, and it never pays). It costs <b>$5 per 30 days</b>, paid in USDC on Base, Arbitrum, Optimism, Polygon, Ethereum or Solana, straight from your wallet. Paying again adds 30 days. Prices include any taxes we have to charge.</li>
     <li><b>Pro 20</b> and <b>Pro Unlimited:</b> everything in Pro, with up to 20 watched endpoints (Pro 20, <b>$9 per 30 days</b>) or as many as you need (Pro Unlimited, <b>$20 per 30 days</b>; fair use: up to 250). Paid the same way, per month or per year (automatic payment is for Pro only). Their time runs from the payment; they also add the same number of Pro days after any Pro you have left.</li>
-    <li>We may change the price of Pro. You'll hear about it at least 30 days in advance on the dashboard (and on Telegram, if connected). Time you already paid for keeps its price. Automatic payment runs on a contract with a fixed price, so a new price needs you to turn automatic payment on again.</li>
+    <li>We may change the price of Pro. You'll hear about it at least 30 days in advance on the dashboard (and in the phone app or on Telegram, if you turned those on). Time you already paid for keeps its price. Automatic payment runs on a contract with a fixed price, so a new price needs you to turn automatic payment on again.</li>
   </ul>
 
   <h2>5. Paying</h2>
@@ -80,7 +80,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <h2>6. Automatic payment</h2>
   <ul>
     <li>Automatic payment is available for Ethereum wallets, on Base. If you turn it on, you approve our subscription contract on Base for at most 12 months of Pro ($60). From then on, $5 is taken from your wallet every 30 days, until you turn it off or the approval is used up. The contract can only send $5 per 30 days, only to our address. Its code is public.</li>
-    <li>We remind you on Telegram (if connected) 3 days before each payment.</li>
+    <li>We remind you 3 days before each payment, in the phone app or on Telegram (if you turned those on).</li>
     <li>If a payment can't go through, for example because your approval is used up or you don't have enough USDC on Base, Pro keeps working for 3 days. After that you're on Free. Nothing is deleted, and extra agents are paused.</li>
     <li>You can turn automatic payment off at any time on the dashboard, or by setting your approval to 0 in your wallet. Time you already paid for stays.</li>
   </ul>
@@ -89,7 +89,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <ul>
     <li>You can stop Pro at any time: just don't pay again, or turn off automatic payment. You can delete your account on the dashboard. There are no refunds for the rest of a period you paid for, except as below or where the law requires it.</li>
     <li><b>Consumers in the EU:</b> by paying, you ask us to start Pro right away. You can still withdraw within 14 days of your first Pro payment, without giving a reason. Pro then ends right away and you're on Free; nothing is deleted. We refund the part of what you paid that you haven't used yet (pro rata at the price of the plan you first paid for: $5, $9 or $20 per 30 days), in USDC to the address you paid from, within 14 days.</li>
-    <li><b>How to withdraw:</b> use the <b>Withdraw from contract</b> button below, while signed in, then confirm. You get a confirmation on the screen (and on Telegram, if connected). If automatic payment is on, turn it off first; it lives on-chain, so only your wallet can stop it. You can also withdraw by e-mail to {{CONTACT}}, for example with the form below. Either way, it's on time if you send it within the 14 days.</li>
+    <li><b>How to withdraw:</b> use the <b>Withdraw from contract</b> button below, while signed in, then confirm. You get a confirmation on the screen (and in the phone app or on Telegram, if you turned those on). If automatic payment is on, turn it off first; it lives on-chain, so only your wallet can stop it. You can also withdraw by e-mail to {{CONTACT}}, for example with the form below. Either way, it's on time if you send it within the 14 days.</li>
   </ul>
   <div class="box" id="withdraw" style="margin-bottom:14px">
     <p style="margin:0 0 8px"><b>Withdraw from contract</b></p>
@@ -155,7 +155,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <p>How we handle personal data is described in the <a href="/privacy">privacy statement</a>.</p>
 
   <h2>12. Changes to these terms</h2>
-  <p>We may update these terms. If a change matters to you, we'll say so on the dashboard (and on Telegram, if connected) at least 30 days before it takes effect. If you don't agree, you can stop and ask for unused paid time back.</p>
+  <p>We may update these terms. If a change matters to you, we'll say so on the dashboard (and in the phone app or on Telegram, if you turned those on) at least 30 days before it takes effect. If you don't agree, you can stop and ask for unused paid time back.</p>
 
   <h2>13. Law and disputes</h2>
   <p>Dutch law applies. Disputes go to the competent court in the Netherlands. If you're a consumer, you keep the protection of the mandatory law of the country where you live, and you may also go to court there. Please contact us first: most things are easier to solve by e-mail.</p>

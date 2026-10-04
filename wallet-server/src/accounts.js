@@ -265,6 +265,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         payments: (a.payments ?? []).slice(-24).reverse(),
         withdrawal: withdrawalOf(a),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
+        pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
         billing: a.admin ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
@@ -356,8 +357,11 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         } catch (err) { add("balance", "warn", "Money to pay with", `The balance couldn't be read right now (${err.message}).`, "Try again in a minute."); }
       } else if (agent) add("balance", "warn", "Money to pay with", `The wallet doesn't know ${agent.name}'s address yet, so it can't see its balance.`, "Paste your agent's wallet address (0x…, public, not the private key) below, or it's filled in after its first purchase.");
 
-      if (!telegram) add("telegram", "warn", "Approvals on your phone", "Telegram isn't set up on this server; approve on this dashboard.");
-      else if (!a.telegram?.chatId) add("telegram", "warn", "Approvals on your phone", "Telegram isn't connected: purchases over your rule wait for you on this dashboard only.", "Click Connect Telegram under Your account, at the bottom of the dashboard.");
+      const devices = push ? (a.push ?? []).map((d) => d.label) : [];
+      if (devices.length && !a.telegram?.chatId) add("telegram", "ok", "Approvals on your phone", `Notifications are on for ${devices.join(", ")}.`);
+      else if (!telegram && !devices.length) add("telegram", "warn", "Approvals on your phone", "Notifications aren't on: purchases over your rule wait for you on this dashboard only.", "Install the wallet on your phone and tap Turn on (Account tab, On your phone).");
+      else if (!telegram) add("telegram", "ok", "Approvals on your phone", `Notifications are on for ${devices.join(", ")}.`);
+      else if (!a.telegram?.chatId) add("telegram", "warn", "Approvals on your phone", "Neither the phone app nor Telegram is on: purchases over your rule wait for you on this dashboard only.", "Install the wallet on your phone and tap Turn on (Account tab, On your phone), or click Connect Telegram.");
       else if (!testTelegram) add("telegram", "ok", "Approvals on your phone", "Telegram is connected.");
       else {
         const last = telegramTests.get(id) ?? 0;
@@ -477,7 +481,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(id);
       const plan = planOf(a), list = (id === ADMIN ? (await g.getAccount(ADMIN))?.monitors : a?.monitors) ?? [];
       const hook = (await g.getAccount(id))?.alertHook ?? null;
-      return { max: plan.maxMonitors, telegram: !!(a?.telegram?.chatId), hook: hook ? { kind: hook.kind, host: new URL(hook.url).hostname } : null, monitors: list.map((m, i) => ({ ...m, paused: i >= plan.maxMonitors })) };
+      return { max: plan.maxMonitors, telegram: !!(a?.telegram?.chatId), push: !!(push && a?.push?.length), hook: hook ? { kind: hook.kind, host: new URL(hook.url).hostname } : null, monitors: list.map((m, i) => ({ ...m, paused: i >= plan.maxMonitors })) };
     },
     // Alerts also to a Discord/Slack/other webhook (one per account). Empty url: remove it.
     async setAlertHook(id, url) {
