@@ -35,7 +35,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
 
   const wrap = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((err) => {
     const status = err.status ?? (err instanceof TypeError ? 400 : 500);
-    if (status >= 500) console.error(err);
+    if (status >= 500 && !err.expose) console.error(err); // exposed errors were already logged in one line where they happened
     res.status(status).json({ error: status >= 500 ? "server_error" : "bad_request", message: status >= 500 && !err.expose ? "Something went wrong." : err.message });
   });
 
