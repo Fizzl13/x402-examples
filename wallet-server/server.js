@@ -30,6 +30,8 @@
 //   USAGE_LOG_TOKEN     optional: anonymous usage statistics to the private usage-log repo (a fine-grained
 //                       GitHub token, Contents read/write on that repo only; the same as the other services)
 //   USAGE_LOG_SALT, USAGE_LOG_REPO, USAGE_OWN_WALLETS  optional: see src/usage.js
+//   RESEND_API_KEY      optional: turns on signing in with e-mail (a 6-digit code mailed through Resend)
+//   MAIL_FROM           optional: the sender, on a domain verified at Resend (default "Fizzl wallet <noreply@fizzl.eu>")
 //   VAPID_PRIVATE_KEY   optional: the key that signs phone notifications (32 bytes, base64url); by default it
 //                       is derived from SESSION_SECRET / ADMIN_PASSWORD
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
@@ -41,6 +43,7 @@ import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
 import { createPush } from "./src/push.js";
+import { createMailer } from "./src/mail.js";
 import { createCatalog, createSkillChecker } from "./src/catalog.js";
 import { createTrustIndex } from "./src/trust.js";
 import { createUsage } from "./src/usage.js";
@@ -83,6 +86,7 @@ const accounts = createAccounts({
   store,
   telegram,
   push,
+  mailer: createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null, from: env.MAIL_FROM?.trim() || undefined }),
   adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null,
   publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
   billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), price20Usdc: Number(env.PRO20_PRICE_USDC || 9), priceUnlimitedUsdc: Number(env.PRO_UNLIMITED_PRICE_USDC || 20), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,

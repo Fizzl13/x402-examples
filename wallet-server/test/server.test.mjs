@@ -40,7 +40,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -53,6 +53,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     ...(endpointMonitor ? { endpointMonitor } : {}),
     ...(alertHook ? { alertHook } : {}),
     ...(push ? { push } : {}),
+    ...(mailer ? { mailer } : {}),
   });
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
@@ -1708,5 +1709,108 @@ test("signing in the installed app: a code confirmed where you're signed in; the
     const me = await fetch(`${base}/api/me`, { headers: { cookie } });
     assert.equal((await me.json()).id, "admin", "the app is signed in to the account that confirmed");
     assert.deepEqual((await post("/api/device/poll", { token: d.token })).body, { ok: false }, "and only once");
+  } finally { server.close(); }
+});
+
+// A mailer that keeps what it would send; the code is the first 6 digits in the text.
+function fakeMailer() {
+  const sent = [];
+  return { sent, send: async (to, subject, text) => { sent.push({ to, subject, text }); }, last: () => /\b(\d{6})\b/.exec(sent.at(-1).text)[1] };
+}
+const jpost = async (base, path, body, cookie) => {
+  const r = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json().catch(() => null), cookie: r.headers.get("set-cookie")?.split(";")[0] };
+};
+const asCookie = (base, cookie) => async (method, path, body) => {
+  const r = await fetch(base + path, { method, headers: { cookie, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return { status: r.status, body: await r.json().catch(() => null) };
+};
+
+test("e-mail: sign in with a mailed 6-digit code; only a fingerprint and a hint are kept; wrong codes run out", async () => {
+  const mail = fakeMailer();
+  const { base, server, store } = await boot({ mailer: mail });
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).email, true);
+    assert.equal((await jpost(base, "/api/signin/email", { email: "not an address" })).status, 400);
+    assert.deepEqual((await jpost(base, "/api/signin/email", { email: " Frits@Example.COM " })).body, { ok: true, expiresIn: 600 });
+    assert.equal(mail.sent[0].to, "frits@example.com");
+    assert.match(mail.sent[0].subject, /^\d{6} is your Fizzl wallet code$/);
+    const code = mail.last();
+    const wrong = code === "000000" ? "111111" : "000000";
+    assert.equal((await jpost(base, "/api/signin/email/code", { email: "frits@example.com", code: wrong })).status, 401);
+    const ok = await jpost(base, "/api/signin/email/code", { email: "FRITS@example.com", code });
+    assert.equal(ok.status, 200);
+    const call = asCookie(base, ok.cookie);
+    const me = (await call("GET", "/api/me")).body;
+    assert.match(me.id, /^em:[0-9a-f]{40}$/);
+    assert.equal(me.signedInWith, "email");
+    assert.equal(me.email, "f…@example.com");
+    assert.equal(me.needsWallet, true);
+    assert.equal(me.billing, null);
+    assert.equal(me.plan, "free");
+    assert.ok(!JSON.stringify(await store.global.listAccounts()).includes("frits@example.com"), "the address itself is never stored");
+    assert.equal((await jpost(base, "/api/signin/email/code", { email: "frits@example.com", code })).status, 401, "a code works once");
+    // Agents work the same on an e-mail account.
+    assert.equal((await call("POST", "/api/agents", { name: "mail-agent" })).status, 200);
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: `0x${"a".repeat(64)}` })).status, 400, "no wallet to pay from yet");
+    // Five wrong codes and it's gone.
+    await jpost(base, "/api/signin/email", { email: "frits@example.com" });
+    const c2 = mail.last(), bad = c2 === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 5; i++) await jpost(base, "/api/signin/email/code", { email: "frits@example.com", code: bad });
+    assert.equal((await jpost(base, "/api/signin/email/code", { email: "frits@example.com", code: c2 })).status, 401);
+    // At most 5 codes an hour to one address.
+    for (let i = 0; i < 3; i++) await jpost(base, "/api/signin/email", { email: "frits@example.com" });
+    assert.equal((await jpost(base, "/api/signin/email", { email: "frits@example.com" })).status, 429);
+  } finally { server.close(); }
+});
+
+test("e-mail and wallet on one account: add e-mail to a wallet account, or connect the paying wallet to an e-mail account", async () => {
+  const mail = fakeMailer();
+  const { base, server } = await boot({ mailer: mail });
+  try {
+    // A wallet account adds an e-mail: either signs in to the same account.
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    assert.equal((await a.call("POST", "/api/account/email", { email: "alice@example.com" })).status, 200);
+    const linked = await a.call("POST", "/api/account/email/code", { email: "alice@example.com", code: mail.last() });
+    assert.equal(linked.body.email, "a…@example.com");
+    await jpost(base, "/api/signin/email", { email: "alice@example.com" });
+    const viaMail = await jpost(base, "/api/signin/email/code", { email: "alice@example.com", code: mail.last() });
+    assert.equal((await asCookie(base, viaMail.cookie)("GET", "/api/me")).body.id, alice.address.toLowerCase());
+    // Another account can't take that e-mail.
+    const bob = customer();
+    const b = await signInAs(base, bob);
+    assert.equal((await b.call("POST", "/api/account/email", { email: "alice@example.com" })).status, 409);
+    // Removing it: the e-mail then makes a new account of its own.
+    assert.equal((await a.call("POST", "/api/account/email/remove", {})).body.email, null);
+    await jpost(base, "/api/signin/email", { email: "alice@example.com" });
+    const own = await jpost(base, "/api/signin/email/code", { email: "alice@example.com", code: mail.last() });
+    assert.match((await asCookie(base, own.cookie)("GET", "/api/me")).body.id, /^em:/);
+
+    // An e-mail account connects the wallet it pays from; then that wallet signs in to it too.
+    await jpost(base, "/api/signin/email", { email: "carol@example.com" });
+    const c = asCookie(base, (await jpost(base, "/api/signin/email/code", { email: "carol@example.com", code: mail.last() })).cookie);
+    const carolWallet = customer();
+    assert.equal((await c("POST", "/api/account/wallet/message", { address: bob.address })).status, 200);
+    const mb = (await c("POST", "/api/account/wallet/message", { address: bob.address })).body;
+    assert.equal((await c("POST", "/api/account/wallet", { nonce: mb.nonce, signature: await bob.signMessage({ message: mb.message }) })).status, 409, "a wallet with its own account can't be taken");
+    const m = (await c("POST", "/api/account/wallet/message", { address: carolWallet.address })).body;
+    const after = (await c("POST", "/api/account/wallet", { nonce: m.nonce, signature: await carolWallet.signMessage({ message: m.message }) })).body;
+    assert.equal(after.address, carolWallet.address);
+    assert.equal(after.needsWallet, false);
+    assert.equal(after.billing.payTo, PAY_TO);
+    const cw = await signInAs(base, carolWallet);
+    assert.match((await cw.call("GET", "/api/me")).body.id, /^em:/, "the paying wallet signs in to the e-mail account");
+    // Deleting the account frees both the e-mail and the wallet.
+    assert.equal((await c("POST", "/api/account/delete", { confirm: "delete" })).status, 200);
+    assert.equal((await (await signInAs(base, carolWallet)).call("GET", "/api/me")).body.id, carolWallet.address.toLowerCase());
+  } finally { server.close(); }
+});
+
+test("e-mail: off without a mail service", async () => {
+  const { base, server } = await boot();
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).email, false);
+    assert.equal((await jpost(base, "/api/signin/email", { email: "a@example.com" })).status, 503);
   } finally { server.close(); }
 });

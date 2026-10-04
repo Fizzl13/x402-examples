@@ -472,9 +472,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom on Ethereum or Solana, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base or Solana.</p>
       </div>
       <div class="err" id="walletErr"></div>
+      <div id="emailLogin" hidden style="display:grid;gap:10px">
+        <div class="or">or with e-mail</div>
+        <form id="emailForm" class="paste"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" aria-label="E-mail address" required><button class="button small" type="submit">Send code</button></form>
+        <form id="emailCodeForm" class="paste" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
+        <p class="note" id="emailNote" style="margin:0">No wallet needed: we mail you a 6-digit code. Your agents keep their own wallets.</p>
+        <div class="err" id="emailErr"></div>
+      </div>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
-      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no e-mail, no tracking cookies.</p>
+      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no tracking cookies; with e-mail we keep only a fingerprint of your address, not the address.</p>
       <form id="loginForm" hidden style="display:grid;gap:12px">
         <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
         <input id="password" type="password" autocomplete="current-password" required>
@@ -670,6 +677,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <article class="card" id="planCard"></article>
         <article class="card" id="tgCard"></article>
         <article class="card" id="appCard" hidden></article>
+        <article class="card" id="mailCard" hidden></article>
         <article class="card" id="hookCard" hidden><span class="tag">ALSO ON DISCORD OR SLACK</span><div class="monhook" id="monHook"></div></article>
       </div>
       <article class="card monitor" id="monitorCard" hidden>
@@ -934,6 +942,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const viaCode = c.wallet && STANDALONE;
       $("#walletLogin").hidden = !c.wallet || viaCode;
       $("#deviceLogin").hidden = !viaCode;
+      $("#emailLogin").hidden = !c.email;
       if (viaCode) deviceLogin();
       solanaOn = !!c.solana; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
@@ -1124,7 +1133,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Phantom, …) to pay.", "bad");
     try {
       const [from] = await eth.request({ method: "eth_requestAccounts" });
-      if (from.toLowerCase() !== me.id) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
+      if (from.toLowerCase() !== String(me.address ?? me.id).toLowerCase()) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}: the account you signed in with pays.`, "bad");
       const net = payNet();
       await onChain(eth, net);
       const units = BigInt(Math.round(tierPrice(tier) * 1e6)) * BigInt(months);
@@ -1188,7 +1197,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   function renderAccount() {
     if (!me) return;
-    const short = me.address ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "server owner";
+    const short = me.signedInWith === "email" ? me.email ?? "e-mail" : me.address ? `${me.address.slice(0, 6)}…${me.address.slice(-4)}` : "server owner";
     $("#who").hidden = false;
     const max = me.limits?.maxAgents;
     $("#agentPlanNote").textContent = max ? `Your ${me.plan} plan: ${max} agent${max === 1 ? "" : "s"}, enough to use all the services below. Pro: unlimited agents.` : "Unlimited agents on your plan.";
@@ -1212,7 +1221,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     $("#deleteBox").hidden = me.admin || DEMO;
     if (!DEMO) loadMonitors();
-    renderFollow(); setupAgents(); renderApp();
+    renderFollow(); setupAgents(); renderApp(); renderMail();
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render, and to your phone once you turn on notifications there (On your phone, below).</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
@@ -1223,7 +1232,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const pro = me.plan === "pro", until = me.proUntil ?? me.paidUntil, inGrace = pro && until < (state?.now ?? Date.now());
     const big = me.tier ? TIER_NAMES[me.tier] : null;
     const status = pro ? (inGrace ? `<span style="color:var(--amber)">Ended ${esc(day(until))}: 3 days of grace until ${esc(day(me.graceUntil))}</span>` : `Pro until <b style="color:#fff">${esc(day(until))}</b>${big ? `, ${esc(big)} (${me.tier === "unlimited" ? "unlimited" : "20"} watched endpoints) until <b style="color:#fff">${esc(day(me.tierUntil))}</b>` : ""}`) : "1 agent, receipts kept 7 days.";
-    if (!me.billing) {
+    if (me.needsWallet) {
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour, from $${esc(me.proPriceUsdc ?? 5)} per 30 days in USDC. To pay, connect the wallet you pay from: one free signature, no transaction. Your agents keep their own wallets.</p><div class="wallets" id="linkWallets"></div><div class="msg" id="linkWalletMsg" role="status"></div>`;
+      renderLinkWallets();
+    } else if (!me.billing) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Paying for Pro from a Solana wallet isn't open on this server yet.</p>`;
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
@@ -1347,7 +1359,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!eth) return say("Open this page in a browser with your wallet to change automatic payment.", "bad");
     try {
       const [from] = await eth.request({ method: "eth_requestAccounts" });
-      if (from.toLowerCase() !== me.id) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}.`, "bad");
+      if (from.toLowerCase() !== String(me.address ?? me.id).toLowerCase()) return say(`Switch ${walletName} to ${me.address.slice(0, 6)}…${me.address.slice(-4)}.`, "bad");
       await onBase(eth);
       const c = me.auto.contract, token = me.billing.tokenAddress, price = BigInt(Math.round(me.billing.priceUsdc * 1e6));
       if (kind === "on" || kind === "renew") {
@@ -2328,6 +2340,96 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!b) return;
     b.disabled = true;
     pushAction(b.dataset.push).finally(() => { b.disabled = false; });
+  });
+
+  // ---------- e-mail: sign in with a code; on the Account tab, add it to a wallet account ----------
+  let mailTo = "";
+  $("#emailForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const b = e.submitter ?? $("#emailForm button"); b.disabled = true; $("#emailErr").textContent = "";
+    try {
+      mailTo = $("#emailIn").value.trim();
+      await post("/api/signin/email", { email: mailTo });
+      $("#emailCodeForm").hidden = false;
+      $("#emailNote").innerHTML = `We sent a 6-digit code to <b style="color:#fff">${esc(mailTo)}</b>. It works for 10 minutes; check your spam folder if it isn't there. <button class="link" type="button" id="emailAgain">Send again</button>`;
+      $("#emailCode").focus();
+    } catch (err) { $("#emailErr").textContent = err.message; }
+    finally { b.disabled = false; }
+  });
+  $("#emailCodeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const b = e.submitter ?? $("#emailCodeForm button"); b.disabled = true; $("#emailErr").textContent = "";
+    try { await post("/api/signin/email/code", { email: mailTo, code: $("#emailCode").value, ref: signupRef() }); start(); }
+    catch (err) { $("#emailErr").textContent = err.message; }
+    finally { b.disabled = false; }
+  });
+  document.addEventListener("click", (e) => { if (e.target.closest("#emailAgain")) $("#emailForm").requestSubmit(); });
+
+  let mailLinkTo = "";
+  function renderMail() {
+    const card = $("#mailCard");
+    if (!card || !me || me.admin || DEMO) return;
+    if (me.signedInWith === "email") { card.hidden = false; card.innerHTML = `<span class="tag">✉️ E-MAIL</span><div class="big" style="font-size:20px">${esc(me.email ?? "")}</div><p class="note" style="margin:0">You sign in with a code mailed to this address.${me.address ? ` Pro is paid from ${esc(me.address.slice(0, 6))}…${esc(me.address.slice(-4))}; that wallet signs in here too.` : ""}</p>`; return; }
+    if (!me.emailSignIn) { card.hidden = true; return; }
+    card.hidden = false;
+    card.innerHTML = me.email
+      ? `<span class="tag">✉️ E-MAIL</span><div class="big" style="font-size:20px">${esc(me.email)}</div><p class="note" style="margin:0">You can sign in with your wallet or with a code mailed to this address.</p><div class="btns"><button class="button ghost small" type="button" id="mailRemove">Remove</button></div><div class="msg" id="mailMsg" role="status"></div>`
+      : `<span class="tag">✉️ E-MAIL</span><div class="big">Not added</div><p class="note" style="margin:0">Add an e-mail address to sign in without your wallet too, for example in the app on your phone. We keep a fingerprint of it, not the address.</p>
+        <form class="paste" id="mailAddForm"><input id="mailAddIn" type="email" autocomplete="email" placeholder="you@example.com" aria-label="E-mail address" required><button class="button small" type="submit">Send code</button></form>
+        <form class="paste" id="mailAddCode" hidden><input id="mailAddCodeIn" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Add</button></form>
+        <div class="msg" id="mailMsg" role="status"></div>`;
+  }
+  const mailSay = (t, bad) => { const m = $("#mailMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
+  document.addEventListener("submit", async (e) => {
+    const f = e.target.closest("#mailAddForm, #mailAddCode");
+    if (!f) return;
+    e.preventDefault();
+    const b = f.querySelector("button"); b.disabled = true;
+    try {
+      if (f.id === "mailAddForm") { mailLinkTo = $("#mailAddIn").value.trim(); await api("POST", "/api/account/email", { email: mailLinkTo }); $("#mailAddCode").hidden = false; mailSay(`Code sent to ${mailLinkTo}. Type it here.`); $("#mailAddCodeIn").focus(); }
+      else { me = await api("POST", "/api/account/email/code", { email: mailLinkTo, code: $("#mailAddCodeIn").value }); renderMail(); mailSay("Added: you can now sign in with this e-mail too."); }
+    } catch (err) { if (err.message !== "login") mailSay(err.message, true); }
+    finally { b.disabled = false; }
+  });
+  document.addEventListener("click", async (e) => {
+    if (!e.target.closest("#mailRemove")) return;
+    try { me = await api("POST", "/api/account/email/remove", {}); renderMail(); } catch (err) { if (err.message !== "login") mailSay(err.message, true); }
+  });
+
+  // An e-mail account connects the wallet it pays Pro from: the same free signature as signing in.
+  function renderLinkWallets() {
+    const box = $("#linkWallets");
+    if (!box) return;
+    const list = allWallets();
+    const sol = solanaOn && solProvider() ? `<button class="button primary small" type="button" data-linksol="1"><img src="/icons/phantom.svg" alt="">Phantom (Solana)</button>` : "";
+    box.innerHTML = sol + list.map((w) => `<button class="button primary small" type="button" data-linkwallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : walletLogo(w.info.name) ? `<img src="${walletLogo(w.info.name)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
+      || `<p class="note" style="margin:0">No wallet in this browser. ${isPhone ? "Open this page in your wallet app's browser (MetaMask, Phantom), sign in there with your e-mail and connect the wallet." : "Install MetaMask, Phantom or another wallet, reload and connect it here."}</p>`;
+  }
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-linkwallet], [data-linksol]");
+    if (!b) return;
+    const say = (t, bad) => { const m = $("#linkWalletMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
+    const label = b.innerHTML; b.disabled = true; b.textContent = "Check your wallet…";
+    try {
+      if (b.dataset.linksol) {
+        const sol = solProvider(); walletName = "Phantom";
+        const { publicKey } = await sol.connect();
+        const { nonce, message } = await api("POST", "/api/account/wallet/message", { address: publicKey.toString(), chain: "solana" });
+        const { signature } = await sol.signMessage(new TextEncoder().encode(message), "utf8");
+        me = await api("POST", "/api/account/wallet", { nonce, signature: b58(signature) });
+        try { localStorage.setItem("aw_wallet", "solana:phantom"); } catch {}
+      } else {
+        const w = findWallet(b.dataset.linkwallet); if (!w) return;
+        walletName = w.info.name;
+        const [address] = await w.provider.request({ method: "eth_requestAccounts" });
+        const chainId = await w.provider.request({ method: "eth_chainId" }).then((h) => parseInt(h, 16) || null, () => null);
+        const { nonce, message } = await api("POST", "/api/account/wallet/message", { address, ...(chainId ? { chainId } : {}) });
+        const signature = await w.provider.request({ method: "personal_sign", params: [hexUtf8(message), address] });
+        me = await api("POST", "/api/account/wallet", { nonce, signature });
+        try { localStorage.setItem("aw_wallet", w.info.rdns); } catch {}
+      }
+      renderAccount();
+    } catch (err) { if (err.message !== "login") say(walletError(err), true); b.disabled = false; b.innerHTML = label; }
   });
 
   // ---------- signing in the installed app: a code, confirmed where the wallet is ----------

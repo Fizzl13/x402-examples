@@ -41,6 +41,12 @@ export const WITHDRAW_MS = 14 * DAY;
 const NONCE_TTL_S = 600;
 const LINK_TTL_S = 900;
 const DEVICE_TTL_S = 600; // a code to sign in the installed app on a phone
+const EMAIL_CODE_TTL_S = 600; // a code mailed to sign in with e-mail
+// E-mail: we keep a fingerprint (hash) of the address and a hint like "f…@gmail.com", never the address itself.
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
+const cleanEmail = (e) => String(e ?? "").trim().toLowerCase();
+const emailId = (e) => `em:${createHash("sha256").update(`aw-email:${cleanEmail(e)}`).digest("hex").slice(0, 40)}`;
+const emailHint = (e) => { const [u, d] = cleanEmail(e).split("@"); return `${u[0]}…@${d}`; };
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 // The networks Pro can be paid on from an Ethereum wallet: USDC (native, 6 decimals) to the same payout
 // address on each. Base is the default; each RPC can be replaced (billing.chains[id].rpcUrl).
@@ -68,7 +74,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -103,7 +109,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   // Optional: Solana accounts (sign in with Phantom) and Pro paid in USDC on Solana.
   if (billing.solana?.payTo && !isSolanaAddress(billing.solana.payTo)) throw new Error("billing.solana.payTo must be a Solana address");
   const solPayTo = billing.solana?.payTo ?? null;
-  const isSol = (a) => a?.chain === "solana";
+  // Solana: signed in with a Solana wallet, or an e-mail account that connected one to pay with.
+  const isSol = (a) => a?.chain === "solana" || a?.payChain === "solana";
 
   async function account(id) {
     if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
@@ -210,8 +217,32 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   }
   const reachable = (a) => !!(a?.telegram?.chatId || a?.alertHook || (push && a?.push?.length));
 
+  // A signed sign-in message: checks the signature and gives { address, chain }, once.
+  async function verifySigned(nonce, signature) {
+    const pending = typeof nonce === "string" ? await g.takeOnce("siwe", nonce) : null;
+    if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
+    let ok = false;
+    if (pending.chain === "solana") ok = verifySolanaSignature(pending.address, pending.message, signature);
+    else {
+      try { ok = await verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; }
+      if (!ok && billing.publicClient) { try { ok = await billing.publicClient.verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; } }
+    }
+    if (!ok) throw Object.assign(new Error("that signature does not match"), { status: 401 });
+    return pending;
+  }
+  // Other ways into an account: an e-mail linked to a wallet account, or a wallet linked to an e-mail account.
+  // Stored as a small record { id, alias } under the other id; the account lists them in `aliases`.
+  async function aliasOf(id) {
+    const rec = await g.getAccount(id);
+    if (!rec?.alias || rec.deletedAt) return null;
+    const target = await g.getAccount(rec.alias);
+    return target && !target.deletedAt ? rec.alias : null;
+  }
+  const sendsPerEmail = new Map(); // email id -> { n, since }: at most 5 codes an hour per address
+
   const api = {
     walletFor,
+    emailEnabled: !!mailer,
     solanaEnabled: !!solPayTo,
     account,
     planOf,
@@ -236,19 +267,100 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // Returns the account id (lowercase address) for a valid signature over a message this server made.
     // ref: the Fizzl site the visitor came from (kept on a new account, for the owner's statistics).
     async signIn(nonce, signature, { ref = null } = {}) {
-      const pending = typeof nonce === "string" ? await g.takeOnce("siwe", nonce) : null;
-      if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
-      if (pending.chain === "solana") return solanaSignIn(pending, signature, fizzlSite(ref));
-      let ok = false;
-      try { ok = await verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; }
-      if (!ok && billing.publicClient) { try { ok = await billing.publicClient.verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; } }
-      if (!ok) throw Object.assign(new Error("that signature does not match"), { status: 401 });
+      const pending = await verifySigned(nonce, signature);
+      // A wallet linked to an account made with e-mail signs in to that account.
+      const linked = await aliasOf(pending.chain === "solana" ? `sol:${pending.address}` : pending.address.toLowerCase());
+      if (linked) { usage.record("signin", { account: linked, input: { chain: pending.chain ?? "ethereum" } }); return linked; }
+      if (pending.chain === "solana") return solanaSignIn(pending, fizzlSite(ref));
       const id = pending.address.toLowerCase();
       const existing = await g.getAccount(id);
       const fresh = !existing || existing.deletedAt;
       if (fresh) await g.putAccount({ id, address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: existing?.autoPayments ?? [], telegram: null, ...(fizzlSite(ref) ? { ref: fizzlSite(ref) } : {}) });
       usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? fizzlSite(ref) : existing.ref, input: { chain: "ethereum" } });
       return id;
+    },
+
+    // ---------- e-mail: sign in with a 6-digit code (no password, no link to tap) ----------
+    // purpose "signin": anyone; purpose "link": add this e-mail to the signed-in account (id).
+    async emailCode(email, { purpose = "signin", id = null } = {}) {
+      if (!mailer) throw Object.assign(new Error("Signing in with e-mail isn't available on this server."), { status: 503 });
+      const addr = cleanEmail(email);
+      if (!EMAIL_RE.test(addr) || addr.length > 254) throw Object.assign(new Error("That doesn't look like an e-mail address."), { status: 400 });
+      const key = emailId(addr), s = sendsPerEmail.get(key);
+      if (s && now() - s.since < 3_600_000 && s.n >= 5) throw Object.assign(new Error("We sent several codes to that address already. Wait a while, or use the last one."), { status: 429 });
+      sendsPerEmail.set(key, s && now() - s.since < 3_600_000 ? { n: s.n + 1, since: s.since } : { n: 1, since: now() });
+      if (purpose === "link") {
+        const taken = await g.getAccount(key);
+        if (taken && !taken.deletedAt && taken.alias !== id) throw Object.assign(new Error(taken.alias ? "That e-mail already signs in to another account." : "That e-mail already has its own account. Sign in with it and delete that account first, or use another address."), { status: 409 });
+      }
+      const code = String(randomBytes(4).readUInt32BE(0) % 1_000_000).padStart(6, "0");
+      await g.putOnce("emailcode", key, { code: createHash("sha256").update(`${key}:${code}`).digest("hex"), purpose, id, tries: 0, until: now() + EMAIL_CODE_TTL_S * 1000 }, EMAIL_CODE_TTL_S);
+      const what = purpose === "link" ? "add this e-mail address to your Fizzl wallet account" : "sign in to your Fizzl wallet";
+      await mailer.send(addr, `${code} is your Fizzl wallet code`, `Your code to ${what}:\n\n${code}\n\nIt works for 10 minutes. Didn't ask for it? Ignore this e-mail; nothing happens without the code.\n\nFizzl Agent Wallet · ${site.origin}`)
+        .catch((err) => { console.warn(`[mail] ${err.message}`); throw Object.assign(new Error("The e-mail couldn't be sent right now. Try again in a minute."), { status: 502 }); });
+      return { ok: true, expiresIn: EMAIL_CODE_TTL_S };
+    },
+    async emailCheck(email, code, purpose) {
+      const key = emailId(email);
+      const pending = await g.takeOnce("emailcode", key);
+      if (!pending || pending.purpose !== purpose) throw Object.assign(new Error("That code has expired. Ask for a new one."), { status: 401 });
+      const good = createHash("sha256").update(`${key}:${String(code ?? "").replace(/\D/g, "")}`).digest("hex") === pending.code;
+      if (!good) {
+        const left = Math.floor((pending.until - now()) / 1000);
+        if (pending.tries < 4 && left > 0) await g.putOnce("emailcode", key, { ...pending, tries: pending.tries + 1 }, left);
+        throw Object.assign(new Error(pending.tries < 4 ? "That code isn't right. Check the e-mail and try again." : "Too many wrong codes. Ask for a new one."), { status: 401 });
+      }
+      return { key, pending };
+    },
+    async emailSignIn(email, code, { ref = null } = {}) {
+      const { key } = await api.emailCheck(email, code, "signin");
+      const linked = await aliasOf(key);
+      if (linked) { usage.record("signin", { account: linked, input: { chain: "email" } }); return linked; }
+      const existing = await g.getAccount(key);
+      const fresh = !existing || existing.deletedAt;
+      if (fresh) await g.putAccount({ id: key, chain: "email", address: null, emailHint: emailHint(email), createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null, ...(fizzlSite(ref) ? { ref: fizzlSite(ref) } : {}) });
+      usage.record(fresh ? "signup" : "signin", { account: key, ref: fresh ? fizzlSite(ref) : existing.ref, input: { chain: "email" } });
+      return key;
+    },
+    // Add an e-mail address to a wallet account, so it can sign in with either.
+    async emailLink(id, email, code) {
+      if (id === ADMIN) throw Object.assign(new Error("The owner signs in with the password."), { status: 400 });
+      const { key, pending } = await api.emailCheck(email, code, "link");
+      if (pending.id !== id) throw Object.assign(new Error("That code was asked for by another account."), { status: 401 });
+      return serial(id, async () => {
+        const a = await g.getAccount(id);
+        if (a.chain === "email") throw Object.assign(new Error("This account already signs in with e-mail."), { status: 400 });
+        const old = (a.aliases ?? []).find((x) => x.startsWith("em:"));
+        if (old && old !== key) await g.putAccount({ id: old, deletedAt: now() });
+        await g.putAccount({ id: key, alias: id, at: now() });
+        await g.putAccount({ ...a, emailHint: emailHint(email), aliases: [...new Set([...(a.aliases ?? []).filter((x) => x !== old), key])] });
+        return api.me(id);
+      });
+    },
+    async emailUnlink(id) {
+      return serial(id, async () => {
+        const a = await g.getAccount(id);
+        if (!a || a.chain === "email") throw Object.assign(new Error("This account signs in with e-mail; that can't be removed."), { status: 400 });
+        for (const x of (a.aliases ?? []).filter((x) => x.startsWith("em:"))) await g.putAccount({ id: x, deletedAt: now() });
+        const { emailHint: _h, ...rest } = a;
+        await g.putAccount({ ...rest, aliases: (a.aliases ?? []).filter((x) => !x.startsWith("em:")) });
+        return api.me(id);
+      });
+    },
+    // An account made with e-mail connects the wallet it pays Pro from (one free signature).
+    async walletLink(id, nonce, signature) {
+      const pending = await verifySigned(nonce, signature);
+      const walletId = pending.chain === "solana" ? `sol:${pending.address}` : pending.address.toLowerCase();
+      return serial(id, async () => {
+        const a = await g.getAccount(id);
+        if (!a || a.chain !== "email") throw Object.assign(new Error("Only accounts made with e-mail connect a wallet here."), { status: 400 });
+        if (a.address) throw Object.assign(new Error("A wallet is connected already."), { status: 409 });
+        const other = await g.getAccount(walletId);
+        if (other && !other.deletedAt && other.alias !== id) throw Object.assign(new Error("That wallet has its own Fizzl account. Sign in with the wallet and add your e-mail there instead."), { status: 409 });
+        await g.putAccount({ id: walletId, alias: id, at: now() });
+        await g.putAccount({ ...a, address: pending.address, payChain: pending.chain === "solana" ? "solana" : "ethereum", aliases: [...new Set([...(a.aliases ?? []), walletId])] });
+        return api.me(id);
+      });
     },
 
     // What the dashboard shows about the account itself.
@@ -261,13 +373,17 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
         chain: a.admin ? null : isSol(a) ? "solana" : "ethereum",
-        auto: subscription && !a.admin && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
+        signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isSol(a) ? "solana" : "ethereum",
+        email: a.emailHint ?? null, emailSignIn: !!mailer,
+        needsWallet: a.chain === "email" && !a.address,
+        proPriceUsdc: Number(priceUnits) / 1e6,
+        auto: subscription && !a.admin && a.address && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         withdrawal: withdrawalOf(a),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
-        billing: a.admin ? null : isSol(a)
+        billing: a.admin || !a.address ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
@@ -307,7 +423,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!a) return "That account no longer exists.";
       await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { telegram: { chatId: String(chat.id), userId: String(from.id), username: from.username ?? null, linkedAt: now() } }));
       usage.record("telegram_linked", { account: a.id });
-      return `Connected ✓ Approval requests for ${short(a.address)} come here now. You can disconnect on the dashboard.`;
+      return `Connected ✓ Approval requests for ${a.address ? short(a.address) : a.emailHint ?? "your account"} come here now. You can disconnect on the dashboard.`;
     },
     // A button tap: only the linked user of the account the approval belongs to may decide.
     async telegramDecide(approvalId, decision, from) {
@@ -427,6 +543,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return serial(id, async () => {
         await store.wipe(id);
         wallets.delete(id);
+        for (const x of a.aliases ?? []) await g.putAccount({ id: x, deletedAt: now() });
         usage.record("account_deleted", { account: id });
         const kept = { id, address: a.address, deletedAt: now(), payments: a.payments ?? [], autoPayments: a.autoPayments ?? [], paidUntil: 0, ...(a.withdrawal ? { withdrawal: a.withdrawal } : {}) };
         await g.putAccount(kept);
@@ -650,7 +767,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // A Solana account paying for Pro: the transaction for its wallet to sign and send (USDC to the owner).
     async solanaPayment(id, months = 1, tier = null) {
       const a = await account(id);
-      if (!a || !isSol(a)) throw Object.assign(new Error("only for accounts signed in with a Solana wallet"), { status: 400 });
+      if (!a || !isSol(a) || !a.address) throw Object.assign(new Error("only for accounts signed in with a Solana wallet"), { status: 400 });
       if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
       const m = Math.min(12, Math.max(1, Math.floor(Number(months) || 1)));
       const { value } = await solRpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
@@ -749,8 +866,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     await g.putOnce("siwe", nonce, { address, message, chain: "solana" }, NONCE_TTL_S);
     return { nonce, message };
   }
-  async function solanaSignIn(pending, signature, ref) {
-    if (!verifySolanaSignature(pending.address, pending.message, signature)) throw Object.assign(new Error("that signature does not match"), { status: 401 });
+  async function solanaSignIn(pending, ref) {
     const id = `sol:${pending.address}`;
     const existing = await g.getAccount(id);
     const fresh = !existing || existing.deletedAt;
@@ -797,6 +913,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   async function claim(id, txHash, chainId = 8453, tier = null) {
     if (id === ADMIN) throw Object.assign(new Error("the owner's server has no plan to pay for"), { status: 400 });
     const sa = await account(id);
+    if (!sa?.address) throw Object.assign(new Error("Connect the wallet you pay from first (Your plan)."), { status: 400 });
     if (isSol(sa)) return claimSolana(sa, txHash, tier);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
     const cid = Number(chainId ?? 8453), net = chains[cid];
