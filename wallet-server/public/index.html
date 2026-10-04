@@ -686,6 +686,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <article class="card" id="appCard" hidden></article>
         <article class="card" id="mailCard" hidden></article>
         <article class="card" id="keyCard" hidden></article>
+        <article class="card" id="feedCard"><span class="tag">💬 FEEDBACK</span><div class="big" style="font-size:20px">Tell us what to fix</div><p class="note" style="margin:0">Something unclear, broken or missing? It goes straight to the person who builds this.</p><textarea id="feedIn" rows="3" maxlength="1000" placeholder="What happened, or what would help?" aria-label="Your feedback" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.03);resize:vertical"></textarea><div class="btns"><button class="button small" type="button" id="feedGo">Send</button></div><div class="msg" id="feedMsg" role="status"></div></article>
         <article class="card" id="hookCard" hidden><span class="tag">ALSO ON DISCORD OR SLACK</span><div class="monhook" id="monHook"></div></article>
       </div>
       <article class="card monitor" id="monitorCard" hidden>
@@ -701,7 +702,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </div>
 </main>
 <dialog class="receipt" id="receipt" aria-labelledby="rcTitle"><div id="rcBody"></div></dialog>
-<footer><div class="wrap"><div class="footbuy" id="footBuy" hidden><button class="button primary small" type="button" id="buyFoot"></button><span class="note" id="buyFootNote"></span></div>FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a><span id="footAccount" hidden> · <a href="#accountSec" style="text-decoration:underline">your account &amp; plan</a></span></div></footer>
+<footer><div class="wrap"><div class="footbuy" id="footBuy" hidden><button class="button primary small" type="button" id="buyFoot"></button><span class="note" id="buyFootNote"></span></div>FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a><span id="footAccount" hidden> · <a href="#accountSec" style="text-decoration:underline">your account &amp; plan</a> · <a href="#feedCard" id="footFeedback" style="text-decoration:underline">feedback</a></span></div></footer>
 
 <script>
 (() => {
@@ -1240,6 +1241,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render, and to your phone once you turn on notifications there (On your phone, below).</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
+      $("#planCard").insertAdjacentHTML("beforeend", `<details id="promoAdmin"><summary>Tester codes (free Pro)</summary><div style="display:grid;gap:8px;margin-top:8px"><div class="paste"><input id="promoDays" type="number" min="1" max="365" value="30" aria-label="Days of Pro"><input id="promoUses" type="number" min="1" max="1000" value="20" aria-label="How many testers"><button class="button small" type="button" id="promoMake">Make code</button></div><p class="note" style="margin:0">Days of Pro · how many testers can use it. Each account can use one code once.</p><div id="promoList"></div></div></details>`);
+      if (!DEMO) api("GET", "/api/admin/promos").then(renderPromos, () => {});
       $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
       if (!DEMO) api("GET", "/api/admin/subscription").then(renderSetup, () => {});
       return;
@@ -1273,6 +1276,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${withdrawHtml()}
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     }
+    $("#planCard").insertAdjacentHTML("beforeend", me.promo
+      ? `<p class="note" style="margin:0">🎁 Tester code used: ${esc(me.promo.days)} days of Pro (${esc(day(me.promo.at))}). Thanks for testing!</p>`
+      : `<details><summary>Have a tester code?</summary><form class="paste" id="promoForm" style="margin-top:8px"><input id="promoIn" placeholder="TEST-…" aria-label="Tester code" autocapitalize="characters" autocomplete="off" maxlength="20"><button class="button small" type="submit">Use code</button></form><div class="msg" id="promoMsg" role="status"></div></details>`);
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
@@ -2363,6 +2369,37 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!b) return;
     b.disabled = true;
     pushAction(b.dataset.push).finally(() => { b.disabled = false; });
+  });
+
+  // ---------- tester codes (free Pro) and feedback ----------
+  function renderPromos(r) {
+    const box = $("#promoList");
+    if (!box) return;
+    box.innerHTML = r.promos.length ? `<div class="paylist">${r.promos.map((p) => `<div><span><b style="color:#fff">${esc(p.code)}</b> · ${esc(p.days)} days · ${esc(p.used)}/${esc(p.uses)} used${p.stopped ? " · stopped" : ""}</span><span>${p.stopped ? "" : `<button class="link" type="button" data-copy="${esc(p.code)}">Copy</button> · <button class="link" type="button" data-promostop="${esc(p.code)}">Stop</button>`}</span></div>`).join("")}</div>` : `<p class="note" style="margin:0">No codes yet.</p>`;
+  }
+  document.addEventListener("click", async (e) => {
+    if (e.target.closest("#promoMake")) {
+      try { renderPromos(await api("POST", "/api/admin/promos", { days: Number($("#promoDays").value), uses: Number($("#promoUses").value) })); } catch (err) { if (err.message !== "login") alert(err.message); }
+      return;
+    }
+    const st = e.target.closest("[data-promostop]");
+    if (st) { try { renderPromos(await api("POST", `/api/admin/promos/${encodeURIComponent(st.dataset.promostop)}/stop`, {})); } catch {} return; }
+    if (e.target.closest("#footFeedback")) { e.preventDefault(); showTab("account"); setTimeout(() => { $("#feedCard").scrollIntoView({ behavior: "smooth", block: "center" }); $("#feedIn").focus(); }, 50); return; }
+    const fb = e.target.closest("#feedGo");
+    if (fb) {
+      const say = (t, bad) => { const m = $("#feedMsg"); m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; };
+      fb.disabled = true;
+      try { await api("POST", "/api/feedback", { text: $("#feedIn").value }); $("#feedIn").value = ""; say("Thanks! Sent."); }
+      catch (err) { if (err.message !== "login") say(err.message, true); }
+      finally { fb.disabled = false; }
+    }
+  });
+  document.addEventListener("submit", async (e) => {
+    if (!e.target.closest("#promoForm")) return;
+    e.preventDefault();
+    const say = (t, bad) => { const m = $("#promoMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
+    try { me = await api("POST", "/api/promo", { code: $("#promoIn").value }); renderAccount(); refresh(); }
+    catch (err) { if (err.message !== "login") say(err.message, true); }
   });
 
   // ---------- passkeys: sign in with Face ID, Touch ID, a fingerprint or the screen lock ----------

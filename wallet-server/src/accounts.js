@@ -240,6 +240,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     return target && !target.deletedAt ? rec.alias : null;
   }
   const sendsPerEmail = new Map(); // email id -> { n, since }: at most 5 codes an hour per address
+  const feedbackSent = new Map(); // account -> { n, since }: at most 5 feedback messages an hour
 
   const api = {
     walletFor,
@@ -383,6 +384,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         email: a.emailHint ?? null, emailSignIn: !!mailer,
         needsWallet: a.chain === "email" && !a.address,
         proPriceUsdc: Number(priceUnits) / 1e6,
+        promo: a.promo ?? null,
         passkeys: (a.passkeys ?? []).map((k) => ({ id: k.id, label: k.label, at: k.at, usedAt: k.usedAt ?? null })),
         auto: subscription && !a.admin && a.address && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
@@ -625,6 +627,71 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       catch (err) { throw Object.assign(new Error(err.message), { status: 502 }); }
       return { ok: true };
     },
+    // ---------- tester codes: the owner hands out free Pro time (e.g. 30 days for the first 20 testers) ----------
+    async promoCreate(days, uses) {
+      const d = Math.round(Number(days)), u = Math.round(Number(uses));
+      if (!(d >= 1 && d <= 365) || !(u >= 1 && u <= 1000)) throw Object.assign(new Error("Days must be 1 to 365 and uses 1 to 1000."), { status: 400 });
+      const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      const code = `TEST-${[...randomBytes(6)].map((b) => ABC[b % ABC.length]).join("")}`;
+      return serial(ADMIN, async () => {
+        const rec = (await g.getAccount(ADMIN)) ?? { id: ADMIN };
+        await g.putAccount({ ...rec, promos: [...(rec.promos ?? []), { code, days: d, uses: u, used: 0, at: now() }] });
+        return api.promoList();
+      });
+    },
+    async promoList() {
+      return { promos: ((await g.getAccount(ADMIN))?.promos ?? []).slice().reverse() };
+    },
+    async promoStop(code) {
+      return serial(ADMIN, async () => {
+        const rec = await g.getAccount(ADMIN);
+        if (rec?.promos) await g.putAccount({ ...rec, promos: rec.promos.map((p) => (p.code === code ? { ...p, stopped: true } : p)) });
+        return api.promoList();
+      });
+    },
+    // A customer redeems a code once: that many days of Pro, added to any Pro they have.
+    async promoRedeem(id, code) {
+      if (id === ADMIN) throw Object.assign(new Error("The owner has no plan to pay for."), { status: 400 });
+      const clean = String(code ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").trim();
+      const a = await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      if (a.promo) throw Object.assign(new Error("You used a tester code already."), { status: 409 });
+      const days = await serial(ADMIN, async () => {
+        const rec = await g.getAccount(ADMIN);
+        const p = (rec?.promos ?? []).find((x) => x.code === clean);
+        if (!p || p.stopped) throw Object.assign(new Error("That code isn't valid."), { status: 404 });
+        if (p.used >= p.uses) throw Object.assign(new Error("That code has been used up."), { status: 410 });
+        await g.putAccount({ ...rec, promos: rec.promos.map((x) => (x.code === clean ? { ...x, used: x.used + 1 } : x)) });
+        return p.days;
+      });
+      await serial(id, async () => {
+        const fresh = await g.getAccount(id);
+        const from = Math.max(now(), fresh.paidUntil ?? 0, fresh.auto?.paidThrough ?? 0);
+        await g.putAccount({ ...fresh, paidUntil: from + days * DAY, promo: { code: clean, days, at: now() }, reminded: null });
+        await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Tester code: ${days} days of Pro, until ${date(from + days * DAY)}` });
+      });
+      usage.record("promo_redeemed", { account: id, input: { days } });
+      if (telegram && adminChatId) await telegram.send(adminChatId, `🎁 Tester code ${clean} redeemed: ${days} days of Pro for an account.`).catch(() => {});
+      return api.me(id);
+    },
+
+    // ---------- feedback from the dashboard, to the owner's Telegram ----------
+    async feedback(id, text) {
+      const msg = String(text ?? "").replace(/\s+/g, " ").trim();
+      if (msg.length < 3) throw Object.assign(new Error("Write a few words first."), { status: 400 });
+      if (msg.length > 1000) throw Object.assign(new Error("Keep it under 1000 characters."), { status: 400 });
+      const f = feedbackSent.get(id);
+      if (f && now() - f.since < 3_600_000 && f.n >= 5) throw Object.assign(new Error("Thanks! That's a lot of feedback for one hour; send more later."), { status: 429 });
+      feedbackSent.set(id, f && now() - f.since < 3_600_000 ? { n: f.n + 1, since: f.since } : { n: 1, since: now() });
+      const a = await account(id);
+      const who = id === ADMIN ? "you (owner)" : a?.emailHint ?? (a?.address ? short(a.address) : id);
+      const plan = planOf(a).name;
+      usage.record("feedback", { account: id, input: { length: msg.length } });
+      const sent = await tell(ADMIN, `💬 Feedback from ${who} (${plan}):\n\n${msg}`, { type: "feedback" });
+      if (!sent) console.log(`[feedback] ${who}: ${msg}`);
+      return { ok: true };
+    },
+
     // ---------- passkeys: sign in with Face ID, Touch ID or a fingerprint ----------
     // The passkey's user handle is the account id, so signing in needs no name typed first.
     async passkeyOptions(id, rpId) {
