@@ -1825,3 +1825,88 @@ test("e-mail: when the mail service refuses (domain not verified), the reason is
     assert.match(r.body.message, /refused it \(The fizzl\.eu domain is not verified\.\)/);
   } finally { server.close(); }
 });
+
+// A software authenticator: makes a P-256 passkey and signs like Face ID would.
+function softPasskey() {
+  const { createHash, generateKeyPairSync, sign: nodeSign, randomBytes: rb } = require_crypto();
+  const enc = (v) => {
+    const head = (major, n) => (n < 24 ? Buffer.from([(major << 5) | n]) : n < 256 ? Buffer.from([(major << 5) | 24, n]) : Buffer.from([(major << 5) | 25, n >> 8, n & 255]));
+    if (typeof v === "number") return v >= 0 ? head(0, v) : head(1, -1 - v);
+    if (typeof v === "string") return Buffer.concat([head(3, Buffer.byteLength(v)), Buffer.from(v)]);
+    if (Buffer.isBuffer(v)) return Buffer.concat([head(2, v.length), v]);
+    if (v instanceof Map) return Buffer.concat([head(5, v.size), ...[...v].flatMap(([k, x]) => [enc(k), enc(x)])]);
+    throw new Error("enc");
+  };
+  const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const credId = rb(16);
+  let counter = 0;
+  const sha = (d) => createHash("sha256").update(d).digest();
+  const authData = (rpId, withKey) => {
+    const c = Buffer.alloc(4); c.writeUInt32BE(counter);
+    const base = Buffer.concat([sha(rpId), Buffer.from([withKey ? 0x45 : 0x05]), c]);
+    if (!withKey) return base;
+    const cose = enc(new Map([[1, 2], [3, -7], [-1, 1], [-2, Buffer.from(jwk.x, "base64url")], [-3, Buffer.from(jwk.y, "base64url")]]));
+    const len = Buffer.alloc(2); len.writeUInt16BE(credId.length);
+    return Buffer.concat([base, Buffer.alloc(16), len, credId, cose]);
+  };
+  const b = (x) => Buffer.from(x).toString("base64url");
+  let userHandle = null;
+  return {
+    id: b(credId),
+    create(o, origin) {
+      userHandle = o.user.id;
+      const clientDataJSON = Buffer.from(JSON.stringify({ type: "webauthn.create", challenge: o.challenge, origin }));
+      const attestationObject = enc(new Map([["fmt", "none"], ["attStmt", new Map()], ["authData", authData(o.rp.id, true)]]));
+      return { clientDataJSON: b(clientDataJSON), attestationObject: b(attestationObject) };
+    },
+    get(o, origin, { userVerified = true } = {}) {
+      const clientDataJSON = Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: o.challenge, origin }));
+      const ad = authData(o.rpId, false);
+      if (!userVerified) ad[32] = 0x01;
+      const signature = nodeSign("sha256", Buffer.concat([ad, sha(clientDataJSON)]), privateKey);
+      return { id: b(credId), clientDataJSON: b(clientDataJSON), authenticatorData: b(ad), signature: b(signature), userHandle };
+    },
+  };
+}
+import * as nodeCrypto from "node:crypto";
+const require_crypto = () => nodeCrypto;
+
+test("passkeys: add Face ID while signed in, then sign in with it alone; checked site, user check and challenge", async () => {
+  const { base, server, owner } = await boot();
+  try {
+    const origin = base, key = softPasskey();
+    // Add it (signed in as the owner here).
+    const o = (await owner("POST", "/api/passkey/new", {})).body;
+    assert.equal(o.rp.id, "127.0.0.1");
+    assert.equal(Buffer.from(o.user.id, "base64url").toString(), "admin");
+    assert.equal(o.authenticatorSelection.userVerification, "required");
+    const fromElsewhere = await owner("POST", "/api/passkey/add", { answer: key.create(o, "https://evil.example"), label: "iPhone · app" });
+    assert.equal(fromElsewhere.status, 401, "an answer made for another site is refused");
+    const o2 = (await owner("POST", "/api/passkey/new", {})).body;
+    const added = await owner("POST", "/api/passkey/add", { answer: key.create(o2, origin), label: "iPhone · app" });
+    assert.equal(added.status, 200);
+    assert.deepEqual(added.body.passkeys.map((k) => k.label), ["iPhone · app"]);
+    assert.equal((await owner("POST", "/api/passkey/add", { answer: key.create(o2, origin) })).status, 401, "a registration challenge works once");
+
+    // Sign in with nothing but the passkey.
+    const lo = await jpost(base, "/api/passkey/options", {});
+    const signed = await jpost(base, "/api/passkey/signin", key.get(lo.body, origin));
+    assert.equal(signed.status, 200);
+    assert.equal((await asCookie(base, signed.cookie)("GET", "/api/me")).body.id, "admin");
+    assert.equal((await jpost(base, "/api/passkey/signin", key.get(lo.body, origin))).status, 401, "a sign-in challenge works once");
+    // Without Face ID / fingerprint (user not verified): refused.
+    const lo2 = await jpost(base, "/api/passkey/options", {});
+    const noUv = await jpost(base, "/api/passkey/signin", key.get(lo2.body, origin, { userVerified: false }));
+    assert.equal(noUv.status, 401);
+    assert.match(noUv.body.message, /didn't check your face/);
+    // A forged signature: refused.
+    const lo3 = await jpost(base, "/api/passkey/options", {});
+    const forged = { ...key.get(lo3.body, origin), signature: softPasskey().get(lo3.body, origin).signature };
+    assert.equal((await jpost(base, "/api/passkey/signin", forged)).status, 401);
+    // Removed: it no longer signs in.
+    assert.deepEqual((await owner("POST", "/api/passkey/remove", { id: key.id })).body.passkeys, []);
+    const lo4 = await jpost(base, "/api/passkey/options", {});
+    assert.equal((await jpost(base, "/api/passkey/signin", key.get(lo4.body, origin))).status, 401);
+  } finally { server.close(); }
+});

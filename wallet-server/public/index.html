@@ -451,6 +451,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <span class="tag">Fizzl Agent Wallet</span>
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
+      <div id="passkeyLogin" hidden style="display:grid;gap:8px;margin-bottom:14px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0">Or Touch ID, a fingerprint or your screen lock, once you've added it on the Account tab.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
@@ -678,6 +679,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <article class="card" id="tgCard"></article>
         <article class="card" id="appCard" hidden></article>
         <article class="card" id="mailCard" hidden></article>
+        <article class="card" id="keyCard" hidden></article>
         <article class="card" id="hookCard" hidden><span class="tag">ALSO ON DISCORD OR SLACK</span><div class="monhook" id="monHook"></div></article>
       </div>
       <article class="card monitor" id="monitorCard" hidden>
@@ -943,6 +945,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#walletLogin").hidden = !c.wallet || viaCode;
       $("#deviceLogin").hidden = !viaCode;
       $("#emailLogin").hidden = !c.email;
+      $("#passkeyLogin").hidden = !PASSKEYS;
       if (viaCode) deviceLogin();
       solanaOn = !!c.solana; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
@@ -1221,7 +1224,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     $("#deleteBox").hidden = me.admin || DEMO;
     if (!DEMO) loadMonitors();
-    renderFollow(); setupAgents(); renderApp(); renderMail();
+    renderFollow(); setupAgents(); renderApp(); renderMail(); renderKeys();
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render, and to your phone once you turn on notifications there (On your phone, below).</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
@@ -2340,6 +2343,50 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!b) return;
     b.disabled = true;
     pushAction(b.dataset.push).finally(() => { b.disabled = false; });
+  });
+
+  // ---------- passkeys: sign in with Face ID, Touch ID, a fingerprint or the screen lock ----------
+  const PASSKEYS = !!window.PublicKeyCredential && !!navigator.credentials?.get && !DEMO;
+  const toBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const fromBuf = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const passkeyError = (err) => (err?.name === "NotAllowedError" ? "Cancelled, or no passkey for this site on this device." : err?.name === "InvalidStateError" ? "This device has a passkey for this account already." : err?.message || String(err));
+  $("#passkeyGo").addEventListener("click", async () => {
+    const b = $("#passkeyGo"); b.disabled = true; $("#passkeyErr").textContent = "";
+    try {
+      const o = await post("/api/passkey/options", {});
+      const cred = await navigator.credentials.get({ publicKey: { challenge: toBuf(o.challenge), rpId: o.rpId, userVerification: "required", timeout: o.timeout } });
+      const r = cred.response;
+      await post("/api/passkey/signin", { id: cred.id, clientDataJSON: fromBuf(r.clientDataJSON), authenticatorData: fromBuf(r.authenticatorData), signature: fromBuf(r.signature), userHandle: r.userHandle ? fromBuf(r.userHandle) : "" });
+      start();
+    } catch (err) { $("#passkeyErr").textContent = passkeyError(err); }
+    finally { b.disabled = false; }
+  });
+  function renderKeys() {
+    const card = $("#keyCard");
+    if (!card || !me || DEMO) return;
+    if (!PASSKEYS) { card.hidden = true; return; }
+    card.hidden = false;
+    const keys = me.passkeys ?? [];
+    card.innerHTML = `<span class="tag">🙂 FACE ID</span><div class="big">${keys.length ? `On · ${keys.length} device${keys.length === 1 ? "" : "s"}` : "Not added"}</div>
+      <p class="note" style="margin:0">Sign in with Face ID, Touch ID, a fingerprint or your screen lock: no code, no wallet. The passkey stays on your device (synced by iCloud Keychain or Google Password Manager); we keep only its public key.</p>
+      ${keys.length ? `<div class="paylist">${keys.map((k) => `<div><span>${esc(k.label)} · added ${esc(day(k.at))}${k.usedAt ? `, used ${esc(day(k.usedAt))}` : ""}</span><button class="link" type="button" data-keyrm="${esc(k.id)}">Remove</button></div>`).join("")}</div>` : ""}
+      <div class="btns"><button class="button ${keys.length ? "" : "primary"} small" type="button" id="keyAdd">Add Face ID on this device</button></div><div class="msg" id="keyMsg" role="status"></div>`;
+  }
+  document.addEventListener("click", async (e) => {
+    const say = (t, bad) => { const m = $("#keyMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
+    const rm = e.target.closest("[data-keyrm]");
+    if (rm) { try { me = await api("POST", "/api/passkey/remove", { id: rm.dataset.keyrm }); renderKeys(); } catch (err) { if (err.message !== "login") say(err.message, true); } return; }
+    const add = e.target.closest("#keyAdd");
+    if (!add) return;
+    add.disabled = true;
+    try {
+      const o = await api("POST", "/api/passkey/new", {});
+      const cred = await navigator.credentials.create({ publicKey: { ...o, challenge: toBuf(o.challenge), user: { ...o.user, id: toBuf(o.user.id) }, excludeCredentials: o.excludeCredentials.map((c) => ({ ...c, id: toBuf(c.id) })) } });
+      me = await api("POST", "/api/passkey/add", { answer: { clientDataJSON: fromBuf(cred.response.clientDataJSON), attestationObject: fromBuf(cred.response.attestationObject) }, label: deviceName() });
+      renderKeys();
+      say("Added. Next time, tap Sign in with Face ID.");
+    } catch (err) { if (err.message !== "login") say(passkeyError(err), true); }
+    finally { const b = $("#keyAdd"); if (b) b.disabled = false; }
   });
 
   // ---------- e-mail: sign in with a code; on the Account tab, add it to a wallet account ----------
