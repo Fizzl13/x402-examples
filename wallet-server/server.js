@@ -31,6 +31,10 @@
 //                       GitHub token, Contents read/write on that repo only; the same as the other services)
 //   USAGE_LOG_SALT, USAGE_LOG_REPO, USAGE_OWN_WALLETS  optional: see src/usage.js
 //   RESEND_API_KEY      optional: turns on signing in with e-mail (a 6-digit code mailed through Resend)
+//   OUTREACH_FROM       optional: sender for outreach mail to sellers, e.g. "Frits from Fizzl <frits@fizzl.eu>" (a fizzl.eu address: the domain verified at Resend)
+//   OUTREACH_REPLY_TO   optional: where replies to outreach mail go (your own inbox)
+//   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
+//   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
 //   MAIL_FROM           optional: the sender, on a domain verified at Resend (default "Fizzl wallet <noreply@fizzl.eu>")
 //   VAPID_PRIVATE_KEY   optional: the key that signs phone notifications (32 bytes, base64url); by default it
 //                       is derived from SESSION_SECRET / ADMIN_PASSWORD
@@ -42,6 +46,7 @@ import { createAuth } from "./src/auth.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
+import { createOutreach } from "./src/outreach.js";
 import { createPush } from "./src/push.js";
 import { createMailer } from "./src/mail.js";
 import { createCatalog, createSkillChecker } from "./src/catalog.js";
@@ -99,7 +104,10 @@ const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECR
 const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined });
-const app = createApp({ accounts, auth, telegram, catalog, usage, stats, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+// Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).
+const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null });
+const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null });
+const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, outreachKey: env.OUTREACH_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 

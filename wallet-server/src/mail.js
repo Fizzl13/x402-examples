@@ -3,11 +3,12 @@
 export function createMailer({ apiKey, from = "Fizzl wallet <noreply@fizzl.eu>", fetch = globalThis.fetch }) {
   if (!apiKey) return null;
   return {
-    async send(to, subject, text) {
+    // opts: { from, replyTo } override the sender for one message (outreach mail goes out under another name).
+    async send(to, subject, text, opts = {}) {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ from, to: [to], subject, text }),
+        body: JSON.stringify({ from: opts.from || from, to: [to], subject, text, ...(opts.replyTo ? { reply_to: opts.replyTo } : {}) }),
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) {

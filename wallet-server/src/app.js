@@ -8,6 +8,7 @@ import { noUsage, agentOf, fizzlSite } from "./usage.js";
 import { readFileSync } from "node:fs";
 import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
@@ -22,7 +23,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -316,13 +317,35 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const csv = ["date,account,network,amount_usdc,months,transaction,paid_until,automatic", ...rows.map((r) => [new Date(r.at).toISOString(), r.account, network(r), r.amount, r.months, r.tx, new Date(r.paidUntil).toISOString(), r.auto ? "yes" : "no"].join(","))].join("\n");
     res.type("text/csv").set("content-disposition", 'attachment; filename="fizzl-wallet-payments.csv"').send(`${csv}\n`);
   }));
+  // Outreach (src/outreach.js): the owner's drafts to sellers, sent only on the owner's word.
+  const ownerOnly = (fn) => wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    if (!outreach) return res.status(503).json({ error: "unavailable", message: "Outreach is not set up on this server." });
+    return fn(req, res);
+  });
+  owner.get("/admin/outreach", ownerOnly(async (_req, res) => res.json(await outreach.list())));
+  owner.post("/admin/outreach", ownerOnly(async (req, res) => res.json(await outreach.add({ to: req.body?.to, subject: req.body?.subject, body: req.body?.body, url: req.body?.url || null }))));
+  owner.put("/admin/outreach/:id", ownerOnly(async (req, res) => res.json(await outreach.update(req.params.id, { to: req.body?.to, subject: req.body?.subject, body: req.body?.body }))));
+  owner.post("/admin/outreach/:id/send", ownerOnly(async (req, res) => res.json(await outreach.send(req.params.id, "dashboard"))));
+  owner.post("/admin/outreach/:id/discard", ownerOnly(async (req, res) => res.json(await outreach.discard(req.params.id, "dashboard"))));
+  owner.post("/admin/outreach-stop", ownerOnly(async (req, res) => res.json(await outreach.stop(req.body?.email))));
   app.use("/api", owner);
+
+  // x402 Doctor hands in a draft (a broken endpoint and its published contact). Needs OUTREACH_KEY; makes a draft only.
+  const keyHash = outreachKey ? createHash("sha256").update(outreachKey).digest() : null;
+  app.post("/hooks/outreach-draft", wrap(async (req, res) => {
+    if (!outreach || !keyHash) return res.status(404).json({ error: "not_found" });
+    const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
+    if (!timingSafeEqual(given, keyHash)) return res.status(401).json({ error: "unauthorized" });
+    res.json(await outreach.fromDoctor({ url: req.body?.url, to: req.body?.to, findings: req.body?.findings, reportUrl: req.body?.reportUrl }));
+  }));
 
   // ---------- Telegram ----------
   app.post("/telegram/webhook", wrap(async (req, res) => {
     if (!telegram) return res.status(404).end();
     const ok = await telegram.handleWebhook({ "x-telegram-bot-api-secret-token": req.get("x-telegram-bot-api-secret-token") }, req.body, {
       decide: (id, d, from) => accounts.telegramDecide(id, d, from),
+      outreach: outreach ? (id, action, from) => outreach.fromTelegram(id, action, from) : null,
       start: (code, chat, from) => accounts.telegramStart(code, chat, from),
     });
     res.status(ok ? 200 : 401).end();
