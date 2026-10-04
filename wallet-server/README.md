@@ -1,6 +1,6 @@
 # Fizzl agent wallet server
 
-One budget and one set of rules for all your AI agents. Your agents buy on their own up to the price you set; above it they ask you, on the dashboard or on Telegram. Every purchase lands in an activity log.
+One budget and one set of rules for all your AI agents. Your agents buy on their own up to the price you set; above it they ask you, on the dashboard, in the app on your phone or on Telegram. Every purchase lands in an activity log.
 
 **[Live demo with example data →](https://wallet.fizzl.eu/demo)**
 
@@ -10,7 +10,7 @@ The server **never holds keys or funds**: each agent signs and pays itself with 
 
 - **Price rule and budget:** a max per purchase and a daily budget per token (USDC on six chains, ETH, BNB, POL, or any token by address), an optional allow list. Same format as presign-guard-wallet's `limits`, edited on the dashboard.
 - **One budget for all agents:** checks run one at a time, so two agents can't both fit in the last of a budget.
-- **Approvals:** over a limit, the agent waits (up to 10 minutes) while you approve or deny on the dashboard or with the Telegram buttons. No answer means not signed.
+- **Approvals:** over a limit, the agent waits (up to 10 minutes) while you approve or deny on the dashboard, from a notification on your phone or with the Telegram buttons. No answer means not signed.
 - **Agents:** each gets its own key (`awk_…`, stored only as a hash); pause or remove one, or pause all.
 - **Trust:** a presign-guard verdict counts only with its valid signature over exactly that request.
 
