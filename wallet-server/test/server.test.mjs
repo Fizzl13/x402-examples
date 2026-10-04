@@ -12,6 +12,8 @@ import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
 import { createTelegram } from "../src/telegram.js";
+import { createPush, encrypt, cleanSubscription } from "../src/push.js";
+import { createECDH, createPublicKey, verify } from "node:crypto";
 
 const PASSWORD = "correct horse battery staple";
 const PAY_TO = "0x6B0F4651eD42893ab58139938175E4a69f175F25";
@@ -38,7 +40,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -50,6 +52,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     ...(usage ? { usage } : {}),
     ...(endpointMonitor ? { endpointMonitor } : {}),
     ...(alertHook ? { alertHook } : {}),
+    ...(push ? { push } : {}),
   });
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
@@ -1592,5 +1595,95 @@ test("endpoint monitor in the account: free watches 1, an alert after two failed
     const id = list.monitors[0].id;
     assert.equal((await a.call("POST", `/api/monitors/${id}/check`, {})).status, 200);
     assert.deepEqual((await a.call("DELETE", `/api/monitors/${id}`)).body.monitors, []);
+  } finally { server.close(); }
+});
+
+// A browser's push subscription, with real keys, so the message can be encrypted for it.
+function fakeDevice(endpoint = `https://push.example/send/${randomBytes(6).toString("hex")}`) {
+  const ua = createECDH("prime256v1"); ua.generateKeys();
+  return { endpoint, keys: { p256dh: ua.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } };
+}
+
+test("web push: RFC 8291 encryption, a VAPID token the push service can check, expired devices reported as gone", async () => {
+  // The example from RFC 8291, appendix A.
+  const as = createECDH("prime256v1"); as.setPrivateKey(Buffer.from("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw", "base64url"));
+  const out = encrypt({ keys: { p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", auth: "BTBZMqHH6r4Tts7J_aSIgg" } }, "When I grow up, I want to be a watermelon", { salt: Buffer.from("DGv6ra1nlYgDCS1FRnbzlw", "base64url"), serverKey: as });
+  assert.equal(out.toString("base64url"), "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN");
+
+  const calls = [];
+  let status = 201;
+  const push = createPush({ seed: "a session secret of some length", subject: "https://wallet.test", fetch: async (url, init) => { calls.push({ url, init }); return new Response(null, { status }); } });
+  assert.equal(createPush({ seed: "a session secret of some length", subject: "x" }).publicKey, push.publicKey, "the same secret gives the same key, so devices keep working after a restart");
+  assert.notEqual(createPush({ seed: "another secret", subject: "x" }).publicKey, push.publicKey);
+  const device = fakeDevice("https://web.push.apple.com/QAbc");
+  assert.equal(await push.send(device, { title: "t", body: "b" }), "ok");
+  const { url, init } = calls[0];
+  assert.equal(url, device.endpoint);
+  assert.equal(init.headers["content-encoding"], "aes128gcm");
+  const [, jwt, k] = /^vapid t=([^,]+), k=(.+)$/.exec(init.headers.authorization);
+  assert.equal(k, push.publicKey);
+  const [h, c, sig] = jwt.split(".");
+  const claims = JSON.parse(Buffer.from(c, "base64url"));
+  assert.equal(claims.aud, "https://web.push.apple.com");
+  assert.equal(claims.sub, "https://wallet.test");
+  const pub = Buffer.from(push.publicKey, "base64url");
+  const key = createPublicKey({ key: { kty: "EC", crv: "P-256", x: pub.subarray(1, 33).toString("base64url"), y: pub.subarray(33).toString("base64url") }, format: "jwk" });
+  assert.ok(verify("sha256", Buffer.from(`${h}.${c}`), { key, dsaEncoding: "ieee-p1363" }, Buffer.from(sig, "base64url")), "the push service can check who sent it");
+  status = 410;
+  assert.equal(await push.send(device, { title: "t" }), "gone");
+  status = 500;
+  await assert.rejects(push.send(device, { title: "t" }), /500/);
+  assert.throws(() => cleanSubscription({ endpoint: "http://push.example/x", keys: device.keys }), /isn't a push subscription/);
+  assert.throws(() => cleanSubscription({ endpoint: device.endpoint, keys: { p256dh: "abc", auth: device.keys.auth } }), /isn't a push subscription/);
+});
+
+test("notifications on the phone: turn on per device, approvals arrive with the approval id, devices that expired are forgotten", async () => {
+  const sent = [], gone = new Set();
+  const push = { publicKey: "BPUBLIC", send: async (sub, message) => { sent.push({ endpoint: sub.endpoint, message }); return gone.has(sub.endpoint) ? "gone" : "ok"; } };
+  const { owner, agent, base, server } = await boot({ push });
+  try {
+    assert.deepEqual((await owner("GET", "/api/push")).body, { enabled: true, key: "BPUBLIC", devices: [] });
+    assert.equal((await owner("POST", "/api/push/subscribe", { subscription: { endpoint: "http://insecure.example/x", keys: {} } })).status, 400);
+    const phone = fakeDevice();
+    const r = await owner("POST", "/api/push/subscribe", { subscription: phone, label: "iPhone · app<script>" });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.devices.map((d) => [d.endpoint, d.label]), [[phone.endpoint, "iPhone · appscript"]]);
+    // Over the limit: the phone gets the approval, with its id (Approve / Deny on Android, a tap opens the dashboard).
+    const req = txRequest(8);
+    assert.equal((await agent("POST", "/v1/reserve", { method: "sendTransaction", request: req, verdict: await signedVerdict(req) })).body.status, "pending");
+    await new Promise((ok) => setTimeout(ok, 20));
+    const ask = sent.find((x) => x.message.approval);
+    assert.match(ask.message.title, /research-agent asks for your OK/);
+    assert.match(ask.message.body, /8 USDC is over the limit/);
+    assert.equal(ask.message.url, "/#/overview");
+    const pending = (await owner("GET", "/api/state")).body.approvals.find((a) => a.status === "pending");
+    assert.equal(ask.message.approval, pending.id);
+    // A test, then the device unsubscribes at the push service: it's forgotten.
+    assert.equal((await owner("POST", "/api/push/test", {})).body.devices, 1);
+    gone.add(phone.endpoint);
+    assert.equal((await owner("POST", "/api/push/test", {})).status, 404);
+    assert.deepEqual((await owner("GET", "/api/push")).body.devices, []);
+    // Turning it off on a device.
+    gone.clear();
+    await owner("POST", "/api/push/subscribe", { subscription: phone });
+    assert.deepEqual((await owner("POST", "/api/push/unsubscribe", { endpoint: phone.endpoint })).body.devices, []);
+    // The app parts: manifest, service worker, icons.
+    const m = await fetch(`${base}/manifest.webmanifest`);
+    assert.match(m.headers.get("content-type"), /application\/manifest\+json/);
+    assert.equal((await m.json()).display, "standalone");
+    const sw = await fetch(`${base}/sw.js`);
+    assert.match(sw.headers.get("content-type"), /javascript/);
+    assert.equal(sw.headers.get("cache-control"), "no-cache");
+    assert.match(await sw.text(), /showNotification/);
+    for (const icon of ["/app/icon-192.png", "/app/icon-512.png", "/app/maskable-512.png", "/apple-touch-icon.png"]) assert.equal((await fetch(base + icon)).status, 200, icon);
+    assert.match(await (await fetch(`${base}/`)).text(), /<link rel="manifest" href="\/manifest.webmanifest">/);
+  } finally { server.close(); }
+});
+
+test("notifications: off when the server has no push key", async () => {
+  const { owner, server } = await boot();
+  try {
+    assert.equal((await owner("GET", "/api/push")).body.enabled, false);
+    assert.equal((await owner("POST", "/api/push/subscribe", { subscription: fakeDevice() })).status, 503);
   } finally { server.close(); }
 });

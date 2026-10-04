@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#020708">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="/app/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fizzl wallet">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Agent Wallet | FIZZL</title>
 <style>
 @font-face { font-family: "DM Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
@@ -375,6 +383,9 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .plan-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--mint); color: var(--mint); font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
 .plan-badge.buy { background: var(--mint); color: #02100c; cursor: pointer; padding: 5px 10px; box-shadow: 0 0 14px rgba(97,245,195,.35); }
 .plan-badge.free { border-color: rgba(244,248,247,.3); color: var(--soft); }
+.pushbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; padding: 14px 18px; }
+.pushbar span { flex: 1 1 220px; }
+#app:not([data-tab="overview"]) .pushbar { display: none; }
 .account { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
 .account .card { padding: 22px; display: grid; gap: 12px; align-content: start; }
 .account .big { font-size: 34px; }
@@ -489,6 +500,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <button type="button" role="tab" data-go="stats" aria-selected="false" id="statsTab" hidden><span class="ti" aria-hidden="true">▤</span><span>Stats</span></button>
     </nav>
 
+    <div class="card pushbar" id="pushBar" hidden><span>📱 Get approvals as a notification on this phone, and approve with one tap.</span><button class="button primary small" type="button" data-push="on">Turn on</button><button class="link" type="button" id="pushBarLater">Later</button></div>
     <section class="overview" id="overviewSec" data-tab="overview">
       <div class="card day">
         <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
@@ -652,6 +664,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="account">
         <article class="card" id="planCard"></article>
         <article class="card" id="tgCard"></article>
+        <article class="card" id="appCard" hidden></article>
         <article class="card" id="hookCard" hidden><span class="tag">ALSO ON DISCORD OR SLACK</span><div class="monhook" id="monHook"></div></article>
       </div>
       <article class="card monitor" id="monitorCard" hidden>
@@ -1191,7 +1204,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     $("#deleteBox").hidden = me.admin || DEMO;
     if (!DEMO) loadMonitors();
-    renderFollow(); setupAgents();
+    renderFollow(); setupAgents(); renderApp();
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render.</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
@@ -2230,6 +2243,81 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         : `<div class="trow ${kind[e.type] ?? "info"}">${inner}</div>`;
     }).join("") : `<div class="card empty">Nothing yet. Activity shows here as your agents work.</div>`;
   }
+
+  // ---------- on your phone: the dashboard as an app, with notifications (Web Push) ----------
+  // iPhone: Safari → Share → Add to Home Screen, then turn notifications on in the app (iOS 16.4+).
+  // Android and computers: the Install button (or the browser menu), notifications work in the browser too.
+  const PUSH_OK = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const STANDALONE = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  let installPrompt = null, pushInfo = null, swReady = null;
+  if ("serviceWorker" in navigator && !DEMO) swReady = navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).catch(() => null);
+  addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; renderApp(); });
+  addEventListener("appinstalled", () => { installPrompt = null; renderApp(); });
+  const deviceName = () => {
+    const ua = navigator.userAgent;
+    const what = IOS ? (/iPad/.test(ua) || navigator.maxTouchPoints > 1 && !/iPhone/.test(ua) ? "iPad" : "iPhone") : /Android/.test(ua) ? "Android phone" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : /Linux/.test(ua) ? "Linux computer" : "Device";
+    const browser = STANDALONE ? "app" : /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "browser";
+    return `${what} · ${browser}`;
+  };
+  async function currentSub() { const reg = swReady && (await swReady); return reg ? reg.pushManager.getSubscription() : null; }
+  async function renderApp() {
+    const card = $("#appCard");
+    if (!card || DEMO || !me) return;
+    card.hidden = false;
+    try { pushInfo = await api("GET", "/api/push"); } catch { pushInfo = null; }
+    const sub = PUSH_OK ? await currentSub().catch(() => null) : null;
+    const mine = !!(sub && pushInfo?.devices?.some((d) => d.endpoint === sub.endpoint));
+    const others = (pushInfo?.devices ?? []).filter((d) => d.endpoint !== sub?.endpoint);
+    const list = others.length ? `<p class="note" style="margin:0">Also on: ${others.map((d) => esc(d.label)).join(", ")}.</p>` : "";
+    let body, btns = "";
+    if (!pushInfo?.enabled) body = `<div class="big">Not available</div><p class="note" style="margin:0">Notifications aren't set up on this server.</p>`;
+    else if (mine) {
+      body = `<div class="big">On</div><p class="note" style="margin:0">Approvals and alerts show up as notifications on this ${esc(deviceName().split(" · ")[0])}. Tap one to open the approval${IOS ? "" : ", or answer it right there"}.</p>`;
+      btns = `<button class="button small" type="button" data-push="test">Send a test</button><button class="button ghost small" type="button" data-push="off">Turn off here</button>`;
+    } else if (IOS && !STANDALONE) {
+      body = `<div class="big">Add it to your Home Screen</div><p class="note" style="margin:0">Then you approve a payment with one tap from a notification, no Telegram needed.</p>
+        <ol class="note" style="margin:0;padding-left:18px"><li>Open this page in <b style="color:#fff">Safari</b>.</li><li>Tap <b style="color:#fff">Share</b> <span aria-hidden="true">(□↑)</span>, then <b style="color:#fff">Add to Home Screen</b>.</li><li>Open <b style="color:#fff">Fizzl wallet</b> from your Home Screen, sign in and come back here to turn on notifications.</li></ol>`;
+    } else if (!PUSH_OK) body = `<div class="big">Not on this browser</div><p class="note" style="margin:0">This browser can't show notifications. Try Chrome, Edge, Firefox or Safari (on iPhone: from the Home Screen).</p>`;
+    else if (Notification.permission === "denied") body = `<div class="big">Blocked</div><p class="note" style="margin:0">Notifications are blocked for this site. Allow them in your ${STANDALONE ? "phone's settings (Notifications → Fizzl wallet)" : "browser's site settings"}, then come back here.</p>`;
+    else {
+      body = `<div class="big">Off on this device</div><p class="note" style="margin:0">Get approval requests as a notification and approve with one tap${IOS ? "" : " (Approve / Deny right in the notification)"}. Works next to Telegram, or instead of it.</p>`;
+      btns = `<button class="button primary small" type="button" data-push="on">Turn on notifications</button>`;
+    }
+    let later = false; try { later = localStorage.getItem("aw_pushbar") === "later"; } catch {}
+    $("#pushBar").hidden = !(STANDALONE && pushInfo?.enabled && PUSH_OK && !mine && Notification.permission === "default" && !later);
+    if (installPrompt && !STANDALONE) btns += `<button class="button small" type="button" data-push="install">Install as app</button>`;
+    card.innerHTML = `<span class="tag">📱 ON YOUR PHONE</span>${body}${btns ? `<div class="btns">${btns}</div>` : ""}<div class="msg" id="pushMsg" role="status"></div>${list}`;
+  }
+  async function pushAction(what) {
+    const say = (t, bad) => { const m = $("#pushMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
+    try {
+      if (what === "install") { installPrompt?.prompt(); const r = await installPrompt?.userChoice; installPrompt = null; if (r?.outcome === "accepted") say("Installed. Open Fizzl wallet from your home screen or app list."); return renderApp(); }
+      if (what === "on") {
+        if ((await Notification.requestPermission()) !== "granted") { await renderApp(); return; }
+        const reg = await swReady;
+        if (!reg) throw new Error("This browser didn't start the notification service. Reload and try again.");
+        const key = Uint8Array.from(atob(pushInfo.key.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+        let sub = await reg.pushManager.getSubscription();
+        if (sub && sub.options?.applicationServerKey && btoa(String.fromCharCode(...new Uint8Array(sub.options.applicationServerKey))).replace(/=+$/, "") !== btoa(String.fromCharCode(...key)).replace(/=+$/, "")) { await sub.unsubscribe(); sub = null; }
+        sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+        await api("POST", "/api/push/subscribe", { subscription: sub.toJSON(), label: deviceName() });
+        await renderApp();
+        await api("POST", "/api/push/test", {});
+        say("Done. A test notification is on its way.");
+        return;
+      }
+      if (what === "test") { await api("POST", "/api/push/test", {}); say("Sent. It should show up within a few seconds."); return; }
+      if (what === "off") { const sub = await currentSub(); if (sub) { await api("POST", "/api/push/unsubscribe", { endpoint: sub.endpoint }); await sub.unsubscribe().catch(() => {}); } return renderApp(); }
+    } catch (err) { if (err.message !== "login") say(err.message, true); }
+  }
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("#pushBarLater")) { try { localStorage.setItem("aw_pushbar", "later"); } catch {} $("#pushBar").hidden = true; return; }
+    const b = e.target.closest("[data-push]");
+    if (!b) return;
+    b.disabled = true;
+    pushAction(b.dataset.push).finally(() => { b.disabled = false; });
+  });
 
   // Start: logged in already?
   if (DEMO) { $("#demoBanner").hidden = false; document.title = "Agent Wallet demo | FIZZL"; start(); $("#logout").hidden = true; }
