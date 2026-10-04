@@ -2,7 +2,7 @@
 // presign-guard-wallet, so every payment and transfer a model asks for is
 // checked by presign-guard and kept to the owner's limits, with approval on
 // Telegram or the wallet server above them.
-import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, parseEther, parseUnits } from "viem";
+import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, keccak256, parseEther, parseUnits, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, bsc, mainnet, optimism, polygon } from "viem/chains";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
@@ -12,16 +12,40 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 
+// eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
+const USDC_DOMAIN = { name: "USD Coin", version: "2" };
 export const CHAINS = {
-  base: { chain: base, usdc: ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6] },
-  ethereum: { chain: mainnet, usdc: ["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", 6] },
-  optimism: { chain: optimism, usdc: ["0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", 6] },
-  arbitrum: { chain: arbitrum, usdc: ["0xaf88d065e77c8cC2239327C5EDb3A432268e5831", 6] },
-  polygon: { chain: polygon, usdc: ["0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6] },
+  base: { chain: base, usdc: ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", 6], eip712: USDC_DOMAIN },
+  ethereum: { chain: mainnet, usdc: ["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", 6], eip712: USDC_DOMAIN },
+  optimism: { chain: optimism, usdc: ["0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", 6], eip712: USDC_DOMAIN },
+  arbitrum: { chain: arbitrum, usdc: ["0xaf88d065e77c8cC2239327C5EDb3A432268e5831", 6], eip712: USDC_DOMAIN },
+  polygon: { chain: polygon, usdc: ["0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6], eip712: USDC_DOMAIN },
   bsc: { chain: bsc, usdc: ["0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18] },
 };
+
+// MPP (Machine Payments Protocol): `WWW-Authenticate: Payment id="…", realm="…", method="…", request="<base64url JSON>", …`,
+// possibly several challenges in one header. Returns [{ params, request }] (request decoded, or null).
+export function parseMppChallenges(header) {
+  const out = [];
+  const re = /(?:^|,)\s*Payment\s+/gi;
+  const starts = [];
+  let m;
+  while ((m = re.exec(String(header ?? "")))) starts.push(m.index + m[0].length);
+  starts.forEach((start, i) => {
+    const chunk = String(header).slice(start, i + 1 < starts.length ? starts[i + 1] : undefined);
+    const params = {};
+    const pr = /([a-zA-Z_][\w-]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s,]+))/g;
+    let p;
+    while ((p = pr.exec(chunk))) params[p[1].toLowerCase()] = p[2] !== undefined ? p[2].replace(/\\(.)/g, "$1") : p[3];
+    let request = null;
+    try { request = JSON.parse(Buffer.from(String(params.request ?? ""), "base64url").toString("utf8")); } catch { request = null; }
+    out.push({ params, request });
+  });
+  return out;
+}
+const EIP3009_TYPES = { TransferWithAuthorization: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" }] };
 
 const BODY_LIMIT = 20_000;
 // The public x402 catalog (Coinbase's x402 Bazaar). Paid APIs list themselves there.
@@ -126,16 +150,63 @@ export function createWallet(config, overrides = {}) {
     readContract: (args) => publicClient.readContract(args),
   };
 
-  // One x402 call, paid by the guarded signer, capped per call.
+  // The MPP challenge this wallet can pay: method "evm", intent "charge", USDC on its own chain, EIP-3009 authorization.
+  function payableMpp(res) {
+    if (!CHAINS[config.chainName].eip712) return null;
+    return parseMppChallenges(res.headers.get("www-authenticate")).find(({ params, request: r }) =>
+      params.method === "evm" && params.intent === "charge" && params.id && params.realm && r
+      && Number(r.methodDetails?.chainId) === chain.id && String(r.currency ?? "").toLowerCase() === usdc[0].toLowerCase()
+      && isAddress(String(r.recipient ?? ""), { strict: false }) && /^\d+$/.test(String(r.amount ?? ""))
+      && (!r.methodDetails?.credentialTypes || r.methodDetails.credentialTypes.includes("authorization"))
+      && !r.methodDetails?.splits?.length) ?? null;
+  }
+
+  // Pays an MPP evm charge: the same EIP-3009 USDC signature as x402, signed by the guarded signer (so checked by
+  // presign-guard and counted toward the limits), sent back as `Authorization: Payment <credential>`.
+  async function payMpp({ url, init, challenge, cap }) {
+    const { params, request: r } = challenge;
+    const price = Number(r.amount) / 10 ** usdc[1];
+    if (price > cap) throw new Error(`the price ($${price}) is above max_price_usd ($${cap}); nothing was paid`);
+    const nonce = keccak256(stringToHex(JSON.stringify([params.id, params.realm])));
+    const expires = Date.parse(params.expires ?? "");
+    const validBefore = BigInt(Math.floor((Number.isFinite(expires) ? expires : Date.now() + 300_000) / 1000));
+    const message = { from: account.address, to: r.recipient, value: BigInt(r.amount), validAfter: 0n, validBefore, nonce };
+    const signature = await signer.signTypedData({ domain: { ...CHAINS[config.chainName].eip712, chainId: chain.id, verifyingContract: usdc[0] }, types: EIP3009_TYPES, primaryType: "TransferWithAuthorization", message });
+    // The challenge goes back exactly as received (request and opaque stay base64url strings).
+    const credential = {
+      challenge: params,
+      payload: { type: "authorization", from: account.address, to: r.recipient, value: String(r.amount), validAfter: "0", validBefore: String(validBefore), nonce, signature },
+      source: `did:pkh:eip155:${chain.id}:${account.address}`,
+    };
+    const h = new Headers(init.headers);
+    h.set("authorization", `Payment ${Buffer.from(JSON.stringify(credential)).toString("base64url")}`);
+    return plainFetch(url, { ...init, headers: h });
+  }
+
+  // One paid call, capped per call: x402 when the API offers it, else MPP (evm, USDC on this chain).
   async function callX402({ url, method, body, headers, maxPriceUsd }) {
     const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
-    const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
-    client.register(`eip155:${chain.id}`, new ExactEvmScheme(signer));
-    const res = await wrapFetchWithPayment(plainFetch, client)(url, { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) });
+    const init = { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) };
+    const first = await plainFetch(url, init);
+    let res = first, protocol = null;
+    if (first.status === 402 && !first.headers.get("payment-required") && payableMpp(first)) {
+      protocol = "mpp";
+      res = await payMpp({ url, init, challenge: payableMpp(first), cap });
+    } else if (first.status === 402) {
+      // x402: the payment client starts from the 402 we already have, so the API isn't asked twice.
+      const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
+      client.register(`eip155:${chain.id}`, new ExactEvmScheme(signer));
+      let pending = first;
+      const replay = (input, i) => { if (pending) { const r = pending; pending = null; return Promise.resolve(r); } return plainFetch(input, i); };
+      res = await wrapFetchWithPayment(replay, client)(url, init);
+    }
     const text = await res.text();
-    const settled = res.headers.get("payment-response") ?? res.headers.get("x-payment-response");
     let payment = null;
-    if (settled) { try { payment = decodePaymentResponseHeader(settled); } catch { payment = { raw: settled }; } }
+    const settled = res.headers.get("payment-response") ?? res.headers.get("x-payment-response");
+    const receipt = res.headers.get("payment-receipt");
+    if (protocol === "mpp" && receipt) {
+      try { const r = JSON.parse(Buffer.from(receipt, "base64url").toString("utf8")); payment = { protocol: "mpp", success: r.status === "success", transaction: r.reference ?? null, network: `eip155:${chain.id}`, method: r.method }; } catch { payment = { protocol: "mpp", raw: receipt }; }
+    } else if (settled) { try { payment = decodePaymentResponseHeader(settled); } catch { payment = { raw: settled }; } }
     return {
       status: res.status,
       paid: !!payment,
@@ -296,7 +367,7 @@ export function createServer(wallet) {
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
-    description: "Call a URL that may answer 402 Payment Required (x402) and pay it in USDC from this wallet, then return the response. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
+    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol, method evm); when an API offers both, x402 is used. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
     inputSchema: {
       url: z.string().url().describe("The API URL"),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),

@@ -10,6 +10,7 @@ const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const SHOP = "0x1111111111111111111111111111111111111111";
 const DRAINER = "0x2222222222222222222222222222222222222222";
 const API = "https://api.example.test/data";
+const MPP_API = "https://mpp.example.test/data"; // MPP only: WWW-Authenticate: Payment (method evm, USDC on Base)
 
 // presign-guard (red for the drainer) and an x402 API that costs 0.05 USDC.
 function network({ price = "50000" } = {}) {
@@ -39,6 +40,20 @@ function network({ price = "50000" } = {}) {
       const receipt = Buffer.from(JSON.stringify({ success: true, transaction: "0xsettled", network: "eip155:8453", payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" })).toString("base64");
       return new Response(JSON.stringify({ answer: 42 }), { status: 200, headers: { "content-type": "application/json", "payment-response": receipt } });
     }
+    // An MPP-only API (like an mppx server with evm.charge): a challenge, then a credential with the EIP-3009 authorization.
+    if (url === MPP_API) {
+      const request = { amount: price, currency: USDC_BASE, methodDetails: { chainId: 8453, credentialTypes: ["authorization"], decimals: 6 }, recipient: SHOP };
+      const params = { id: "ch_1", realm: "mpp.example.test", method: "evm", intent: "charge", request: Buffer.from(JSON.stringify(request)).toString("base64url"), expires: new Date(Date.now() + 300_000).toISOString(), opaque: "eyJyb3V0ZSI6IkdFVCAvZGF0YSJ9" };
+      const auth = headers.get("authorization");
+      if (!auth) {
+        const h = `Payment ${Object.entries(params).map(([k, v]) => `${k}="${v}"`).join(", ")}`;
+        return new Response(JSON.stringify({ title: "Payment required" }), { status: 402, headers: { "content-type": "application/problem+json", "www-authenticate": h } });
+      }
+      const cred = JSON.parse(Buffer.from(auth.replace(/^Payment\s+/i, ""), "base64url").toString());
+      mppPaid.push(cred);
+      const receipt = Buffer.from(JSON.stringify({ method: "evm", reference: "0xmppsettled", status: "success", timestamp: new Date().toISOString() })).toString("base64url");
+      return new Response(JSON.stringify({ answer: 43 }), { status: 200, headers: { "content-type": "application/json", "payment-receipt": receipt } });
+    }
     // The x402 catalog (Bazaar discovery).
     if (url.startsWith("https://catalog.test/")) {
       catalogCalls.push(url);
@@ -60,8 +75,8 @@ function network({ price = "50000" } = {}) {
     }
     throw new Error(`unexpected fetch ${url}`);
   };
-  const server = [], catalogCalls = [];
-  return { fetch, checks, paid, server, catalogCalls };
+  const server = [], catalogCalls = [], mppPaid = [];
+  return { fetch, checks, paid, server, catalogCalls, mppPaid };
 }
 
 // A stand-in for the viem wallet: records what it would send or sign.
@@ -267,4 +282,51 @@ test("find_services understands a plain question, in Dutch too", () => {
   assert.deepEqual(words("Wat is het weer de komende dagen in Amsterdam?"), ["weather", "days", "amsterdam"]);
   assert.deepEqual(words("Wat is de koers van Bitcoin vandaag?"), ["price", "bitcoin", "today"]);
   assert.deepEqual(words("What is the weather in Amsterdam?"), ["weather", "amsterdam"]);
+});
+
+test("pay_x402 on an MPP-only API: the same EIP-3009 signature through the guard, sent as an MPP credential", async () => {
+  const { call, net, fake } = await setup();
+  const r = await call("pay_x402", { url: MPP_API, reason: "MPP data" });
+  assert.equal(r.error, false, r.text);
+  const out = JSON.parse(r.text);
+  assert.equal(out.status, 200);
+  assert.equal(out.paid, true);
+  assert.deepEqual([out.payment.protocol, out.payment.transaction, out.payment.network], ["mpp", "0xmppsettled", "eip155:8453"]);
+  assert.deepEqual(JSON.parse(out.body), { answer: 43 });
+  // Checked by presign-guard like any x402 payment, signed once.
+  assert.deepEqual(fake.sent, [["signTypedData", "TransferWithAuthorization"]]);
+  assert.equal(net.checks.length, 1);
+  assert.equal(net.checks[0].typedData.message.to.toLowerCase(), SHOP);
+  // The credential echoes the challenge (request and opaque as received) and binds the nonce to it.
+  const [cred] = net.mppPaid;
+  assert.equal(cred.challenge.id, "ch_1");
+  assert.equal(cred.challenge.opaque, "eyJyb3V0ZSI6IkdFVCAvZGF0YSJ9");
+  assert.equal(typeof cred.challenge.request, "string");
+  const { keccak256, stringToHex } = await import("viem");
+  assert.equal(cred.payload.nonce, keccak256(stringToHex(JSON.stringify(["ch_1", "mpp.example.test"]))));
+  assert.deepEqual([cred.payload.type, cred.payload.value, cred.payload.to.toLowerCase()], ["authorization", "50000", SHOP]);
+});
+
+test("pay_x402 on an MPP-only API: a price above the cap or over the limit is not paid", async () => {
+  let { call, net, fake } = await setup({ MAX_PAYMENT_USD: "0.01" });
+  let r = await call("pay_x402", { url: MPP_API });
+  assert.equal(r.error, true);
+  assert.match(r.text, /above max_price_usd/);
+  assert.equal(net.mppPaid.length, 0);
+  assert.equal(fake.sent.length, 0);
+  ({ call, net, fake } = await setup({ MAX_PAYMENT_USD: "10" }, { price: "6000000" }));
+  r = await call("pay_x402", { url: MPP_API });
+  assert.equal(r.error, true);
+  assert.match(r.text, /over the limit of 5 per transaction/);
+  assert.equal(net.mppPaid.length, 0);
+});
+
+test("pay_x402 on an MPP-only API with a wallet server: the MPP settlement goes on the receipt", async () => {
+  const net = network();
+  const fake = fakeWallet();
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const out = await wallet.payX402({ url: MPP_API, reason: "MPP answer" });
+  assert.equal(out.paid, true);
+  const done = net.server.find(([path, body]) => body && JSON.stringify(body).includes("0xmppsettled"));
+  assert.ok(done, `receipt with the MPP settlement: ${JSON.stringify(net.server)}`);
 });

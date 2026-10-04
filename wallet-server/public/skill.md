@@ -79,7 +79,7 @@ On the dashboard, under **Your account** (at the bottom), your owner clicks **Co
 |---|---|
 | `wallet_status` | First, and before spending: balances, limits, what is left today |
 | `find_services` | You need a paid API: search the x402 catalog by what you need, with a price cap |
-| `pay_x402` | Call and pay an x402 API; set `max_price_usd` and a short `reason` (your owner sees it) |
+| `pay_x402` | Call and pay an x402 API (or an MPP API that takes USDC, method `evm`); set `max_price_usd` and a short `reason` (your owner sees it) |
 | `send_usdc` | Send USDC to an address, with a `reason` |
 | `pause_spending` | Something looks wrong: stop all signing until your owner resumes |
 
