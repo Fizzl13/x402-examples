@@ -1,7 +1,7 @@
 # presign-guard-wallet-mcp
 
 A wallet with spending limits for AI agents, as an [MCP](https://modelcontextprotocol.io) server. Add it to Claude Desktop, Claude Code, Cursor or any other MCP client, and your agent can:
-- pay for x402 APIs;
+- pay for x402 APIs, and MPP APIs that take USDC (method `evm`);
 - send USDC.
 
 It can only do that within the budget you set:
@@ -21,7 +21,7 @@ See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 |---|---|
 | `wallet_status` | Address, balances, limits, what is left today, how approvals work |
 | `find_services` | Search the public x402 catalog ([Coinbase's x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar)) for paid APIs this wallet can pay (USDC on its chain, within the price cap), best match first |
-| `pay_x402` | Call an API that answers 402 Payment Required, pay it in USDC, return the response (with a price cap per call) |
+| `pay_x402` | Call an API that answers 402 Payment Required, pay it in USDC, return the response (with a price cap per call). Pays x402, and MPP (Machine Payments Protocol) charges with the `evm` method in USDC on the wallet's chain: the same EIP-3009 signature, checked by presign-guard and counted toward your limits. When an API offers both, x402 is used |
 | `send_usdc` | Send USDC to an address |
 | `send_native` | Send ETH / POL / BNB to an address |
 | `pause_spending` | The agent stops itself when something looks wrong; nothing is signed until you restart or resume |
