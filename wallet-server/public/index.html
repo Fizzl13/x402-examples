@@ -451,7 +451,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <span class="tag">Fizzl Agent Wallet</span>
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
-      <div id="passkeyLogin" hidden style="display:grid;gap:8px;margin-bottom:14px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0">Or Touch ID, a fingerprint or your screen lock, once you've added it on the Account tab.</p><div class="err" id="passkeyErr"></div></div>
+      <div id="passkeyLogin" hidden style="display:grid;gap:8px;margin-bottom:14px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
@@ -946,6 +946,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#deviceLogin").hidden = !viaCode;
       $("#emailLogin").hidden = !c.email;
       $("#passkeyLogin").hidden = !PASSKEYS;
+      // A device that added or used a passkey here gets the big button; others a quiet one with how to start.
+      let known = false; try { known = localStorage.getItem("aw_passkey") === "1"; } catch {}
+      $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
+      $("#passkeyNote").textContent = known ? "Or Touch ID, a fingerprint or your screen lock." : "First time? Sign in another way below, then add Face ID on the Account tab.";
       if (viaCode) deviceLogin();
       solanaOn = !!c.solana; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
@@ -2357,8 +2361,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const cred = await navigator.credentials.get({ publicKey: { challenge: toBuf(o.challenge), rpId: o.rpId, userVerification: "required", timeout: o.timeout } });
       const r = cred.response;
       await post("/api/passkey/signin", { id: cred.id, clientDataJSON: fromBuf(r.clientDataJSON), authenticatorData: fromBuf(r.authenticatorData), signature: fromBuf(r.signature), userHandle: r.userHandle ? fromBuf(r.userHandle) : "" });
+      try { localStorage.setItem("aw_passkey", "1"); } catch {}
       start();
-    } catch (err) { $("#passkeyErr").textContent = passkeyError(err); }
+    } catch (err) { $("#passkeyErr").textContent = err?.name === "NotAllowedError" ? "No Face ID for this site on this device yet, or cancelled: sign in another way, then add it on the Account tab." : passkeyError(err); }
     finally { b.disabled = false; }
   });
   function renderKeys() {
@@ -2384,6 +2389,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const cred = await navigator.credentials.create({ publicKey: { ...o, challenge: toBuf(o.challenge), user: { ...o.user, id: toBuf(o.user.id) }, excludeCredentials: o.excludeCredentials.map((c) => ({ ...c, id: toBuf(c.id) })) } });
       me = await api("POST", "/api/passkey/add", { answer: { clientDataJSON: fromBuf(cred.response.clientDataJSON), attestationObject: fromBuf(cred.response.attestationObject) }, label: deviceName() });
       renderKeys();
+      try { localStorage.setItem("aw_passkey", "1"); } catch {}
       say("Added. Next time, tap Sign in with Face ID.");
     } catch (err) { if (err.message !== "login") say(passkeyError(err), true); }
     finally { const b = $("#keyAdd"); if (b) b.disabled = false; }
