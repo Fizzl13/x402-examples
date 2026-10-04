@@ -416,6 +416,20 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .yourkeys .points b { color: var(--text); font-size: 14px; }
 .yourkeys .points span { color: var(--muted); font-size: 13px; }
 @media (max-width: 720px) { .yourkeys .points { grid-template-columns: 1fr; } }
+/* How it compares: facts from each product's own announcements, dated */
+.compare { width: min(760px, 100%); display: grid; gap: 12px; }
+.compare h3 { margin: 0; font: 700 clamp(20px, 2.6vw, 26px)/1.1 var(--display); letter-spacing: -1px; }
+.compare h3 span { color: var(--mint); }
+.compare .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: rgba(2,10,10,.45); }
+.compare table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 13px; }
+.compare th, .compare td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.compare tr:last-child td { border-bottom: 0; }
+.compare thead th { color: var(--soft); font-size: 12px; }
+.compare thead th:nth-child(2), .compare td:nth-child(2) { color: var(--text); background: rgba(97,245,195,.06); }
+.compare tbody th { color: var(--muted); font-weight: 600; width: 22%; }
+.compare td { color: var(--muted); }
+.compare .adds { margin: 0; color: var(--soft); font-size: 14px; }
+.compare .note a { text-decoration: underline; }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
 .err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
 .demo-banner { border-bottom: 1px solid var(--line); background: rgba(97,245,195,.08); color: var(--mint); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding-block: 10px; }
@@ -504,6 +518,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div><b>🧾 Receipts that show what was bought</b><span>Every purchase: the safety check, your rule, the payment, and what your agent got back.</span></div>
         <div><b>🔎 Data on demand</b><span>Ask your agent in your own words, like "what's the weather in Amsterdam the coming days?". It finds a paid service, pays within your rules, and brings back the answer.</span></div>
       </div>
+    </div>
+    <div class="compare" id="compare">
+      <h3>How it compares <span>to other agent wallets.</span></h3>
+      <div class="scroll"><table>
+        <thead><tr><th scope="col"></th><th scope="col">Fizzl Agent Wallet</th><th scope="col">MetaMask Agent Wallet</th><th scope="col">human.tech WaaP</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Made for</th><td>Agents that buy from paid APIs over x402</td><td>Agents that trade: swaps, perpetuals, prediction markets, liquidity</td><td>Agents that trade and manage portfolios on EVM, Sui and Solana</td></tr>
+          <tr><th scope="row">Keys</th><td>Your agent's own wallet; Fizzl never holds keys or money</td><td>Self-custodial</td><td>Split between your device and a secure enclave</td></tr>
+          <tr><th scope="row">Above your limit</th><td>Approve or deny on your phone (app or Telegram) or the web</td><td>Two-factor approval for risky transactions (Guard Mode)</td><td>Approve the big ones from Telegram</td></tr>
+          <tr><th scope="row">Availability</th><td>Live now. Free for 1 agent, Pro $5 a month</td><td>Early access since June 2026</td><td>Developer SDK and CLI (npm)</td></tr>
+        </tbody>
+      </table></div>
+      <p class="adds">What Fizzl adds for buying: a presign-guard check before every signature, a receipt per purchase that shows what your agent got back, and watching the endpoints your agents pay.</p>
+      <p class="note" style="margin:0">From their own announcements, as of October 2026: <a href="https://www.coindesk.com/tech/2026/06/08/metamask-launches-ai-agent-wallet-with-built-in-security-for-crypto-trades" target="_blank" rel="noopener noreferrer">MetaMask (CoinDesk)</a>, <a href="https://docs.waap.human.tech/for-agents" target="_blank" rel="noopener noreferrer">human.tech WaaP docs</a>.</p>
     </div>
   </section>
 
