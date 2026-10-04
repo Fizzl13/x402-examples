@@ -56,6 +56,7 @@ Anyone can sign in with their wallet: MetaMask, Phantom, Coinbase Wallet, Rabby 
 
 - **Telegram:** one bot for everyone. A customer clicks "Connect Telegram", presses Start, and their approval requests go to their chat. Only that Telegram user can tap Approve or Deny on them.
 - **Sign in with e-mail (optional):** with `RESEND_API_KEY` set, customers can also sign in with a 6-digit code mailed to them, no wallet needed (their agents keep their own wallets). Only a fingerprint of the address and a hint ("f…@gmail.com") are kept. A wallet account can add an e-mail to sign in with either; an e-mail account connects the wallet it pays Pro from with one free signature.
+- **Face ID (passkeys):** once signed in, add Face ID, Touch ID or a fingerprint on the Account tab; then "Sign in with Face ID" needs nothing else. Standard WebAuthn, checked with node:crypto; only the public key is kept, and the device must confirm it's you (user verification required).
 - **On your phone:** the dashboard installs as an app (iPhone: Safari → Share → Add to Home Screen; Android and computers: Install). Turn on notifications on the Account tab and approval requests and alerts arrive as notifications; a tap opens the approval, and on Android you can approve or deny right in the notification. Standard Web Push, encrypted end to end, no extra setup: the signing key comes from `VAPID_PRIVATE_KEY` or else from the session secret.
 - **Free:** 1 agent, receipts kept 7 days.
 - **Pro:** unlimited agents, receipts kept 90 days, $5 per 30 days (`PRO_PRICE_USDC`).

@@ -20,6 +20,7 @@ import { noUsage, fizzlSite } from "./usage.js";
 import { weekOf, formatDigest } from "./digest.js";
 import { createAlertHook, createEndpointMonitor, hookKind, urlProblem } from "./monitor.js";
 import { cleanSubscription } from "./push.js";
+import { readRegistration, readAssertion } from "./passkey.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -113,7 +114,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const isSol = (a) => a?.chain === "solana" || a?.payChain === "solana";
 
   async function account(id) {
-    if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
+    if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], passkeys: rec?.passkeys ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
     return g.getAccount(id);
   }
   // A withdrawal (EU 14-day right) ends Pro on the spot, until the customer pays again.
@@ -382,6 +383,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         email: a.emailHint ?? null, emailSignIn: !!mailer,
         needsWallet: a.chain === "email" && !a.address,
         proPriceUsdc: Number(priceUnits) / 1e6,
+        passkeys: (a.passkeys ?? []).map((k) => ({ id: k.id, label: k.label, at: k.at, usedAt: k.usedAt ?? null })),
         auto: subscription && !a.admin && a.address && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         withdrawal: withdrawalOf(a),
@@ -623,6 +625,64 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       catch (err) { throw Object.assign(new Error(err.message), { status: 502 }); }
       return { ok: true };
     },
+    // ---------- passkeys: sign in with Face ID, Touch ID or a fingerprint ----------
+    // The passkey's user handle is the account id, so signing in needs no name typed first.
+    async passkeyOptions(id, rpId) {
+      const a = await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      const challenge = rand(32);
+      await g.putOnce("pkreg", challenge, { id }, 300);
+      const name = id === ADMIN ? "owner" : a.emailHint ?? (a.address ? `${a.address.slice(0, 6)}…${a.address.slice(-4)}` : id);
+      return {
+        challenge, rp: { name: "Fizzl wallet", id: rpId }, user: { id: Buffer.from(id).toString("base64url"), name, displayName: `Fizzl wallet · ${name}` },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -8 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { residentKey: "required", requireResidentKey: true, userVerification: "required" },
+        excludeCredentials: (a.passkeys ?? []).map((k) => ({ type: "public-key", id: k.id })), attestation: "none", timeout: 120_000,
+      };
+    },
+    async passkeyAdd(id, answer, label, where) {
+      const { challenge, credential } = readRegistration(answer ?? {}, where);
+      const pending = await g.takeOnce("pkreg", challenge);
+      if (!pending || pending.id !== id) throw Object.assign(new Error("That took too long. Try again."), { status: 401 });
+      const name = String(label ?? "").replace(/[^\p{L}\p{N} ·.,()/-]/gu, "").trim().slice(0, 40) || "This device";
+      await serial(id, async () => {
+        const rec = (await g.getAccount(id)) ?? { id };
+        const list = rec.passkeys ?? [];
+        if (list.length >= 10) throw Object.assign(new Error("You have 10 passkeys already. Remove one first."), { status: 409 });
+        if (list.some((k) => k.id === credential.id)) throw Object.assign(new Error("That passkey is added already."), { status: 409 });
+        await g.putAccount({ ...rec, passkeys: [...list, { ...credential, label: name, at: now() }] });
+      });
+      usage.record("passkey_added", { account: id });
+      return api.me(id);
+    },
+    async passkeyRemove(id, credentialId) {
+      await serial(id, async () => {
+        const rec = await g.getAccount(id);
+        if (rec?.passkeys) await g.putAccount({ ...rec, passkeys: rec.passkeys.filter((k) => k.id !== credentialId) });
+      });
+      return api.me(id);
+    },
+    async passkeyLoginOptions(rpId) {
+      const challenge = rand(32);
+      await g.putOnce("pklogin", challenge, { at: now() }, 300);
+      return { challenge, rpId, userVerification: "required", timeout: 120_000 };
+    },
+    async passkeyLogin(answer, where) {
+      let id;
+      try { id = Buffer.from(String(answer?.userHandle ?? ""), "base64url").toString("utf8"); } catch { id = ""; }
+      const rec = id ? await g.getAccount(id) : null;
+      const key = rec && !rec.deletedAt && !rec.alias ? (rec.passkeys ?? []).find((k) => k.id === answer?.id) : null;
+      if (!key) throw Object.assign(new Error("This passkey isn't known here (removed, or for another account). Sign in another way."), { status: 401 });
+      const { challenge, counter } = readAssertion(answer, key, where);
+      if (!(await g.takeOnce("pklogin", challenge))) throw Object.assign(new Error("That took too long. Try again."), { status: 401 });
+      await serial(id, async () => {
+        const fresh = await g.getAccount(id);
+        await g.putAccount({ ...fresh, passkeys: (fresh.passkeys ?? []).map((k) => (k.id === key.id ? { ...k, counter, usedAt: now() } : k)) });
+      });
+      usage.record("signin", { account: id, input: { chain: "passkey" } });
+      return id;
+    },
+
     // ---------- signing in the installed app on a phone ----------
     // The app on the Home Screen has no wallet in it. It shows a code; the customer signs in with
     // their wallet app (its own browser) and confirms that code there; the app then gets its own
