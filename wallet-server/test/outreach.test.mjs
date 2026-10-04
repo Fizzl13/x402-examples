@@ -1,0 +1,98 @@
+// Outreach: drafts are made, nothing is mailed without send(), one mail per address, a daily cap, stop works.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { memoryStore } from "../src/store.js";
+import { createOutreach, composeFromFindings } from "../src/outreach.js";
+import { createApp } from "../src/app.js";
+
+function setup({ dailyLimit = 10, failMail = false } = {}) {
+  const store = memoryStore();
+  const mails = [], tg = [];
+  const mailer = { async send(to, subject, text, opts) { if (failMail) throw new Error("rejected"); mails.push({ to, subject, text, opts }); } };
+  const telegram = {
+    async sendButtons(chatId, html, rows) { tg.push({ chatId, html, rows }); return tg.length; },
+    async appendToMessage(chatId, messageId, html) { tg.push({ chatId, messageId, html }); },
+  };
+  const outreach = createOutreach({ store, mailer, telegram, adminChatId: "42", from: "Frits from Fizzl <frits@fizzl.eu>", replyTo: "me@example.com", dailyLimit });
+  return { store, mails, tg, outreach };
+}
+const findings = [{ id: "solana-payout-account", message: "payTo has no USDC token account on Solana.", hint: "Send 0.01 USDC once." }, { id: "bazaar", message: "Bazaar declaration is invalid." }];
+
+test("a Doctor finding becomes a draft (on Telegram with buttons); nothing is mailed until send", async () => {
+  const s = setup();
+  const r = await s.outreach.fromDoctor({ url: "https://api.seller.test/x", to: "Ops@Seller.test", findings });
+  assert.equal(r.draft.to, "ops@seller.test");
+  assert.equal(r.draft.host, "api.seller.test");
+  assert.match(r.draft.subject, /2 issues on api\.seller\.test/);
+  assert.match(r.draft.body, /1\. payTo has no USDC token account[\s\S]*Fix: Send 0\.01 USDC once\.[\s\S]*2\. Bazaar declaration/);
+  assert.match(r.draft.body, /x402-doctor\.fizzl\.eu\/\?url=https%3A%2F%2Fapi\.seller\.test%2Fx/);
+  assert.match(r.draft.body, /fizzl\.eu\/gateway\/\?ref=api\.seller\.test/);
+  assert.equal(s.mails.length, 0);
+  assert.deepEqual(s.tg[0].rows[0].map((b) => b.text), ["Versturen", "Weggooien"]);
+  const sent = await s.outreach.send(r.draft.id, "dashboard");
+  assert.equal(sent.status, "sent");
+  assert.equal(s.mails.length, 1);
+  assert.equal(s.mails[0].opts.from, "Frits from Fizzl <frits@fizzl.eu>");
+  assert.equal(s.mails[0].opts.replyTo, "me@example.com");
+  assert.match(s.mails[0].text, /Reply "stop" and you won't hear from us again\.$/);
+  await assert.rejects(s.outreach.send(r.draft.id), /No open draft/);
+});
+
+test("one mail per address ever, one open draft per address or site", async () => {
+  const s = setup();
+  const a = await s.outreach.fromDoctor({ url: "https://a.test/x", to: "x@a.test", findings });
+  assert.equal((await s.outreach.fromDoctor({ url: "https://a.test/y", to: "other@a.test", findings })).skipped, "pending");
+  assert.equal((await s.outreach.add({ to: "x@a.test", subject: "s", body: "b" })).skipped, "pending");
+  await s.outreach.send(a.draft.id);
+  assert.equal((await s.outreach.add({ to: "x@a.test", subject: "s", body: "b" })).skipped, "contacted");
+});
+
+test("stop means no draft and no mail; Telegram taps only count from the owner's chat", async () => {
+  const s = setup();
+  const d = (await s.outreach.add({ to: "y@b.test", subject: "Hi", body: "Text" })).draft;
+  await s.outreach.stop("Y@b.test");
+  assert.equal((await s.outreach.list()).drafts.length, 0);
+  assert.equal((await s.outreach.add({ to: "y@b.test", subject: "Hi", body: "Text" })).skipped, "stopped");
+  await assert.rejects(s.outreach.send(d.id), /No open draft/);
+  const e = (await s.outreach.add({ to: "z@c.test", subject: "Hi", body: "Text" })).draft;
+  assert.deepEqual(await s.outreach.fromTelegram(e.id, "s", { id: 7 }), { refused: true });
+  assert.equal((await s.outreach.fromTelegram(e.id, "s", { id: 42 })).status, "sent");
+  assert.equal(s.mails.length, 1);
+});
+
+test("daily cap, and a refused mail leaves the draft and the address free", async () => {
+  const s = setup({ dailyLimit: 1 });
+  const a = (await s.outreach.add({ to: "a@a.test", subject: "Hi", body: "T" })).draft;
+  const b = (await s.outreach.add({ to: "b@b.test", subject: "Hi", body: "T" })).draft;
+  await s.outreach.send(a.id);
+  await assert.rejects(s.outreach.send(b.id), /limit of 1/);
+  const f = setup({ failMail: true });
+  const c = (await f.outreach.add({ to: "c@c.test", subject: "Hi", body: "T" })).draft;
+  await assert.rejects(f.outreach.send(c.id), /Not sent/);
+  assert.equal((await f.outreach.list()).drafts.length, 1);
+  assert.equal(await f.store.global.isContacted("c@c.test"), false);
+  assert.equal(await f.store.global.countSent(new Date().toISOString().slice(0, 10)), 0);
+});
+
+test("compose caps the findings at four", () => {
+  const many = Array.from({ length: 6 }, (_, i) => ({ message: `m${i}` }));
+  const { body } = composeFromFindings({ host: "h.test", url: "https://h.test", findings: many, reportUrl: "https://r" });
+  assert.match(body, /4\. m3\n\(and 2 more in the report\)/);
+});
+
+test("the Doctor hook needs OUTREACH_KEY and only makes drafts", async () => {
+  const s = setup();
+  const accounts = new Proxy({}, { get: () => async () => null });
+  const app = createApp({ accounts, auth: { middleware: () => (_q, _s, n) => n() }, outreach: s.outreach, outreachKey: "secret-key-123" });
+  const server = await new Promise((r) => { const sv = app.listen(0, () => r(sv)); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (auth) => fetch(`${base}/hooks/outreach-draft`, { method: "POST", headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify({ url: "https://api.seller.test/x", to: "ops@seller.test", findings }) });
+  try {
+    assert.equal((await post()).status, 401);
+    assert.equal((await post("Bearer wrong")).status, 401);
+    const ok = await post("Bearer secret-key-123");
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).draft.to, "ops@seller.test");
+    assert.equal(s.mails.length, 0);
+  } finally { server.close(); }
+});

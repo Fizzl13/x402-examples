@@ -39,6 +39,16 @@ export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, 
       return true;
     },
     async send(chatId, body) { await call("sendMessage", { chat_id: chatId, text: body, disable_web_page_preview: true }); },
+    // An HTML message with buttons [[{ text, data }]]; returns its message id (outreach drafts).
+    async sendButtons(chatId, html, rows) {
+      const sent = await call("sendMessage", { chat_id: chatId, text: html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: rows.map((r) => r.map((b) => ({ text: b.text, callback_data: b.data }))) } });
+      return sent.message_id;
+    },
+    // Removes the buttons and adds a line (the decision) under a message sent with sendButtons.
+    async appendToMessage(chatId, messageId, html) {
+      await call("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }).catch(() => {});
+      await call("sendMessage", { chat_id: chatId, text: html, parse_mode: "HTML", reply_to_message_id: messageId, disable_web_page_preview: true });
+    },
     async notify(chatId, a, spending) {
       const body = text(a, spending);
       const sent = await call("sendMessage", {
@@ -69,6 +79,17 @@ export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, 
         return true;
       }
       const q = update?.callback_query;
+      // Outreach drafts: on.outreach(id, "s"|"d", from) -> draft | { refused: true }.
+      const o = /^ow:(ow_[A-Za-z0-9_-]+):(s|d)$/.exec(q?.data ?? "");
+      if (o) {
+        let answer;
+        try {
+          const d = on.outreach ? await on.outreach(o[1], o[2], q.from) : null;
+          answer = !d ? "Not found." : d.refused ? "You are not allowed to answer this." : d.status === "sent" ? "Sent" : "Thrown away";
+        } catch (e) { answer = String(e.message || "Failed").slice(0, 180); }
+        await call("answerCallbackQuery", { callback_query_id: q.id, text: answer, show_alert: !/^(Sent|Thrown away)$/.test(answer) }).catch(() => {});
+        return true;
+      }
       const m = /^aw:(ap_[A-Za-z0-9_-]+):(y|n)$/.exec(q?.data ?? "");
       if (!m) return true;
       const a = await on.decide(m[1], m[2] === "y" ? "approve" : "deny", q.from).catch(() => null);

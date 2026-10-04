@@ -703,6 +703,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="seg" role="group" aria-label="Period"><button type="button" data-days="7" aria-pressed="false">7 days</button><button type="button" data-days="30" aria-pressed="true">30 days</button></div></div>
       <div id="statsOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
       <p class="note" style="margin:14px 0 0">Every Monday morning you get the last 7 days of this on Telegram. <button class="link" type="button" id="digestNow">Send me the weekly summary now</button> <span id="digestMsg" role="status"></span></p>
+      <details id="outreachBox" style="margin-top:18px"><summary>Outreach to sellers</summary>
+        <p class="note" style="margin:8px 0">Drafts to sellers with a broken paid endpoint, from x402 Doctor or added here. Nothing is mailed until you press Send (here or on Telegram). One mail per address, ever; a "stop" reply means never again.</p>
+        <div id="outreachOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
+        <details style="margin-top:10px"><summary>New draft</summary>
+          <form id="outreachNew" style="display:grid;gap:8px;margin-top:8px">
+            <input id="owTo" type="email" placeholder="contact@seller.com (the address the seller publishes)" aria-label="To" maxlength="254" required>
+            <input id="owUrl" type="url" placeholder="https://… the endpoint (optional)" aria-label="Endpoint" maxlength="500">
+            <input id="owSubject" placeholder="Subject" aria-label="Subject" maxlength="200" required>
+            <textarea id="owBody" rows="8" placeholder="Text (the opt-out line is added when it is sent)" aria-label="Text" maxlength="8000" required></textarea>
+            <button class="button small" type="submit">Save draft</button>
+          </form>
+        </details>
+        <form id="outreachStop" class="paste" style="margin-top:10px"><input id="owStop" type="email" placeholder="Someone replied stop: their address" aria-label="Never mail this address" maxlength="254"><button class="button small" type="submit">Never mail</button></form>
+        <div class="msg" id="outreachMsg" role="status"></div>
+      </details>
     </section>
 
     <section class="section" id="accountSec" data-tab="account" hidden>
@@ -1871,6 +1886,52 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     finally { statsBusy = false; }
   }
   $("#statsSec").addEventListener("click", (e) => { const b = e.target.closest(".seg button[data-days]"); if (!b) return; statsDays = Number(b.dataset.days); loadStats(); });
+
+  // ---------- outreach to sellers (owner only) ----------
+  const owSay = (t, bad) => { const m = $("#outreachMsg"); m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; };
+  async function loadOutreach() {
+    if (!me?.admin || DEMO) return;
+    const out = $("#outreachOut");
+    try {
+      const r = await api("GET", "/api/admin/outreach");
+      const head = `<p class="note" style="margin:0 0 8px">${r.enabled ? `From <b style="color:#fff">${esc(r.from)}</b>${r.replyTo ? `, replies to ${esc(r.replyTo)}` : ""} · ${esc(r.sentToday)}/${esc(r.dailyLimit)} sent today` : `<b>Sending is off.</b> Set <code>RESEND_API_KEY</code> and <code>OUTREACH_FROM</code> on this server (and <code>OUTREACH_KEY</code>, the same on x402 Doctor, for drafts from Doctor).`}</p>`;
+      const drafts = r.drafts.map((d) => `<div class="card" style="margin:0 0 10px;padding:12px" data-ow="${esc(d.id)}">
+          <p class="note" style="margin:0 0 6px">${esc(d.source === "doctor" ? "From x402 Doctor" : "Added by you")}${d.host ? ` · ${esc(d.host)}` : ""} · ${esc(new Date(d.createdAt).toLocaleString())}${d.lastError ? ` · <span style="color:var(--rose)">last try: ${esc(d.lastError)}</span>` : ""}</p>
+          <div style="display:grid;gap:6px"><input data-f="to" value="${esc(d.to)}" aria-label="To" maxlength="254"><input data-f="subject" value="${esc(d.subject)}" aria-label="Subject" maxlength="200"><textarea data-f="body" rows="10" aria-label="Text" maxlength="8000">${esc(d.body)}</textarea></div>
+          <p style="margin:8px 0 0"><button class="button small" type="button" data-owact="send">Send</button> <button class="link" type="button" data-owact="save">Save changes</button> · <button class="link" type="button" data-owact="discard">Throw away</button></p></div>`).join("");
+      const sent = r.sent.length ? `<details style="margin-top:6px"><summary>Sent (${esc(r.sent.length)})</summary><div class="paylist">${r.sent.map((d) => `<div><span>${esc(new Date(d.sentAt).toLocaleDateString())} · ${esc(d.to)}${d.host ? ` · ${esc(d.host)}` : ""}</span><span>${esc(d.subject)}</span></div>`).join("")}</div></details>` : "";
+      out.innerHTML = head + (drafts || `<p class="note" style="margin:0">No open drafts.</p>`) + sent;
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="note">${esc(err.message)}</p>`; }
+  }
+  $("#outreachBox").addEventListener("toggle", (e) => { if (e.target.id === "outreachBox" && e.target.open) loadOutreach(); });
+  $("#outreachOut").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-owact]"); if (!b) return;
+    const card = b.closest("[data-ow]"), id = card.dataset.ow;
+    const val = (f) => card.querySelector(`[data-f="${f}"]`).value;
+    try {
+      if (b.dataset.owact === "discard") { await api("POST", `/api/admin/outreach/${encodeURIComponent(id)}/discard`, {}); owSay("Thrown away."); }
+      else {
+        await api("PUT", `/api/admin/outreach/${encodeURIComponent(id)}`, { to: val("to"), subject: val("subject"), body: val("body") });
+        if (b.dataset.owact === "send") {
+          if (!confirm(`Send this e-mail to ${val("to")}? It goes out once and can't be taken back.`)) return;
+          await api("POST", `/api/admin/outreach/${encodeURIComponent(id)}/send`, {}); owSay(`Sent to ${val("to")}.`);
+        } else owSay("Saved.");
+      }
+      loadOutreach();
+    } catch (err) { if (err.message !== "login") owSay(err.message, true); }
+  });
+  $("#outreachNew").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api("POST", "/api/admin/outreach", { to: $("#owTo").value, url: $("#owUrl").value || null, subject: $("#owSubject").value, body: $("#owBody").value });
+      if (r.skipped) owSay(r.message, true); else { owSay("Draft saved (also on Telegram)."); e.target.reset(); }
+      loadOutreach();
+    } catch (err) { if (err.message !== "login") owSay(err.message, true); }
+  });
+  $("#outreachStop").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { const r = await api("POST", "/api/admin/outreach-stop", { email: $("#owStop").value }); owSay(`${r.stopped} will never be mailed.`); e.target.reset(); loadOutreach(); } catch (err) { if (err.message !== "login") owSay(err.message, true); }
+  });
   $("#digestNow").addEventListener("click", async (e) => {
     const b = e.currentTarget, m = $("#digestMsg");
     if (DEMO) { m.textContent = "This is the demo: nothing is sent."; return; }

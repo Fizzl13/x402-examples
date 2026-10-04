@@ -20,8 +20,19 @@ export function memoryStore() {
   const scopes = new Map();
   const accounts = new Map(), keyOwners = new Map(), approvalOwners = new Map(), claimed = new Set(), seen = new Map();
   const once = new Map(); // `${kind}:${id}` -> { value, until }
+  const outreach = new Map(), contacted = new Set(), stopped = new Set(), sentPerDay = new Map();
 
   const global = {
+    // Outreach (src/outreach.js): drafts, who was mailed (once), who said stop, sends per UTC day.
+    async putOutreach(d) { outreach.set(d.id, structuredClone(d)); },
+    async getOutreach(id) { const d = outreach.get(id); return d ? structuredClone(d) : null; },
+    async listOutreach() { return [...outreach.values()].map((d) => structuredClone(d)); },
+    async markContacted(email) { if (contacted.has(email)) return false; contacted.add(email); return true; },
+    async isContacted(email) { return contacted.has(email); },
+    async unmarkContacted(email) { contacted.delete(email); },
+    async stopOutreach(email) { stopped.add(email); },
+    async isStopped(email) { return stopped.has(email); },
+    async countSent(day, add = 0) { const n = (sentPerDay.get(day) ?? 0) + add; sentPerDay.set(day, n); return n; },
     async getAccount(id) { return accounts.get(id) ?? null; },
     async putAccount(a) { accounts.set(a.id, a); },
     async listAccounts() { return [...accounts.values()]; },
@@ -106,6 +117,19 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
   const g = (s) => `${prefix}g:${s}`;
 
   const global = {
+    async putOutreach(d) { await client.hSet(g("outreach"), d.id, JSON.stringify(d)); },
+    async getOutreach(id) { return json(await client.hGet(g("outreach"), id)); },
+    async listOutreach() { return Object.values(await client.hGetAll(g("outreach"))).map(json); },
+    async markContacted(email) { return (await client.sAdd(g("outreach:contacted"), email)) === 1; },
+    async isContacted(email) { return Boolean(await client.sIsMember(g("outreach:contacted"), email)); },
+    async unmarkContacted(email) { await client.sRem(g("outreach:contacted"), email); },
+    async stopOutreach(email) { await client.sAdd(g("outreach:stop"), email); },
+    async isStopped(email) { return Boolean(await client.sIsMember(g("outreach:stop"), email)); },
+    async countSent(day, add = 0) {
+      const key = g(`outreach:day:${day}`);
+      if (!add) return Number((await client.get(key)) ?? 0);
+      const n = await client.incrBy(key, add); await client.expire(key, 3 * 86_400); return n;
+    },
     async getAccount(id) { return json(await client.hGet(g("accounts"), id)); },
     async putAccount(a) { await client.hSet(g("accounts"), a.id, JSON.stringify(a)); },
     async listAccounts() { return Object.values(await client.hGetAll(g("accounts"))).map(json); },
