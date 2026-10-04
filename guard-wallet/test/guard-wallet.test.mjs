@@ -225,3 +225,53 @@ test("withPurchase: bad input is refused, errors from fn come through", async ()
   await assert.rejects(g.withPurchase({}, "nope"), /fn/);
   await assert.rejects(g.withPurchase({ description: "x" }, async () => { throw new Error("api down"); }), /api down/);
 });
+
+// Tempo: not covered by presign-guard; only a USDC.e transfer is signed, checked here and counted as USDC.
+const TEMPO_USDC = "0x20C000000000000000000000b9537D11c60E8b50";
+const TIP20 = parseAbi(["function transferWithMemo(address to, uint256 amount, bytes32 memo)", "function transfer(address to, uint256 amount)", "function approve(address spender, uint256 amount)"]);
+const MEMO = `0x${"ab".repeat(32)}`;
+function tempoWallet(id = 4217) {
+  const signed = [];
+  return { signed, wallet: { chain: { id }, account: { address: "0x2222222222222222222222222222222222222222" }, writeContract: async (a) => { signed.push(a); return "0xtempo"; }, sendTransaction: async (a) => { signed.push(a); return "0xtempo"; }, signTypedData: async (a) => { signed.push(a); return "0xsig"; } } };
+}
+
+test("Tempo: a USDC.e transferWithMemo is signed without a presign-guard check and counts toward the USDC limit", async () => {
+  const w = world();
+  const t = tempoWallet();
+  const guard = make(w, { limits: { tokens: { USDC: { perTx: "1", perDay: "1.5" } } } });
+  const tempo = guard.wrap(t.wallet);
+  assert.equal(await tempo.writeContract({ address: TEMPO_USDC, abi: TIP20, functionName: "transferWithMemo", args: [SPENDER, 1_000_000n, MEMO] }), "0xtempo");
+  assert.equal(w.log.checks.length, 0);
+  assert.equal(t.signed.length, 1);
+  // The same budget as USDC on Base: 1 of 1.5 used, so another 1 on Tempo is over the day limit.
+  await assert.rejects(tempo.writeContract({ address: TEMPO_USDC, abi: TIP20, functionName: "transfer", args: [SPENDER, 1_000_000n] }), (err) => err.code === "over_limit");
+  const [row] = await guard.spending();
+  assert.deepEqual([row.token, row.used, row.left], ["USDC", "1", "0.5"]);
+  assert.equal(t.signed.length, 1);
+});
+
+test("Tempo: anything but a stablecoin transfer is refused, and pause covers the wrapped wallet", async () => {
+  const w = world();
+  const t = tempoWallet();
+  const guard = make(w);
+  const tempo = guard.wrap(t.wallet);
+  const refused = [
+    tempo.writeContract({ address: TEMPO_USDC, abi: TIP20, functionName: "approve", args: [SPENDER, 1n] }),
+    tempo.writeContract({ address: SPENDER, abi: TIP20, functionName: "transfer", args: [SPENDER, 1n] }),
+    tempo.sendTransaction({ to: SPENDER, data: "0x" }),
+    tempo.signTypedData({ domain: {}, types: {}, primaryType: "X", message: {} }),
+  ];
+  for (const p of refused) await assert.rejects(p, (err) => err instanceof PresignBlockedError && err.code === "unsupported_chain");
+  guard.pause();
+  await assert.rejects(tempo.writeContract({ address: TEMPO_USDC, abi: TIP20, functionName: "transfer", args: [SPENDER, 1n] }), (err) => err.code === "paused");
+  assert.equal(t.signed.length, 0);
+  assert.equal(w.log.checks.length, 0);
+});
+
+test("Tempo testnet: pathUSD is the stablecoin there", async () => {
+  const w = world();
+  const t = tempoWallet(42431);
+  const tempo = make(w).wrap(t.wallet);
+  assert.equal(await tempo.writeContract({ address: "0x20c0000000000000000000000000000000000000", abi: TIP20, functionName: "transfer", args: [SPENDER, 5n] }), "0xtempo");
+  await assert.rejects(tempo.writeContract({ address: TEMPO_USDC, abi: TIP20, functionName: "transfer", args: [SPENDER, 5n] }), (err) => err.code === "unsupported_chain");
+});
