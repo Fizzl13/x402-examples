@@ -249,7 +249,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   }));
   owner.post("/admin/promos", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
-    res.json(await accounts.promoCreate(req.body?.days, req.body?.uses));
+    res.json(await accounts.promoCreate(req.body?.days, req.body?.uses, req.body?.note));
   }));
   owner.post("/admin/promos/:code/stop", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });

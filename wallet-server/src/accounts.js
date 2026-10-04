@@ -628,14 +628,15 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return { ok: true };
     },
     // ---------- tester codes: the owner hands out free Pro time (e.g. 30 days for the first 20 testers) ----------
-    async promoCreate(days, uses) {
+    async promoCreate(days, uses, note = "") {
       const d = Math.round(Number(days)), u = Math.round(Number(uses));
       if (!(d >= 1 && d <= 365) || !(u >= 1 && u <= 1000)) throw Object.assign(new Error("Days must be 1 to 365 and uses 1 to 1000."), { status: 400 });
       const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
       const code = `TEST-${[...randomBytes(6)].map((b) => ABC[b % ABC.length]).join("")}`;
       return serial(ADMIN, async () => {
         const rec = (await g.getAccount(ADMIN)) ?? { id: ADMIN };
-        await g.putAccount({ ...rec, promos: [...(rec.promos ?? []), { code, days: d, uses: u, used: 0, at: now() }] });
+        const who = String(note ?? "").replace(/[^\p{L}\p{N} @·.,()/_-]/gu, "").trim().slice(0, 60);
+        await g.putAccount({ ...rec, promos: [...(rec.promos ?? []), { code, days: d, uses: u, used: 0, at: now(), ...(who ? { note: who } : {}) }] });
         return api.promoList();
       });
     },
@@ -671,7 +672,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Tester code: ${days} days of Pro, until ${date(from + days * DAY)}` });
       });
       usage.record("promo_redeemed", { account: id, input: { days } });
-      if (telegram && adminChatId) await telegram.send(adminChatId, `🎁 Tester code ${clean} redeemed: ${days} days of Pro for an account.`).catch(() => {});
+      const note = ((await g.getAccount(ADMIN))?.promos ?? []).find((x) => x.code === clean)?.note;
+      if (telegram && adminChatId) await telegram.send(adminChatId, `🎁 Tester code ${clean}${note ? ` (${note})` : ""} redeemed: ${days} days of Pro for an account.`).catch(() => {});
       return api.me(id);
     },
 

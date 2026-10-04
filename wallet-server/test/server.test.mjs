@@ -1915,7 +1915,8 @@ test("tester codes: the owner makes a code for N testers; each account gets the 
   const { base, server, owner, tg } = await boot();
   try {
     assert.equal((await owner("POST", "/api/admin/promos", { days: 0, uses: 5 })).status, 400);
-    const made = (await owner("POST", "/api/admin/promos", { days: 30, uses: 2 })).body.promos[0];
+    const made = (await owner("POST", "/api/admin/promos", { days: 30, uses: 2, note: "Bob · Reddit <b>" })).body.promos[0];
+    assert.equal(made.note, "Bob · Reddit b");
     assert.match(made.code, /^TEST-[A-Z2-9]{6}$/);
     const alice = await signInAs(base, customer());
     assert.equal((await alice.call("GET", "/api/me")).body.plan, "free");
@@ -1925,7 +1926,7 @@ test("tester codes: the owner makes a code for N testers; each account gets the 
     assert.equal(me.promo.days, 30);
     assert.ok(me.proUntil > Date.now() + 29 * 86_400_000);
     assert.equal((await alice.call("POST", "/api/promo", { code: made.code })).status, 409, "one code per account");
-    assert.ok(tg.calls.some((c) => c.method === "sendMessage" && /Tester code .* redeemed: 30 days/.test(c.body.text)));
+    assert.ok(tg.calls.some((c) => c.method === "sendMessage" && /Tester code TEST-\w+ \(Bob · Reddit b\) redeemed: 30 days/.test(c.body.text)));
     const bob = await signInAs(base, customer());
     assert.equal((await bob.call("POST", "/api/promo", { code: made.code })).status, 200);
     const carol = await signInAs(base, customer());
