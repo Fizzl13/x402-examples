@@ -945,7 +945,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#walletLogin").hidden = !c.wallet || viaCode;
       $("#deviceLogin").hidden = !viaCode;
       $("#emailLogin").hidden = !c.email;
-      $("#passkeyLogin").hidden = !PASSKEYS;
+      $("#passkeyLogin").hidden = !PASSKEYS || IN_WALLET_APP;
       // A device that added or used a passkey here gets the big button; others a quiet one with how to start.
       let known = false; try { known = localStorage.getItem("aw_passkey") === "1"; } catch {}
       $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
@@ -2353,7 +2353,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const PASSKEYS = !!window.PublicKeyCredential && !!navigator.credentials?.get && !DEMO;
   const toBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
   const fromBuf = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const passkeyError = (err) => (err?.name === "NotAllowedError" ? "Cancelled, or no passkey for this site on this device." : err?.name === "InvalidStateError" ? "This device has a passkey for this account already." : err?.message || String(err));
+  // Wallet apps' own browsers (MetaMask, Phantom, …) can't make or use passkeys on a phone: only Safari, Chrome and the installed app can.
+  const IN_WALLET_APP = isPhone && !!(window.ethereum || window.phantom || window.solana) && !(matchMedia("(display-mode: standalone)").matches || navigator.standalone === true);
+  const WALLET_APP_NOTE = "Your wallet app's browser can't use Face ID for sites. Open wallet.fizzl.eu in Safari (or the app on your Home Screen), sign in there and add it.";
+  const passkeyError = (err) => (IN_WALLET_APP && err?.name === "NotAllowedError" ? WALLET_APP_NOTE : err?.name === "NotAllowedError" ? "Cancelled, or no passkey for this site on this device." : err?.name === "InvalidStateError" ? "This device has a passkey for this account already." : err?.message || String(err));
   $("#passkeyGo").addEventListener("click", async () => {
     const b = $("#passkeyGo"); b.disabled = true; $("#passkeyErr").textContent = "";
     try {
@@ -2375,7 +2378,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     card.innerHTML = `<span class="tag">🙂 FACE ID</span><div class="big">${keys.length ? `On · ${keys.length} device${keys.length === 1 ? "" : "s"}` : "Not added"}</div>
       <p class="note" style="margin:0">Sign in with Face ID, Touch ID, a fingerprint or your screen lock: no code, no wallet. The passkey stays on your device (synced by iCloud Keychain or Google Password Manager); we keep only its public key.</p>
       ${keys.length ? `<div class="paylist">${keys.map((k) => `<div><span>${esc(k.label)} · added ${esc(day(k.at))}${k.usedAt ? `, used ${esc(day(k.usedAt))}` : ""}</span><button class="link" type="button" data-keyrm="${esc(k.id)}">Remove</button></div>`).join("")}</div>` : ""}
-      <div class="btns"><button class="button ${keys.length ? "" : "primary"} small" type="button" id="keyAdd">Add Face ID on this device</button></div><div class="msg" id="keyMsg" role="status"></div>`;
+      ${IN_WALLET_APP ? `<p class="note" style="margin:0;color:var(--amber)">${esc(WALLET_APP_NOTE)}</p>` : `<div class="btns"><button class="button ${keys.length ? "" : "primary"} small" type="button" id="keyAdd">Add Face ID on this device</button></div>`}<div class="msg" id="keyMsg" role="status"></div>`;
   }
   document.addEventListener("click", async (e) => {
     const say = (t, bad) => { const m = $("#keyMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
