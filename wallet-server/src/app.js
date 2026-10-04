@@ -336,8 +336,10 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.post("/hooks/outreach-draft", wrap(async (req, res) => {
     if (!outreach || !keyHash) return res.status(404).json({ error: "not_found" });
     const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
-    if (!timingSafeEqual(given, keyHash)) return res.status(401).json({ error: "unauthorized" });
-    res.json(await outreach.fromDoctor({ url: req.body?.url, to: req.body?.to, findings: req.body?.findings, reportUrl: req.body?.reportUrl }));
+    if (!timingSafeEqual(given, keyHash)) { console.warn("[outreach] a draft with a wrong OUTREACH_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
+    const out = await outreach.fromDoctor({ url: req.body?.url, to: req.body?.to, findings: req.body?.findings, reportUrl: req.body?.reportUrl });
+    console.log(`[outreach] from Doctor: ${out.draft ? `draft ${out.draft.id} for ${out.draft.host}` : `no draft (${out.skipped})`}`);
+    res.json(out);
   }));
 
   // ---------- Telegram ----------
