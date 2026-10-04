@@ -375,7 +375,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .login { min-height: 70vh; display: grid; place-items: center; }
 .wallets { display: grid; gap: 8px; }
 .wallets .button { width: 100%; justify-content: flex-start; gap: 12px; min-height: 48px; }
-.wallets img { width: 24px; height: 24px; border-radius: 6px; }
+.wallets img, #deviceLogin .button img { width: 24px; height: 24px; border-radius: 6px; }
 .login .or { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
 .login .or::before, .login .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
@@ -383,6 +383,9 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .plan-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--mint); color: var(--mint); font: 700 10px/1 var(--display); letter-spacing: 2px; text-transform: uppercase; }
 .plan-badge.buy { background: var(--mint); color: #02100c; cursor: pointer; padding: 5px 10px; box-shadow: 0 0 14px rgba(97,245,195,.35); }
 .plan-badge.free { border-color: rgba(244,248,247,.3); color: var(--soft); }
+.devcode { font: 700 34px/1 var(--display); letter-spacing: 4px; color: var(--mint); text-align: center; padding: 16px; border: 1px dashed var(--line); border-radius: 14px; margin: 4px 0; }
+#deviceLogin { display: grid; gap: 12px; }
+#deviceLogin[hidden] { display: none; }
 .pushbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0; padding: 14px 18px; }
 .pushbar span { flex: 1 1 220px; }
 #app:not([data-tab="overview"]) .pushbar { display: none; }
@@ -448,6 +451,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <span class="tag">Fizzl Agent Wallet</span>
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
+      <div id="deviceLogin" hidden></div>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
         <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
@@ -500,6 +504,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <button type="button" role="tab" data-go="stats" aria-selected="false" id="statsTab" hidden><span class="ti" aria-hidden="true">▤</span><span>Stats</span></button>
     </nav>
 
+    <div class="card pushbar" id="linkBar" hidden></div>
     <div class="card pushbar" id="pushBar" hidden><span>📱 Get approvals as a notification on this phone, and approve with one tap.</span><button class="button primary small" type="button" data-push="on">Turn on</button><button class="link" type="button" id="pushBarLater">Later</button></div>
     <section class="overview" id="overviewSec" data-tab="overview">
       <div class="card day">
@@ -926,7 +931,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (pendingWatch) { $("#watchHint").hidden = false; $("#watchHint").innerHTML = `Sign in with your wallet to watch <b style="color:#fff;word-break:break-all">${esc(pendingWatch.url.replace(/^https:\/\//, ""))}</b>. One endpoint is free; no e-mail needed.`; }
     $("#app").hidden = true; $("#logout").hidden = true; $("#addAgentTop").hidden = true; $("#who").hidden = true; $("#loginView").hidden = false; clearInterval(timer); setLive(false, "logged out");
     fetch("/api/config").then((r) => r.json()).then((c) => {
-      $("#walletLogin").hidden = !c.wallet;
+      const viaCode = c.wallet && STANDALONE;
+      $("#walletLogin").hidden = !c.wallet || viaCode;
+      $("#deviceLogin").hidden = !viaCode;
+      if (viaCode) deviceLogin();
       solanaOn = !!c.solana; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
       $("#orLine").hidden = !c.password || !c.wallet;
@@ -1837,6 +1845,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     catch (err) { if (err.message !== "login") setLive(false, "can't reach the server"); }
   }
   function start() {
+    clearInterval(devPoll);
+    linkPrompt();
     $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false; $("#addAgentTop").hidden = false;
     api("GET", "/api/me").then((m) => { me = m; renderAccount(); }, () => {});
     refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
@@ -2287,7 +2297,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     let later = false; try { later = localStorage.getItem("aw_pushbar") === "later"; } catch {}
     $("#pushBar").hidden = !(STANDALONE && pushInfo?.enabled && PUSH_OK && !mine && Notification.permission === "default" && !later);
     if (installPrompt && !STANDALONE) btns += `<button class="button small" type="button" data-push="install">Install as app</button>`;
-    card.innerHTML = `<span class="tag">📱 ON YOUR PHONE</span>${body}${btns ? `<div class="btns">${btns}</div>` : ""}<div class="msg" id="pushMsg" role="status"></div>${list}`;
+    card.innerHTML = `<span class="tag">📱 ON YOUR PHONE</span>${body}${btns ? `<div class="btns">${btns}</div>` : ""}<div class="msg" id="pushMsg" role="status"></div>${list}
+      <details><summary>Sign in the app on your phone with a code</summary><div class="paste" style="margin-top:8px"><input id="codeIn" placeholder="ABCD-EFGH" aria-label="Code from the app" autocomplete="off" autocapitalize="characters" maxlength="12"><button class="button small" type="button" id="codeGo">Confirm</button></div><div class="msg" id="codeMsg" role="status"></div></details>`;
   }
   async function pushAction(what) {
     const say = (t, bad) => { const m = $("#pushMsg"); if (m) { m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; } };
@@ -2317,6 +2328,61 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!b) return;
     b.disabled = true;
     pushAction(b.dataset.push).finally(() => { b.disabled = false; });
+  });
+
+  // ---------- signing in the installed app: a code, confirmed where the wallet is ----------
+  let devPoll = null;
+  async function deviceLogin() {
+    const box = $("#deviceLogin");
+    clearInterval(devPoll);
+    let d;
+    try { d = await post("/api/device/start", { label: deviceName() }); }
+    catch (err) { box.innerHTML = `<p class="err" style="margin:0">${esc(err.message)}</p><button class="button small" type="button" id="devNew">Try again</button>`; return; }
+    const target = `${location.origin}/?link=${d.code}`;
+    box.innerHTML = `<p class="note" style="margin:0"><b style="color:#fff">Sign in on this phone.</b> Open the wallet in your wallet app, sign in there and confirm this code:</p>
+      <div class="devcode">${esc(d.code)}</div>
+      <a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host)}/?link=${esc(d.code)}"><img src="/icons/metamask.svg" alt="">Confirm in MetaMask</a>
+      <a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(target)}?ref=${encodeURIComponent(location.origin)}"><img src="/icons/phantom.svg" alt="">Confirm in Phantom</a>
+      <p class="note" style="margin:0">Another wallet app? Open <b style="color:#fff">${esc(location.host)}</b> in its browser, sign in, and type the code on the Account tab. Then come back: this app signs in by itself.</p>`;
+    const until = Date.now() + d.expiresIn * 1000;
+    devPoll = setInterval(async () => {
+      if (Date.now() > until) { clearInterval(devPoll); box.innerHTML = `<p class="note" style="margin:0">The code expired.</p><button class="button primary small" type="button" id="devNew">New code</button>`; return; }
+      const r = await post("/api/device/poll", { token: d.token }).catch(() => null);
+      if (r?.ok) start();
+    }, 2000);
+  }
+  // In the wallet app's browser, opened with ?link=CODE: ask before signing that app in.
+  function linkPrompt() {
+    const q = new URLSearchParams(location.search), code = q.get("link");
+    if (!code) return;
+    q.delete("link");
+    history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    const bar = $("#linkBar");
+    bar.hidden = false;
+    bar.innerHTML = `<span>📱 Sign in your Fizzl wallet app with code <b style="color:#fff;white-space:nowrap">${esc(code.toUpperCase())}</b>? Only confirm if that code is on your own phone right now.</span><button class="button primary small" type="button" id="linkYes">Confirm</button><button class="link" type="button" id="linkNo">Cancel</button>`;
+    bar.dataset.code = code;
+  }
+  async function approveCode(code, say) {
+    try { const r = await api("POST", "/api/device/approve", { code }); say(`Done: ${r.label} is signed in. Go back to it.`); return true; }
+    catch (err) { if (err.message !== "login") say(err.message, true); return false; }
+  }
+  document.addEventListener("click", async (e) => {
+    if (e.target.closest("#devNew")) return deviceLogin();
+    if (e.target.closest("#linkNo")) { $("#linkBar").hidden = true; return; }
+    const yes = e.target.closest("#linkYes");
+    if (yes) {
+      yes.disabled = true;
+      const bar = $("#linkBar");
+      await approveCode(bar.dataset.code, (t, bad) => { bar.innerHTML = `<span style="${bad ? "color:var(--rose)" : ""}">${esc(t)}</span><button class="link" type="button" id="linkNo">Close</button>`; });
+      return;
+    }
+    const typed = e.target.closest("#codeGo");
+    if (typed) {
+      typed.disabled = true;
+      const say = (t, bad) => { const m = $("#codeMsg"); m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; };
+      if (await approveCode($("#codeIn").value, say)) $("#codeIn").value = "";
+      typed.disabled = false;
+    }
   });
 
   // Start: logged in already?

@@ -9,7 +9,7 @@
 // The owner of the server signs in with ADMIN_PASSWORD as "admin": unlimited,
 // with the Telegram chat from TELEGRAM_CHAT_ID. That is the original
 // single-owner setup, unchanged.
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransferMessage, usdcPaid, USDC_MINT } from "./solana.js";
 import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decodeFunctionResult, encodeDeployData, erc20Abi } from "viem";
@@ -40,6 +40,7 @@ export const REMIND_BEFORE_MS = 3 * DAY;
 export const WITHDRAW_MS = 14 * DAY;
 const NONCE_TTL_S = 600;
 const LINK_TTL_S = 900;
+const DEVICE_TTL_S = 600; // a code to sign in the installed app on a phone
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 // The networks Pro can be paid on from an Ethereum wallet: USDC (native, 6 decimals) to the same payout
 // address on each. Base is the default; each RPC can be replaced (billing.chains[id].rpcUrl).
@@ -496,6 +497,31 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       catch (err) { throw Object.assign(new Error(err.message), { status: 502 }); }
       return { ok: true };
     },
+    // ---------- signing in the installed app on a phone ----------
+    // The app on the Home Screen has no wallet in it. It shows a code; the customer signs in with
+    // their wallet app (its own browser) and confirms that code there; the app then gets its own
+    // session. The code alone is useless without the secret token the app keeps; both last 10 minutes.
+    async deviceStart(label) {
+      const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      const code = [...randomBytes(8)].map((b) => ABC[b % ABC.length]).join("").replace(/^(.{4})/, "$1-");
+      const token = rand(24);
+      const name = String(label ?? "").replace(/[^\p{L}\p{N} ·.,()/-]/gu, "").trim().slice(0, 40) || "A device";
+      await g.putOnce("devreq", code, { tokenHash: createHash("sha256").update(token).digest("hex"), label: name, at: now() }, DEVICE_TTL_S);
+      return { code, token, expiresIn: DEVICE_TTL_S };
+    },
+    async deviceApprove(id, code) {
+      const clean = String(code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(.{4})/, "$1-");
+      const req = clean.length === 9 ? await g.takeOnce("devreq", clean) : null;
+      if (!req) throw Object.assign(new Error("That code is wrong or has expired. Get a new one in the app."), { status: 404 });
+      await g.putOnce("devok", req.tokenHash, { account: id }, DEVICE_TTL_S);
+      return { ok: true, label: req.label };
+    },
+    async devicePoll(token) {
+      if (typeof token !== "string" || token.length < 16 || token.length > 64) return null;
+      const done = await g.takeOnce("devok", createHash("sha256").update(token).digest("hex"));
+      return done?.account ?? null;
+    },
+
     // ---------- notifications on this device (the dashboard installed as an app) ----------
     pushKey: () => push?.publicKey ?? null,
     async pushDevices(id) {

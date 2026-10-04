@@ -166,6 +166,16 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const id = await accounts.signIn(req.body?.nonce, req.body?.signature, { ref: req.body?.ref });
     res.set("set-cookie", auth.sessionFor(id)).json({ ok: true });
   }));
+  // The installed app on a phone: it asks for a code, the customer confirms it where they are signed in, the app polls.
+  app.post("/api/device/start", wrap(async (req, res) => {
+    if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
+    res.json(await accounts.deviceStart(req.body?.label));
+  }));
+  app.post("/api/device/poll", wrap(async (req, res) => {
+    const id = await accounts.devicePoll(req.body?.token);
+    if (!id) return res.json({ ok: false });
+    res.set("set-cookie", auth.sessionFor(id)).json({ ok: true });
+  }));
   app.post("/api/logout", (_req, res) => res.set("set-cookie", auth.logoutCookie()).json({ ok: true }));
 
   // ---------- the account's own dashboard ----------
@@ -202,6 +212,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.get("/push", wrap(async (req, res) => res.json(await accounts.pushDevices(req.account))));
   owner.post("/push/subscribe", wrap(async (req, res) => res.json(await accounts.pushSubscribe(req.account, req.body?.subscription, req.body?.label))));
   owner.post("/push/unsubscribe", wrap(async (req, res) => res.json(await accounts.pushUnsubscribe(req.account, String(req.body?.endpoint ?? "")))));
+  owner.post("/device/approve", wrap(async (req, res) => res.json(await accounts.deviceApprove(req.account, req.body?.code))));
   owner.post("/push/test", wrap(async (req, res) => res.json(await accounts.pushTest(req.account))));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));

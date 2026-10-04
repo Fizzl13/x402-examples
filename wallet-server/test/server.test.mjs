@@ -1687,3 +1687,26 @@ test("notifications: off when the server has no push key", async () => {
     assert.equal((await owner("POST", "/api/push/subscribe", { subscription: fakeDevice() })).status, 503);
   } finally { server.close(); }
 });
+
+test("signing in the installed app: a code confirmed where you're signed in; the app polls with its secret token, once", async () => {
+  const { owner, base, server } = await boot();
+  try {
+    const post = async (path, body, cookie) => { const r = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json(), cookie: r.headers.get("set-cookie") }; };
+    const d = (await post("/api/device/start", { label: "iPhone · app" })).body;
+    assert.match(d.code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    assert.equal(d.expiresIn, 600);
+    assert.deepEqual((await post("/api/device/poll", { token: d.token })).body, { ok: false }, "nothing until it's confirmed");
+    assert.equal((await post("/api/device/approve", { code: d.code })).status, 401, "confirming needs a signed-in session");
+    assert.equal((await owner("POST", "/api/device/approve", { code: "WXYZ-2345" })).status, 404);
+    const ok = await owner("POST", "/api/device/approve", { code: d.code.toLowerCase().replace("-", " ") });
+    assert.deepEqual(ok.body, { ok: true, label: "iPhone · app" });
+    assert.equal((await owner("POST", "/api/device/approve", { code: d.code })).status, 404, "a code works once");
+    assert.deepEqual((await post("/api/device/poll", { token: "wrong-token-of-some-length" })).body, { ok: false });
+    const got = await post("/api/device/poll", { token: d.token });
+    assert.equal(got.body.ok, true);
+    const cookie = got.cookie.split(";")[0];
+    const me = await fetch(`${base}/api/me`, { headers: { cookie } });
+    assert.equal((await me.json()).id, "admin", "the app is signed in to the account that confirmed");
+    assert.deepEqual((await post("/api/device/poll", { token: d.token })).body, { ok: false }, "and only once");
+  } finally { server.close(); }
+});
