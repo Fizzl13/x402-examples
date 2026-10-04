@@ -19,6 +19,7 @@ import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
 import { weekOf, formatDigest } from "./digest.js";
 import { createAlertHook, createEndpointMonitor, hookKind, urlProblem } from "./monitor.js";
+import { cleanSubscription } from "./push.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -66,7 +67,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook() }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -104,7 +105,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const isSol = (a) => a?.chain === "solana";
 
   async function account(id) {
-    if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
+    if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
     return g.getAccount(id);
   }
   // A withdrawal (EU 14-day right) ends Pro on the spot, until the customer pays again.
@@ -159,6 +160,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       notify: async (approval, spending) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.notify(a.telegram.chatId, approval, spending);
+        // On the phone: tapping opens the dashboard on the approval; Android also shows Approve / Deny buttons.
+        const host = (() => { try { return new URL(approval.purchase?.url).host; } catch { return null; } })();
+        const forWhat = [approval.purchase?.description, host].filter(Boolean).join(" · ");
+        await pushAll(id, { title: `${approval.agentName} asks for your OK`, body: `${approval.summary}${forWhat ? `\nfor: ${forWhat}` : ""}\npresign-guard: ${approval.verdict?.verdict ?? "no verified verdict"}`, url: "/#/overview", tag: `approval-${approval.id}`, approval: approval.id, requireInteraction: true });
         // A webhook can't take an answer: it says what's waiting and links to the dashboard.
         const hook = a?.alertHook;
         if (hook) {
@@ -179,16 +184,30 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     return next;
   }
 
-  // Where an account's messages go: its Telegram chat, and its Discord/Slack/other webhook if it set one.
+  // Notifications on the devices where the account installed the dashboard as an app (Web Push).
+  // Devices that unsubscribed or expired are forgotten. Returns how many devices got it.
+  async function pushAll(id, message) {
+    const devices = push ? (await account(id))?.push ?? [] : [];
+    if (!devices.length) return 0;
+    const results = await Promise.all(devices.map((d) => push.send(d, message).catch((err) => (console.warn(`[push] ${err.message}`), "error"))));
+    const gone = new Set(devices.filter((_, i) => results[i] === "gone").map((d) => d.endpoint));
+    if (gone.size) await serial(id, async () => { const rec = await g.getAccount(id); if (rec?.push) await g.putAccount({ ...rec, push: rec.push.filter((d) => !gone.has(d.endpoint)) }); });
+    return results.filter((r) => r === "ok").length;
+  }
+  const pushText = (text, event = {}) => ({ title: "Fizzl wallet", body: text.length > 400 ? `${text.slice(0, 399)}…` : text, url: event.type?.startsWith("monitor") || event.type === "test" ? "/#/account" : "/#/overview", tag: event.type ?? "message" });
+
+  // Where an account's messages go: its Telegram chat, its Discord/Slack/other webhook if it set one,
+  // and the devices where it turned on notifications.
   // Returns how many channels got it (0: none set, or all failed; callers that remember "sent" retry later).
   async function tell(id, text, event = {}) {
     const a = await account(id);
     let got = 0;
     if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, text).then(() => got++, (err) => console.warn(`[tell] telegram: ${err.message}`));
     if (a?.alertHook) await alertHook.send(a.alertHook.url, text, { ...event, at: now() }).then(() => got++, (err) => console.warn(`[tell] webhook: ${err.message}`));
+    if (await pushAll(id, pushText(text, event))) got++;
     return got;
   }
-  const reachable = (a) => !!(a?.telegram?.chatId || a?.alertHook);
+  const reachable = (a) => !!(a?.telegram?.chatId || a?.alertHook || (push && a?.push?.length));
 
   const api = {
     walletFor,
@@ -477,6 +496,37 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       catch (err) { throw Object.assign(new Error(err.message), { status: 502 }); }
       return { ok: true };
     },
+    // ---------- notifications on this device (the dashboard installed as an app) ----------
+    pushKey: () => push?.publicKey ?? null,
+    async pushDevices(id) {
+      const devices = (await account(id))?.push ?? [];
+      return { enabled: !!push, key: push?.publicKey ?? null, devices: devices.map((d) => ({ endpoint: d.endpoint, label: d.label, at: d.at })) };
+    },
+    async pushSubscribe(id, subscription, label) {
+      if (!push) throw Object.assign(new Error("Notifications are not available on this server."), { status: 503 });
+      const sub = cleanSubscription(subscription);
+      const name = String(label ?? "").replace(/[^\p{L}\p{N} ·.,()/-]/gu, "").trim().slice(0, 40) || "This device";
+      await serial(id, async () => {
+        const rec = (await g.getAccount(id)) ?? { id };
+        const others = (rec.push ?? []).filter((d) => d.endpoint !== sub.endpoint);
+        await g.putAccount({ ...rec, push: [...others, { ...sub, label: name, at: now() }].slice(-5) });
+      });
+      return api.pushDevices(id);
+    },
+    async pushUnsubscribe(id, endpoint) {
+      await serial(id, async () => {
+        const rec = await g.getAccount(id);
+        if (rec?.push) await g.putAccount({ ...rec, push: rec.push.filter((d) => d.endpoint !== endpoint) });
+      });
+      return api.pushDevices(id);
+    },
+    async pushTest(id) {
+      if (!push) throw Object.assign(new Error("Notifications are not available on this server."), { status: 503 });
+      const n = await pushAll(id, { title: "Fizzl wallet", body: "✅ Notifications work. Approvals and alerts will show up here.", url: "/#/account", tag: "test" });
+      if (!n) throw Object.assign(new Error("No device got it. Turn notifications on again on this device."), { status: 404 });
+      return { ok: true, devices: n };
+    },
+
     async addMonitor(id, { url, method = "GET" } = {}) {
       const problem = urlProblem(url);
       if (problem) throw Object.assign(new Error(problem), { status: 400 });

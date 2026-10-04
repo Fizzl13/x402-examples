@@ -16,6 +16,9 @@ const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const AGENTKEY = fileURLToPath(new URL("../public/agentkey.js", import.meta.url)); // makes an agent wallet in the browser
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const ICONS = fileURLToPath(new URL("../public/icons", import.meta.url)); // wallet logos (MetaMask, Phantom) for the sign-in buttons
+const APP = fileURLToPath(new URL("../public/app", import.meta.url)); // the dashboard as an installable app: icons
+const MANIFEST = fileURLToPath(new URL("../public/manifest.webmanifest", import.meta.url));
+const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // service worker: notifications
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -195,6 +198,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (d !== "approve" && d !== "deny") return res.status(400).json({ error: "bad_request", message: 'decision must be "approve" or "deny"' });
     res.json(await req.wallet.decide(req.params.id, d, "dashboard"));
   }));
+  // Notifications on the devices where the dashboard is installed as an app (Web Push).
+  owner.get("/push", wrap(async (req, res) => res.json(await accounts.pushDevices(req.account))));
+  owner.post("/push/subscribe", wrap(async (req, res) => res.json(await accounts.pushSubscribe(req.account, req.body?.subscription, req.body?.label))));
+  owner.post("/push/unsubscribe", wrap(async (req, res) => res.json(await accounts.pushUnsubscribe(req.account, String(req.body?.endpoint ?? "")))));
+  owner.post("/push/test", wrap(async (req, res) => res.json(await accounts.pushTest(req.account))));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
   owner.post("/billing/solana", wrap(async (req, res) => res.json(await accounts.solanaPayment(req.account, req.body?.months, req.body?.tier))));
@@ -272,6 +280,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   });
   app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
   app.use("/icons", express.static(ICONS, { maxAge: "30d", fallthrough: false }));
+  app.use("/app", express.static(APP, { maxAge: "30d", fallthrough: false }));
+  app.get("/apple-touch-icon.png", (_req, res) => res.set("cache-control", "public, max-age=2592000").sendFile(`${APP}/icon-180.png`));
+  app.get("/manifest.webmanifest", (_req, res) => res.set("cache-control", "public, max-age=3600").type("application/manifest+json").sendFile(MANIFEST));
+  // Never cached long, so a new version of the worker reaches phones quickly.
+  app.get("/sw.js", (_req, res) => res.set({ "cache-control": "no-cache", "content-security-policy": CSP }).type("text/javascript").sendFile(WORKER));
   let page;
   const legal = new Map();
   app.get(["/", "/index.html", "/demo"], (req, res) => {

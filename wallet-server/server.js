@@ -30,6 +30,8 @@
 //   USAGE_LOG_TOKEN     optional: anonymous usage statistics to the private usage-log repo (a fine-grained
 //                       GitHub token, Contents read/write on that repo only; the same as the other services)
 //   USAGE_LOG_SALT, USAGE_LOG_REPO, USAGE_OWN_WALLETS  optional: see src/usage.js
+//   VAPID_PRIVATE_KEY   optional: the key that signs phone notifications (32 bytes, base64url); by default it
+//                       is derived from SESSION_SECRET / ADMIN_PASSWORD
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
 import { createHash } from "node:crypto";
@@ -38,6 +40,7 @@ import { createAuth } from "./src/auth.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
+import { createPush } from "./src/push.js";
 import { createCatalog, createSkillChecker } from "./src/catalog.js";
 import { createTrustIndex } from "./src/trust.js";
 import { createUsage } from "./src/usage.js";
@@ -68,12 +71,18 @@ if (env.CHARGER_KEY) {
   console.log(`[subscription] charger ${account.address}`);
 }
 
+// Notifications on phones and computers where the dashboard is installed as an app (no setup needed:
+// the key comes from VAPID_PRIVATE_KEY, or else from the session secret).
+const pushSeed = env.SESSION_SECRET || env.ADMIN_PASSWORD;
+const push = env.VAPID_PRIVATE_KEY || pushSeed ? createPush({ privateKey: env.VAPID_PRIVATE_KEY?.trim() || null, seed: pushSeed, subject: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu" }) : null;
+
 const usage = createUsage({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined, salt: env.USAGE_LOG_SALT || null, ownWallets: (env.USAGE_OWN_WALLETS ?? "").split(",") });
 if (!usage.enabled) console.warn("[usage] USAGE_LOG_TOKEN not set: usage statistics are off");
 const accounts = createAccounts({
   usage,
   store,
   telegram,
+  push,
   adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null,
   publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
   billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), price20Usdc: Number(env.PRO20_PRICE_USDC || 9), priceUnlimitedUsdc: Number(env.PRO_UNLIMITED_PRICE_USDC || 20), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,
