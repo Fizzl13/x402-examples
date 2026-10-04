@@ -11,6 +11,9 @@ const SHOP = "0x1111111111111111111111111111111111111111";
 const DRAINER = "0x2222222222222222222222222222222222222222";
 const API = "https://api.example.test/data";
 const MPP_API = "https://mpp.example.test/data"; // MPP only: WWW-Authenticate: Payment (method evm, USDC on Base)
+const TEMPO_API = "https://tempo.example.test/data"; // MPP only, method tempo (push mode, USDC.e on Tempo)
+const BOTH_API = "https://both.example.test/data"; // MPP evm on Base and tempo, like the Fizzl services
+const TEMPO_USDC = "0x20c000000000000000000000b9537d11c60e8b50";
 
 // presign-guard (red for the drainer) and an x402 API that costs 0.05 USDC.
 function network({ price = "50000" } = {}) {
@@ -54,6 +57,23 @@ function network({ price = "50000" } = {}) {
       const receipt = Buffer.from(JSON.stringify({ method: "evm", reference: "0xmppsettled", status: "success", timestamp: new Date().toISOString() })).toString("base64url");
       return new Response(JSON.stringify({ answer: 43 }), { status: 200, headers: { "content-type": "application/json", "payment-receipt": receipt } });
     }
+    // MPP with method tempo (and evm on Base next to it for BOTH_API): the credential carries the transaction hash.
+    if (url === TEMPO_API || url === BOTH_API) {
+      const tempoReq = { amount: price, currency: TEMPO_USDC, methodDetails: { chainId: 4217, supportedModes: ["push"] }, recipient: SHOP };
+      const evmReq = { amount: price, currency: USDC_BASE, methodDetails: { chainId: 8453, credentialTypes: ["authorization"], decimals: 6 }, recipient: SHOP };
+      const expires = new Date(Date.now() + 300_000).toISOString();
+      const ch = (id, method, request) => ({ id, realm: "tempo.example.test", method, intent: "charge", request: Buffer.from(JSON.stringify(request)).toString("base64url"), expires });
+      const offered = url === BOTH_API ? [ch("ch_evm", "evm", evmReq), ch("ch_tempo", "tempo", tempoReq)] : [ch("ch_tempo", "tempo", tempoReq)];
+      const auth = headers.get("authorization");
+      if (!auth) {
+        const h = offered.map((params) => `Payment ${Object.entries(params).map(([k, v]) => `${k}="${v}"`).join(", ")}`).join(", ");
+        return new Response("{}", { status: 402, headers: { "content-type": "application/problem+json", "www-authenticate": h } });
+      }
+      const cred = JSON.parse(Buffer.from(auth.replace(/^Payment\s+/i, ""), "base64url").toString());
+      mppPaid.push(cred);
+      const receipt = Buffer.from(JSON.stringify({ method: cred.challenge.method, reference: cred.payload.hash ?? "0xevmsettled", status: "success", timestamp: new Date().toISOString() })).toString("base64url");
+      return new Response(JSON.stringify({ answer: 44 }), { status: 200, headers: { "content-type": "application/json", "payment-receipt": receipt } });
+    }
     // The x402 catalog (Bazaar discovery).
     if (url.startsWith("https://catalog.test/")) {
       catalogCalls.push(url);
@@ -94,6 +114,16 @@ function fakeWallet() {
       getBalance: async () => 10n ** 16n,
       readContract: async ({ functionName }) => (functionName === "balanceOf" ? 12_340_000n : 0n),
     },
+    tempoWalletClient: {
+      chain: { id: 4217 },
+      writeContract: async (args) => { sent.push(["tempo.writeContract", args]); return `0x${"cd".repeat(32)}`; },
+      sendTransaction: async (args) => { sent.push(["tempo.sendTransaction", args]); return "0x"; },
+      signTypedData: async () => "0x",
+    },
+    tempoPublicClient: {
+      waitForTransactionReceipt: async () => ({ status: "success" }),
+      readContract: async () => 3_000_000n,
+    },
   };
 }
 
@@ -103,7 +133,7 @@ async function setup(env = {}, opts = {}) {
   const net = network(opts);
   const fake = fakeWallet();
   const spends = [];
-  const wallet = createWallet(configFromEnv({ ...ENV, ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off", onSpend: (e) => spends.push(e) } });
+  const wallet = createWallet(configFromEnv({ ...ENV, ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, tempoWalletClient: fake.tempoWalletClient, tempoPublicClient: fake.tempoPublicClient, fetch: net.fetch, guard: { verifyReceipts: "off", onSpend: (e) => spends.push(e) } });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await createServer(wallet).connect(a);
   const client = new Client({ name: "test", version: "1" });
@@ -329,4 +359,63 @@ test("pay_x402 on an MPP-only API with a wallet server: the MPP settlement goes 
   assert.equal(out.paid, true);
   const done = net.server.find(([path, body]) => body && JSON.stringify(body).includes("0xmppsettled"));
   assert.ok(done, `receipt with the MPP settlement: ${JSON.stringify(net.server)}`);
+});
+
+test("pay_x402 on a Tempo-only MPP API: a USDC.e transferWithMemo through the guard (no presign check), then the hash as credential", async () => {
+  const { call, net, fake, spends } = await setup();
+  const r = await call("pay_x402", { url: TEMPO_API, reason: "Tempo data" });
+  assert.equal(r.error, false, r.text);
+  const out = JSON.parse(r.text);
+  assert.equal(out.status, 200);
+  assert.deepEqual([out.payment.protocol, out.payment.method, out.payment.transaction, out.payment.network], ["mpp", "tempo", `0x${"cd".repeat(32)}`, "eip155:4217"]);
+  assert.equal(net.checks.length, 0); // presign-guard doesn't cover Tempo: checked locally by the guard
+  const [[kind, args]] = fake.sent;
+  assert.equal(kind, "tempo.writeContract");
+  assert.equal(args.address, TEMPO_USDC);
+  assert.equal(args.functionName, "transferWithMemo");
+  assert.equal(args.args[0], SHOP);
+  assert.equal(args.args[1], 50000n);
+  const { keccak256, stringToHex } = await import("viem");
+  assert.equal(args.args[2], `0x${keccak256(stringToHex("mpp")).slice(2, 10)}01${keccak256(stringToHex("tempo.example.test")).slice(2, 22)}${"0".repeat(20)}${keccak256(stringToHex("ch_tempo")).slice(2, 16)}`);
+  const [cred] = net.mppPaid;
+  assert.deepEqual(cred.payload, { hash: `0x${"cd".repeat(32)}`, type: "hash" });
+  assert.match(cred.source, /^did:pkh:eip155:4217:0x/);
+  assert.equal(cred.challenge.id, "ch_tempo");
+  // Counted toward the USDC budget.
+  assert.equal(spends.length, 1);
+});
+
+test("pay_x402 prefers MPP evm on its own chain over Tempo; TEMPO=off leaves Tempo out", async () => {
+  let { call, net, fake } = await setup();
+  let out = JSON.parse((await call("pay_x402", { url: BOTH_API })).text);
+  assert.equal(out.payment.protocol, "mpp");
+  assert.equal(net.mppPaid[0].challenge.method, "evm");
+  assert.deepEqual(fake.sent.map(([k]) => k), ["signTypedData"]);
+  ({ call, net, fake } = await setup({ TEMPO: "off" }));
+  const r = await call("pay_x402", { url: TEMPO_API });
+  assert.equal(net.mppPaid.length, 0);
+  assert.equal(fake.sent.length, 0);
+  assert.equal(r.error, true);
+  assert.match(r.text, /only takes MPP \(tempo on chain 4217\).*Tempo is off.*Nothing was paid/);
+});
+
+test("pay_x402 on Tempo: above the cap or over the USDC limit nothing is sent", async () => {
+  let { call, net, fake } = await setup({ MAX_PAYMENT_USD: "0.01" });
+  let r = await call("pay_x402", { url: TEMPO_API });
+  assert.equal(r.error, true);
+  assert.match(r.text, /above max_price_usd/);
+  ({ call, net, fake } = await setup({ MAX_PAYMENT_USD: "10" }, { price: "6000000" }));
+  r = await call("pay_x402", { url: TEMPO_API });
+  assert.equal(r.error, true);
+  assert.match(r.text, /over the limit of 5 per transaction/);
+  assert.equal(fake.sent.length, 0);
+  assert.equal(net.mppPaid.length, 0);
+});
+
+test("wallet_status shows the Tempo balance; TEMPO_CHAIN picks the testnet", async () => {
+  const { call } = await setup();
+  const out = JSON.parse((await call("wallet_status")).text);
+  assert.equal(out.balances["USDC.e on Tempo (for MPP tempo charges)"], "3");
+  assert.equal(configFromEnv({ ...ENV, TEMPO_CHAIN: "42431" }).tempo.chainId, 42431);
+  assert.throws(() => configFromEnv({ ...ENV, TEMPO_CHAIN: "1" }), /TEMPO_CHAIN/);
 });

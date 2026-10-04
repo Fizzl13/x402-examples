@@ -4,7 +4,7 @@
 // Telegram or the wallet server above them.
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, keccak256, parseEther, parseUnits, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { arbitrum, base, bsc, mainnet, optimism, polygon } from "viem/chains";
+import { arbitrum, base, bsc, mainnet, optimism, polygon, tempo, tempoModerato } from "viem/chains";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
@@ -12,7 +12,7 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.7.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -24,6 +24,18 @@ export const CHAINS = {
   polygon: { chain: polygon, usdc: ["0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", 6], eip712: USDC_DOMAIN },
   bsc: { chain: bsc, usdc: ["0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", 18] },
 };
+
+// Tempo, for MPP charges with method "tempo" (push mode: the wallet sends a TIP-20 transferWithMemo itself
+// and answers with the hash). The wallet's own key works there; it needs USDC.e on Tempo, which also pays the fee.
+export const TEMPO = {
+  4217: { chain: tempo, token: "0x20c000000000000000000000b9537d11c60e8b50", symbol: "USDC.e" },
+  42431: { chain: tempoModerato, token: "0x20c0000000000000000000000000000000000000", symbol: "pathUSD" },
+};
+const TIP20_ABI = [
+  { type: "function", name: "transferWithMemo", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }, { name: "memo", type: "bytes32" }], outputs: [{ type: "bool" }] },
+];
+// The MPP memo (as mppx writes it): keccak256("mpp")[0:4], version 1, keccak256(realm)[0:10], 10 zero bytes, keccak256(challenge id)[0:7].
+export const tempoMemo = (realm, challengeId) => `0x${keccak256(stringToHex("mpp")).slice(2, 10)}01${keccak256(stringToHex(String(realm))).slice(2, 22)}${"0".repeat(20)}${keccak256(stringToHex(String(challengeId))).slice(2, 16)}`;
 
 // MPP (Machine Payments Protocol): `WWW-Authenticate: Payment id="…", realm="…", method="…", request="<base64url JSON>", …`,
 // possibly several challenges in one header. Returns [{ params, request }] (request decoded, or null).
@@ -100,8 +112,17 @@ export function configFromEnv(env = process.env) {
     telegram,
     label: env.AGENT_LABEL || "mcp-agent",
     maxPaymentUsd: Number(maxPrice),
+    // MPP on Tempo: on by default (mainnet), TEMPO_CHAIN=42431 for the testnet, TEMPO=off to leave it out.
+    tempo: tempoConfig(env),
     discoveryUrl: env.X402_DISCOVERY_URL || DISCOVERY_URL,
   };
+}
+
+function tempoConfig(env) {
+  if (String(env.TEMPO ?? "").toLowerCase() === "off") return null;
+  const chainId = Number(env.TEMPO_CHAIN || 4217);
+  if (!TEMPO[chainId]) throw new Error(`TEMPO_CHAIN must be ${Object.keys(TEMPO).join(" or ")}`);
+  return { chainId, rpcUrl: env.TEMPO_RPC_URL || undefined };
 }
 
 function pick(perTx, perDay) {
@@ -183,15 +204,58 @@ export function createWallet(config, overrides = {}) {
     return plainFetch(url, { ...init, headers: h });
   }
 
-  // One paid call, capped per call: x402 when the API offers it, else MPP (evm, USDC on this chain).
+  // Tempo: the same guard (limits, pause, receipts) on a client for Tempo, made when first needed.
+  const tempoNet = config.tempo ? { ...TEMPO[config.tempo.chainId], chainId: config.tempo.chainId } : null;
+  let tempoClients = null;
+  const tempoOf = () => (tempoClients ??= (() => {
+    const t = http(config.tempo.rpcUrl);
+    return {
+      wallet: guarded.wrap(overrides.tempoWalletClient ?? createWalletClient({ account, chain: tempoNet.chain, transport: t })),
+      public: overrides.tempoPublicClient ?? createPublicClient({ chain: tempoNet.chain, transport: t }),
+    };
+  })());
+
+  // The MPP challenge this wallet can pay on Tempo: method "tempo", intent "charge", push mode, its stablecoin, no splits.
+  function payableTempo(res) {
+    if (!tempoNet) return null;
+    return parseMppChallenges(res.headers.get("www-authenticate")).find(({ params, request: r }) =>
+      params.method === "tempo" && params.intent === "charge" && params.id && params.realm && r
+      && Number(r.methodDetails?.chainId ?? 4217) === tempoNet.chainId && String(r.currency ?? "").toLowerCase() === tempoNet.token
+      && isAddress(String(r.recipient ?? ""), { strict: false }) && /^\d+$/.test(String(r.amount ?? "")) && BigInt(r.amount) > 0n
+      && (r.methodDetails?.supportedModes ?? ["pull", "push"]).includes("push") && !r.methodDetails?.splits?.length) ?? null;
+  }
+
+  // Pays an MPP tempo charge: a USDC.e transferWithMemo (memo bound to the realm and challenge id), signed through the
+  // guarded Tempo client (counted toward the USDC limits), then the hash goes back as `Authorization: Payment <credential>`.
+  async function payTempo({ url, init, challenge, cap }) {
+    const { params, request: r } = challenge;
+    const price = Number(r.amount) / 1e6;
+    if (price > cap) throw new Error(`the price ($${price}) is above max_price_usd ($${cap}); nothing was paid`);
+    const t = tempoOf();
+    const hash = await t.wallet.writeContract({ address: tempoNet.token, abi: TIP20_ABI, functionName: "transferWithMemo", args: [r.recipient, BigInt(r.amount), tempoMemo(params.realm, params.id)], feeToken: tempoNet.token });
+    const receipt = await t.public.waitForTransactionReceipt({ hash, timeout: 60_000 });
+    if (receipt.status !== "success") throw new Error(`the Tempo payment failed on chain (${hash}); the API was not called`);
+    const credential = { challenge: params, payload: { hash, type: "hash" }, source: `did:pkh:eip155:${tempoNet.chainId}:${account.address}` };
+    const h = new Headers(init.headers);
+    h.set("authorization", `Payment ${Buffer.from(JSON.stringify(credential)).toString("base64url")}`);
+    return { res: await plainFetch(url, { ...init, headers: h }), hash };
+  }
+
+  // One paid call, capped per call: x402 when the API offers it, else MPP (evm, USDC on this chain), else MPP on Tempo.
   async function callX402({ url, method, body, headers, maxPriceUsd }) {
     const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
     const init = { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) };
     const first = await plainFetch(url, init);
-    let res = first, protocol = null;
+    let res = first, protocol = null, tempoHash = null;
     if (first.status === 402 && !first.headers.get("payment-required") && payableMpp(first)) {
       protocol = "mpp";
       res = await payMpp({ url, init, challenge: payableMpp(first), cap });
+    } else if (first.status === 402 && !first.headers.get("payment-required") && payableTempo(first)) {
+      protocol = "mpp-tempo";
+      ({ res, hash: tempoHash } = await payTempo({ url, init, challenge: payableTempo(first), cap }));
+    } else if (first.status === 402 && !first.headers.get("payment-required") && parseMppChallenges(first.headers.get("www-authenticate")).length) {
+      const offered = parseMppChallenges(first.headers.get("www-authenticate")).map(({ params, request: r }) => `${params.method ?? "?"}${r?.methodDetails?.chainId ? ` on chain ${r.methodDetails.chainId}` : ""}`);
+      throw new Error(`this API only takes MPP (${[...new Set(offered)].join(", ")}), which this wallet can't pay: it pays MPP evm in USDC on ${config.chainName}${tempoNet ? ` and MPP tempo in ${tempoNet.symbol} on Tempo` : " (Tempo is off)"}. Nothing was paid`);
     } else if (first.status === 402) {
       // x402: the payment client starts from the 402 we already have, so the API isn't asked twice.
       const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
@@ -204,7 +268,10 @@ export function createWallet(config, overrides = {}) {
     let payment = null;
     const settled = res.headers.get("payment-response") ?? res.headers.get("x-payment-response");
     const receipt = res.headers.get("payment-receipt");
-    if (protocol === "mpp" && receipt) {
+    if (protocol === "mpp-tempo") {
+      // The USDC.e has moved either way: the hash is the proof. A refused answer can be asked again with the same credential.
+      payment = { protocol: "mpp", method: "tempo", success: res.ok, transaction: tempoHash, network: `eip155:${tempoNet.chainId}`, ...(res.ok ? {} : { note: "paid on Tempo but the API did not answer successfully; the transaction hash is the proof of payment" }) };
+    } else if (protocol === "mpp" && receipt) {
       try { const r = JSON.parse(Buffer.from(receipt, "base64url").toString("utf8")); payment = { protocol: "mpp", success: r.status === "success", transaction: r.reference ?? null, network: `eip155:${chain.id}`, method: r.method }; } catch { payment = { protocol: "mpp", raw: receipt }; }
     } else if (settled) { try { payment = decodePaymentResponseHeader(settled); } catch { payment = { raw: settled }; } }
     return {
@@ -241,9 +308,10 @@ export function createWallet(config, overrides = {}) {
     guard: guarded,
 
     async status() {
-      const [native, usdcBalance] = await Promise.all([
+      const [native, usdcBalance, tempoBalance] = await Promise.all([
         publicClient.getBalance({ address: account.address }).catch(() => null),
         publicClient.readContract({ address: usdc[0], abi: erc20Abi, functionName: "balanceOf", args: [account.address] }).catch(() => null),
+        tempoNet ? tempoOf().public.readContract({ address: tempoNet.token, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }).catch(() => null) : null,
       ]);
       return {
         address: account.address,
@@ -251,6 +319,7 @@ export function createWallet(config, overrides = {}) {
         balances: {
           [chain.nativeCurrency.symbol]: native === null ? "unknown" : formatEther(native),
           USDC: usdcBalance === null ? "unknown" : formatUnits(usdcBalance, usdc[1]),
+          ...(tempoNet ? { [`${tempoNet.symbol} on Tempo${tempoNet.chainId === 4217 ? "" : " testnet"} (for MPP tempo charges)`]: tempoBalance === null ? "unknown" : formatUnits(tempoBalance, 6) } : {}),
         },
         limits: config.server ? `kept by the wallet server ${config.server.url}` : config.limits.tokens,
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
@@ -367,7 +436,7 @@ export function createServer(wallet) {
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
-    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol, method evm); when an API offers both, x402 is used. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
+    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
     inputSchema: {
       url: z.string().url().describe("The API URL"),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),

@@ -1,7 +1,7 @@
 # presign-guard-wallet-mcp
 
 A wallet with spending limits for AI agents, as an [MCP](https://modelcontextprotocol.io) server. Add it to Claude Desktop, Claude Code, Cursor or any other MCP client, and your agent can:
-- pay for x402 APIs, and MPP APIs that take USDC (method `evm`);
+- pay for x402 APIs, and MPP APIs: method `evm` (USDC on the wallet's chain) and method `tempo` (USDC.e on Tempo, what nearly every MPP API asks for);
 - send USDC.
 
 It can only do that within the budget you set:
@@ -21,7 +21,7 @@ See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 |---|---|
 | `wallet_status` | Address, balances, limits, what is left today, how approvals work |
 | `find_services` | Search the public x402 catalog ([Coinbase's x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar)) for paid APIs this wallet can pay (USDC on its chain, within the price cap), best match first |
-| `pay_x402` | Call an API that answers 402 Payment Required, pay it in USDC, return the response (with a price cap per call). Pays x402, and MPP (Machine Payments Protocol) charges with the `evm` method in USDC on the wallet's chain: the same EIP-3009 signature, checked by presign-guard and counted toward your limits. When an API offers both, x402 is used |
+| `pay_x402` | Call an API that answers 402 Payment Required, pay it in USDC, return the response (with a price cap per call). Pays x402, and MPP (Machine Payments Protocol) charges with the `evm` method in USDC on the wallet's chain: the same EIP-3009 signature, checked by presign-guard and counted toward your limits. On Tempo (method `tempo`) the wallet sends a USDC.e `transferWithMemo` from its own address there and hands over the transaction hash; presign-guard doesn't cover Tempo, so guard-wallet checks that it is exactly that transfer, and it counts toward your USDC limits. Order when an API offers several: x402, MPP evm, Tempo |
 | `send_usdc` | Send USDC to an address |
 | `send_native` | Send ETH / POL / BNB to an address |
 | `pause_spending` | The agent stops itself when something looks wrong; nothing is signed until you restart or resume |
@@ -93,6 +93,9 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `X402_DISCOVERY_URL` | the x402 catalog `find_services` searches (default Coinbase's Bazaar discovery API) |
 | `PRESIGN_CREDIT_KEY` | pay the $0.01 checks from [prepaid credits](https://presign-guard.fizzl.eu) (`pgc_…`) |
 | `RPC_URL` | your own RPC for the chain |
+| `TEMPO` | `off` to never pay on Tempo (default on: MPP `tempo` charges are paid with USDC.e on Tempo, from the same address; put some USDC.e there, it also pays the ~$0.001 fee) |
+| `TEMPO_CHAIN` | `4217` (Tempo, default) or `42431` (Moderato testnet, pays in pathUSD) |
+| `TEMPO_RPC_URL` | your own Tempo RPC (default `https://rpc.tempo.xyz`) |
 | `AGENT_LABEL` | the name shown in Telegram approval messages (default `mcp-agent`) |
 
 One Telegram bot serves one running server at a time, and the bot must not have a webhook. To run several agents on one bot, use the wallet server.
