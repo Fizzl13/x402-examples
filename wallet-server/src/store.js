@@ -21,6 +21,7 @@ export function memoryStore() {
   const accounts = new Map(), keyOwners = new Map(), approvalOwners = new Map(), claimed = new Set(), seen = new Map();
   const once = new Map(); // `${kind}:${id}` -> { value, until }
   const outreach = new Map(), contacted = new Set(), stopped = new Set(), sentPerDay = new Map();
+  const likes = new Map(), likedBy = new Map(); // site -> count; visitor-hash -> expiry (ms)
 
   const global = {
     // Outreach (src/outreach.js): drafts, who was mailed (once), who said stop, sends per UTC day.
@@ -33,6 +34,19 @@ export function memoryStore() {
     async stopOutreach(email) { stopped.add(email); },
     async isStopped(email) { return stopped.has(email); },
     async countSent(day, add = 0) { const n = (sentPerDay.get(day) ?? 0) + add; sentPerDay.set(day, n); return n; },
+    // Likes on the Fizzl websites: a count per site, and a short-lived mark per visitor so one visitor counts once.
+    async likeCount(site) { return likes.get(site) ?? 0; },
+    async like(site, mark, ttlSeconds) {
+      const now = Date.now();
+      if ((likedBy.get(mark) ?? 0) > now) return { counted: false, count: likes.get(site) ?? 0 };
+      likedBy.set(mark, now + ttlSeconds * 1000); if (likedBy.size > 50_000) likedBy.clear();
+      const n = (likes.get(site) ?? 0) + 1; likes.set(site, n); return { counted: true, count: n };
+    },
+    async unlike(site, mark) {
+      if (!((likedBy.get(mark) ?? 0) > Date.now())) return { counted: false, count: likes.get(site) ?? 0 };
+      likedBy.delete(mark);
+      const n = Math.max(0, (likes.get(site) ?? 0) - 1); likes.set(site, n); return { counted: true, count: n };
+    },
     async getAccount(id) { return accounts.get(id) ?? null; },
     async putAccount(a) { accounts.set(a.id, a); },
     async listAccounts() { return [...accounts.values()]; },
@@ -129,6 +143,18 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
       const key = g(`outreach:day:${day}`);
       if (!add) return Number((await client.get(key)) ?? 0);
       const n = await client.incrBy(key, add); await client.expire(key, 3 * 86_400); return n;
+    },
+    async likeCount(site) { return Math.max(0, Number((await client.get(g(`likes:${site}`))) ?? 0)); },
+    async like(site, mark, ttlSeconds) {
+      const fresh = await client.set(g(`likes:by:${mark}`), "1", { NX: true, EX: ttlSeconds });
+      if (!fresh) return { counted: false, count: await this.likeCount(site) };
+      return { counted: true, count: await client.incr(g(`likes:${site}`)) };
+    },
+    async unlike(site, mark) {
+      if (!(await client.del(g(`likes:by:${mark}`)))) return { counted: false, count: await this.likeCount(site) };
+      const n = await client.decr(g(`likes:${site}`));
+      if (n < 0) { await client.set(g(`likes:${site}`), "0"); return { counted: true, count: 0 }; }
+      return { counted: true, count: n };
     },
     async getAccount(id) { return json(await client.hGet(g("accounts"), id)); },
     async putAccount(a) { await client.hSet(g("accounts"), a.id, JSON.stringify(a)); },
