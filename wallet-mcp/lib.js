@@ -12,7 +12,7 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.7.0";
+export const VERSION = "0.8.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
