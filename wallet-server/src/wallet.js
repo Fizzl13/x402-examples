@@ -61,7 +61,7 @@ const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
 
 // track(route, { input, result, usd }): anonymous usage statistics (src/usage.js): the seller's host and
 // the amount of a purchase, never who, what for, or to which address.
-export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null } = {}) {
+export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null, answerChecker = null, onAlert = async () => {} } = {}) {
   let queue = Promise.resolve();
   const locked = (fn) => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
   const waiters = new Map(); // approval id -> Set of resolve functions (long polls)
@@ -263,7 +263,22 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         await updatePurchase(agent, p.id, { outcome: { ...(p.outcome ?? {}), ...o } });
         updated++;
       }
-      return { updated };
+      // What came back, checked once per report (src/jev-answer.js): on the receipt, and returned so the
+      // agent's wallet can warn the agent before it reads an answer with instructions aimed at it.
+      if (!updated || !answerChecker?.enabled || (!o.content && !o.httpStatus)) return { updated };
+      const first = await store.getPurchase(String(ids[0]));
+      const check = await answerChecker.check({ url: first?.what?.url ?? null, description: first?.what?.description ?? null, httpStatus: o.httpStatus ?? null, contentType: o.content?.contentType ?? null, body: o.content?.body ?? "" }).catch(() => null);
+      if (!check) return { updated };
+      for (const pid of ids.slice(0, 20)) {
+        const p = await store.getPurchase(String(pid));
+        if (p && p.agent === agent.id) await updatePurchase(agent, p.id, { outcome: { ...(p.outcome ?? {}), check } });
+      }
+      const host = hostOf(first?.what?.url) ?? null;
+      safeTrack("answer_check", { input: { host }, result: { delivered: check.delivered?.verdict ?? null, injection: check.injection?.flagged ?? null, decidedBy: [check.delivered?.decidedBy, check.injection?.decidedBy].filter(Boolean).join(",") || null } });
+      const amount = first?.amounts?.join(" + ") || "a payment";
+      if (check.injection?.flagged) onAlert({ kind: "injection", agentName: agent.name, purchaseId: first?.id, host, text: `⚠️ The answer ${agent.name} got from ${host ?? "a paid API"} contains instructions aimed at your agent (${check.injection.why}). Your agent was told to treat it as data only. Check the receipt.` }).catch(() => {});
+      else if (check.delivered?.verdict === "no") onAlert({ kind: "not_delivered", agentName: agent.name, purchaseId: first?.id, host, text: `${agent.name} paid ${amount} to ${host ?? "a paid API"} but didn't get what it paid for (${check.delivered.why}). See the receipt.` }).catch(() => {});
+      return { updated, check };
     },
 
     async purchase(purchaseId) {

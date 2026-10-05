@@ -290,14 +290,16 @@ export function guardWallet(wallet, {
      * Say what is being bought: every signature fn makes is recorded with { url, description }
      * (onSpend, the wallet server's receipts, its Telegram approval messages). fn gets a
      * report(outcome) function for what happened afterwards, e.g. { httpStatus, settlement }.
+     * opts.onChecked(check, out): called before withPurchase returns when the wallet server checked the
+     * reported answer ({ delivered, injection }); what it returns is returned instead of out.
      */
-    withPurchase: async (info, fn) => {
+    withPurchase: async (info, fn, opts = {}) => {
       if (typeof fn !== "function") throw new TypeError("withPurchase(info, fn): fn must be a function");
       const ctx = { info: cleanPurchase(info), purchaseIds: [], outcome: null };
       const report = (outcome) => { ctx.outcome = outcome && typeof outcome === "object" ? outcome : null; };
       const annotate = async (extra) => {
         if (!limiter?.annotate || !ctx.purchaseIds.length || (!ctx.outcome && !extra)) return;
-        await limiter.annotate(ctx.purchaseIds, { ...(ctx.outcome ?? {}), ...(extra ?? {}) }).catch((e) => console.warn(`[presign-guard-wallet] could not record the outcome: ${e.message}`));
+        return limiter.annotate(ctx.purchaseIds, { ...(ctx.outcome ?? {}), ...(extra ?? {}) }).catch((e) => console.warn(`[presign-guard-wallet] could not record the outcome: ${e.message}`));
       };
       let out;
       try {
@@ -306,7 +308,10 @@ export function guardWallet(wallet, {
         await annotate({ error: String(err?.message ?? err).slice(0, 300) });
         throw err;
       }
-      await annotate();
+      const reply = await annotate();
+      if (reply?.check && typeof opts.onChecked === "function") {
+        try { return await opts.onChecked(reply.check, out); } catch (e) { console.warn(`[presign-guard-wallet] onChecked threw: ${e.message}`); }
+      }
       return out;
     },
   };

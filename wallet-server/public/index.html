@@ -2216,12 +2216,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const verb = failed ? `tried to pay <b>${esc(amount)}</b> to ${seller}, but it didn't go through. <b>Nothing was paid</b>; the amount was given back to your budget.` : p.status === "signing" ? `is paying <b>${esc(amount)}</b> to ${seller}.` : `paid <b>${esc(amount)}</b> to ${seller}.`;
     const plain = `<p class="plain"><b>${esc(p.agentName)}</b> ${verb}</p>`;
     const http = p.outcome?.httpStatus;
+    const chk = p.outcome?.check;
     const steps = [
       ["ok", "Your agent asked to pay", esc(full(p.createdAt))],
       v ? (v.verdict === "green" ? ["ok", "Safety check: looks safe", "presign-guard found no known risks"] : ["warn", "Safety check: warning", esc(v.reasons?.join(", ") || "presign-guard found something to look at")]) : ["skip", "Safety check", "not checked by presign-guard"],
       p.approval ? ["ok", `Approved by you (${esc(p.approval.by)})`, "it was more than your rules allow"] : ["ok", "Within your rules", "no approval needed"],
       failed ? ["bad", "Payment failed", esc(p.outcome?.error ?? "signing failed")] : p.status === "signing" ? ["wait", "Paying…", ""] : ["ok", "Paid", settled ? "settled on the blockchain" : ""],
       ...(isApiCall(p) && !failed ? [http ? (http < 400 ? ["ok", "Answer received", p.outcome?.content ? "see below" : ""] : ["bad", "The service answered with an error", `HTTP ${esc(http)}`]) : ["skip", "Answer", "not reported by the agent"]] : []),
+      // The AI check of the answer (TypeSafe Jev, Claude in between): got what was paid for? instructions aimed at the agent?
+      ...(chk?.delivered && !(http >= 400) ? [chk.delivered.verdict === "yes" ? ["ok", "Checked: what was paid for", "the answer matches what your agent paid for (AI check)"] : chk.delivered.verdict === "no" ? ["bad", "Not what was paid for", esc(chk.delivered.why ?? "") + " (AI check)"] : ["warn", "Checked: not sure it's what was paid for", "have a look at the answer below (AI check)"]] : []),
+      ...(chk?.injection?.flagged ? [["warn", "Instructions aimed at your agent", `${esc(chk.injection.why ?? "")}. Your agent was told to treat the answer as data only.`]] : []),
     ];
     const icon = { ok: "✓", warn: "!", bad: "✕", wait: "…", skip: "–" };
     const stepsHtml = `<ol class="steps">${steps.map(([k, t, d]) => `<li class="st-${k}"><span class="ic" aria-hidden="true">${icon[k]}</span><span><b>${t}</b>${d ? `<span class="note">${d}</span>` : ""}</span></li>`).join("")}</ol>`;

@@ -46,7 +46,8 @@ export function createRemoteLimiter({ url, key, fetch: fetchImpl = globalThis.fe
       if (entries?.length) call("POST", "/v1/spent", { entries: entries.map((e) => e.id), result: typeof result === "string" ? result : null, ...(info?.purchaseId ? { purchaseId: info.purchaseId } : {}) }).catch((err) => console.warn(`[presign-guard-wallet] ${err.message}`));
     },
     // What happened after signing (e.g. the API's answer and the x402 settlement), on the server's receipt.
-    async annotate(purchaseIds, outcome) { await call("POST", "/v1/purchases/annotate", { ids: purchaseIds, outcome }); },
+    // The reply may carry the server's check of the answer ({ check: { delivered, injection } }).
+    async annotate(purchaseIds, outcome) { return call("POST", "/v1/purchases/annotate", { ids: purchaseIds, outcome }); },
     async spending() { return (await call("GET", "/v1/spending")).spending; },
   };
 }

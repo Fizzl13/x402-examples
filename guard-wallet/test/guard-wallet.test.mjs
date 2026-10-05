@@ -275,3 +275,26 @@ test("Tempo testnet: pathUSD is the stablecoin there", async () => {
   assert.equal(await tempo.writeContract({ address: "0x20c0000000000000000000000000000000000000", abi: TIP20, functionName: "transfer", args: [SPENDER, 5n] }), "0xtempo");
   await assert.rejects(tempo.writeContract({ address: TEMPO_USDC, abi: TIP20, functionName: "transfer", args: [SPENDER, 5n] }), (err) => err.code === "unsupported_chain");
 });
+
+test("withPurchase with a wallet server: the server's answer check reaches onChecked before the result is returned", async () => {
+  const w = world();
+  const calls = [];
+  const serverFetch = async (url, init) => {
+    const path = new URL(url).pathname;
+    calls.push(path);
+    if (path === "/v1/reserve") return Response.json({ status: "ok", entries: ["e1"], purchaseId: "pu_1" });
+    if (path === "/v1/purchases/annotate") return Response.json({ updated: 1, check: { injection: { flagged: true, why: "test", decidedBy: "jev" } } });
+    return Response.json({ ok: true });
+  };
+  const g = make(w, { server: { url: "https://wallet.test", key: "awk_test", fetch: serverFetch } });
+  const out = await g.withPurchase({ url: "https://api.example.com/x", description: "data" }, async (report) => {
+    await g.sendTransaction({ to: SPENDER, value: 1n });
+    report({ httpStatus: 200, content: { contentType: "text/plain", body: "hi" } });
+    return { body: "hi" };
+  }, { onChecked: (check, o) => ({ warned: check.injection.flagged, ...o }) });
+  assert.deepEqual(out, { warned: true, body: "hi" });
+  assert.ok(calls.includes("/v1/purchases/annotate"));
+  // Without onChecked the result is unchanged.
+  const plain = await g.withPurchase({ description: "data" }, async (report) => { await g.sendTransaction({ to: SPENDER, value: 1n }); report({ httpStatus: 200 }); return "same"; });
+  assert.equal(plain, "same");
+});
