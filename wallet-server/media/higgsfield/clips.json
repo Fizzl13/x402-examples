@@ -1,0 +1,9 @@
+{
+  "note": "The Higgsfield clips for the Fizzl ad (fizzl.json). Seedance 2.5 text-to-video, no audio: the voice comes from our own pipeline.",
+  "settings": { "duration": 5, "resolution": "720p", "aspect_ratio": "16:9", "generate_audio": false },
+  "clips": [
+    { "id": "hf-open", "prompt": "Cinematic slow dolly-in on a glowing holographic wallet floating in a dark room, a small robotic hand reaching toward it, mint-green light on a deep black-green background, subtle floating particles, futuristic, no text, no logos" },
+    { "id": "hf-shield", "prompt": "Close-up of a translucent digital shield intercepting a stream of red glowing data packets while green packets pass through, dark background with mint-green accents, cinematic lighting, smooth slow camera orbit, no text, no logos" },
+    { "id": "hf-city", "prompt": "Aerial camera slowly rising over an abstract city made of glowing data lines at night, thousands of small green lights pulsing in sync, calm and trustworthy mood, dark teal and mint palette, no text, no logos" }
+  ]
+}

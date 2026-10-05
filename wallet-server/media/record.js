@@ -289,6 +289,18 @@ async function main() {
     async "prepare:stop"() { await setPage(page, stopHtml()); },
     async stop(seg, ms) { await reveal(page, ms * 0.7); },
 
+    // A filmed clip (Higgsfield, clips/<id>.webm, made by higgsfield/clips.js): full screen, played from the
+    // first frame when its line starts. The page is a file next to the clip, so the browser may load it.
+    async "prepare:clip"(seg) {
+      const file = path.join(HERE, "clips", `${seg.clip}.webm`);
+      if (!fs.existsSync(file)) throw new Error(`clip ${seg.clip} missing: run higgsfield/clips.js, then convert to clips/${seg.clip}.webm`);
+      const html = path.join(HERE, "clips", `${seg.clip}.html`);
+      fs.writeFileSync(html, `<!doctype html><html><head><style>html,body{margin:0;height:100%;background:#020708;overflow:hidden}video{width:100%;height:100%;object-fit:cover;display:block}</style></head><body><video id="v" src="${seg.clip}.webm" muted playsinline preload="auto"></video></body></html>`);
+      await page.goto(`file://${html}`);
+      await page.evaluate(() => new Promise((ok) => { const v = document.getElementById("v"); if (v.readyState >= 3) ok(); else v.addEventListener("canplaythrough", ok, { once: true }); setTimeout(ok, 5000); }));
+    },
+    async clip() { await page.evaluate(() => document.getElementById("v").play()); },
+
     // The Fizzl ad (fizzl.json).
     async "prepare:versus"() { await setPage(page, versusHtml()); },
     async versus(seg, ms) { await reveal(page, ms * 0.6); },

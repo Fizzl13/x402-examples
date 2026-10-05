@@ -1,19 +1,27 @@
 name: higgsfield
 
-# One Seedance 2.5 text-to-video clip from Higgsfield (wallet-server/media/higgsfield/index.js).
-# By hand only: every run is a billable generation request. Needs the repository secret
-# HF_CREDENTIALS ("KEY_ID:KEY_SECRET"); it reaches the script as an environment variable and is
-# never printed. The video URL is in the run log.
+# Video clips from Higgsfield (Seedance 2.5 text-to-video), wallet-server/media/higgsfield/.
+# By hand only: every generation is a billable request. Needs the repository secret HF_CREDENTIALS
+# ("KEY_ID:KEY_SECRET"); it reaches the scripts as an environment variable and is never printed.
+#   example: index.js, one 5-second test clip; the video URL is in the run log.
+#   clips:   clips.js, the clips in clips.json for the Fizzl ad, published to the media-clips branch
+#            (clips already there are not generated again).
 on:
   workflow_dispatch:
+    inputs:
+      job:
+        description: "example (one test clip) or clips (the clips in clips.json)"
+        type: choice
+        options: [example, clips]
+        default: example
 
 permissions:
-  contents: read
+  contents: write # only the clips job pushes, to the media-clips branch
 
 jobs:
-  clip:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: wallet-server/media/higgsfield
@@ -22,7 +30,33 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
       - run: npm ci
-      - name: Generate
+      - name: Example clip
+        if: inputs.job == 'example'
         run: node index.js
         env:
           HF_CREDENTIALS: ${{ secrets.HF_CREDENTIALS }}
+      - name: Clips already made
+        if: inputs.job == 'clips'
+        run: |
+          # out/ is its own small repository on the media-clips branch, so new clips are added on top.
+          mkdir -p out && cd out
+          git init -q -b media-clips
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git fetch -q --depth 1 origin media-clips 2>/dev/null; then git checkout -q -B media-clips FETCH_HEAD; fi
+          ls -la
+      - name: Generate clips
+        if: inputs.job == 'clips'
+        run: node clips.js
+        env:
+          HF_CREDENTIALS: ${{ secrets.HF_CREDENTIALS }}
+      - name: Publish to the media-clips branch
+        if: inputs.job == 'clips' && always()
+        run: |
+          cd out
+          ls *.mp4 >/dev/null 2>&1 || { echo "no clips to publish"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f *.mp4
+          git diff --cached --quiet && { echo "no new clips"; exit 0; }
+          git commit -q -m "Higgsfield clips for the Fizzl ad"
+          git push -q origin media-clips
