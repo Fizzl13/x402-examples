@@ -2,6 +2,9 @@
 // polls until the request ends). Prints the video URL only when the request completed with a video;
 // moderated, failed or canceled requests, and errors, exit non-zero without claiming success.
 //
+// Cost (Higgsfield's model page, before discounts): about $0.46 per generated second at 720p 16:9,
+// so this 5-second clip is roughly $2.30. "Not enough credits" means the API account needs credits.
+//
 // Credentials stay server-side: HF_CREDENTIALS ("KEY_ID:KEY_SECRET") from the environment, or from
 // .env.local next to this file (git-ignored). The value is never printed or logged.
 //
@@ -34,7 +37,7 @@ try {
     console.error(`moderated: the request was rejected by content moderation (request ${result.request_id}); credits are refunded.`);
     process.exitCode = 2;
   } else if (status === "failed" || status === "canceled" || status === "cancelled") {
-    console.error(`${status}: no video (request ${result.request_id}).`);
+    console.error(`${status}: no video (request ${result.request_id})${result.error ? `: ${result.error}` : ""}.`);
     process.exitCode = 1;
   } else {
     console.error(`no video: the request ended with status "${status ?? "unknown"}"${status === "completed" ? " but without a video URL" : ""}.`);
