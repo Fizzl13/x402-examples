@@ -77,7 +77,7 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
     if (!telegram || !adminChatId) return;
     const text = [
       `<b>Concept-mail aan ${escapeHtml(d.to)}</b>${d.host ? ` (${escapeHtml(d.host)})` : ""}`,
-      `<i>${escapeHtml(d.source === "doctor" ? "via x402 Doctor: iemand checkte een kapotte dienst" : "handmatig toegevoegd")}</i>`,
+      `<i>${escapeHtml(d.source === "doctor" ? "via x402 Doctor: iemand checkte een kapotte dienst" : d.source === "scan" ? "via de wekelijkse scan: Jev vindt deze verkoper een mail waard" : "handmatig toegevoegd")}</i>`,
       "",
       `<b>${escapeHtml(d.subject)}</b>`,
       "",
