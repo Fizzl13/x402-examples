@@ -52,7 +52,7 @@ jobs:
           command -v ffmpeg || (sudo apt-get update -q && sudo apt-get install -y -q ffmpeg)
           mkdir -p clips
           git fetch --depth 1 origin media-clips
-          for f in $(git ls-tree --name-only FETCH_HEAD | grep '\.mp4$'); do
+          for f in $(git ls-tree --full-tree --name-only FETCH_HEAD | grep '\.mp4$'); do
             git show "FETCH_HEAD:$f" > "clips/$f"
             # Chromium (which records the video) plays VP9, not H.264.
             ffmpeg -loglevel error -y -i "clips/$f" -an -c:v libvpx-vp9 -b:v 6M -deadline good -cpu-used 4 "clips/${f%.mp4}.webm"
