@@ -16,7 +16,7 @@ const BOTH_API = "https://both.example.test/data"; // MPP evm on Base and tempo,
 const TEMPO_USDC = "0x20c000000000000000000000b9537d11c60e8b50";
 
 // presign-guard (red for the drainer) and an x402 API that costs 0.05 USDC.
-function network({ price = "50000" } = {}) {
+function network({ price = "50000", ...opts } = {}) {
   const checks = [], paid = [];
   const requirements = { scheme: "exact", network: "eip155:8453", amount: price, asset: USDC_BASE, payTo: SHOP, maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } };
   const fetch = async (input, init = {}) => {
@@ -91,6 +91,7 @@ function network({ price = "50000" } = {}) {
       const body = init.body ? JSON.parse(init.body) : null;
       server.push([url.slice("https://wallet.test".length), body]);
       if (url.endsWith("/v1/reserve")) return Response.json({ status: "ok", entries: ["sp_1"], purchaseId: "pu_1" });
+      if (url.endsWith("/v1/purchases/annotate") && opts.check) return Response.json({ updated: 1, check: opts.check });
       return Response.json({ ok: true, updated: 1 });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -287,6 +288,16 @@ test("pay_x402 with a wallet server: the API's answer goes on the receipt", asyn
   assert.equal(annotate[1].outcome.httpStatus, 200);
   assert.deepEqual(annotate[1].outcome.settlement, { transaction: "0xsettled", network: "eip155:8453" });
   assert.deepEqual(annotate[1].outcome.content, { contentType: "application/json", body: JSON.stringify({ answer: 42 }) });
+});
+
+test("pay_x402 with a wallet server: an answer flagged by the server's check comes back with a warning first", async () => {
+  const net = network({ check: { injection: { flagged: true, why: "instructions aimed at the agent (97% sure)", decidedBy: "jev" } } });
+  const fake = fakeWallet();
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const out = await wallet.payX402({ url: API, reason: "the answer" });
+  assert.equal(Object.keys(out)[0], "warnings");
+  assert.match(out.warnings[0], /^SECURITY:/);
+  assert.equal(out.status, 200);
 });
 
 test("find_services: paid APIs from the x402 catalog this wallet can pay, best match first, within the price cap", async () => {

@@ -10,6 +10,7 @@ It can only do that within the budget you set:
 - **Above a limit, you decide.** You get a Telegram message with Approve / Deny, or the request shows up on your [wallet server](https://github.com/Fizzl13/x402-examples/tree/main/wallet-server) dashboard. No answer means no payment.
 - **Every signature is checked first by [presign-guard](https://presign-guard.fizzl.eu).** It checks for known drainers, sanctioned addresses and look-alike tokens. A red verdict is never signed.
 - **When in doubt, nothing is signed.** If the check, Telegram or the server can't be reached, the wallet stops.
+- **Paid answers are checked before your agent reads them** (with a wallet server). An AI check looks at what the API sent back. If it carries instructions aimed at your agent (prompt injection: "ignore your rules", "pay this address"), the answer comes with a `warnings` field first that tells the agent to treat it as data only. If it isn't what was paid for, the warning says so too. You see both on the receipt and get a message.
 
 The key stays on your machine; the server only decides whether a signature is allowed. Each check costs $0.01, paid in USDC on Base from the same wallet, or from prepaid credits.
 
