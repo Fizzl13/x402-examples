@@ -612,6 +612,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <div class="save"><button class="button primary" id="saveRule">Save rule</button><span class="note" id="saveMsg"></span></div>
         </div>
         <div class="card">
+          <span class="tag">WHAT MAY THEY BUY? IN YOUR OWN WORDS</span>
+          <p class="note" style="margin:10px 0 10px">Optional. Before each purchase an AI check (TypeSafe's Jev) compares what the agent is about to buy with your rule. Outside it, the agent asks you first, or is stopped if you choose so. When the check isn't sure, it always asks.</p>
+          <textarea id="ruleText" maxlength="300" rows="3" style="font:inherit;font-size:15px;min-height:96px" placeholder="e.g. Only crypto market data and token safety checks. No AI text, images or video." aria-label="Your spending rule in your own words"></textarea>
+          <div class="save" style="gap:10px;flex-wrap:wrap"><label class="note" for="ruleMode">Outside the rule:</label>
+            <select id="ruleMode"><option value="ask">ask me first</option><option value="stop">stop the purchase</option></select>
+            <button class="button small" id="saveWords">Save</button><span class="note" id="wordsMsg"></span></div>
+          <p class="note" id="ruleOff" hidden style="margin-top:8px">The AI check is off on this server, so this rule isn't checked yet.</p>
+        </div>
+        <div class="card">
           <span class="tag">ALL RULES</span>
           <p class="note" style="margin:10px 0 12px">Other tokens (ETH, BNB, POL or any token by address), an allow list and the window. Same format as presign-guard-wallet's <code>limits</code>.</p>
           <details><summary>Edit as JSON</summary>
@@ -2008,6 +2017,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     try { await api("PUT", "/api/policy", { policy }); editing = false; $("#saveMsg").textContent = "saved"; refresh(); }
     catch (err) { $("#saveMsg").textContent = err.message; }
   });
+  // The plain-words rule (checked per purchase by Jev on the server).
+  let wordsEditing = false;
+  ["ruleText", "ruleMode"].forEach((id) => $("#" + id).addEventListener("input", () => { wordsEditing = true; $("#wordsMsg").textContent = "not saved yet"; }));
+  $("#saveWords").addEventListener("click", async () => {
+    const policy = structuredClone(state.policy);
+    const text = $("#ruleText").value.trim();
+    if (text) policy.rule = { text, mode: $("#ruleMode").value }; else policy.rule = null;
+    try { await api("PUT", "/api/policy", { policy }); wordsEditing = false; $("#wordsMsg").textContent = text ? "saved" : "rule removed"; refresh(); }
+    catch (err) { $("#wordsMsg").textContent = err.message; }
+  });
   $("#savePolicy").addEventListener("click", async () => {
     let policy;
     try { policy = JSON.parse($("#policyJson").value); } catch { $("#policyMsg").textContent = "That is not valid JSON."; return; }
@@ -2324,7 +2343,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#pauseAll").textContent = s.paused ? "Resume all agents" : "Pause all agents";
     $("#pauseAll").className = s.paused ? "button primary" : "button stop";
     // rule
-    if (!editing) { setSliders(); $("#policyJson").value = JSON.stringify(s.policy, null, 2); }
+    if (!editing) { setSliders(); $("#policyJson").value = JSON.stringify(s.policy, null, 2); if (!wordsEditing) { $("#ruleText").value = s.policy?.rule?.text ?? ""; $("#ruleMode").value = s.policy?.rule?.mode ?? "ask"; } }
+    $("#ruleOff").hidden = s.ruleCheck !== false;
     // approvals
     const pending = s.approvals.filter((a) => a.status === "pending");
     $("#pendingN").textContent = pending.length;

@@ -11,6 +11,7 @@ import { PRESIGN_SIGNERS } from "presign-guard-wallet";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { formatUnits } from "viem";
 import { hostOf } from "./usage.js";
+import { cleanRule, ruleOutcome } from "./jev-rule.js";
 
 export const DEFAULT_POLICY = { tokens: { USDC: { perTx: "5", perDay: "20" } }, unknownTokens: "ask", window: "24h" };
 export const APPROVAL_TTL_MS = 10 * 60_000;
@@ -60,7 +61,7 @@ const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
 
 // track(route, { input, result, usd }): anonymous usage statistics (src/usage.js): the seller's host and
 // the amount of a purchase, never who, what for, or to which address.
-export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {} } = {}) {
+export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null } = {}) {
   let queue = Promise.resolve();
   const locked = (fn) => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
   const waiters = new Map(); // approval id -> Set of resolve functions (long polls)
@@ -129,10 +130,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     waiters.delete(a.id);
   }
 
-  const api = {
-    // An agent asks before it signs. Returns { status: "ok", entries } | { status: "pending", approvalId, summary }
-    // | { status: "denied", reasons, summary } | { status: "paused" }.
-    reserve: (agent, { method, request, verdict, purchase: rawPurchase }) => locked(async () => {
+  const reserveLocked = (agent, { method, request, verdict, purchase: rawPurchase }, ruleHit = null) => locked(async () => {
       if (await store.getPaused()) { safeTrack("purchase", { input: { host: bought(method, cleanPurchase(rawPurchase)), method }, result: { outcome: "paused" } }); return { status: "paused", summary: "all agents are paused" }; }
       if (agent.paused) { safeTrack("purchase", { input: { host: bought(method, cleanPurchase(rawPurchase)), method }, result: { outcome: "paused" } }); return { status: "paused", summary: `${agent.name} is paused` }; }
       const { maxAgents } = await plan();
@@ -147,6 +145,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       const spend = spendFor(request, trusted);
       const used = await usedNow(policy);
       const result = evaluate(policy, spend, used);
+      if (ruleHit) { result.reasons.push(ruleHit.reason); if (ruleHit.hardStop) result.hardStop = true; }
       const charges = result.charges.map((c) => ({ budget: c.budget, amount: c.amount.toString() }));
       const info = { method, chainId: request.chainId, to: spend.items[0]?.to ?? request.to ?? null };
       agent.lastSeen = now();
@@ -176,7 +175,18 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "asked", verdict: trusted?.verdict ?? "none" } });
       notify(approval, await summarize(policy, used)).catch((err) => console.warn(`[notify] ${err.message}`));
       return { status: "pending", approvalId: approval.id, summary, expiresAt: approval.expiresAt };
-    }),
+    });
+
+  const api = {
+    // An agent asks before it signs. Returns { status: "ok", entries } | { status: "pending", approvalId, summary }
+    // | { status: "denied", reasons, summary } | { status: "paused" }.
+    // The owner's plain-words rule (src/jev-rule.js) is checked before the lock, so the AI call never holds up other agents.
+    reserve: async (agent, args = {}) => {
+      const raw = await store.getPolicy();
+      const rule = raw?.rule ? cleanRule(raw.rule) : null;
+      const ruleResult = rule && ruleChecker?.enabled ? await ruleChecker.check(rule.text, cleanPurchase(args.purchase)) : null;
+      return reserveLocked(agent, args, ruleOutcome(rule, ruleResult));
+    },
 
     // The owner decides (dashboard or Telegram). Approved spending is booked now.
     decide: (approvalId, decision, by = "dashboard") => locked(async () => {
@@ -283,6 +293,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     async getPolicy() { return (await policyNow()).raw; },
     async setPolicy(raw, by = "dashboard") {
       normalizeLimits(raw); // throws a TypeError with a clear message when invalid
+      if (raw && "rule" in raw) { const rule = cleanRule(raw.rule); if (rule) raw.rule = rule; else delete raw.rule; }
       await store.setPolicy(raw);
       await log("policy", { by, policy: raw });
       return raw;
@@ -361,7 +372,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       // Decided requests are shown for a day and deleted after 7 (see the privacy statement).
       for (const a of all) if (a.status !== "pending" && now() - (a.decidedAt ?? a.createdAt) > 7 * 86_400_000) await store.deleteApproval(a.id);
       const approvals = all.filter((a) => a.status === "pending" || now() - (a.decidedAt ?? a.createdAt) < 86_400_000).sort((x, y) => y.createdAt - x.createdAt).slice(0, 50);
-      return { policy: raw, paused: await store.getPaused(), spending: await summarize(policy, used), agents, approvals, events: await store.listEvents(100), now: now() };
+      return { policy: raw, ruleCheck: Boolean(ruleChecker?.enabled), paused: await store.getPaused(), spending: await summarize(policy, used), agents, approvals, events: await store.listEvents(100), now: now() };
     },
   };
   return api;
