@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { memoryStore } from "../src/store.js";
-import { createOutreach, composeFromFindings } from "../src/outreach.js";
+import { createOutreach, composeFromFindings, toHtml } from "../src/outreach.js";
 import { createApp } from "../src/app.js";
 
 function setup({ dailyLimit = 10, failMail = false } = {}) {
@@ -13,7 +13,7 @@ function setup({ dailyLimit = 10, failMail = false } = {}) {
     async sendButtons(chatId, html, rows) { tg.push({ chatId, html, rows }); return tg.length; },
     async appendToMessage(chatId, messageId, html) { tg.push({ chatId, messageId, html }); },
   };
-  const outreach = createOutreach({ store, mailer, telegram, adminChatId: "42", from: "Frits from Fizzl <frits@fizzl.eu>", replyTo: "me@example.com", dailyLimit });
+  const outreach = createOutreach({ store, mailer, telegram, adminChatId: "42", from: "Frits from Fizzl <frits@fizzl.eu>", replyTo: "me@example.com", dailyLimit, logoUrl: "https://wallet.fizzl.eu/icons/fizzl.png" });
   return { store, mails, tg, outreach };
 }
 const findings = [{ id: "solana-payout-account", message: "payTo has no USDC token account on Solana.", hint: "Send 0.01 USDC once." }, { id: "bazaar", message: "Bazaar declaration is invalid." }];
@@ -35,6 +35,8 @@ test("a Doctor finding becomes a draft (on Telegram with buttons); nothing is ma
   assert.equal(s.mails[0].opts.from, "Frits from Fizzl <frits@fizzl.eu>");
   assert.equal(s.mails[0].opts.replyTo, "me@example.com");
   assert.match(s.mails[0].text, /Reply "stop" and you won't hear from us again\.$/);
+  assert.match(s.mails[0].opts.html, /<img src="https:\/\/wallet\.fizzl\.eu\/icons\/fizzl\.png"/);
+  assert.match(s.mails[0].opts.html, /Reply &quot;stop&quot;|Reply "stop"/);
   await assert.rejects(s.outreach.send(r.draft.id), /No open draft/);
 });
 
@@ -95,4 +97,14 @@ test("the Doctor hook needs OUTREACH_KEY and only makes drafts", async () => {
     assert.equal((await ok.json()).draft.to, "ops@seller.test");
     assert.equal(s.mails.length, 0);
   } finally { server.close(); }
+});
+
+test("the HTML version: same words, links clickable, text escaped, icon next to the sign-off, footer small", () => {
+  const html = toHtml('Hi,\n\nSee https://x402-doctor.fizzl.eu/?url=a&b=1.\n<script>x</script>\n\nCheers,\nFrits (Fizzl)\n\n--\nReply "stop".', { logoUrl: "https://wallet.fizzl.eu/icons/fizzl.png" });
+  assert.match(html, /<a href="https:\/\/x402-doctor\.fizzl\.eu\/\?url=a&amp;b=1"/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /fizzl\.png"[^>]*alt="Fizzl"[\s\S]*Cheers,<br>Frits \(Fizzl\)/);
+  assert.match(html, /font-size:12px">Reply "stop"\.<\/p>/);
+  assert.doesNotMatch(toHtml("Hi,\n\nCheers,\nFrits"), /<img/);
 });
