@@ -653,7 +653,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <span class="tag">THEN JUST ASK: DATA ON DEMAND</span>
         <p class="note" style="margin:0">Ask in your own words, in any language. Your agent finds a paid service in the x402 catalog, pays it within your rules and gives you the answer; the receipt shows up under Purchases. For example:</p>
         <div class="copy"><code>What's the weather in Amsterdam the coming days?</code><button class="button ghost small" type="button" data-copy="What's the weather in Amsterdam the coming days?" data-track="ask_example" data-from="agents">Copy</button></div>
-        <div class="copy"><code>Wat is de koers van Bitcoin vandaag?</code><button class="button ghost small" type="button" data-copy="Wat is de koers van Bitcoin vandaag?" data-track="ask_example" data-from="agents">Copy</button></div>
+        <div class="copy"><code>What is the Bitcoin price today?</code><button class="button ghost small" type="button" data-copy="What is the Bitcoin price today?" data-track="ask_example" data-from="agents">Copy</button></div>
         <div class="copy"><code>Is this token safe to buy: 0x…?</code><button class="button ghost small" type="button" data-copy="Is this token safe to buy: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
         <div class="copy"><code>What does this smart contract do: 0x…?</code><button class="button ghost small" type="button" data-copy="What does this smart contract do: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
         <p class="note" style="margin:0"><b style="color:#fff">Fewest clicks:</b> when Claude asks whether it may use the wallet's tools, choose <b style="color:#fff">Always allow</b>. Your rules here decide what it may spend (the "per payment" limit is its top price), and anything over them still comes to you first. Want to look yourself? The <a href="#/find" style="text-decoration:underline">Find</a> tab searches the same catalog.</p>
@@ -841,7 +841,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       "x402-doctor.fizzl.eu": ["https://x402-doctor.fizzl.eu/api/v1/preflight", "Pre-payment check of a new API"],
       "api.marketdepth.io": ["https://api.marketdepth.io/v2/orderbook/full", "Full order-book snapshot for the weekly report"],
       "sentiment.example": ["https://sentiment.example/api/batch", "Sentiment scores for 500 headlines"],
-      "translate.example": ["https://translate.example/v1/document", "Translate a 40-page contract to Dutch"],
+      "translate.example": ["https://translate.example/v1/document", "Translate a 40-page contract from German to English"],
       "Uniswap router": [null, "Swap 2 USDC to ETH for gas"], "Jupiter": [null, "Rebalance: buy SOL exposure"],
     };
     // What the demo agents got back: example answers, shaped like the real services'.
@@ -852,7 +852,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       "x402-doctor.fizzl.eu": { verdict: "go", safe_to_pay: true, summary: "OK to pay: $0.02 on Base.", reasons: [] },
       "api.marketdepth.io": { symbol: "ETH-USDC", bids: 500, asks: 500, best_bid: 3120.4, best_ask: 3120.9, spread_bps: 1.6, snapshot_at: new Date().toISOString() },
       "sentiment.example": { headlines: 500, positive: 212, neutral: 201, negative: 87, overall: "neutral" },
-      "translate.example": "Vertaalde overeenkomst (40 pagina's)\n\nArtikel 1. Definities\nIn deze overeenkomst wordt verstaan onder…",
+      "translate.example": "Translated agreement (40 pages)\n\nArticle 1. Definitions\nIn this agreement, the following terms mean…",
     };
     const receipt = ({ agentName, agentId, amt, to, method, approval = null, at = Date.now() }) => {
       const [url, description] = WHAT[to] ?? [null, null];
