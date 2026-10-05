@@ -1,5 +1,5 @@
 {
-  "note": "The Higgsfield clips for the Fizzl ad (fizzl.json). Seedance 2.5 text-to-video, no audio: the voice comes from our own pipeline.",
+  "note": "The Higgsfield clips for the Fizzl ad (fizzl.json). Seedance 2.5 text-to-video, no audio: the voice comes from our own pipeline. hf-shield-3 (a real shield shape) is waiting for credits; until then the ad uses hf-shield-2.",
   "settings": {
     "duration": 5,
     "resolution": "720p",

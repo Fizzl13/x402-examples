@@ -27,7 +27,7 @@
     {
       "id": "c-shield",
       "scene": "clip",
-      "clip": "hf-shield-3",
+      "clip": "hf-shield-2",
       "hold": 5,
       "text": "Bad payments are stopped. Good ones go through."
     },
