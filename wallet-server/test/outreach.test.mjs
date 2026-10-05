@@ -108,3 +108,15 @@ test("the HTML version: same words, links clickable, text escaped, icon next to 
   assert.match(html, /font-size:12px">Reply "stop"\.<\/p>/);
   assert.doesNotMatch(toHtml("Hi,\n\nCheers,\nFrits"), /<img/);
 });
+
+test("weekly scan drafts: scan wording, and a discarded site is not drafted again", async () => {
+  const s = setup();
+  const r = await s.outreach.fromDoctor({ url: "https://scan.test/x", to: "ops@scan.test", findings, via: "scan" });
+  assert.equal(r.draft.source, "scan");
+  assert.match(r.draft.body, /daily read-only scan of the x402 Bazaar checked https:\/\/scan\.test\/x/);
+  assert.doesNotMatch(r.draft.body, /Someone ran/);
+  await s.outreach.discard(r.draft.id);
+  assert.equal((await s.outreach.fromDoctor({ url: "https://scan.test/y", to: "ops@scan.test", findings, via: "scan" })).skipped, "discarded");
+  // The owner can still write to them by hand.
+  assert.ok((await s.outreach.add({ to: "ops@scan.test", subject: "s", body: "b" })).draft);
+});

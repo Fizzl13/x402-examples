@@ -39,7 +39,8 @@ export function toHtml(text, { logoUrl = null } = {}) {
 }
 
 // The mail Doctor's findings turn into. Kept here so the wording lives in one place.
-export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl = "https://fizzl.eu/gateway/" }) {
+// via: "check" (someone ran the URL through the free check) or "scan" (Doctor's daily scan of the Bazaar).
+export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl = "https://fizzl.eu/gateway/", via = "check" }) {
   const list = findings.slice(0, MAX_FINDINGS);
   const items = list.map((f, i) => `${i + 1}. ${clean(f.message, 400)}${f.hint ? `\n   Fix: ${clean(f.hint, 300)}` : ""}`).join("\n");
   const more = findings.length > list.length ? `\n(and ${findings.length - list.length} more in the report)` : "";
@@ -48,7 +49,9 @@ export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl
     body: [
       "Hi,",
       "",
-      `I run x402 Doctor, a checker for paid agent APIs. Someone ran ${url} through it, and it found:`,
+      via === "scan"
+        ? `I run x402 Doctor, a free checker for paid agent APIs. Its daily read-only scan of the x402 Bazaar checked ${url} and found:`
+        : `I run x402 Doctor, a checker for paid agent APIs. Someone ran ${url} through it, and it found:`,
       "",
       `${items}${more}`,
       "",
@@ -98,6 +101,10 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
     host = host ? clean(host, 200).toLowerCase() : hostOf(url);
     if (await g.isStopped(email)) return { skipped: "stopped", message: `${email} asked not to be mailed.` };
     if (await g.isContacted(email)) return { skipped: "contacted", message: `${email} was already mailed once.` };
+    // A draft the owner threw away is not made again by Doctor or the weekly scan.
+    if (source !== "manual" && (await g.listOutreach()).some((d) => d.status === "discarded" && (d.to === email || (host && d.host === host)))) {
+      return { skipped: "discarded", message: "A draft for this address or site was discarded before." };
+    }
     const pending = await open();
     if (pending.some((d) => d.to === email || (host && d.host === host))) return { skipped: "pending", message: "There is already an open draft for this address or site." };
     const d = { id: `ow_${randomBytes(9).toString("base64url")}`, status: "draft", to: email, subject, body, host, url: url ? clean(url, 500) : null, source, createdAt: now() };
@@ -110,13 +117,14 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
     enabled: Boolean(mailer && from),
     add,
     // From x402 Doctor: a broken endpoint (failing checks) with the contact address it publishes.
-    async fromDoctor({ url, to, findings, reportUrl }) {
+    async fromDoctor({ url, to, findings, reportUrl, via = "check" }) {
       const host = hostOf(url);
       if (!host || !Array.isArray(findings) || !findings.length) throw err(400, "url and findings are required.");
       const fails = findings.filter((f) => f && typeof f.message === "string").map((f) => ({ id: clean(f.id, 60), message: f.message, hint: f.hint || null }));
       if (!fails.length) throw err(400, "No findings to write about.");
       const report = typeof reportUrl === "string" && /^https:\/\//.test(reportUrl) ? reportUrl : `https://x402-doctor.fizzl.eu/?url=${encodeURIComponent(url)}`;
-      return add({ to, host, url, source: "doctor", ...composeFromFindings({ host, url, findings: fails, reportUrl: report }) });
+      const scan = via === "scan";
+      return add({ to, host, url, source: scan ? "scan" : "doctor", ...composeFromFindings({ host, url, findings: fails, reportUrl: report, via: scan ? "scan" : "check" }) });
     },
     async list() {
       const all = (await g.listOutreach()).sort((a, b) => b.createdAt - a.createdAt);
