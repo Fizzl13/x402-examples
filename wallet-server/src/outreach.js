@@ -18,6 +18,25 @@ const DRAFT_DAYS = 30;
 const clean = (s, n) => String(s ?? "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, n);
 const hostOf = (url) => { try { return new URL(url).hostname.toLowerCase(); } catch { return null; } };
 const escapeHtml = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeAttr = (s) => escapeHtml(s).replace(/"/g, "&quot;");
+
+// The HTML twin of a plain-text mail: the same words (links clickable), and the Fizzl mail icon next to the
+// signature. Clients that block images still show the text; clients without HTML get the plain version.
+export function toHtml(text, { logoUrl = null } = {}) {
+  const lines = String(text).split("\n");
+  const cut = lines.lastIndexOf("--"); // footer starts at the "--" line
+  const main = cut >= 0 ? lines.slice(0, cut) : lines;
+  const foot = cut >= 0 ? lines.slice(cut + 1).join(" ") : "";
+  const linkify = (s) => escapeHtml(s).replace(/https:\/\/[^\s<>"]+[^\s<>".,;:!?)]/g, (u) => `<a href="${u.replace(/"/g, "&quot;")}" style="color:#0b8a63">${u}</a>`);
+  while (main.length && !main[main.length - 1].trim()) main.pop();
+  // the last two lines are the sign-off ("Cheers," / "Frits (Fizzl)"): they go next to the icon
+  const sign = main.length >= 2 ? main.splice(-2) : [];
+  while (main.length && !main[main.length - 1].trim()) main.pop();
+  const paras = main.join("\n").split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${p.split("\n").map(linkify).join("<br>")}</p>`).join("");
+  const signature = sign.length ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 0"><tr>${logoUrl ? `<td style="padding:0 12px 0 0;vertical-align:middle"><img src="${escapeAttr(logoUrl)}" width="44" height="44" alt="Fizzl" style="display:block;border:0;border-radius:10px"></td>` : ""}<td style="vertical-align:middle;line-height:1.4">${sign.map(linkify).join("<br>")}</td></tr></table>` : "";
+  const footer = foot ? `<p style="margin:26px 0 0;padding-top:12px;border-top:1px solid #e3e8e6;color:#6b7774;font-size:12px">${linkify(foot)}</p>` : "";
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#ffffff"><div style="max-width:600px;padding:20px;font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#14201d">${paras}${signature}${footer}</div></body></html>`;
+}
 
 // The mail Doctor's findings turn into. Kept here so the wording lives in one place.
 export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl = "https://fizzl.eu/gateway/" }) {
@@ -43,7 +62,7 @@ export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl
   };
 }
 
-export function createOutreach({ store, mailer, telegram = null, adminChatId = null, from = null, replyTo = null, dailyLimit = 10, dashboardUrl = null, now = () => Date.now() } = {}) {
+export function createOutreach({ store, mailer, telegram = null, adminChatId = null, from = null, replyTo = null, dailyLimit = 10, dashboardUrl = null, logoUrl = null, now = () => Date.now() } = {}) {
   const g = store.global;
   const day = () => new Date(now()).toISOString().slice(0, 10);
   const footer = (host) => `\n\n--\nYou got this one-off note because ${host ? `${host} lists` : "your site lists"} this address as its contact. Reply "stop" and you won't hear from us again.`;
@@ -129,7 +148,8 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
       if (!(await g.markContacted(d.to))) throw err(409, `${d.to} was already mailed once.`);
       await g.countSent(day(), 1);
       try {
-        await mailer.send(d.to, d.subject, `${d.body}${footer(d.host)}`, { from, replyTo: replyTo || undefined });
+        const text = `${d.body}${footer(d.host)}`;
+        await mailer.send(d.to, d.subject, text, { from, replyTo: replyTo || undefined, html: toHtml(text, { logoUrl }) });
       } catch (e) {
         // The mail service refused it, so nothing went out: the address may be tried again.
         await g.countSent(day(), -1);
