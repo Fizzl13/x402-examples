@@ -8,7 +8,7 @@ import { noUsage, agentOf, fizzlSite } from "./usage.js";
 import { readFileSync } from "node:fs";
 import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
@@ -23,7 +23,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, likes = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -141,6 +141,33 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (site && (b.kind === "view" || (b.kind === "out" && to))) usage.record(b.kind, { service: "site", via: site, agent: agentOf(req.get("user-agent")), input: { site, path, to } });
     res.status(204).end();
   });
+  // Likes on fizzl.eu and its subdomains (the heart button): one count per site. A visitor counts once a
+  // day: a mark made from a secret that changes with every restart, the day, their address and browser,
+  // hashed, kept 24 hours and then gone. No cookies, nothing stored about the visitor.
+  const likeSalt = randomBytes(16).toString("hex");
+  const likeMark = (req, site) => createHash("sha256").update(`${likeSalt}|${new Date().toISOString().slice(0, 10)}|${req.ip}|${req.get("user-agent") ?? ""}|${site}`).digest("base64url").slice(0, 32);
+  const likeCors = (req, res) => { const site = siteOrigin(req.get("origin")); if (site) res.set({ "access-control-allow-origin": `https://${site}`, vary: "origin" }); return site; };
+  app.options("/api/public/likes", (req, res) => {
+    const site = siteOrigin(req.get("origin"));
+    if (site) res.set({ "access-control-allow-origin": `https://${site}`, "access-control-allow-methods": "GET, POST", "access-control-allow-headers": "content-type", "access-control-max-age": "86400", vary: "origin" });
+    res.status(204).end();
+  });
+  app.get("/api/public/likes", wrap(async (req, res) => {
+    likeCors(req, res);
+    const site = typeof req.query.site === "string" && fizzlSite(req.query.site.toLowerCase()) ? req.query.site.toLowerCase() : null;
+    if (!likes || !site) return res.status(404).json({ error: "not_found" });
+    res.set("cache-control", "no-store").json({ site, count: await likes.likeCount(site) });
+  }));
+  app.post("/api/public/likes", express.text({ type: "*/*", limit: "1kb" }), slowDown, wrap(async (req, res) => {
+    const site = likeCors(req, res); // only from the site itself: its own origin decides what is liked
+    if (!likes || !site) return res.status(403).json({ error: "forbidden", message: "Likes come from the Fizzl websites." });
+    let b = {};
+    try { b = typeof req.body === "string" ? JSON.parse(req.body) : req.body ?? {}; } catch {}
+    if (/bot|crawl|spider|headless/i.test(req.get("user-agent") ?? "")) return res.json({ site, count: await likes.likeCount(site), counted: false });
+    const r = b.action === "unlike" ? await likes.unlike(site, likeMark(req, site)) : await likes.like(site, likeMark(req, site), 86_400);
+    if (r.counted) usage.record(b.action === "unlike" ? "unlike" : "like", { service: "site", via: site, agent: agentOf(req.get("user-agent")), input: { site } });
+    res.json({ site, count: r.count, counted: r.counted });
+  }));
   app.post("/api/public/usage/click", slowDown, (req, res) => {
     const kind = req.body?.kind, host = typeof req.body?.host === "string" && /^[a-z0-9.-]{1,120}$/i.test(req.body.host) ? req.body.host.toLowerCase() : undefined;
     const from = ["search", "new", "fizzl", "agents"].includes(req.body?.from) ? req.body.from : undefined;
