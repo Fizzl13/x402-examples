@@ -567,7 +567,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="finder" id="finder">
         <form class="searchbar" id="searchForm" role="search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-          <input id="searchQ" type="search" placeholder="What should your agent buy? e.g. bitcoin signal, token safety, weather" maxlength="200" aria-label="Search paid services" autocomplete="off">
+          <input id="searchQ" type="search" placeholder="e.g. bitcoin signal, weather" maxlength="200" aria-label="Search paid services" autocomplete="off">
           <select id="searchMax" aria-label="Highest price per call"><option value="0.05">up to $0.05</option><option value="0.25">up to $0.25</option><option value="1" selected>up to $1</option><option value="">any price</option></select>
           <button class="button primary" type="submit">Search</button>
         </form>
@@ -594,13 +594,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
 
     <section class="section" id="needs" data-tab="overview">
-      <div class="eyebrow"><i></i>02 / NEEDS YOU</div>
+      <div class="eyebrow"><i></i>01 / NEEDS YOU</div>
       <h2>YOUR CALL.<br><span>YES OR NO.</span></h2>
       <div class="list" id="approvals"></div>
     </section>
 
     <section class="section" id="rule" data-tab="overview">
-      <div class="eyebrow"><i></i>01 / YOUR PRICE RULE</div>
+      <div class="eyebrow"><i></i>02 / YOUR PRICE RULE</div>
       <h2>FREE UNDER.<br><span>ASK ABOVE.</span></h2>
       <div class="rule">
         <div class="card">
@@ -640,7 +640,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <input class="agentfilter" id="agentFilter" type="search" placeholder="Find an agent" aria-label="Find an agent" hidden>
       <div class="agents" id="agents"></div>
       <form class="addform" id="addForm" style="margin-top:16px">
-        <input id="agentName" placeholder="Name your assistant, e.g. claude-desktop" maxlength="40" required aria-label="New agent name">
+        <input id="agentName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
       <div class="card setup" id="setupCard">
@@ -2175,6 +2175,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const isTx = (v) => /^0x[0-9a-fA-F]{64}$/.test(v ?? "");
   const safeUrl = (u) => (/^https?:\/\//.test(u ?? "") ? u : null);
   const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer nofollow">${esc(text)}</a>`;
+  // Plain words for what an agent signs and for the safety check, instead of method names and codes.
+  const METHOD_WORDS = { signTypedData: "payment signature", eth_signTypedData_v4: "payment signature", sendTransaction: "transaction", eth_sendTransaction: "transaction", signMessage: "message signature", personal_sign: "message signature", signTransaction: "transaction" };
+  const methodWord = (m) => METHOD_WORDS[m] ?? m ?? "";
+  const CODE_WORDS = { KNOWN_DRAINER: "known scam address", SANCTIONED: "sanctioned address", SANCTIONED_ADDRESS: "sanctioned address", PHISHING_SITE: "known phishing site", UNLIMITED_APPROVAL: "unlimited access to your tokens", UNLIMITED_APPROVAL_TO_EOA: "unlimited access for a plain wallet", SIGNATURE_GRANT_TO_EOA: "hands a plain wallet access", TOKEN_HONEYPOT: "token that can't be sold", TOKEN_IMPERSONATION: "fake copy of a token", NEW_WALLET_SPENDER: "brand-new receiving wallet" };
+  const verdictWord = (v) => ({ green: "safety check OK", orange: "safety check: caution", red: "safety check: blocked" }[v] ?? (v ? `safety check: ${v}` : ""));
+  const plain = (t) => String(t ?? "")
+    .replace(/presign-guard:? (green|orange|red)(?: \(([A-Z_,]+)\))?/g, (_, v, codes) => `${verdictWord(v)}${codes ? ` (${codes.split(",").map((c) => CODE_WORDS[c] ?? c.toLowerCase().replace(/_/g, " ")).join(", ")})` : ""}`)
+    .replace(/\b(signTypedData|sendTransaction|signMessage|eth_signTypedData_v4|eth_sendTransaction|personal_sign)\b/g, (m) => methodWord(m))
+    .replace(/· never signed/g, "· not paid");
   const chainOf = (id) => CHAINS[Number(String(id ?? "").replace(/^eip155:/, ""))] ?? null;
   const short = (h) => (h.length > 26 ? `${h.slice(0, 14)}…${h.slice(-8)}` : h);
   const full = (t) => new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
@@ -2354,13 +2363,18 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#agentsNote").textContent = s.agents.length ? `active of ${s.agents.length}${s.paused ? " · all paused" : ""}` : "none yet: add one";
     // The explanation is open until there is an agent, then folded (the owner can still open it).
     if (!howtoSet) { $("#howto").open = s.agents.length === 0; howtoSet = true; }
+    // No agent yet: connecting is step one, so the how-to sits right under "Add agent", open.
+    const howto = $("#howto"), first = s.agents.length === 0;
+    if (first && howto.previousElementSibling !== $("#addForm")) $("#addForm").after(howto);
+    if (!first && howto.nextElementSibling === $("#setupCard")) $("#agentPlanNote").after(howto);
+    howto.querySelector(":scope > summary").textContent = first ? "Start here: connect your first agent ▾" : "How it works · connect an agent · Fizzl services";
     $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
       const v = a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
       const left = Math.max(0, Math.round((a.expiresAt - s.now) / 60000));
       const right = a.status === "pending"
         ? `<div class="btns"><button class="button primary small" data-decision="approve" data-id="${esc(a.id)}">Approve</button><button class="button ghost small" data-decision="deny" data-id="${esc(a.id)}">Deny</button></div><span class="note">${left} min left</span>`
         : `<span class="tag" style="color:${a.status === "approved" ? "var(--mint)" : "var(--rose)"}">${esc(a.status)}${a.decidedBy ? ` · ${esc(a.decidedBy)}` : ""}</span>${a.purchaseId ? `<button type="button" class="button ghost small" data-receipt="${esc(a.purchaseId)}">Receipt</button>` : ""}`;
-      return `<article class="card asked" style="${a.status === "pending" ? "" : "opacity:.6;border-color:var(--line)"}"><div><div class="facts" style="margin:0 0 6px"><span class="tag">${esc(a.agentName)}</span>${v}<span>${time(a.createdAt)}</span></div><h3>${esc(a.summary)}</h3>${a.purchase?.description || a.purchase?.url ? `<div class="facts"><span>for: <b style="color:#fff">${esc(a.purchase.description ?? a.purchase.url)}</b></span></div>` : ""}<div class="facts"><span><code>${esc(a.method)}</code> · chain ${esc(a.chainId)}</span>${a.to ? `<span>to ${esc(a.to)}</span>` : ""}</div></div><div style="display:grid;gap:6px;justify-items:end">${right}</div></article>`;
+      return `<article class="card asked" style="${a.status === "pending" ? "" : "opacity:.6;border-color:var(--line)"}"><div><div class="facts" style="margin:0 0 6px"><span class="tag">${esc(a.agentName)}</span>${v}<span>${time(a.createdAt)}</span></div><h3>${esc(plain(a.summary))}</h3>${a.purchase?.description || a.purchase?.url ? `<div class="facts"><span>for: <b style="color:#fff">${esc(a.purchase.description ?? a.purchase.url)}</b></span></div>` : ""}<div class="facts"><span title="${esc(a.method)} · chain ${esc(a.chainId)}">${esc(methodWord(a.method))}${a.chainId ? ` on ${esc(chainOf(a.chainId)?.[0] ?? `chain ${a.chainId}`)}` : ""}</span>${a.to ? `<span>to ${esc(a.to)}</span>` : ""}</div></div><div style="display:grid;gap:6px;justify-items:end">${right}</div></article>`;
     }).join("") : `<div class="card empty">Nothing waits for you. Requests over your price show up here and on Telegram.</div>`;
     // agents
     // Five or more: compact rows (tap one for Pause / Remove); nine or more: a search box too.
@@ -2373,7 +2387,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const st = a.paused ? ["paused", "var(--dim)"] : pending.some((p) => p.agent === a.id) ? ["waiting for you", "var(--amber)"] : ["active", "var(--mint)"];
       const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
       const host = (() => { try { return a.site ? new URL(a.site).host : null; } catch { return null; } })();
-      const siteLine = `<div class="note agentsite">${host ? `<a href="${esc(a.site)}" target="_blank" rel="noopener noreferrer nofollow">${esc(host)} ↗</a> · <button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="${esc(a.site)}">change</button>` : `<button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="">+ Add where this agent lives (its site)</button>`}</div>`;
+      const siteLine = `<div class="note agentsite">${host ? `<a href="${esc(a.site)}" target="_blank" rel="noopener noreferrer nofollow">${esc(host)} ↗</a> · <button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="${esc(a.site)}">change</button>` : `<button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="">+ Link the app or website this agent runs in (optional)</button>`}</div>`;
       const buttons = `${siteLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
       if (compact) return `<details class="card agentrow" data-agent="${esc(a.id)}"${openAgents.has(a.id) ? " open" : ""}><summary><span class="rowdot" style="color:${st[1]}" aria-hidden="true"></span><span class="name">${esc(a.name)}</span><span class="state" style="color:${st[1]}">${st[0]}</span><span class="meta">spent ${esc(spent)} · seen ${a.lastSeen ? time(a.lastSeen) : "never"}</span></summary>${buttons}</details>`;
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div>${buttons}</article>`;
@@ -2388,7 +2402,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     // events
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad" };
     const line = (e) => ({
-      signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}${e.what ? ` · ${e.what}` : ""}`, `${e.method}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · presign-guard ${e.verdict}` : ""}`],
+      signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}${e.what ? ` · ${e.what}` : ""}`, `${methodWord(e.method)}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · ${verdictWord(e.verdict)}` : ""}`],
       spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}${e.what ? ` · ${e.what}` : ""}`, e.result ? `result ${e.result}` : ""],
       asked: [`${e.agent} asked you${e.what ? ` · ${e.what}` : ""}`, e.summary], approved: [`Approved (${e.by})${e.what ? ` · ${e.what}` : ""}`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
       expired: ["No answer in time", `${e.agent}: ${e.summary}`], blocked: [`${e.agent} blocked`, e.summary], released: [`${e.agent}: signing failed, spending given back`, ""],
@@ -2396,7 +2410,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       agent_added: [`Agent added: ${e.agent}`, ""], agent_removed: [`Agent removed: ${e.agent}`, ""], agent_paused: [`${e.agent} paused`, ""], agent_resumed: [`${e.agent} resumed`, ""],
     }[e.type] ?? [e.type, ""]);
     $("#events").innerHTML = s.events.length ? s.events.map((e) => {
-      const [w, m] = line(e);
+      const [w0, m0] = line(e);
+      const w = plain(w0), m = plain(m0);
       const inner = `<span class="t">${time(e.at)}</span><span class="w">${esc(w)}</span><span class="m">${esc(m)}</span>`;
       return e.purchase
         ? `<button type="button" class="trow ${kind[e.type] ?? "info"}" data-receipt="${esc(e.purchase)}" aria-label="Open the receipt: ${esc(w)}">${inner}<span class="r">Receipt ›</span></button>`
