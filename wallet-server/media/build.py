@@ -67,6 +67,7 @@ def main():
 
     mp4 = os.path.join(out, f"{name}.mp4")
     fade_out = max(0.0, total - 0.8)
+    loudness = float(os.environ.get("LOUDNESS_LUFS", "-12"))
     # A busy recording browser writes a video that runs longer than the wall clock it was timed by
     # (seen: 67.4 s of video for 63.6 s), so the picture drifts behind the voice. Fit it to the timeline.
     vdur = video_duration(args.ffmpeg, os.path.join(out, "screen.webm"))
@@ -74,8 +75,9 @@ def main():
     run([
         args.ffmpeg, "-y", "-i", os.path.join(out, "screen.webm"), "-i", narration,
         "-vf", f"{fit}fps=30,format=yuv420p,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out:.2f}:d=0.8",
-        # Loudness for phones and social platforms: -16 LUFS integrated, -1.5 dBTP peaks.
-        "-af", f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=out:st={fade_out:.2f}:d=0.8",
+        # Loudness for phones and social platforms: -12 LUFS integrated (loud enough on a phone speaker),
+        # -1 dBTP peaks; LOUDNESS_LUFS overrides it (e.g. -16 for a quieter mix).
+        "-af", f"loudnorm=I={loudness}:TP=-1.0:LRA=9,afade=t=out:st={fade_out:.2f}:d=0.8",
         "-ar", "48000",
         "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-profile:v", "high",
         "-c:a", "aac", "-b:a", "160k", "-t", f"{total:.3f}", "-movflags", "+faststart", mp4,
