@@ -35,6 +35,7 @@
 //   OUTREACH_REPLY_TO   optional: where replies to outreach mail go (your own inbox)
 //   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
 //   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
+//   TYPESAFE_API_KEY    optional: search results ranked by meaning with TypeSafe's Jev (src/jev-rank.js)
 //   MAIL_FROM           optional: the sender, on a domain verified at Resend (default "Fizzl wallet <noreply@fizzl.eu>")
 //   VAPID_PRIVATE_KEY   optional: the key that signs phone notifications (32 bytes, base64url); by default it
 //                       is derived from SESSION_SECRET / ADMIN_PASSWORD
@@ -56,6 +57,7 @@ import { createStats } from "./src/stats.js";
 import { createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base } from "viem/chains";
+import { createRanker } from "./src/jev-rank.js";
 
 const env = process.env;
 const store = env.WALLET_REDIS_URL ? await redisStore(env.WALLET_REDIS_URL.trim()) : (console.warn("[store] WALLET_REDIS_URL not set: state lives in memory and is lost on restart"), memoryStore());
@@ -101,7 +103,7 @@ const accounts = createAccounts({
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
 // New sellers in the catalog go to the Telegram of accounts that follow their category.
-const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, ranker: createRanker({ apiKey: env.TYPESAFE_API_KEY }), seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined });
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).

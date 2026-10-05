@@ -118,7 +118,7 @@ const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().sl
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
 // `onNew(providers)` is called once with the sellers that appeared since the last load (never for the baseline).
 // `trust` (src/trust.js): x402 Doctor's daily track records per seller, to rank and label results.
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null } = {}) {
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null } = {}) {
   let items = null, at = 0, loading = null, firstSeen = {};
   async function load() {
     if (items && now() - at < TTL_MS) return items;
@@ -285,6 +285,8 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       if (sort === "cheap") all.sort((a, b) => a.cheapest - b.cheapest || (b.score ?? 0) - (a.score ?? 0));
       else if (sort === "record") { await trust?.ready(); all.sort((a, b) => tier(b) - tier(a) || record(b) - record(a) || (b.score ?? 0) - (a.score ?? 0) || a.cheapest - b.cheapest); }
       else if (browse) all.sort((a, b) => has(b) - has(a) || tier(b) - tier(a) || record(b) - record(a) || Number(b.isNew) - Number(a.isNew) || a.cheapest - b.cheapest);
+      // "best" with words: the best keyword matches ranked by meaning (src/jev-rank.js); keyword order if off or failing.
+      else if (ranker?.enabled) all = await ranker.rank(String(query), all);
       const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
       const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
       const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => r);
