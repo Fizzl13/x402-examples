@@ -33,7 +33,7 @@ export function toHtml(text, { logoUrl = null } = {}) {
   const sign = main.length >= 2 ? main.splice(-2) : [];
   while (main.length && !main[main.length - 1].trim()) main.pop();
   const paras = main.join("\n").split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${p.split("\n").map(linkify).join("<br>")}</p>`).join("");
-  const signature = sign.length ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 0"><tr>${logoUrl ? `<td style="padding:0 12px 0 0;vertical-align:middle"><img src="${escapeAttr(logoUrl)}" width="44" height="44" alt="Fizzl" style="display:block;border:0;border-radius:10px"></td>` : ""}<td style="vertical-align:middle;line-height:1.4">${sign.map(linkify).join("<br>")}</td></tr></table>` : "";
+  const signature = sign.length ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 0"><tr>${logoUrl ? `<td style="padding:0 12px 0 0;vertical-align:middle"><img src="${escapeAttr(logoUrl)}" width="44" height="44" alt="Fizzl" style="display:block;border:0;border-radius:50%"></td>` : ""}<td style="vertical-align:middle;line-height:1.4">${sign.map(linkify).join("<br>")}</td></tr></table>` : "";
   const footer = foot ? `<p style="margin:26px 0 0;padding-top:12px;border-top:1px solid #e3e8e6;color:#6b7774;font-size:12px">${linkify(foot)}</p>` : "";
   return `<!doctype html><html><body style="margin:0;padding:0;background:#ffffff"><div style="max-width:600px;padding:20px;font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#14201d">${paras}${signature}${footer}</div></body></html>`;
 }
