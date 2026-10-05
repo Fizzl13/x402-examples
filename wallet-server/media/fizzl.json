@@ -5,7 +5,7 @@
     {
       "id": "c-open",
       "scene": "clip",
-      "clip": "hf-open",
+      "clip": "hf-open-2",
       "hold": 5,
       "text": "AI agents now pay for things on their own."
     },
@@ -27,7 +27,7 @@
     {
       "id": "c-shield",
       "scene": "clip",
-      "clip": "hf-shield",
+      "clip": "hf-shield-2",
       "hold": 5,
       "text": "Bad payments are stopped. Good ones go through."
     },
