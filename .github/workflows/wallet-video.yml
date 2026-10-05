@@ -46,6 +46,18 @@ jobs:
           curl -fsSL -o kokoro-v1.0.onnx https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
           curl -fsSL -o voices-v1.0.bin https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
           python tts.py --engine kokoro --voice "${{ inputs.voice || 'af_heart' }}" --speed "${{ inputs.speed || '1.0' }}"
+      - name: Higgsfield clips (scripts with "scene": "clip", from the media-clips branch)
+        run: |
+          grep -q '"scene": "clip"' "$SCRIPT" || exit 0
+          command -v ffmpeg || (sudo apt-get update -q && sudo apt-get install -y -q ffmpeg)
+          mkdir -p clips
+          git fetch --depth 1 origin media-clips
+          for f in $(git ls-tree --name-only FETCH_HEAD | grep '\.mp4$'); do
+            git show "FETCH_HEAD:$f" > "clips/$f"
+            # Chromium (which records the video) plays VP9, not H.264.
+            ffmpeg -loglevel error -y -i "clips/$f" -an -c:v libvpx-vp9 -b:v 6M -deadline good -cpu-used 4 "clips/${f%.mp4}.webm"
+          done
+          ls -la clips
       - name: Browser
         run: |
           npm i --no-save --no-package-lock playwright@1.63.0

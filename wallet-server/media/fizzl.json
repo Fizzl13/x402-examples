@@ -1,21 +1,35 @@
 {
-  "title": "Fizzl: safe payments for AI agents (ad, ~45 seconds)",
+  "title": "Fizzl: safe payments for AI agents (ad, ~80 seconds, with Higgsfield clips)",
   "output": "fizzl-ad",
   "segments": [
+    {
+      "id": "c-open",
+      "scene": "clip",
+      "clip": "hf-open",
+      "hold": 5,
+      "text": "AI agents now pay for things on their own."
+    },
     {
       "id": "a-hook",
       "scene": "card",
       "card": {
-        "title": "AI agents now pay for things.",
-        "sub": "Who checks what they pay?"
+        "title": "Who checks what they pay?",
+        "sub": ""
       },
-      "text": "AI agents now pay for things on their own. But who checks what they pay for?"
+      "text": "But who checks what they pay for?"
     },
     {
       "id": "a-versus",
       "scene": "versus",
       "text": "A plain wallet signs whatever the agent asks. Fizzl checks first. Every time.",
       "hold": 6
+    },
+    {
+      "id": "c-shield",
+      "scene": "clip",
+      "clip": "hf-shield",
+      "hold": 5,
+      "text": "Bad payments are stopped. Good ones go through."
     },
     {
       "id": "a-check",
@@ -53,6 +67,13 @@
       "count": 35106,
       "text": "And x402 Doctor checks thirty-five thousand paid APIs every day, so your agent knows which ones really work.",
       "hold": 8.5
+    },
+    {
+      "id": "c-city",
+      "scene": "clip",
+      "clip": "hf-city",
+      "hold": 5,
+      "text": "Safe payments, for every agent."
     },
     {
       "id": "a-end",
