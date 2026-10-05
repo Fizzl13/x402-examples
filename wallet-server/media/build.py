@@ -11,6 +11,7 @@ x402-doctor-explainer).
 import argparse
 import json
 import os
+import re
 import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +23,13 @@ def srt_time(t):
     m, ms = divmod(ms, 60000)
     s, ms = divmod(ms, 1000)
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
+
+
+def video_duration(ffmpeg, path):
+    """The container duration in seconds, from ffmpeg's banner (no ffprobe needed), or None."""
+    p = subprocess.run([ffmpeg, "-i", path], capture_output=True, text=True)
+    m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", p.stderr)
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
 
 
 def run(cmd):
@@ -59,9 +67,13 @@ def main():
 
     mp4 = os.path.join(out, f"{name}.mp4")
     fade_out = max(0.0, total - 0.8)
+    # A busy recording browser writes a video that runs longer than the wall clock it was timed by
+    # (seen: 67.4 s of video for 63.6 s), so the picture drifts behind the voice. Fit it to the timeline.
+    vdur = video_duration(args.ffmpeg, os.path.join(out, "screen.webm"))
+    fit = f"setpts=PTS*{total / vdur:.5f}," if vdur and abs(vdur / total - 1) > 0.01 else ""
     run([
         args.ffmpeg, "-y", "-i", os.path.join(out, "screen.webm"), "-i", narration,
-        "-vf", f"fps=30,format=yuv420p,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out:.2f}:d=0.8",
+        "-vf", f"{fit}fps=30,format=yuv420p,fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out:.2f}:d=0.8",
         # Loudness for phones and social platforms: -16 LUFS integrated, -1.5 dBTP peaks.
         "-af", f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=out:st={fade_out:.2f}:d=0.8",
         "-ar", "48000",

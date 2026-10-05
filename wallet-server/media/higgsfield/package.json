@@ -1,0 +1,15 @@
+{
+  "name": "fizzl-higgsfield",
+  "private": true,
+  "description": "Video clips for the Fizzl videos from Higgsfield (Seedance 2.5 text-to-video). Server-side only: credentials come from HF_CREDENTIALS.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@higgsfield/client": "^0.2.6"
+  }
+}

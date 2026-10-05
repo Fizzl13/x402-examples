@@ -1,0 +1,69 @@
+{
+  "title": "Fizzl: safe payments for AI agents (ad, ~45 seconds)",
+  "output": "fizzl-ad",
+  "segments": [
+    {
+      "id": "a-hook",
+      "scene": "card",
+      "card": {
+        "title": "AI agents now pay for things.",
+        "sub": "Who checks what they pay?"
+      },
+      "text": "AI agents now pay for things on their own. But who checks what they pay for?"
+    },
+    {
+      "id": "a-versus",
+      "scene": "versus",
+      "text": "A plain wallet signs whatever the agent asks. Fizzl checks first. Every time.",
+      "hold": 6
+    },
+    {
+      "id": "a-check",
+      "scene": "check",
+      "text": "Before every signature: scams, drainers and sanctioned addresses are never signed.",
+      "hold": 6.5
+    },
+    {
+      "id": "a-inject",
+      "scene": "inject",
+      "text": "And after every payment, the answer is checked too. Hidden instructions aimed at your agent? It is warned before it reads them.",
+      "hold": 8.5
+    },
+    {
+      "id": "a-words",
+      "scene": "words",
+      "text": "You set the rules, in your own words.",
+      "hold": 5.5
+    },
+    {
+      "id": "a-phone",
+      "scene": "phone",
+      "text": "Above your limit, one tap on your phone. No answer, no payment.",
+      "hold": 5
+    },
+    {
+      "id": "a-flow",
+      "scene": "flow",
+      "text": "Your keys and your money stay with you. Always.",
+      "hold": 6
+    },
+    {
+      "id": "a-market",
+      "scene": "market",
+      "count": 35106,
+      "text": "And x402 Doctor checks thirty-five thousand paid APIs every day, so your agent knows which ones really work.",
+      "hold": 8.5
+    },
+    {
+      "id": "a-end",
+      "scene": "card",
+      "card": {
+        "title": "Fizzl",
+        "sub": "Safe payments for AI agents",
+        "note": "Free to start \u00b7 fizzl.eu"
+      },
+      "text": "Fizzl. Safe payments for AI agents. Free to start, at fizzl.eu.",
+      "hold": 5
+    }
+  ]
+}

@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: "Which video: script.json (the ~90-second intro) or short.json (30 seconds, for social media)"
+        description: "Which video: script.json (the ~90-second intro), short.json (30 seconds, for social media) or fizzl.json (the Fizzl ad, ~45 seconds)"
         type: choice
-        options: [script.json, short.json]
+        options: [script.json, short.json, fizzl.json]
         default: script.json
       voice:
         description: "Kokoro voice (e.g. af_heart, af_bella, am_michael, bf_emma, bm_george)"

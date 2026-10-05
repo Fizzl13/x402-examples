@@ -1,0 +1,28 @@
+name: higgsfield
+
+# One Seedance 2.5 text-to-video clip from Higgsfield (wallet-server/media/higgsfield/index.js).
+# By hand only: every run is a billable generation request. Needs the repository secret
+# HF_CREDENTIALS ("KEY_ID:KEY_SECRET"); it reaches the script as an environment variable and is
+# never printed. The video URL is in the run log.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: wallet-server/media/higgsfield
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - name: Generate
+        run: node index.js
+        env:
+          HF_CREDENTIALS: ${{ secrets.HF_CREDENTIALS }}
