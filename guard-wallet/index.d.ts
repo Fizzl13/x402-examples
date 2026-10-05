@@ -85,6 +85,12 @@ export interface Purchase {
   description?: string;
 }
 
+/** The wallet server's check of a reported answer (AI check; fields absent when not checked). */
+export interface AnswerCheck {
+  delivered?: { verdict: "yes" | "no" | "unsure"; p?: number; why?: string; decidedBy: string };
+  injection?: { flagged: boolean; p?: number; why?: string; decidedBy: string };
+}
+
 /** What happened after signing, given to report() inside withPurchase. */
 export interface PurchaseOutcome {
   httpStatus?: number;
@@ -130,7 +136,7 @@ export interface GuardControls {
    * Record what is being bought: every signature made inside fn carries it (onSpend, the
    * wallet server's receipts, approval messages). Call report() with what happened afterwards.
    */
-  withPurchase<T>(info: Purchase, fn: (report: (outcome: PurchaseOutcome) => void) => Promise<T> | T): Promise<T>;
+  withPurchase<T>(info: Purchase, fn: (report: (outcome: PurchaseOutcome) => void) => Promise<T> | T, opts?: { onChecked?: (check: AnswerCheck, out: T) => Promise<T> | T }): Promise<T>;
   /** The same guard (checks, limits, pause, purchases) on another WalletClient, e.g. one for Tempo: both spend from one budget. */
   wrap<W extends object>(wallet: W): W & GuardControls;
 }

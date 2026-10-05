@@ -181,6 +181,12 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
           await alertHook.send(hook.url, text, { type: "approval", agent: approval.agentName, summary: approval.summary, url: approval.purchase?.url ?? null, dashboard: `${site.origin}/#/overview`, at: now() }).catch((err) => console.warn(`[approval] webhook: ${err.message}`));
         }
       },
+      // A paid answer that wasn't what was paid for, or that tries to instruct the agent (src/jev-answer.js).
+      onAlert: async ({ kind, purchaseId, text }) => {
+        const a = await account(id);
+        if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, text).catch((err) => console.warn(`[answer] telegram: ${err.message}`));
+        await pushAll(id, { title: kind === "injection" ? "Instructions aimed at your agent" : "Your agent didn't get what it paid for", body: text, url: "/#/purchases", tag: `answer-${purchaseId ?? kind}` });
+      },
       onSettled: (approval) => telegram?.decided(approval),
     });
     wallets.set(id, w);
