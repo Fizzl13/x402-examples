@@ -1,0 +1,53 @@
+# fizzl (Python, PyPI): offline tests on every change, and a PyPI publish started by hand. Publishing uses PyPI
+# trusted publishing (GitHub OIDC): no token or secret. Before the first publish, add a "pending publisher" on
+# pypi.org (Account → Publishing): project "fizzl", owner Fizzl13, repository x402-examples, workflow fizzl-py.yml.
+name: fizzl-py
+
+on:
+  push:
+    branches: [main]
+    paths: ["fizzl-py/**", ".github/workflows/fizzl-py.yml"]
+  pull_request:
+    paths: ["fizzl-py/**", ".github/workflows/fizzl-py.yml"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the version in fizzl-py/pyproject.toml to PyPI"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    defaults:
+      run:
+        working-directory: fizzl-py
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: pip install ".[langchain]" pytest
+      - run: pytest -q tests
+      - run: pip install build && python -m build
+
+  publish:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install build && python -m build fizzl-py
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: fizzl-py/dist

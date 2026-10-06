@@ -5,6 +5,7 @@
 Give your agents a wallet without giving them a blank cheque:
 
 - **[presign-guard-wallet](guard-wallet)** (npm): a viem wallet that checks every signature with presign-guard first (drainers, sanctions, unlimited approvals), keeps to your **price per purchase and daily budget**, and asks you on **Telegram** for anything above them. `npm i presign-guard-wallet`
+- **[fizzl](fizzl-py)** (PyPI): the same checks for **Python** agents, with ready-made **LangChain** tools. `pip install fizzl`
 - **[presign-guard-ai-sdk](ai-sdk-guard)** (npm): safety checks as **Vercel AI SDK** tools. Before signing, before buying a token and before paying an x402 endpoint, the agent checks first. `npm i presign-guard-ai-sdk`
 - **[presign-guard-agentkit](agentkit-guard)** (npm): the same for **Coinbase AgentKit** agents. Wrap the wallet provider in one line, and every transfer, swap, approval, permit and x402 payment is checked and kept to your limits. `npm i presign-guard-agentkit`
 - **[presign-guard-wallet-mcp](wallet-mcp)** (npm, MCP server): a wallet with spending limits for **Claude, Cursor and any MCP client**. The agent can pay x402 APIs and send USDC within your budget, and asks you on Telegram above it. `npx -y presign-guard-wallet-mcp`
@@ -32,6 +33,7 @@ Small, open examples of AI agents combining paid APIs with [x402](https://x402.o
 | Example | What it does | Services | Cost per run |
 |---|---|---|---|
 | [wallet-mcp](wallet-mcp) | **MCP server** `presign-guard-wallet-mcp`: wallet tools for any MCP client (pay x402 APIs, send USDC), every signature checked by presign-guard and kept to spending limits, Telegram or wallet-server approval above them | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 per checked signature (or prepaid credits) |
+| [fizzl-py](fizzl-py) | **PyPI package** `fizzl`: the four checks for Python agents (requests + x402), plus LangChain tools | [presign-guard](https://presign-guard.fizzl.eu), [x402 Doctor](https://x402-doctor.fizzl.eu) | $0.001 to $0.02 per check (or prepaid credits) |
 | [ai-sdk-guard](ai-sdk-guard) | **npm package** `presign-guard-ai-sdk`: four Vercel AI SDK tools (check before signing, token check, wallet approvals, endpoint preflight) | [presign-guard](https://presign-guard.fizzl.eu), [x402 Doctor](https://x402-doctor.fizzl.eu) | $0.001 to $0.02 per check (or prepaid credits) |
 | [agentkit-guard](agentkit-guard) | **npm package** `presign-guard-agentkit`: wraps a Coinbase AgentKit wallet provider so every spending action is checked by presign-guard and kept to spending limits, with Telegram or wallet-server approval above them | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 per checked signature (or prepaid credits) |
 | [guard-wallet](guard-wallet) | **npm package** `presign-guard-wallet`: a viem wallet that asks presign-guard before every signature, keeps to spending limits and asks you on Telegram above them | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 per checked signature (or prepaid credits) |
