@@ -200,6 +200,21 @@ const wallet = guardWallet(walletClient, {
 
 If the server can't be reached the wallet stops (`limit_unavailable`); paused on the dashboard means `paused`.
 
+## Paying under a mandate
+
+A principal can give an agent a signed spending mandate ([x402 `authority` extension draft](https://github.com/x402-foundation/x402/pull/3220), `x402-mandate/1`): "spend up to CAP, to recipients in R, until T". Wrap the payment scheme with `mandatePayer` and each x402 payment is made under it: the EIP-3009 nonce becomes the binding of (mandate, paymentId), so the settled payment proves which grant it used, and the guarded wallet sends the mandate along with the check. presign-guard then makes a payment outside the mandate red (over `perPayment` or `cap`, another recipient, payer or token, expired, bad signature), before anything is signed.
+
+```js
+import { guardWallet, mandatePayer } from "presign-guard-wallet";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
+
+const wallet = guardWallet(walletClient, { pay });
+const signer = { address: account.address, signTypedData: (t) => wallet.signTypedData({ account, ...t }) };
+client.register("eip155:8453", mandatePayer(new ExactEvmScheme(signer), mandate)); // mandate = { mandate, alg: "Ed25519", sig }
+```
+
+Only single payments are checked; the cumulative spend against the cap needs the mandate's accountant. Permit2 payments pass through unbound. The draft is still open, so details may change.
+
 ## Signed verdicts
 
 presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash of your request inside the signed body; see [Signed verdicts](https://github.com/Fizzl13/presign-guard#signed-verdicts)). The wallet checks that signature before it acts:

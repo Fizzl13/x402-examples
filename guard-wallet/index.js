@@ -38,6 +38,8 @@ import { createLimiter, memoryStore } from "./limits.js";
 import { createRemoteLimiter } from "./remote.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { mandateFor } from "./mandate.js";
+export { mandatePayer, mandateDigest, mandateBinding } from "./mandate.js";
 export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
@@ -49,7 +51,7 @@ export const TEMPO_TOKENS = {
   42431: ["0x20c0000000000000000000000000000000000000"],
 };
 const TEMPO_TRANSFERS = new Set(["transfer", "transferWithMemo"]);
-export const VERSION = "0.7.0";
+export const VERSION = "0.9.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -80,7 +82,9 @@ export function checkRequestFor(method, args, { chainId, origin } = {}) {
   }
   if (method === "signTypedData") {
     const { domain, types, primaryType, message } = args;
-    return { type: "signature", ...base, typedData: { domain, types, primaryType, message } };
+    // A payment made by mandatePayer() (mandate.js) is checked against its mandate too.
+    const under = primaryType === "TransferWithAuthorization" ? mandateFor(message?.nonce) : null;
+    return { type: "signature", ...base, typedData: { domain, types, primaryType, message }, ...(under && { mandate: { ...under.envelope, paymentId: under.paymentId } }) };
   }
   return null;
 }

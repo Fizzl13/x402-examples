@@ -177,3 +177,18 @@ export interface GuardOptions {
 /** The same wallet client; sendTransaction, writeContract and signTypedData are checked first. */
 export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
 export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string }): CheckRequest | null;
+
+/** A principal's signed spending mandate (x402 `authority` extension draft, x402-mandate/1). */
+export interface MandateEnvelope {
+  mandate: { v: "x402-mandate/1"; issuer: string; subject: string; asset: string; cap: string; perPayment?: string; recipients: string[]; accountant: string; purpose: string; notAfter: string; nonce: string; parent?: string };
+  alg: "Ed25519";
+  sig: string;
+}
+/**
+ * Wraps an x402 EVM payment scheme (e.g. `new ExactEvmScheme(signer)`) so its EIP-3009 payments are
+ * made under `mandate`: the nonce becomes the mandate binding, and a guardWallet() signer sends the
+ * mandate to presign-guard, which makes a payment outside it red.
+ */
+export function mandatePayer<S extends { scheme?: string; signer: unknown; createPaymentPayload: (...args: any[]) => Promise<unknown> }>(scheme: S, mandate: MandateEnvelope): S;
+export function mandateDigest(mandate: MandateEnvelope["mandate"]): string;
+export function mandateBinding(digest: string, paymentId: string): string;
