@@ -1,0 +1,37 @@
+# Hands a written message to the wallet server as an outreach DRAFT. Nothing is mailed here: the draft lands on
+# Frits's Telegram (and the dashboard) and only his "Versturen" sends it. The wallet server keeps its rules: one
+# mail per address ever, a daily cap, and a "reply stop" line under every mail.
+# Needs the DRAFT_KEY secret here and the same value as DRAFT_KEY on the Render service fizzl-wallet-server.
+name: outreach-draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      to: { description: "Recipient's published contact address", required: true }
+      subject: { description: "Subject", required: true }
+      body: { description: "Text (plain, \\n for new lines); ends with the sign-off", required: true }
+      url: { description: "Their site (optional, for the one-draft-per-site rule)", required: false }
+
+permissions: {}
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hand in the draft
+        env:
+          DRAFT_KEY: ${{ secrets.DRAFT_KEY }}
+          TO: ${{ inputs.to }}
+          SUBJECT: ${{ inputs.subject }}
+          BODY: ${{ inputs.body }}
+          URL: ${{ inputs.url }}
+        run: |
+          test -n "$DRAFT_KEY" || { echo "::error::Add the DRAFT_KEY secret first"; exit 1; }
+          # Inputs typed with literal \n get real new lines.
+          body=$(printf '%b' "$BODY")
+          jq -n --arg to "$TO" --arg subject "$SUBJECT" --arg body "$body" --arg url "$URL" \
+            '{to: $to, subject: $subject, body: $body} + (if $url == "" then {} else {url: $url} end)' > draft.json
+          code=$(curl -sS -o out.json -w '%{http_code}' -X POST https://wallet.fizzl.eu/hooks/outreach-message \
+            -H "authorization: Bearer $DRAFT_KEY" -H 'content-type: application/json' --data @draft.json)
+          jq -c '{draft: (.draft | if . then {id, to, host, subject} else null end), skipped, message, error}' out.json
+          test "$code" = 200

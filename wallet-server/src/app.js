@@ -23,7 +23,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, likes = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -374,6 +374,20 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!timingSafeEqual(given, keyHash)) { console.warn("[outreach] a draft with a wrong OUTREACH_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
     const out = await outreach.fromDoctor({ url: req.body?.url, to: req.body?.to, findings: req.body?.findings, reportUrl: req.body?.reportUrl, via: req.body?.via === "scan" ? "scan" : "check" });
     console.log(`[outreach] from Doctor: ${out.draft ? `draft ${out.draft.id} for ${out.draft.host}` : `no draft (${out.skipped})`}`);
+    res.json(out);
+  }));
+
+  // Claude hands in a written message (to, subject, text) for the owner to send. Needs DRAFT_KEY, a separate key
+  // from Doctor's OUTREACH_KEY; makes a draft only, under the same rules (one mail per address, daily cap, Send on
+  // Telegram or the dashboard).
+  const draftKeyHash = draftKey ? createHash("sha256").update(draftKey).digest() : null;
+  app.post("/hooks/outreach-message", wrap(async (req, res) => {
+    if (!outreach || !draftKeyHash) return res.status(404).json({ error: "not_found" });
+    const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
+    if (!timingSafeEqual(given, draftKeyHash)) { console.warn("[outreach] a message with a wrong DRAFT_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
+    const b = req.body ?? {};
+    const out = await outreach.add({ to: b.to, subject: b.subject, body: b.body, url: typeof b.url === "string" ? b.url : null, host: typeof b.host === "string" ? b.host : null, source: "claude" });
+    console.log(`[outreach] from Claude: ${out.draft ? `draft ${out.draft.id} to ${out.draft.to}` : `no draft (${out.skipped})`}`);
     res.json(out);
   }));
 
