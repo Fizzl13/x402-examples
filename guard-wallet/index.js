@@ -51,7 +51,7 @@ export const TEMPO_TOKENS = {
   42431: ["0x20c0000000000000000000000000000000000000"],
 };
 const TEMPO_TRANSFERS = new Set(["transfer", "transferWithMemo"]);
-export const VERSION = "0.9.0";
+export const VERSION = "0.9.1";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 

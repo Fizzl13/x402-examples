@@ -441,3 +441,36 @@ test("withWarnings: the wallet server's answer check goes in front of the answer
   assert.match(w.warnings[1], /doesn't look like what was paid for \(empty\)/);
   assert.equal(w.body, "hi");
 });
+
+// Paying under a spending mandate (x402 `authority` extension draft): MANDATE env.
+import { generateKeyPairSync, sign as edSign } from "node:crypto";
+import { privateKeyToAccount } from "viem/accounts";
+import { mandateDigest, mandateBinding } from "presign-guard-wallet";
+// RFC 8785 for the flat mandate object (strings and a string array), to sign it in the test.
+const jcs = (v) => (Array.isArray(v) ? `[${v.map(jcs).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${jcs(v[k])}`).join(",")}}` : JSON.stringify(v));
+
+function mandateEnv(over = {}) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const issuer = publicKey.export({ format: "jwk" }).x;
+  const mandate = { v: "x402-mandate/1", issuer, subject: privateKeyToAccount(KEY).address, asset: USDC_BASE, cap: "5000000", perPayment: "1000000", recipients: [SHOP], accountant: issuer, purpose: "test agent budget", notAfter: "2030-01-01T00:00:00Z", nonce: "m1", ...over };
+  return { mandate, MANDATE: JSON.stringify({ mandate, alg: "Ed25519", sig: edSign(null, Buffer.from("x402-mandate/1\n" + jcs(mandate)), privateKey).toString("base64url") }) };
+}
+
+test("MANDATE: x402 payments carry its binding and the check carries the mandate; wallet_status shows it", async () => {
+  const { mandate, MANDATE } = mandateEnv();
+  const { call, net } = await setup({ MANDATE });
+  const r = await call("pay_x402", { url: API });
+  assert.equal(r.error, false, r.text);
+  const sent = net.checks[0].mandate;
+  assert.ok(sent && sent.paymentId);
+  const nonce = net.paid[0].payload.authorization.nonce;
+  assert.equal(nonce, mandateBinding(mandateDigest(mandate), sent.paymentId));
+  const status = JSON.parse((await call("wallet_status")).text);
+  assert.equal(status.mandate.digest, mandateDigest(mandate));
+  assert.equal(status.mandate.cap, "5000000");
+});
+
+test("MANDATE that is not a signed x402-mandate/1 grant is refused at start", () => {
+  assert.throws(() => configFromEnv({ ...ENV, MANDATE: "{nope" }), /MANDATE must be JSON/);
+  assert.throws(() => configFromEnv({ ...ENV, MANDATE: JSON.stringify({ mandate: { v: "x" }, alg: "Ed25519", sig: "s" }) }), /MANDATE must be/);
+});

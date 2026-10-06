@@ -93,6 +93,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `MAX_PAYMENT_USD` | most one `pay_x402` call may cost (default `1`); a cap on top of the limits |
 | `X402_DISCOVERY_URL` | the x402 catalog `find_services` searches (default Coinbase's Bazaar discovery API) |
 | `PRESIGN_CREDIT_KEY` | pay the $0.01 checks from [prepaid credits](https://presign-guard.fizzl.eu) (`pgc_…`) |
+| `MANDATE` / `MANDATE_FILE` | optional: the owner's signed spending mandate ([x402 `authority` draft](https://github.com/x402-foundation/x402/pull/3220)) as JSON `{ mandate, alg: "Ed25519", sig }`, or a path to it. x402 payments are then made under it (the nonce carries its binding) and presign-guard refuses a payment outside it (over `perPayment` or `cap`, another recipient or token, expired). `wallet_status` shows it. Single payments only: the cumulative cap needs the mandate's accountant |
 | `RPC_URL` | your own RPC for the chain |
 | `TEMPO` | `off` to never pay on Tempo (default on: MPP `tempo` charges are paid with USDC.e on Tempo, from the same address; put some USDC.e there, it also pays the ~$0.001 fee) |
 | `TEMPO_CHAIN` | `4217` (Tempo, default) or `42431` (Moderato testnet, pays in pathUSD) |
