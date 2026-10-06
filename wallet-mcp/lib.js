@@ -2,17 +2,18 @@
 // presign-guard-wallet, so every payment and transfer a model asks for is
 // checked by presign-guard and kept to the owner's limits, with approval on
 // Telegram or the wallet server above them.
+import { readFileSync } from "node:fs";
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, keccak256, parseEther, parseUnits, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, bsc, mainnet, optimism, polygon, tempo, tempoModerato } from "viem/chains";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
-import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
+import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest } from "presign-guard-wallet";
 import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.8.0";
+export const VERSION = "0.9.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -99,6 +100,15 @@ export function configFromEnv(env = process.env) {
   if (telegram && (!telegram.token || !telegram.chatId)) throw new Error("Telegram approval needs both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID");
   if (telegram && server) throw new Error("with WALLET_SERVER_URL, approvals go through the wallet server (its own Telegram): leave out TELEGRAM_*");
 
+  // Optional spending mandate (x402 `authority` extension draft): MANDATE = the principal's signed
+  // grant as JSON { mandate, alg, sig }, or MANDATE_FILE = a path to that JSON.
+  let mandate;
+  const mandateText = env.MANDATE || (env.MANDATE_FILE ? readFileSync(env.MANDATE_FILE, "utf8") : "");
+  if (mandateText.trim()) {
+    try { mandate = JSON.parse(mandateText); } catch { throw new Error("MANDATE must be JSON: { mandate: { v: \"x402-mandate/1\", … }, alg: \"Ed25519\", sig }"); }
+    if (mandate?.mandate?.v !== "x402-mandate/1" || mandate.alg !== "Ed25519" || typeof mandate.sig !== "string") throw new Error("MANDATE must be { mandate: { v: \"x402-mandate/1\", … }, alg: \"Ed25519\", sig }");
+  }
+
   const maxPrice = env.MAX_PAYMENT_USD ?? "1";
   if (!/^\d+(\.\d+)?$/.test(maxPrice)) throw new Error("MAX_PAYMENT_USD must be a number of dollars, e.g. 1 or 0.25");
 
@@ -115,6 +125,7 @@ export function configFromEnv(env = process.env) {
     // MPP on Tempo: on by default (mainnet), TEMPO_CHAIN=42431 for the testnet, TEMPO=off to leave it out.
     tempo: tempoConfig(env),
     discoveryUrl: env.X402_DISCOVERY_URL || DISCOVERY_URL,
+    mandate,
   };
 }
 
@@ -259,7 +270,10 @@ export function createWallet(config, overrides = {}) {
     } else if (first.status === 402) {
       // x402: the payment client starts from the 402 we already have, so the API isn't asked twice.
       const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
-      client.register(`eip155:${chain.id}`, new ExactEvmScheme(signer));
+      // Under a mandate, x402 payments carry its binding and presign-guard checks them against it.
+      const scheme = new ExactEvmScheme(signer);
+      // Object.create: the x402 client also asks the scheme for findDefaultAsset (spend controls).
+      client.register(`eip155:${chain.id}`, config.mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, config.mandate)) : scheme);
       let pending = first;
       const replay = (input, i) => { if (pending) { const r = pending; pending = null; return Promise.resolve(r); } return plainFetch(input, i); };
       res = await wrapFetchWithPayment(replay, client)(url, init);
@@ -325,6 +339,15 @@ export function createWallet(config, overrides = {}) {
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
         approvals: config.server ? "wallet server (dashboard / Telegram)" : config.telegram ? "Telegram" : "none: anything over a limit is refused",
         maxPaymentUsd: config.maxPaymentUsd,
+        ...(config.mandate && { mandate: {
+          digest: mandateDigest(config.mandate.mandate),
+          purpose: config.mandate.mandate.purpose,
+          cap: config.mandate.mandate.cap,
+          ...(config.mandate.mandate.perPayment && { perPayment: config.mandate.mandate.perPayment }),
+          recipients: config.mandate.mandate.recipients,
+          notAfter: config.mandate.mandate.notAfter,
+          note: "x402 payments are made under this mandate (amounts in the asset's smallest unit); presign-guard refuses one outside it",
+        } }),
         paused: guarded.paused(),
       };
     },

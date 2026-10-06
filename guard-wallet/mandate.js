@@ -48,7 +48,8 @@ function cleanEnvelope(envelope) {
 export function mandatePayer(scheme, mandate) {
   const envelope = cleanEnvelope(mandate);
   const digest = mandateDigest(envelope.mandate);
-  return {
+  // Everything else (scheme name, findDefaultAsset, …) comes from the wrapped scheme.
+  return Object.assign(Object.create(scheme), {
     scheme: scheme.scheme ?? "exact",
     async createPaymentPayload(x402Version, requirements, context) {
       if ((requirements.extra?.assetTransferMethod ?? "eip3009") !== "eip3009") return scheme.createPaymentPayload(x402Version, requirements, context);
@@ -74,5 +75,5 @@ export function mandatePayer(scheme, mandate) {
         bound.delete(nonce);
       }
     },
-  };
+  });
 }

@@ -55,3 +55,10 @@ test("permit2 payments go to the wrapped scheme; a malformed mandate is refused"
   assert.equal(await mandatePayer(base, envelope).createPaymentPayload(2, { ...requirements, extra: { assetTransferMethod: "permit2" } }), "from-base");
   assert.throws(() => mandatePayer(base, { mandate: { v: "x" }, alg: "Ed25519", sig: "s" }), TypeError);
 });
+
+test("the wrapper keeps the wrapped scheme's other members (findDefaultAsset for spend controls)", () => {
+  const base = { scheme: "exact", signer: {}, findDefaultAsset: () => "usdc", createPaymentPayload: async () => null };
+  const w = mandatePayer(base, envelope);
+  assert.equal(w.findDefaultAsset(), "usdc");
+  assert.equal(w.scheme, "exact");
+});
