@@ -18,9 +18,15 @@ class SignArgs(BaseModel):
     typedData: Optional[Union[dict, str]] = Field(None, description="signature: the eth_signTypedData_v4 payload")
     origin: Optional[str] = Field(None, description="the site asking for the signature or transaction, if any")
 
+class XrplArgs(BaseModel):
+    tx: dict = Field(description="The unsigned XRP Ledger transaction JSON (TransactionType, Account, ...)")
+    network: Optional[Literal["xrpl:0", "xrpl:1"]] = Field(None, description="xrpl:0 mainnet (default) or xrpl:1 testnet")
+    origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
+
+
 class TokenArgs(BaseModel):
-    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]
-    address: str = Field(description="Solana mint (base58) or EVM token contract (0x…)")
+    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl"]
+    address: str = Field(description="Solana mint (base58), EVM token contract (0x…), or an XRPL token as CURRENCY.rIssuer")
 
 class ApprovalArgs(BaseModel):
     chain: Literal["base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]
@@ -35,6 +41,7 @@ class EndpointArgs(BaseModel):
 
 ARGS = {
     "check_before_signing": SignArgs,
+    "check_xrpl_transaction": XrplArgs,
     "check_token": TokenArgs,
     "check_wallet_approvals": ApprovalArgs,
     "check_endpoint_before_paying": EndpointArgs,

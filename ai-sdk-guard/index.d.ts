@@ -5,7 +5,7 @@ export declare const PRESIGN_URL: string;
 export declare const DOCTOR_URL: string;
 export declare const PRICES: Record<FizzlToolName, string>;
 
-export type FizzlToolName = "check_before_signing" | "check_token" | "check_wallet_approvals" | "check_endpoint_before_paying";
+export type FizzlToolName = "check_before_signing" | "check_xrpl_transaction" | "check_token" | "check_wallet_approvals" | "check_endpoint_before_paying";
 
 /** A failed check, returned to the model instead of thrown. */
 export interface FizzlToolError { error: string; message: string }

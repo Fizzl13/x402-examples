@@ -21,19 +21,20 @@ import json
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
 DOCTOR_URL = "https://x402-doctor.fizzl.eu"
 PRICES = {
     "check_before_signing": "$0.01",
+    "check_xrpl_transaction": "$0.01",
     "check_token": "$0.01",
     "check_wallet_approvals": "$0.02",
     "check_endpoint_before_paying": "$0.001",
 }
 EVM_CHAIN_IDS = (1, 10, 56, 137, 8453, 42161)
-TOKEN_CHAINS = ("solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc")
+TOKEN_CHAINS = ("solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl")
 APPROVAL_CHAINS = ("base", "ethereum", "arbitrum", "optimism", "polygon", "bsc")
 
 
@@ -145,9 +146,22 @@ class Fizzl:
         return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_before_signing",
                              lambda: self._free_signing(body))
 
+    def check_xrpl_transaction(self, tx: dict, network: Optional[str] = None, origin: Optional[str] = None) -> dict:
+        """Check an XRP Ledger transaction BEFORE signing it (presign-guard, $0.01). Red: handing the account to
+        another key (SetRegularKey, SignerListSet, disabling the master key), AccountDelete, fake RLUSD. Orange:
+        partial payments, destinations that refuse or need a tag, risky token issuers, DEX orders far below the
+        order book or AMM price. Never sign on red; ask the user on orange."""
+        if not isinstance(tx, dict) or not isinstance(tx.get("TransactionType"), str) or not isinstance(tx.get("Account"), str):
+            return _error("bad_input", "tx must be the unsigned transaction JSON with TransactionType and Account")
+        if network is not None and network not in ("xrpl:0", "xrpl:1"):
+            return _error("bad_input", 'network must be "xrpl:0" (mainnet) or "xrpl:1" (testnet)')
+        body = {"type": "xrpl", "tx": tx, **({"network": network} if network else {}), **({"origin": origin} if origin else {})}
+        return self._call("presign", "POST", f"{self.presign_url}/v1/check", body)
+
     def check_token(self, chain: str, address: str) -> dict:
         """Check a token BEFORE buying, holding or accepting it (presign-guard, $0.01): honeypot, rug-pull
-        signs, look-alikes of known tokens. Solana and EVM chains."""
+        signs, look-alikes of known tokens. Solana, EVM chains, and XRPL tokens as CURRENCY.rIssuer (issuer
+        clawback, freeze, transfer fee, fake RLUSD)."""
         if chain not in TOKEN_CHAINS:
             return _error("bad_input", f"chain must be one of {TOKEN_CHAINS}")
         q = urlencode({"chain": chain, "address": address})

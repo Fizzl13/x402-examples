@@ -17,7 +17,7 @@ function standIn(answers) {
   return { fetch, calls };
 }
 
-test("four tools, each with a description, a schema and execute; `only` picks, unknown names throw", () => {
+test("five tools, each with a description, a schema and execute; `only` picks, unknown names throw", () => {
   const t = fizzlTools({ fetch: async () => new Response("{}") });
   assert.deepEqual(Object.keys(t).sort(), Object.keys(PRICES).sort());
   for (const v of Object.values(t)) { assert.equal(typeof v.description, "string"); assert.equal(typeof v.execute, "function"); assert.ok(v.inputSchema.safeParse); }
@@ -79,6 +79,17 @@ test("free fallback: unpaid checks answer with the free quick check, marked free
   assert.equal((await t.check_wallet_approvals.execute({ chain: "base", address: "0x6B0F4651eD42893ab58139938175E4a69f175F25" })).error, "payment_required");
   const off = fizzlTools({ fetch: s.fetch, free: false });
   assert.equal((await off.check_token.execute({ chain: "base", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" })).error, "payment_required");
+});
+
+test("XRPL: check_xrpl_transaction posts type xrpl; check_token takes chain xrpl", async () => {
+  const s = standIn({ "/v1/check": [200, { verdict: "red", reasons: [{ code: "XRPL_REGULAR_KEY_CHANGE" }] }], "/v1/token": [200, { verdict: "green" }] });
+  const t = fizzlTools({ fetch: s.fetch });
+  const tx = { TransactionType: "SetRegularKey", Account: "rMnHeutYALco8RYFVcmuU4BCgSzBpPEh32", RegularKey: "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv" };
+  assert.equal((await t.check_xrpl_transaction.execute({ tx })).verdict, "red");
+  assert.deepEqual(s.calls[0].body, { type: "xrpl", tx });
+  assert.equal(t.check_xrpl_transaction.inputSchema.safeParse({ tx: { Account: "r…" } }).success, false);
+  await t.check_token.execute({ chain: "xrpl", address: "RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De" });
+  assert.match(s.calls[1].url, /chain=xrpl&address=RLUSD/);
 });
 
 test("schemas refuse bad input before anything is paid", () => {

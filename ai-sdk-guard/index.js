@@ -7,10 +7,10 @@
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
-export const PRICES = { check_before_signing: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
+export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
 
 const EVM_CHAIN_IDS = [1, 10, 56, 137, 8453, 42161];
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -115,11 +115,20 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
       }),
       execute: async (input) => orFree(await presign("/v1/check", { method: "POST", body: input }), PRICES.check_before_signing, () => freePresignCheck(fetchImpl, presignUrl, input, timeoutMs)),
     },
-    check_token: {
-      description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana and EVM chains.`,
+    check_xrpl_transaction: {
+      description: `Check an XRP Ledger transaction BEFORE signing it (presign-guard, ${PRICES.check_xrpl_transaction}). Red: handing the account to another key (SetRegularKey, SignerListSet, disabling the master key), AccountDelete, fake RLUSD. Orange: partial payments, destinations that refuse or need a destination tag, trust lines or DEX buys of tokens whose issuer can claw back, freeze or charge fees, DEX orders far below the order book or AMM price, escrows and NFT giveaways. Never sign on red; ask the user on orange.`,
       inputSchema: z.object({
-        chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]),
-        address: z.string().min(20).describe("Solana mint (base58) or EVM token contract (0x…)"),
+        tx: z.record(z.string(), z.any()).refine((t) => typeof t.TransactionType === "string" && typeof t.Account === "string", "tx needs TransactionType and Account").describe("The unsigned transaction JSON (TransactionType, Account, ...)"),
+        network: z.enum(["xrpl:0", "xrpl:1"]).optional().describe("xrpl:0 mainnet (default) or xrpl:1 testnet"),
+        origin: z.string().optional().describe("the site asking for the signature, if any"),
+      }),
+      execute: async ({ tx, network, origin }) => presign("/v1/check", { method: "POST", body: { type: "xrpl", tx, ...(network && { network }), ...(origin && { origin }) } }),
+    },
+    check_token: {
+      description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana, EVM chains and the XRP Ledger (issuer clawback, freeze, transfer fee, fake RLUSD).`,
+      inputSchema: z.object({
+        chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl"]),
+        address: z.string().min(20).describe("Solana mint (base58), EVM token contract (0x…), or an XRPL token as CURRENCY.rIssuer (e.g. RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De)"),
       }),
       execute: async ({ chain, address }) => orFree(await presign(`/v1/token?${new URLSearchParams({ chain, address })}`, {}), PRICES.check_token, () => freeTokenCheck(fetchImpl, presignUrl, { chain, address }, timeoutMs)),
     },

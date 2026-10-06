@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fizzl"
-version = "0.3.0"
+version = "0.4.0"
 description = "Safety checks for AI agents that pay: check a transaction or signature before signing, a token before buying, a wallet's approvals, and an x402 endpoint before paying it (presign-guard, x402 Doctor)."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.9"
 dependencies = ["requests>=2.28"]
-keywords = ["x402", "ai-agents", "agents", "langchain", "openai-agents", "wallet", "security", "presign", "token-check", "honeypot", "approvals", "usdc", "base", "solana", "mcp"]
+keywords = ["x402", "ai-agents", "agents", "langchain", "openai-agents", "wallet", "security", "presign", "token-check", "honeypot", "approvals", "usdc", "base", "solana", "xrpl", "rlusd", "mcp"]
 classifiers = ["Programming Language :: Python :: 3", "Intended Audience :: Developers", "Topic :: Security"]
 
 [project.optional-dependencies]
