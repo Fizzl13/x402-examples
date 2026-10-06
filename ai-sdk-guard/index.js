@@ -7,6 +7,7 @@
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
+export const VERSION = "0.2.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PRICES = { check_before_signing: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
@@ -18,7 +19,7 @@ async function call(fetchImpl, url, { method = "GET", body, creditKey, timeoutMs
   try {
     const res = await fetchImpl(url, {
       method,
-      headers: { accept: "application/json", "user-agent": "presign-guard-ai-sdk/0.1.0", ...(body ? { "content-type": "application/json" } : {}), ...(creditKey ? { "x-credit-key": creditKey } : {}) },
+      headers: { accept: "application/json", "user-agent": `presign-guard-ai-sdk/${VERSION}`, ...(body ? { "content-type": "application/json" } : {}), ...(creditKey ? { "x-credit-key": creditKey } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -35,15 +36,65 @@ async function call(fetchImpl, url, { method = "GET", body, creditKey, timeoutMs
   }
 }
 
+// Free quick checks, used when a paid check can't be paid (no payer or credit key yet, or the payment failed):
+// the verdict only, rate-limited per hour by the services. They let an agent (and its developer) try the tools
+// before setting up payment; the answer says so and what the full check costs.
+const FREE_NOTE = (price) => `Free quick check: the verdict only, a few per hour. The full check (reasons and details) costs ${price} via x402 or prepaid credits.`;
+
+async function freePresignCheck(fetchImpl, presignUrl, input, timeoutMs) {
+  try {
+    const res = await fetchImpl(`${presignUrl}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "user-agent": `presign-guard-ai-sdk/${VERSION}` },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "presign_quick_check", arguments: input } }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const raw = await res.text();
+    const line = raw.trimStart().startsWith("{") ? raw : (raw.split("\n").find((l) => l.startsWith("data:")) || "").slice(5);
+    const text = JSON.parse(line)?.result?.content?.[0]?.text;
+    const out = JSON.parse(text);
+    return out && typeof out === "object" && out.verdict ? out : null;
+  } catch { return null; }
+}
+
+async function freeTokenCheck(fetchImpl, presignUrl, { chain, address }, timeoutMs) {
+  try {
+    const res = await fetchImpl(`${presignUrl}/v1/token/quick?${new URLSearchParams({ chain, address })}`, { headers: { accept: "application/json", "user-agent": `presign-guard-ai-sdk/${VERSION}` }, signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const out = await res.json();
+    return out && out.verdict ? out : null;
+  } catch { return null; }
+}
+
+// The free web check of x402 Doctor: overall pass/warn/fail, read as go/caution/no_go, with the problems found.
+async function freeEndpointCheck(fetchImpl, doctorUrl, { url, method }, timeoutMs) {
+  try {
+    const res = await fetchImpl(`${doctorUrl}/api/diagnose`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", "user-agent": `presign-guard-ai-sdk/${VERSION}` }, body: JSON.stringify({ url, ...(method ? { method } : {}) }), signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const verdict = { pass: "go", warn: "caution", fail: "no_go" }[d?.overall];
+    if (!verdict) return null;
+    const problems = (d.checks || []).filter((c) => c.status === "fail" || c.status === "warn").slice(0, 6).map((c) => ({ status: c.status, id: c.id, message: c.message }));
+    return { verdict, problems, report: d.share_url };
+  } catch { return null; }
+}
+
 /**
  * The Fizzl tools for the AI SDK: pass the result as `tools` to generateText/streamText or an agent.
  * @param {object} [options]
  * @param {typeof fetch} [options.fetch] fetch that pays x402 (wrapFetchWithPayment from @x402/fetch); plain fetch works with credit keys
  * @param {{ presign?: string, doctor?: string }} [options.creditKeys] prepaid credit keys (x-credit-key) per service
  * @param {string[]} [options.only] the tool names to include (default: all four)
+ * @param {boolean} [options.free] fall back to the free quick checks when a check can't be paid (default true)
  * @param {string} [options.presignUrl] @param {string} [options.doctorUrl] @param {number} [options.timeoutMs]
  */
-export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {}, only, presignUrl = PRESIGN_URL, doctorUrl = DOCTOR_URL, timeoutMs = 30000 } = {}) {
+export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {}, only, free = true, presignUrl = PRESIGN_URL, doctorUrl = DOCTOR_URL, timeoutMs = 30000 } = {}) {
+  // A paid answer, or (when it can't be paid and `free` is on) the free quick check with a note.
+  const orFree = async (paid, price, quick) => {
+    if (paid?.error !== "payment_required" || !free) return paid;
+    const q = await quick();
+    return q ? { ...q, free: true, note: FREE_NOTE(price), payment: paid.message } : paid;
+  };
   const presign = (path, opts) => call(fetchImpl, `${presignUrl}${path}`, { creditKey: creditKeys.presign, timeoutMs, ...opts });
   const doctor = (path, opts) => call(fetchImpl, `${doctorUrl}${path}`, { creditKey: creditKeys.doctor, timeoutMs, ...opts });
 
@@ -62,7 +113,7 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
         typedData: z.union([z.record(z.string(), z.any()), z.string()]).optional().describe("signature: the eth_signTypedData_v4 payload"),
         origin: z.string().optional().describe("the site asking for the signature or transaction, if any"),
       }),
-      execute: async (input) => presign("/v1/check", { method: "POST", body: input }),
+      execute: async (input) => orFree(await presign("/v1/check", { method: "POST", body: input }), PRICES.check_before_signing, () => freePresignCheck(fetchImpl, presignUrl, input, timeoutMs)),
     },
     check_token: {
       description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana and EVM chains.`,
@@ -70,7 +121,7 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
         chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]),
         address: z.string().min(20).describe("Solana mint (base58) or EVM token contract (0x…)"),
       }),
-      execute: async ({ chain, address }) => presign(`/v1/token?${new URLSearchParams({ chain, address })}`, {}),
+      execute: async ({ chain, address }) => orFree(await presign(`/v1/token?${new URLSearchParams({ chain, address })}`, {}), PRICES.check_token, () => freeTokenCheck(fetchImpl, presignUrl, { chain, address }, timeoutMs)),
     },
     check_wallet_approvals: {
       description: `List every open token approval of an EVM wallet and which ones to revoke (presign-guard, ${PRICES.check_wallet_approvals}).`,
@@ -93,7 +144,7 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
         if (max_usd !== undefined) q.set("max_usd", String(max_usd));
         if (network) q.set("network", network);
         if (method) q.set("method", method);
-        return doctor(`/api/v1/preflight?${q}`, {});
+        return orFree(await doctor(`/api/v1/preflight?${q}`, {}), PRICES.check_endpoint_before_paying, () => freeEndpointCheck(fetchImpl, doctorUrl, { url, method }, timeoutMs));
       },
     },
   };

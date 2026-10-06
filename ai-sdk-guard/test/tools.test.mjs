@@ -60,6 +60,27 @@ test("failures come back as { error } for the model, never thrown", async () => 
   assert.deepEqual(await down.check_endpoint_before_paying.execute({ url: "https://a.example" }), { error: "check_failed", message: "TypeError: fetch failed" });
 });
 
+test("free fallback: unpaid checks answer with the free quick check, marked free, unless free: false", async () => {
+  const s = standIn({
+    "/v1/token": [402, {}], "/v1/token/quick": [200, { verdict: "green", grade: "SAFE", note: "Verdict only." }],
+    "/v1/check": [402, {}], "/mcp": [200, { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify({ verdict: "red", note: "Verdict only." }) }] } }],
+    "/api/v1/preflight": [402, {}], "/api/diagnose": [200, { overall: "fail", share_url: "https://x402-doctor.fizzl.eu/?url=x", checks: [{ id: "a", status: "pass", message: "ok" }, { id: "b", status: "fail", message: "no payTo" }] }],
+    "/v1/approvals": [402, {}],
+  });
+  const t = fizzlTools({ fetch: s.fetch });
+  const tok = await t.check_token.execute({ chain: "base", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" });
+  assert.equal(tok.verdict, "green"); assert.equal(tok.free, true); assert.match(tok.note, /\$0\.01/); assert.match(tok.payment, /paid/);
+  const sig = await t.check_before_signing.execute({ type: "approval", chainId: 8453, token: "0xa", spender: "0xb", amount: "1" });
+  assert.equal(sig.verdict, "red"); assert.equal(sig.free, true);
+  const mcp = s.calls.find((c) => c.url.endsWith("/mcp"));
+  assert.equal(mcp.body.params.name, "presign_quick_check"); assert.equal(mcp.body.params.arguments.spender, "0xb");
+  const ep = await t.check_endpoint_before_paying.execute({ url: "https://api.example.com/x" });
+  assert.equal(ep.verdict, "no_go"); assert.deepEqual(ep.problems, [{ status: "fail", id: "b", message: "no payTo" }]); assert.match(ep.note, /\$0\.001/);
+  assert.equal((await t.check_wallet_approvals.execute({ chain: "base", address: "0x6B0F4651eD42893ab58139938175E4a69f175F25" })).error, "payment_required");
+  const off = fizzlTools({ fetch: s.fetch, free: false });
+  assert.equal((await off.check_token.execute({ chain: "base", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" })).error, "payment_required");
+});
+
 test("schemas refuse bad input before anything is paid", () => {
   const t = fizzlTools();
   assert.equal(t.check_before_signing.inputSchema.safeParse({ type: "approval", chainId: 999 }).success, false);

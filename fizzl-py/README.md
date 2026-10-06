@@ -39,6 +39,8 @@ fizzl.check_token("base", "0x...")
 fizzl.check_before_signing(type="approval", chainId=8453, token="0x...", spender="0x...", amount="115792089237316195423570985008687907853269984665640564039457584007913129639935")
 ```
 
+**Try it without a wallet:** `Fizzl()` with no paying session and no credit keys falls back to the free quick checks for `check_token`, `check_before_signing` and `check_endpoint_before_paying`: the verdict only, a few per hour, marked `"free": True` with a note on what the full check costs. `check_wallet_approvals` has no free version. `Fizzl(free=False)` returns `payment_required` instead.
+
 **Prepaid credits instead of a payment per check:** buy a pack once ([presign-guard](https://presign-guard.fizzl.eu/v1/credits): 100 checks for $0.80; [x402 Doctor](https://x402-doctor.fizzl.eu/api/v1/credits): 1000 preflights for $0.80), then use a plain session:
 
 ```python

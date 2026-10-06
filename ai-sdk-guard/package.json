@@ -1,6 +1,6 @@
 {
   "name": "presign-guard-ai-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Safety checks for Vercel AI SDK agents that pay: tools to check a transaction or signature before signing, a token before buying, a wallet's open approvals, and an x402 endpoint before paying it (presign-guard and x402 Doctor, paid per call over x402).",
   "type": "module",
   "exports": {

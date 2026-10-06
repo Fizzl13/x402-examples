@@ -55,6 +55,25 @@ def test_failures_come_back_as_error_dicts():
     assert f.check_token("dogechain", "x")["error"] == "bad_input"
 
 
+def test_free_fallback_when_unpaid_and_off_with_free_false():
+    s = StandIn({"/v1/token": (402, {}), "/v1/token/quick": (200, {"verdict": "green", "grade": "SAFE", "note": "Verdict only."}),
+                 "/v1/check": (402, {}), "/mcp": (200, {"result": {"content": [{"type": "text", "text": json.dumps({"verdict": "red"})}]}}),
+                 "/api/v1/preflight": (402, {}), "/api/diagnose": (200, {"overall": "warn", "share_url": "https://r", "checks": [
+                     {"id": "a", "status": "pass", "message": "ok"}, {"id": "b", "status": "warn", "message": "slow"}]}),
+                 "/v1/approvals": (402, {})})
+    f = Fizzl(session=s)
+    t = f.check_token("base", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+    assert t["verdict"] == "green" and t["free"] is True and "$0.01" in t["note"] and "paid" in t["payment"]
+    r = f.check_before_signing(type="approval", chainId=8453, token="0xa", spender="0xb", amount="1")
+    assert r["verdict"] == "red" and r["free"] is True
+    mcp = next(c for c in s.calls if c["url"].endswith("/mcp"))
+    assert mcp["json"]["params"]["name"] == "presign_quick_check" and mcp["json"]["params"]["arguments"]["spender"] == "0xb"
+    e = f.check_endpoint_before_paying("https://api.example.com/x")
+    assert e["verdict"] == "caution" and e["problems"] == [{"status": "warn", "id": "b", "message": "slow"}] and "$0.001" in e["note"]
+    assert f.check_wallet_approvals("base", "0x6B0F4651eD42893ab58139938175E4a69f175F25")["error"] == "payment_required"
+    assert Fizzl(session=s, free=False).check_token("base", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")["error"] == "payment_required"
+
+
 def test_prices_cover_every_check():
     assert sorted(PRICES) == ["check_before_signing", "check_endpoint_before_paying", "check_token", "check_wallet_approvals"]
 
