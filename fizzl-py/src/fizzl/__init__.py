@@ -17,10 +17,11 @@ credits). The checks never sign, pay or move anything themselves, and a failed c
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -40,13 +41,21 @@ def _error(code: str, message: str) -> dict:
     return {"error": code, "message": message}
 
 
+def _free_note(price: str) -> str:
+    return (f"Free quick check: the verdict only, a few per hour. The full check (reasons and details) costs {price}"
+            " via x402 or prepaid credits.")
+
+
 class Fizzl:
     """The four checks. ``session`` is anything with ``request(method, url, **kwargs)`` like a
     ``requests.Session``; wrap it with x402's ``wrapRequestsWithPayment`` to pay per check, or pass
-    ``credit_keys={"presign": ..., "doctor": ...}`` to pay from prepaid credits with a plain session."""
+    ``credit_keys={"presign": ..., "doctor": ...}`` to pay from prepaid credits with a plain session.
+
+    With neither (or when a payment fails) the checks fall back to the free quick checks: the verdict only,
+    a few per hour, marked ``"free": True``. Pass ``free=False`` to get ``payment_required`` instead."""
 
     def __init__(self, session: Any = None, credit_keys: Optional[Mapping[str, str]] = None, timeout: float = 30,
-                 presign_url: str = PRESIGN_URL, doctor_url: str = DOCTOR_URL):
+                 presign_url: str = PRESIGN_URL, doctor_url: str = DOCTOR_URL, free: bool = True):
         if session is None:
             import requests  # only needed when no session is given
             session = requests.Session()
@@ -55,6 +64,46 @@ class Fizzl:
         self.timeout = timeout
         self.presign_url = presign_url.rstrip("/")
         self.doctor_url = doctor_url.rstrip("/")
+        self.free = free
+
+    def _free(self, method: str, url: str, body: Optional[dict] = None) -> Any:
+        """A free call: plain JSON, no credit key, None on any failure (the paid error then stands)."""
+        headers = {"accept": "application/json, text/event-stream", "user-agent": f"fizzl-py/{__version__}"}
+        try:
+            res = self.session.request(method, url, headers=headers, timeout=self.timeout, **({"json": body} if body is not None else {}))
+            if res.status_code != 200:
+                return None
+            text = res.text.lstrip()
+            if not text.startswith("{"):  # an MCP server may answer as an event stream
+                text = next((l[5:] for l in text.splitlines() if l.startswith("data:")), "")
+            return json.loads(text)
+        except Exception:
+            return None
+
+    def _or_free(self, paid: dict, check: str, quick) -> dict:
+        if not self.free or paid.get("error") != "payment_required":
+            return paid
+        out = quick()
+        if not isinstance(out, dict) or not out.get("verdict"):
+            return paid
+        return {**out, "free": True, "note": _free_note(PRICES[check]), "payment": paid["message"]}
+
+    def _free_signing(self, args: dict) -> Any:
+        d = self._free("POST", f"{self.presign_url}/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                                         "params": {"name": "presign_quick_check", "arguments": args}})
+        try:
+            return json.loads(d["result"]["content"][0]["text"])
+        except Exception:
+            return None
+
+    def _free_endpoint(self, url: str, method: Optional[str]) -> Any:
+        d = self._free("POST", f"{self.doctor_url}/api/diagnose", {"url": url, **({"method": method} if method else {})})
+        verdict = {"pass": "go", "warn": "caution", "fail": "no_go"}.get((d or {}).get("overall")) if isinstance(d, dict) else None
+        if not verdict:
+            return None
+        problems = [{"status": c.get("status"), "id": c.get("id"), "message": c.get("message")}
+                    for c in d.get("checks") or [] if isinstance(c, dict) and c.get("status") in ("fail", "warn")][:6]
+        return {"verdict": verdict, "problems": problems, "report": d.get("share_url")}
 
     def _call(self, service: str, method: str, url: str, body: Optional[dict] = None) -> dict:
         headers = {"accept": "application/json", "user-agent": f"fizzl-py/{__version__}"}
@@ -93,14 +142,17 @@ class Fizzl:
             return _error("bad_input", f"chainId must be one of {EVM_CHAIN_IDS}")
         body = {k: v for k, v in dict(type=type, chainId=chainId, token=token, spender=spender, amount=amount, to=to,
                                       data=data, value=value, typedData=typedData, origin=origin).items() if v is not None}
-        return self._call("presign", "POST", f"{self.presign_url}/v1/check", body)
+        return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_before_signing",
+                             lambda: self._free_signing(body))
 
     def check_token(self, chain: str, address: str) -> dict:
         """Check a token BEFORE buying, holding or accepting it (presign-guard, $0.01): honeypot, rug-pull
         signs, look-alikes of known tokens. Solana and EVM chains."""
         if chain not in TOKEN_CHAINS:
             return _error("bad_input", f"chain must be one of {TOKEN_CHAINS}")
-        return self._call("presign", "GET", f"{self.presign_url}/v1/token?{urlencode({'chain': chain, 'address': address})}")
+        q = urlencode({"chain": chain, "address": address})
+        return self._or_free(self._call("presign", "GET", f"{self.presign_url}/v1/token?{q}"), "check_token",
+                             lambda: self._free("GET", f"{self.presign_url}/v1/token/quick?{q}"))
 
     def check_wallet_approvals(self, chain: str, address: str) -> dict:
         """List every open token approval of an EVM wallet and which ones to revoke (presign-guard, $0.02)."""
@@ -119,4 +171,5 @@ class Fizzl:
             q["network"] = network
         if method:
             q["method"] = method
-        return self._call("doctor", "GET", f"{self.doctor_url}/api/v1/preflight?{urlencode(q)}")
+        return self._or_free(self._call("doctor", "GET", f"{self.doctor_url}/api/v1/preflight?{urlencode(q)}"),
+                             "check_endpoint_before_paying", lambda: self._free_endpoint(url, method))

@@ -62,6 +62,8 @@ const result = await generateText({
 });
 ```
 
+**Try it without a wallet:** with no paying fetch and no credit keys, `check_token`, `check_before_signing` and `check_endpoint_before_paying` fall back to the free quick checks: the verdict only (green / orange / red, or go / caution / no_go with the problems found), a few per hour, marked `free: true` with a note on what the full check costs. `check_wallet_approvals` has no free version. Pass `free: false` to get `payment_required` instead.
+
 **Prepaid credits instead of a payment per check:** buy a pack once ([presign-guard](https://presign-guard.fizzl.eu/v1/credits): 100 checks for $0.80; [x402 Doctor](https://x402-doctor.fizzl.eu/api/v1/credits): 1000 preflights for $0.80), then pass the keys and a plain `fetch`:
 
 ```js
@@ -77,6 +79,7 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 | `fetch` | global `fetch` | An x402-paying fetch (`wrapFetchWithPayment` from `@x402/fetch`), or plain fetch with credit keys |
 | `creditKeys` | none | `{ presign, doctor }`, sent as `x-credit-key` |
 | `only` | all four | Tool names to include |
+| `free` | `true` | Fall back to the free quick check (verdict only) when a check can't be paid |
 | `timeoutMs` | 30000 | Per check |
 | `presignUrl`, `doctorUrl` | the fizzl.eu services | For tests or self-hosting |
 

@@ -1,5 +1,6 @@
 import type { z } from "zod";
 
+export declare const VERSION: string;
 export declare const PRESIGN_URL: string;
 export declare const DOCTOR_URL: string;
 export declare const PRICES: Record<FizzlToolName, string>;
@@ -23,6 +24,8 @@ export interface FizzlToolsOptions {
   creditKeys?: { presign?: string; doctor?: string };
   /** The tools to include (default: all four). */
   only?: FizzlToolName[];
+  /** Fall back to the free quick check (verdict only, a few per hour) when a check can't be paid. Default true. */
+  free?: boolean;
   presignUrl?: string;
   doctorUrl?: string;
   timeoutMs?: number;
