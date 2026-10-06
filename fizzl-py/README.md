@@ -1,6 +1,6 @@
 # fizzl
 
-Safety checks for Python AI agents that pay: LangChain, LangGraph, CrewAI or your own loop.
+Safety checks for Python AI agents that pay: LangChain, LangGraph, the OpenAI Agents SDK, CrewAI or your own loop.
 
 | Check | What the agent checks | Service | Price |
 |---|---|---|---|
@@ -17,6 +17,7 @@ The checks only check. They never sign, pay or move anything themselves. A faile
 ```sh
 pip install "fizzl[x402]"              # with the x402 client, to pay per check
 pip install "fizzl[langchain,x402]"    # plus LangChain tools
+pip install "fizzl[openai-agents]"     # OpenAI Agents SDK tools (Python 3.10+)
 ```
 
 ## Use
@@ -59,6 +60,20 @@ agent = create_react_agent(model, tools + your_tools,
 ```
 
 The tools are plain `StructuredTool`s with typed arguments, so CrewAI and other frameworks that take LangChain tools can use them too.
+
+## OpenAI Agents SDK
+
+```python
+from agents import Agent, Runner
+from fizzl.openai_agents import fizzl_tools
+
+agent = Agent(name="buyer", tools=fizzl_tools(session=session),   # or credit_keys={...}, or nothing for the free checks
+    instructions="Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.")
+print(Runner.run_sync(agent, "Is https://api.example.com/funding safe to pay, at most $0.05?").final_output)
+```
+
+The checks run in a worker thread, so a blocking `requests` session doesn't stall the agent's event loop. Bad
+arguments from the model come back as `{"error": "bad_input", ...}` without calling (or paying for) the check.
 
 ## Want the wallet to enforce it, not just inform the model?
 

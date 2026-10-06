@@ -91,3 +91,21 @@ def test_langchain_tools_call_the_checks():
     assert [t.name for t in fizzl_tools(session=s, only=["check_token"])] == ["check_token"]
     with pytest.raises(ValueError):
         fizzl_tools(session=s, only=["nope"])
+
+
+def test_openai_agents_tools_call_the_checks():
+    pytest.importorskip("agents")
+    import asyncio
+    from fizzl.openai_agents import fizzl_tools
+    s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
+    tools = fizzl_tools(session=s)
+    assert [t.name for t in tools] == ["check_before_signing", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
+    pre = tools[3]
+    assert "BEFORE paying" in pre.description and pre.params_json_schema["required"] == ["url"]
+    out = json.loads(asyncio.run(pre.on_invoke_tool(None, json.dumps({"url": "https://api.example.com/x", "max_usd": 0.01}))))
+    assert out["verdict"] == "no_go" and "max_usd=0.01" in s.calls[0]["url"] and "network=" not in s.calls[0]["url"]
+    bad = json.loads(asyncio.run(tools[1].on_invoke_tool(None, json.dumps({"chain": "dogechain", "address": "x"}))))
+    assert bad["error"] == "bad_input" and len(s.calls) == 1
+    assert [t.name for t in fizzl_tools(session=s, only=["check_token"])] == ["check_token"]
+    with pytest.raises(ValueError):
+        fizzl_tools(session=s, only=["nope"])
