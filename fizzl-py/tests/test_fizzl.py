@@ -75,7 +75,7 @@ def test_free_fallback_when_unpaid_and_off_with_free_false():
 
 
 def test_prices_cover_every_check():
-    assert sorted(PRICES) == ["check_before_signing", "check_endpoint_before_paying", "check_token", "check_wallet_approvals"]
+    assert sorted(PRICES) == ["check_before_signing", "check_endpoint_before_paying", "check_token", "check_wallet_approvals", "check_xrpl_transaction"]
 
 
 def test_langchain_tools_call_the_checks():
@@ -83,7 +83,7 @@ def test_langchain_tools_call_the_checks():
     from fizzl.langchain import fizzl_tools
     s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
     tools = fizzl_tools(session=s)
-    assert [t.name for t in tools] == ["check_before_signing", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
     pre = next(t for t in tools if t.name == "check_endpoint_before_paying")
     assert "BEFORE paying" in pre.description
     assert pre.invoke({"url": "https://api.example.com/x", "max_usd": 0.01})["verdict"] == "no_go"
@@ -99,13 +99,25 @@ def test_openai_agents_tools_call_the_checks():
     from fizzl.openai_agents import fizzl_tools
     s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
     tools = fizzl_tools(session=s)
-    assert [t.name for t in tools] == ["check_before_signing", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
-    pre = tools[3]
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
+    pre = tools[4]
     assert "BEFORE paying" in pre.description and pre.params_json_schema["required"] == ["url"]
     out = json.loads(asyncio.run(pre.on_invoke_tool(None, json.dumps({"url": "https://api.example.com/x", "max_usd": 0.01}))))
     assert out["verdict"] == "no_go" and "max_usd=0.01" in s.calls[0]["url"] and "network=" not in s.calls[0]["url"]
-    bad = json.loads(asyncio.run(tools[1].on_invoke_tool(None, json.dumps({"chain": "dogechain", "address": "x"}))))
+    bad = json.loads(asyncio.run(tools[2].on_invoke_tool(None, json.dumps({"chain": "dogechain", "address": "x"}))))
     assert bad["error"] == "bad_input" and len(s.calls) == 1
     assert [t.name for t in fizzl_tools(session=s, only=["check_token"])] == ["check_token"]
     with pytest.raises(ValueError):
         fizzl_tools(session=s, only=["nope"])
+
+
+def test_xrpl_transaction_and_token():
+    s = StandIn({"/v1/check": (200, {"verdict": "red", "reasons": [{"code": "XRPL_REGULAR_KEY_CHANGE"}]}), "/v1/token": (200, {"verdict": "green"})})
+    f = Fizzl(session=s)
+    tx = {"TransactionType": "SetRegularKey", "Account": "rMnHeutYALco8RYFVcmuU4BCgSzBpPEh32", "RegularKey": "rDsbeomae4FXwgQTJp9Rs64Qg9vDiTCdBv"}
+    assert f.check_xrpl_transaction(tx)["verdict"] == "red"
+    assert s.calls[0]["json"] == {"type": "xrpl", "tx": tx}
+    assert f.check_xrpl_transaction({"Account": "r"})["error"] == "bad_input"
+    assert f.check_xrpl_transaction(tx, network="xrpl:9")["error"] == "bad_input"
+    f.check_token("xrpl", "RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De")
+    assert "chain=xrpl&address=RLUSD." in s.calls[1]["url"]

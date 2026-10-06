@@ -17,7 +17,7 @@ from . import Fizzl
 
 
 def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, **kwargs) -> list:
-    """FunctionTools for the four checks (all of them, or the names in ``only``). The checks run in a worker
+    """FunctionTools for the five checks (all of them, or the names in ``only``). The checks run in a worker
     thread, so a blocking ``requests`` session doesn't stall the agent's event loop."""
     try:
         from agents import FunctionTool

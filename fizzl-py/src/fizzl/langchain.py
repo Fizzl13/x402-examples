@@ -10,11 +10,11 @@ from typing import Any, List, Optional
 
 from . import Fizzl
 
-TOOL_NAMES = ("check_before_signing", "check_token", "check_wallet_approvals", "check_endpoint_before_paying")
+TOOL_NAMES = ("check_before_signing", "check_xrpl_transaction", "check_token", "check_wallet_approvals", "check_endpoint_before_paying")
 
 
 def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, **kwargs) -> list:
-    """LangChain StructuredTools for the four checks (all of them, or the names in ``only``)."""
+    """LangChain StructuredTools for the five checks (all of them, or the names in ``only``)."""
     try:
         from langchain_core.tools import StructuredTool
         from ._schemas import ARGS, pick

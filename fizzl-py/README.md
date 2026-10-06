@@ -5,7 +5,8 @@ Safety checks for Python AI agents that pay: LangChain, LangGraph, the OpenAI Ag
 | Check | What the agent checks | Service | Price |
 |---|---|---|---|
 | `check_before_signing` | a transaction, token approval or signature **before signing it**: green / orange / red with reason codes (drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens) | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 |
-| `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana and EVM) | presign-guard | $0.01 |
+| `check_xrpl_transaction` | an **XRP Ledger** transaction before signing it: account takeover (SetRegularKey, SignerListSet, master key off), AccountDelete, fake RLUSD (red); partial payments, destinations that refuse or need a tag, risky issuers, DEX orders far below the market (orange) | presign-guard | $0.01 |
+| `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, and XRPL tokens as `CURRENCY.rIssuer`) | presign-guard | $0.01 |
 | `check_wallet_approvals` | every open approval of a wallet and which to revoke | presign-guard | $0.02 |
 | `check_endpoint_before_paying` | an x402 or MPP paid API **before paying it**: go / caution / no_go, the cheapest option that settles, budget, track record, bait signs (fake brands, airdrop lures, output that doesn't match) | [x402 Doctor](https://x402-doctor.fizzl.eu) | $0.001 |
 
@@ -40,7 +41,7 @@ fizzl.check_token("base", "0x...")
 fizzl.check_before_signing(type="approval", chainId=8453, token="0x...", spender="0x...", amount="115792089237316195423570985008687907853269984665640564039457584007913129639935")
 ```
 
-**Try it without a wallet:** `Fizzl()` with no paying session and no credit keys falls back to the free quick checks for `check_token`, `check_before_signing` and `check_endpoint_before_paying`: the verdict only, a few per hour, marked `"free": True` with a note on what the full check costs. `check_wallet_approvals` has no free version. `Fizzl(free=False)` returns `payment_required` instead.
+**Try it without a wallet:** `Fizzl()` with no paying session and no credit keys falls back to the free quick checks for `check_token`, `check_before_signing` and `check_endpoint_before_paying`: the verdict only, a few per hour, marked `"free": True` with a note on what the full check costs. `check_wallet_approvals` and `check_xrpl_transaction` have no free version. `Fizzl(free=False)` returns `payment_required` instead.
 
 **Prepaid credits instead of a payment per check:** buy a pack once ([presign-guard](https://presign-guard.fizzl.eu/v1/credits): 100 checks for $0.80; [x402 Doctor](https://x402-doctor.fizzl.eu/api/v1/credits): 1000 preflights for $0.80), then use a plain session:
 
