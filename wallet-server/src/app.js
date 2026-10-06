@@ -69,6 +69,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   v1.post("/spent", wrap(async (req, res) => res.json(await req.wallet.spent(req.agent, ids(req.body?.entries), req.body?.result, { purchaseId: req.body?.purchaseId }))));
   v1.post("/purchases/annotate", wrap(async (req, res) => res.json(await req.wallet.annotate(req.agent, ids(req.body?.ids), req.body?.outcome))));
   v1.get("/spending", wrap(async (req, res) => res.json({ spending: await req.wallet.spending() })));
+  // The agent's signed spending mandate (src/mandate.js), for the wallet it pays from; 404 without one.
+  v1.get("/mandate", wrap(async (req, res) => {
+    const m = await req.wallet.mandateFor(req.agent, typeof req.query.address === "string" ? req.query.address : null);
+    if (!m) return res.status(404).json({ error: "no_mandate", message: "This agent has no mandate." });
+    res.json(m);
+  }));
   app.use("/v1", v1);
 
   // ---------- the search bar: paid APIs in the public x402 catalog ----------
@@ -251,6 +257,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/agents/:id/pause", wrap(async (req, res) => res.json(await req.wallet.setAgentPaused(req.params.id, !!req.body?.paused))));
   owner.put("/agents/:id/site", wrap(async (req, res) => res.json(await req.wallet.setAgentSite(req.params.id, req.body?.site ?? null))));
   owner.put("/agents/:id/address", wrap(async (req, res) => res.json(await req.wallet.setAgentAddress(req.params.id, req.body?.address || null))));
+  owner.put("/agents/:id/mandate", wrap(async (req, res) => res.json(await req.wallet.setAgentMandate(req.params.id, req.body?.terms ?? null))));
+  owner.delete("/agents/:id/mandate", wrap(async (req, res) => res.json(await req.wallet.setAgentMandate(req.params.id, null))));
   owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
   owner.put("/follow", wrap(async (req, res) => res.json(await accounts.setFollow(req.account, req.body?.categories))));
   owner.delete("/agents/:id", wrap(async (req, res) => { await req.wallet.removeAgent(req.params.id); res.json({ ok: true }); }));

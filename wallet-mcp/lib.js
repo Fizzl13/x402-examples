@@ -13,7 +13,7 @@ import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.9.0";
+export const VERSION = "0.10.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -252,6 +252,23 @@ export function createWallet(config, overrides = {}) {
     return { res: await plainFetch(url, { ...init, headers: h }), hash };
   }
 
+  // The mandate to pay under: MANDATE from the config, else the one the owner set for this agent on the
+  // wallet server (GET /v1/mandate, kept 5 minutes; none or unreachable = pay without one; the server holds
+  // the agent to its mandate either way).
+  let serverMandate = { at: 0, value: null };
+  async function currentMandate() {
+    if (config.mandate) return config.mandate;
+    if (!config.server?.url || !config.server?.key) return null;
+    if (Date.now() - serverMandate.at < 5 * 60_000) return serverMandate.value;
+    let value = null;
+    try {
+      const res = await plainFetch(`${config.server.url.replace(/\/$/, "")}/v1/mandate?address=${account.address}`, { headers: { authorization: `Bearer ${config.server.key}`, accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      if (res.ok) { const j = await res.json(); if (j?.mandate?.v === "x402-mandate/1") value = { mandate: j.mandate, alg: j.alg, sig: j.sig }; }
+    } catch {}
+    serverMandate = { at: Date.now(), value };
+    return value;
+  }
+
   // One paid call, capped per call: x402 when the API offers it, else MPP (evm, USDC on this chain), else MPP on Tempo.
   async function callX402({ url, method, body, headers, maxPriceUsd }) {
     const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
@@ -270,10 +287,12 @@ export function createWallet(config, overrides = {}) {
     } else if (first.status === 402) {
       // x402: the payment client starts from the 402 we already have, so the API isn't asked twice.
       const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
-      // Under a mandate, x402 payments carry its binding and presign-guard checks them against it.
+      // Under a mandate (MANDATE, or the one the owner set on the wallet server), x402 payments carry its
+      // binding and presign-guard checks them against it.
       const scheme = new ExactEvmScheme(signer);
+      const mandate = await currentMandate();
       // Object.create: the x402 client also asks the scheme for findDefaultAsset (spend controls).
-      client.register(`eip155:${chain.id}`, config.mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, config.mandate)) : scheme);
+      client.register(`eip155:${chain.id}`, mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme);
       let pending = first;
       const replay = (input, i) => { if (pending) { const r = pending; pending = null; return Promise.resolve(r); } return plainFetch(input, i); };
       res = await wrapFetchWithPayment(replay, client)(url, init);
@@ -322,6 +341,7 @@ export function createWallet(config, overrides = {}) {
     guard: guarded,
 
     async status() {
+      const mandateNow = await currentMandate();
       const [native, usdcBalance, tempoBalance] = await Promise.all([
         publicClient.getBalance({ address: account.address }).catch(() => null),
         publicClient.readContract({ address: usdc[0], abi: erc20Abi, functionName: "balanceOf", args: [account.address] }).catch(() => null),
@@ -339,13 +359,14 @@ export function createWallet(config, overrides = {}) {
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
         approvals: config.server ? "wallet server (dashboard / Telegram)" : config.telegram ? "Telegram" : "none: anything over a limit is refused",
         maxPaymentUsd: config.maxPaymentUsd,
-        ...(config.mandate && { mandate: {
-          digest: mandateDigest(config.mandate.mandate),
-          purpose: config.mandate.mandate.purpose,
-          cap: config.mandate.mandate.cap,
-          ...(config.mandate.mandate.perPayment && { perPayment: config.mandate.mandate.perPayment }),
-          recipients: config.mandate.mandate.recipients,
-          notAfter: config.mandate.mandate.notAfter,
+        ...(mandateNow && { mandate: {
+          digest: mandateDigest(mandateNow.mandate),
+          from: config.mandate ? "MANDATE setting" : "wallet server",
+          purpose: mandateNow.mandate.purpose,
+          cap: mandateNow.mandate.cap,
+          ...(mandateNow.mandate.perPayment && { perPayment: mandateNow.mandate.perPayment }),
+          recipients: mandateNow.mandate.recipients,
+          notAfter: mandateNow.mandate.notAfter,
           note: "x402 payments are made under this mandate (amounts in the asset's smallest unit); presign-guard refuses one outside it",
         } }),
         paused: guarded.paused(),

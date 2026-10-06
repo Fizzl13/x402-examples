@@ -9,6 +9,7 @@
 // The owner of the server signs in with ADMIN_PASSWORD as "admin": unlimited,
 // with the Telegram chat from TELEGRAM_CHAT_ID. That is the original
 // single-owner setup, unchanged.
+import { issuerFor } from "./mandate.js";
 import { randomBytes, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransferMessage, usdcPaid, USDC_MINT } from "./solana.js";
@@ -162,6 +163,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (wallets.has(id)) return wallets.get(id);
     const w = createWallet({
       ...walletOptions,
+      // Signs this account's agent mandates (src/mandate.js); off without MANDATE_SECRET.
+      mandateIssuer: issuerFor(walletOptions.mandateSecret, id),
       store: store.scope(id),
       now,
       plan: async () => planOf(await account(id)),
