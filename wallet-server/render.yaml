@@ -17,3 +17,5 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: MANDATE_SECRET
+        sync: false

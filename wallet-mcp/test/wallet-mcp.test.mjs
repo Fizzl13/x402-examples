@@ -91,6 +91,7 @@ function network({ price = "50000", ...opts } = {}) {
       const body = init.body ? JSON.parse(init.body) : null;
       server.push([url.slice("https://wallet.test".length), body]);
       if (url.endsWith("/v1/reserve")) return Response.json({ status: "ok", entries: ["sp_1"], purchaseId: "pu_1" });
+      if (url.includes("/v1/mandate")) return opts.mandate ? Response.json(opts.mandate) : Response.json({ error: "no_mandate" }, { status: 404 });
       if (url.endsWith("/v1/purchases/annotate") && opts.check) return Response.json({ updated: 1, check: opts.check });
       return Response.json({ ok: true, updated: 1 });
     }
@@ -473,4 +474,24 @@ test("MANDATE: x402 payments carry its binding and the check carries the mandate
 test("MANDATE that is not a signed x402-mandate/1 grant is refused at start", () => {
   assert.throws(() => configFromEnv({ ...ENV, MANDATE: "{nope" }), /MANDATE must be JSON/);
   assert.throws(() => configFromEnv({ ...ENV, MANDATE: JSON.stringify({ mandate: { v: "x" }, alg: "Ed25519", sig: "s" }) }), /MANDATE must be/);
+});
+
+test("wallet server: the mandate the owner set there is fetched and used for x402 payments", async () => {
+  const { mandate, MANDATE } = mandateEnv();
+  const net = network({ mandate: JSON.parse(MANDATE) });
+  const fake = fakeWallet();
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await createServer(wallet).connect(a);
+  const client = new Client({ name: "test", version: "1" });
+  await client.connect(b);
+  const r = await client.callTool({ name: "pay_x402", arguments: { url: API } });
+  assert.equal(!!r.isError, false, r.content[0].text);
+  const asked = net.server.find(([path]) => path.startsWith("/v1/mandate"));
+  assert.match(asked[0], /address=0x/);
+  const sent = net.checks.find((c) => c.mandate)?.mandate;
+  assert.ok(sent);
+  assert.equal(net.paid[0].payload.authorization.nonce, mandateBinding(mandateDigest(mandate), sent.paymentId));
+  const status = JSON.parse((await client.callTool({ name: "wallet_status", arguments: {} })).content[0].text);
+  assert.equal(status.mandate.from, "wallet server");
 });

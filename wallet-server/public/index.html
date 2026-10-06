@@ -897,7 +897,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         const now = Date.now();
         D.approvals.forEach((a) => { if (a.status === "pending" && now > a.expiresAt) { a.status = "expired"; a.decidedAt = a.expiresAt; } });
         const cap = D.policy.tokens?.USDC?.perDay;
-        return structuredClone({ policy: D.policy, paused: D.paused, now, events: D.events, approvals: D.approvals.slice(0, 12),
+        return structuredClone({ policy: D.policy, paused: D.paused, mandates: true, now, events: D.events, approvals: D.approvals.slice(0, 12),
           spending: D.policy.tokens?.USDC ? [{ token: "USDC", perTx: D.policy.tokens.USDC.perTx ?? null, perDay: cap ?? null, used: fmtN(D.used), left: cap ? fmtN(Math.max(0, cap - D.used)) : null }] : [],
           agents: D.agents.map((a) => ({ ...a, spent: a.spent ? { USDC: fmtN(a.spent) } : {} })) });
       }
@@ -954,6 +954,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
             chains: [[8453, "Base", "https://basescan.org"], [42161, "Arbitrum", "https://arbiscan.io"], [10, "Optimism", "https://optimistic.etherscan.io"], [137, "Polygon", "https://polygonscan.com"], [1, "Ethereum", "https://etherscan.io"]].map(([chainId, name, explorer]) => ({ chainId, name, explorer, nativeSymbol: chainId === 137 ? "POL" : "ETH" })) } };
       }
       if (method === "PUT" && path === "/api/follow") { D.follow = body.categories; return { follow: D.follow }; }
+      if ((method === "PUT" || method === "DELETE") && (m0 = /^\/api\/agents\/(.+)\/mandate$/.exec(path))) {
+        const a = D.agents.find((x) => x.id === decodeURIComponent(m0[1])); if (!a) return null;
+        const t = body?.terms;
+        a.mandate = method === "DELETE" || !t ? null : { cap: String(t.cap), perPayment: t.perPayment ? String(t.perPayment) : null, recipients: t.recipients, notAfter: new Date(Date.now() + Number(t.days || 30) * 86_400_000).toISOString().slice(0, 19) + "Z", purpose: t.purpose, spent: "0", left: String(t.cap), expired: false };
+        return a;
+      }
       if (method === "PUT" && (m0 = /^\/api\/agents\/(.+)\/address$/.exec(path))) { const a = D.agents.find((x) => x.id === decodeURIComponent(m0[1])); if (a) a.address = body.address; return a; }
       if (method === "POST" && path === "/api/setup/check") {
         const a = D.agents.find((x) => x.id === body.agentId) ?? D.agents[0];
@@ -2053,6 +2059,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       try { await api("PUT", `/api/agents/${encodeURIComponent(id)}/site`, { site: v.trim() === "https://" ? "" : v.trim() }); } catch (err) { alert(err.message); }
       return refresh();
     }
+    if (b.dataset.act === "mandate") {
+      const cap = prompt("Mandate: the total budget for this agent, in USDC on Base (e.g. 5)", "5"); if (cap === null) return;
+      const per = prompt("Most it may pay at once, in USDC (empty = no extra limit)", ""); if (per === null) return;
+      const who = prompt("Which sellers may it pay? Their wallet addresses (0x…), separated by commas. Empty = any seller.", ""); if (who === null) return;
+      const days = prompt("For how many days? (1 to 366)", "30"); if (days === null) return;
+      const purpose = prompt("What may it spend it on? In a few words (e.g. \"crypto market data\"). Jev checks each purchase against this; outside it, you're asked.", ""); if (purpose === null) return;
+      const recipients = who.trim() ? who.split(",").map((x) => x.trim()).filter(Boolean) : ["*"];
+      try { await api("PUT", `/api/agents/${encodeURIComponent(id)}/mandate`, { terms: { cap: cap.trim(), perPayment: per.trim() || null, recipients, days: Number(days), purpose: purpose.trim() } }); } catch (err) { alert(err.message); }
+      return refresh();
+    }
+    if (b.dataset.act === "mandate-end") {
+      if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "sure? the agent loses its mandate"; return; }
+      try { await api("DELETE", `/api/agents/${encodeURIComponent(id)}/mandate`); } catch (err) { alert(err.message); }
+      return refresh();
+    }
     if (b.dataset.act === "pause") await api("POST", `/api/agents/${encodeURIComponent(id)}/pause`, { paused: b.dataset.paused !== "true" });
     if (b.dataset.act === "remove") {
       if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Sure? Its key stops working"; return; }
@@ -2392,7 +2413,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const spent = Object.entries(a.spent || {}).map(([t, v]) => `${t === "USDC" ? money(v) : v} ${t}`).join(" · ") || "nothing yet";
       const host = (() => { try { return a.site ? new URL(a.site).host : null; } catch { return null; } })();
       const siteLine = `<div class="note agentsite">${host ? `<a href="${esc(a.site)}" target="_blank" rel="noopener noreferrer nofollow">${esc(host)} ↗</a> · <button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="${esc(a.site)}">change</button>` : `<button class="link" type="button" data-act="site" data-id="${esc(a.id)}" data-site="">+ Link the app or website this agent runs in (optional)</button>`}</div>`;
-      const buttons = `${siteLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
+      // The agent's mandate (x402 authority draft): budget, sellers, until when, what for; the wallet holds it to them.
+      const md = a.mandate;
+      const sellers = (r) => (r[0] === "*" ? "any seller" : r.length === 1 ? `${r[0].slice(0, 6)}…${r[0].slice(-4)}` : `${r.length} sellers`);
+      const mandateLine = !s.mandates ? "" : md
+        ? `<div class="note agentmandate">Mandate: <b style="color:#fff">${esc(money(md.left))} of ${esc(money(md.cap))} left</b>${md.perPayment ? ` · max ${esc(money(md.perPayment))} per payment` : ""} · ${esc(sellers(md.recipients))} · ${md.expired ? `<span style="color:var(--amber)">expired ${esc(md.notAfter.slice(0, 10))}</span>` : `until ${esc(md.notAfter.slice(0, 10))}`} · for: ${esc(md.purpose)} · <button class="link" type="button" data-act="mandate" data-id="${esc(a.id)}">new</button> · <button class="link" type="button" data-act="mandate-end" data-id="${esc(a.id)}">end</button></div>`
+        : `<div class="note agentmandate"><button class="link" type="button" data-act="mandate" data-id="${esc(a.id)}">+ Give this agent a mandate: a budget, which sellers, until when (optional)</button></div>`;
+      const buttons = `${siteLine}${mandateLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
       if (compact) return `<details class="card agentrow" data-agent="${esc(a.id)}"${openAgents.has(a.id) ? " open" : ""}><summary><span class="rowdot" style="color:${st[1]}" aria-hidden="true"></span><span class="name">${esc(a.name)}</span><span class="state" style="color:${st[1]}">${st[0]}</span><span class="meta">spent ${esc(spent)} · seen ${a.lastSeen ? time(a.lastSeen) : "never"}</span></summary>${buttons}</details>`;
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div>${buttons}</article>`;
     }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;

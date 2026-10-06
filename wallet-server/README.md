@@ -87,6 +87,10 @@ const wallet = guardWallet(walletClient, {
 
 Everything else stays the same: red verdicts are never signed, `onOrange` still decides on orange, and with the server in place the limits, budget and approvals come from the dashboard.
 
+## Mandates
+
+Per agent, the owner can set a spending mandate on the dashboard ([x402 `authority` extension draft](https://github.com/x402-foundation/x402/pull/3220), `x402-mandate/1`): a total budget in USDC on Base, an optional maximum per payment, the sellers it may pay (or any), how many days, and what it is for. The server signs it for the owner with an Ed25519 key of the account, derived from `MANDATE_SECRET` (set it in Render; without it, mandates are off), and is the accountant: every spend of that agent is held to the terms, including the running total, and anything outside is stopped. The purpose is judged per purchase by TypeSafe's Jev (as the plain-words rule): outside it or unsure, the owner is asked. Agents fetch the signed mandate with `GET /v1/mandate`; presign-guard-wallet-mcp (0.10+) does that by itself, so its x402 payments carry the mandate's binding and presign-guard checks them too. New terms start a new mandate (spent back to 0); "end" removes it and the normal limits apply again.
+
 ## API (for agents)
 
 `Authorization: Bearer awk_…`
@@ -99,5 +103,6 @@ Everything else stays the same: red verdicts are never signed, `onOrange` still 
 | `POST /v1/spent` `{ entries, result, purchaseId? }` | record the signed result |
 | `POST /v1/purchases/annotate` `{ ids, outcome }` | what happened afterwards: `{ httpStatus, settlement: { transaction, network }, error }` |
 | `GET /v1/spending`, `GET /v1/policy` | |
+| `GET /v1/mandate?address=0x…` | the agent's signed spending mandate (`{ mandate, alg, sig, terms }`), or 404 without one |
 
 MIT licensed.
