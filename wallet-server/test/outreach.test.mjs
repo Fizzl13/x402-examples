@@ -120,3 +120,28 @@ test("weekly scan drafts: scan wording, and a discarded site is not drafted agai
   // The owner can still write to them by hand.
   assert.ok((await s.outreach.add({ to: "ops@scan.test", subject: "s", body: "b" })).draft);
 });
+
+test("the message hook needs DRAFT_KEY (not OUTREACH_KEY), makes a draft with Claude's text and mails nothing", async () => {
+  const s = setup();
+  const accounts = new Proxy({}, { get: () => async () => null });
+  const app = createApp({ accounts, auth: { middleware: () => (_q, _s, n) => n() }, outreach: s.outreach, outreachKey: "doctor-key", draftKey: "draft-key-456" });
+  const server = await new Promise((r) => { const sv = app.listen(0, () => r(sv)); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const msg = { to: "Mike@Agent402.test", subject: "presign-guard for your catalog?", body: "Hi Mike,\n\nWould it fit?\n\nCheers,\nFrits (Fizzl)", url: "https://agent402.test" };
+  const post = (auth, body = msg) => fetch(`${base}/hooks/outreach-message`, { method: "POST", headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify(body) });
+  try {
+    assert.equal((await post()).status, 401);
+    assert.equal((await post("Bearer doctor-key")).status, 401);
+    const ok = await post("Bearer draft-key-456");
+    assert.equal(ok.status, 200);
+    const { draft } = await ok.json();
+    assert.equal(draft.to, "mike@agent402.test"); assert.equal(draft.source, "claude"); assert.equal(draft.host, "agent402.test"); assert.equal(draft.subject, msg.subject);
+    assert.match(s.tg.at(-1).html, /opgesteld door Claude/);
+    assert.equal(s.mails.length, 0);
+    assert.equal((await (await post("Bearer draft-key-456")).json()).skipped, "pending");
+    assert.equal((await post("Bearer draft-key-456", { ...msg, to: "not-an-address" })).status, 400);
+  } finally { server.close(); }
+  const off = createApp({ accounts, auth: { middleware: () => (_q, _s, n) => n() }, outreach: s.outreach, outreachKey: "doctor-key" });
+  const sv2 = await new Promise((r) => { const sv = off.listen(0, () => r(sv)); });
+  try { assert.equal((await fetch(`http://127.0.0.1:${sv2.address().port}/hooks/outreach-message`, { method: "POST", headers: { authorization: "Bearer x" } })).status, 404); } finally { sv2.close(); }
+});

@@ -34,6 +34,8 @@
 //   OUTREACH_FROM       optional: sender for outreach mail to sellers, e.g. "Frits from Fizzl <frits@fizzl.eu>" (a fizzl.eu address: the domain verified at Resend)
 //   OUTREACH_REPLY_TO   optional: where replies to outreach mail go (your own inbox)
 //   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
+//   DRAFT_KEY           optional: long random string, the same as the GitHub secret of the outreach-draft workflow;
+//                       lets Claude hand in written messages as drafts (never sends)
 //   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
 //   TYPESAFE_API_KEY    optional: TypeSafe's Jev ranks search results by meaning (src/jev-rank.js) and checks
 //                       each purchase against the owner's plain-words spending rule (src/jev-rule.js)
@@ -112,7 +114,7 @@ const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: en
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).
 const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null });
 const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png` });
-const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
 
