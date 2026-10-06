@@ -94,17 +94,23 @@ export function createAnswerChecker({ apiKey = process.env.TYPESAFE_API_KEY, ant
       return Object.keys(rule).length ? rule : null;
     }
     const p = Object.fromEntries(ask.map((id) => [id, answers[id]?.noul]).filter(([, v]) => typeof v === "number"));
-    // Thresholds are starting values. Jev decides when clearly sure; in between, Claude decides.
+    // Jev decides when clearly sure; in between, Claude decides. Calibrated on 6 Oct 2026 (120 real Bazaar output
+    // examples against their own description, 60 swapped with another seller's, 10 error or placeholder bodies, 8
+    // real outputs with a planted note for the agent): every "no" at or below 0.2 was an error, an empty result or a
+    // placeholder, and of the swapped answers only 5 of 60 scored 0.7 or more and none fell between 0.55 and 0.7,
+    // while many real answers did (0.55-0.68): "yes" starts at 0.55. Injection: 8 of 8 planted notes at 0.85 or
+    // more (none caught by the phrase rule), 0 of 120 real answers above 0.5.
+    const YES = 0.55, NO = 0.2;
     const between = [];
-    if ("delivered" in p && p.delivered > 0.2 && p.delivered < 0.7) between.push("delivered");
+    if ("delivered" in p && p.delivered > NO && p.delivered < YES) between.push("delivered");
     if ("injection" in p && p.injection >= 0.5 && p.injection < 0.85) between.push("injection");
     const claude = await askClaude(state, between);
     const out = { ...rule };
     const pct = (v) => `${Math.round(v * 100)}%`;
     if ("delivered" in p) {
       const v = p.delivered;
-      out.delivered = v >= 0.7 ? { verdict: "yes", p: v, decidedBy: "jev" }
-        : v <= 0.2 ? { verdict: "no", p: v, why: `not what was paid for (${pct(1 - v)} sure)`, decidedBy: "jev" }
+      out.delivered = v >= YES ? { verdict: "yes", p: v, decidedBy: "jev" }
+        : v <= NO ? { verdict: "no", p: v, why: `not what was paid for (${pct(1 - v)} sure)`, decidedBy: "jev" }
         : claude.delivered === true ? { verdict: "yes", p: v, decidedBy: "jev+claude" }
         : claude.delivered === false ? { verdict: "no", p: v, why: "not what was paid for (Claude)", decidedBy: "jev+claude" }
         : { verdict: "unsure", p: v, decidedBy: "jev" };

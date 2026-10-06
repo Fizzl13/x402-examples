@@ -63,3 +63,10 @@ test("wallet: annotate stores the check on the receipt, returns it to the agent 
   await wallet.annotate(agent, [pid], { check: { injection: { flagged: false } } });
   assert.equal((await wallet.purchase(pid)).outcome.check.injection.flagged, true);
 });
+
+test("delivered thresholds: yes from 0.55, Claude in between, no at 0.2 or below", async () => {
+  const at = async (v) => (await createAnswerChecker({ apiKey: "k", anthropicKey: "", fetch: jev({ delivered: v, injection: 0.02 }).fetch }).check({ httpStatus: 200, body: '{"pm2_5": 8.7}' })).delivered.verdict;
+  assert.equal(await at(0.6), "yes");
+  assert.equal(await at(0.4), "unsure");
+  assert.equal(await at(0.15), "no");
+});
