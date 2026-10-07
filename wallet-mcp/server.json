@@ -3,7 +3,7 @@
   "name": "io.github.Fizzl13/presign-guard-wallet",
   "title": "presign-guard wallet",
   "description": "Agent wallet with spending limits: pays x402 and MPP APIs (Base, Tempo), phone approval over limit.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "repository": {
     "url": "https://github.com/Fizzl13/x402-examples",
     "source": "github",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "presign-guard-wallet-mcp",
-      "version": "0.10.0",
+      "version": "0.11.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "AGENT_KEY", "description": "Private key of the agent's own wallet (a separate wallet holding only what the agent may spend)", "isRequired": true, "isSecret": true },
@@ -30,7 +30,10 @@
         { "name": "RPC_URL", "description": "Optional RPC URL for the chain" },
         { "name": "TEMPO", "description": "off to never pay MPP charges on Tempo (default on: paid in USDC.e on Tempo from the same address)" },
         { "name": "TEMPO_CHAIN", "description": "4217 (Tempo, default) or 42431 (Moderato testnet)" },
-        { "name": "TEMPO_RPC_URL", "description": "Optional Tempo RPC URL" }
+        { "name": "TEMPO_RPC_URL", "description": "Optional Tempo RPC URL" },
+        { "name": "XRPL_SEED", "description": "Optional: the agent's own XRPL account seed; pays x402 offers in RLUSD on the XRP Ledger (counted toward the USDC limits)", "isSecret": true },
+        { "name": "XRPL_NETWORK", "description": "mainnet (default) or testnet" },
+        { "name": "XRPL_WS_URL", "description": "Optional XRPL node websocket URL" }
       ]
     }
   ]
