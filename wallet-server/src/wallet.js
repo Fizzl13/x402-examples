@@ -105,6 +105,27 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     await store.putPurchase(p, (await plan()).receiptDays);
     return p;
   }
+  // After a purchase within the rules: does it look unlike what this agent usually buys? Then a heads-up to the
+  // owner (Telegram, phone), at most once a day per agent and seller. Needs 5+ earlier purchases; never blocks.
+  const UNUSUAL_SURE = 0.85, UNUSUAL_MIN_HISTORY = 5;
+  const unusualSent = new Map(); // `${agent}|${host}` -> day
+  async function checkUnusual(agent, purchase, p) {
+    if (!ruleChecker?.enabled || typeof ruleChecker.unusual !== "function" || !purchase) return;
+    const host = hostOf(purchase.url) ?? null;
+    const key = `${agent.id}|${host ?? purchase.description ?? ""}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (unusualSent.get(key) === day) return;
+    const history = (await store.listPurchases(200)).filter((x) => x.agent === agent.id && x.id !== p.id && x.what).map((x) => x.what);
+    if (history.length < UNUSUAL_MIN_HISTORY) return;
+    const r = await ruleChecker.unusual(history, purchase);
+    if (!r || r.unusual < UNUSUAL_SURE) return;
+    unusualSent.set(key, day);
+    if (unusualSent.size > 1000) unusualSent.delete(unusualSent.keys().next().value);
+    const what = purchase.description ?? purchase.url;
+    await log("unusual", { agent: agent.name, purchase: p.id, what, likely: r.unusual });
+    safeTrack("unusual_purchase", { input: { host: bought(p.method, purchase) }, result: { likely: r.unusual } });
+    await onAlert({ kind: "unusual", agentName: agent.name, purchaseId: p.id, host, text: `👀 ${agent.name} just bought something unlike what it usually buys: "${String(what).slice(0, 120)}"${host ? ` from ${host}` : ""} (AI check, ${Math.round(r.unusual * 100)}% sure). It was within your rules, so it went through. Check the receipt; pause the agent if this wasn't meant.` });
+  }
+
   async function updatePurchase(agent, purchaseId, change) {
     if (typeof purchaseId !== "string") return null;
     const p = await store.getPurchase(purchaseId);
@@ -181,6 +202,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         await store.putAgent(agent);
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
+        checkUnusual(agent, purchase, p).catch((err) => console.warn(`[unusual] ${err.message}`)); // in the background: the agent doesn't wait
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }
       const summary = result.reasons.map((r) => r.message).join("; ");

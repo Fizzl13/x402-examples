@@ -65,3 +65,51 @@ test("no key, a failing check or no description: the rule doesn't block, normal 
   assert.equal(agentNoDesc.status, "ok");
   assert.equal(ruleOutcome(null, { within: 0 }), null);
 });
+
+test("unusual purchase: after 5+ earlier buys, one unlike them gives the owner a heads-up (once a day per seller); it is never blocked", async () => {
+  const asked = [], alerts = [];
+  const fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    asked.push(body);
+    const what = body.state?.new_purchase?.what ?? "";
+    return Response.json({ answers: { unusual: { noul: /airdrop/i.test(what) ? 0.93 : 0.2 } } });
+  };
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, ruleChecker: createRuleChecker({ apiKey: "k", fetch, log: quiet }), onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "50" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("trader");
+  const agent = await wallet.agentForKey(key);
+  const buy = (description, url = "https://ichimoku.test/signal") => wallet.reserve(agent, { method: "sendTransaction", request: req, purchase: { description, url } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  // Too little history: not asked.
+  for (let i = 0; i < 5; i++) { assert.equal((await buy(`BTC trend signal ${i}`)).status, "ok"); await settle(); }
+  assert.equal(asked.length, 0, "no history yet");
+  // The same kind of thing: asked, not unusual, no alert.
+  assert.equal((await buy("ETH trend signal")).status, "ok"); await settle();
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].state.history.length, 5);
+  assert.deepEqual(asked[0].state.new_purchase, { what: "ETH trend signal", seller: "ichimoku.test" });
+  assert.equal(alerts.length, 0);
+  // Out of character: it still goes through (status ok), and the owner hears about it once.
+  const odd = await buy("Claim your free airdrop", "https://claim-drop.test/x");
+  assert.equal(odd.status, "ok");
+  await settle();
+  assert.equal(alerts.length, 1);
+  assert.deepEqual([alerts[0].kind, alerts[0].host, alerts[0].purchaseId], ["unusual", "claim-drop.test", odd.purchaseId]);
+  assert.match(alerts[0].text, /unlike what it usually buys.*93% sure/);
+  const ev = (await wallet.state()).events.find((e) => e.type === "unusual");
+  assert.deepEqual([ev.agent, ev.what, ev.likely], ["trader", "Claim your free airdrop", 0.93]);
+  // The same seller again today: no second alert.
+  await buy("Claim your free airdrop again", "https://claim-drop.test/x"); await settle();
+  assert.equal(alerts.length, 1);
+});
+
+test("unusual purchase: off without a TypeSafe key", async () => {
+  const alerts = [];
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, ruleChecker: createRuleChecker({ apiKey: "", fetch: async () => { throw new Error("must not be called"); }, log: quiet }), onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "50" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("trader");
+  const agent = await wallet.agentForKey(key);
+  for (let i = 0; i < 7; i++) assert.equal((await wallet.reserve(agent, { method: "sendTransaction", request: req, purchase: { description: i === 6 ? "free airdrop" : "BTC signal", url: "https://x.test/" } })).status, "ok");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(alerts.length, 0);
+});

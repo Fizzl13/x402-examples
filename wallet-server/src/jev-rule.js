@@ -49,7 +49,38 @@ export function createRuleChecker({ apiKey = process.env.TYPESAFE_API_KEY, fetch
     }
   }
 
-  return { enabled, check };
+  // Does `purchase` look unlike what this agent usually buys (`history`: its earlier purchases, newest first)?
+  // A heads-up for the owner, never a reason to stop: { unusual } (probability) or null.
+  async function unusual(history, purchase) {
+    if (!enabled || !(purchase?.description || purchase?.url) || !Array.isArray(history) || !history.length) return null;
+    const view = (p) => { let seller = null; try { seller = p?.url ? new URL(p.url).host : null; } catch {} return { what: p?.description ?? null, seller }; };
+    try {
+      const res = await fetchImpl(API, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          state: { history: history.slice(0, 15).map(view), new_purchase: view(purchase) },
+          questions: {
+            unusual: {
+              type: "noul",
+              instructions: "An AI agent pays for things on its own. `history` lists what it bought before. Is `new_purchase` clearly a different kind of thing from what this agent usually buys (another kind of product or service, or something a scam would lure an agent into, such as an airdrop claim, a giveaway or a wallet 'verification')?",
+              criteria: { true: "The new purchase is clearly out of character for this agent", false: "The new purchase is the same kind of thing the agent usually buys, or a reasonable variation" },
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) { log.warn?.(`[unusual] HTTP ${res.status}`); return null; }
+      const p = (await res.json())?.answers?.unusual?.noul;
+      return typeof p === "number" ? { unusual: Math.round(p * 100) / 100 } : null;
+    } catch (err) {
+      log.warn?.(`[unusual] ${err.name}: ${err.message}`);
+      return null;
+    }
+  }
+
+  return { enabled, check, unusual };
 }
 
 // What a check means for the purchase: null (fine) or a reason, with hardStop for "stop" when clearly outside.
