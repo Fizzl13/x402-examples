@@ -42,7 +42,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
   // What the sign-in page offers.
-  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
+  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
 
   // ---------- agents ----------
   const agentOnly = async (req, res, next) => {
@@ -200,6 +200,25 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const id = await accounts.signIn(req.body?.nonce, req.body?.signature, { ref: req.body?.ref });
     res.set("set-cookie", auth.sessionFor(id)).json({ ok: true });
   }));
+  // Sign in with Xaman (XRP Ledger): off to Xaman's OAuth2 page, back here with a code.
+  app.get("/api/signin/xaman", wrap(async (req, res) => {
+    if (!signInWithWallet || !accounts.xamanEnabled) return res.status(404).json({ error: "not_found" });
+    if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
+    const { url } = await accounts.xamanStart({ ref: typeof req.query.ref === "string" ? req.query.ref : null });
+    res.set("cache-control", "no-store").redirect(302, url);
+  }));
+  app.get("/api/signin/xaman/callback", async (req, res) => {
+    try {
+      if (!signInWithWallet || !accounts.xamanEnabled) return res.status(404).json({ error: "not_found" });
+      if (req.query.error) throw new Error(String(req.query.error_description || req.query.error).slice(0, 120));
+      const id = await accounts.xamanSignIn(req.query.code, req.query.state);
+      // A page that moves on by itself, not a redirect: coming from Xaman's site, a redirect would count as
+      // cross-site and the browser would hold back the SameSite=Strict session cookie on that first load.
+      res.set("set-cookie", auth.sessionFor(id)).set("cache-control", "no-store").type("html").send('<!doctype html><meta charset="utf-8"><title>Signed in</title><meta http-equiv="refresh" content="0;url=/"><script>location.replace("/")</script><p>Signed in. <a href="/">Continue</a></p>');
+    } catch (err) {
+      res.set("cache-control", "no-store").redirect(302, `/?signin_error=${encodeURIComponent(String(err.message || "Xaman sign-in failed").slice(0, 160))}`);
+    }
+  });
   // Sign in with e-mail: a 6-digit code is mailed, then typed in.
   app.post("/api/signin/email", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });

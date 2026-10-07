@@ -761,6 +761,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   // Which Fizzl site sent the visitor here (?ref=fizzl.eu), kept for this tab only and sent once at sign-up.
+  // Back from Xaman with an error: show it at the wallet buttons, and clean the address bar.
+  { const e = new URLSearchParams(location.search).get("signin_error"); if (e) { setTimeout(() => { const el = document.getElementById("walletErr"); if (el) el.textContent = e.slice(0, 160); }, 0); history.replaceState(null, "", location.pathname); } }
   { const r = new URLSearchParams(location.search).get("ref"); if (r && /^([a-z0-9-]+\.)?fizzl\.eu$/i.test(r)) { try { sessionStorage.setItem("aw_ref", r.toLowerCase()); } catch {} } }
   const signupRef = () => { try { return sessionStorage.getItem("aw_ref") || undefined; } catch { return undefined; } };
   const STEPS = [0, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 100];
@@ -1016,7 +1018,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
       $("#passkeyNote").textContent = known ? "Or Touch ID, a fingerprint or your screen lock." : "First time? Sign in another way below, then add Face ID on the Account tab.";
       if (viaCode) deviceLogin();
-      solanaOn = !!c.solana; if (walletsReady) renderWallets();
+      solanaOn = !!c.solana; xamanOn = !!c.xaman; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
       $("#orLine").hidden = !c.password || !c.wallet;
       $("#loginForm").hidden = !c.password || c.wallet;
@@ -1026,7 +1028,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   // ---------- wallets (MetaMask, Phantom, Coinbase Wallet, …) ----------
   // ---------- Solana (Phantom): sign in with a signed message, pay Pro in USDC on Solana ----------
-  let solanaOn = false;
+  let solanaOn = false, xamanOn = false;
   const solProvider = () => window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : null);
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   function b58(bytes) {
@@ -1086,7 +1088,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const walletLogo = (name) => { const n = String(name || "").toLowerCase(); const id = n.includes("metamask") ? "metamask" : n.includes("phantom") ? "phantom" : n.includes("coinbase") ? "coinbase" : n.includes("trust") ? "trust" : n.includes("rabby") ? "rabby" : n.includes("okx") ? "okx" : null; return id ? `/icons/${id}.svg` : null; };
   function renderWallets() {
     const list = allWallets();
-    const sol = solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1"><img src="/icons/phantom.svg" alt="">Connect Phantom (Solana)</button>` : "";
+    const sol = (solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1"><img src="/icons/phantom.svg" alt="">Connect Phantom (Solana)</button>` : "")
+      // Xaman (XRP Ledger): a page on Xaman's site asks the app (QR code on a computer, the app itself on a phone).
+      + (xamanOn ? `<a class="button primary" href="/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}"><img src="/icons/xaman.svg" alt="">Sign in with Xaman (XRP Ledger)</a>` : "");
     // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
     // where it is built in. (More apps under "Other wallets".)
     const apps = isPhone && !list.length && !solProvider()
@@ -1295,7 +1299,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!DEMO) loadMonitors();
     renderFollow(); setupAgents(); renderApp(); renderMail(); renderKeys();
     $("#addrLine").hidden = !me.address;
-    if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
+    if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render, and to your phone once you turn on notifications there (On your phone, below).</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
@@ -1312,7 +1316,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour, from $${esc(me.proPriceUsdc ?? 5)} per 30 days in USDC. To pay, connect the wallet you pay from: one free signature, no transaction. Your agents keep their own wallets.</p><div class="wallets" id="linkWallets"></div><div class="msg" id="linkWalletMsg" role="status"></div>`;
       renderLinkWallets();
     } else if (!me.billing) {
-      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Paying for Pro from a Solana wallet isn't open on this server yet.</p>`;
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
     const nets = me.billing.chains ?? [];
@@ -1334,7 +1338,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${withdrawHtml()}
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} ${p.chain === "xrpl" ? "RLUSD" : "USDC"}</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     }
-    if (me.xrplPay) $("#planCard").insertAdjacentHTML("beforeend", xrplPayHtml(me.xrplPay));
+    if (me.xrplPay) { $("#planCard").insertAdjacentHTML("beforeend", xrplPayHtml(me.xrplPay)); if (me.chain === "xrpl") $("#xrplPay")?.setAttribute("open", ""); }
     $("#planCard").insertAdjacentHTML("beforeend", me.promo
       ? `<p class="note" style="margin:0">🎁 Tester code used: ${esc(me.promo.days)} days of Pro (${esc(day(me.promo.at))}). Thanks for testing!</p>`
       : `<details><summary>Have a tester code?</summary><form class="paste" id="promoForm" style="margin-top:8px"><input id="promoIn" placeholder="TEST-…" aria-label="Tester code" autocapitalize="characters" autocomplete="off" maxlength="20"><button class="button small" type="submit">Use code</button></form><div class="msg" id="promoMsg" role="status"></div></details>`);

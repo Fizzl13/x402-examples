@@ -40,7 +40,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -54,6 +54,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     ...(alertHook ? { alertHook } : {}),
     ...(push ? { push } : {}),
     ...(mailer ? { mailer } : {}),
+    ...(xaman ? { xaman } : {}),
   });
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
@@ -899,6 +900,63 @@ test("RLUSD on the XRP Ledger: any account pays with its own destination tag, ch
     // Pro 20 in RLUSD.
     const t20 = (await claim(xpay(9, { tag }), "pro20")).body;
     assert.equal(t20.tier, "pro20");
+  } finally { server.close(); }
+});
+
+test("Xaman: sign in with OAuth2 + PKCE, the XRPL account is the identity; Pro in RLUSD, no Base billing", async () => {
+  const { createHash } = await import("node:crypto");
+  const XRPL_PAY_TO = "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", ALICE = "rG589ewXmZfo9hQt6ntNaciUTpRurYF8gS";
+  const codes = new Map(); // code -> { challenge, sub }
+  const xfetch = async (url, init = {}) => {
+    if (url === "https://oauth2.xumm.app/token") {
+      const f = new URLSearchParams(init.body);
+      const c = codes.get(f.get("code"));
+      const ok = c && f.get("client_id") === "app-key" && f.get("redirect_uri") === "https://wallet.test/api/signin/xaman/callback" && createHash("sha256").update(f.get("code_verifier")).digest("base64url") === c.challenge;
+      return ok ? Response.json({ access_token: `jwt-${f.get("code")}`, token_type: "bearer" }) : Response.json({ error: "invalid_grant" }, { status: 400 });
+    }
+    if (url === "https://oauth2.xumm.app/userinfo") return Response.json({ sub: codes.get(init.headers.authorization.replace("Bearer jwt-", "")).sub, networkType: "MAINNET" });
+    throw new Error(`unexpected ${url}`);
+  };
+  const { base, server } = await boot({ rpc: async (m) => (m === "tx" ? { error: "txnNotFound", status: "error" } : null), xaman: { apiKey: "app-key", fetch: xfetch }, xrpl: { payTo: XRPL_PAY_TO, rpcUrl: "https://xrpl.test" } });
+  // Starts at Xaman with our key, our redirect and a PKCE challenge; returns with a code.
+  const signIn = async (sub, { tamper = false } = {}) => {
+    const start = await fetch(`${base}/api/signin/xaman?ref=fizzl.eu`, { redirect: "manual" });
+    assert.equal(start.status, 302);
+    const u = new URL(start.headers.get("location"));
+    assert.equal(u.origin + u.pathname, "https://oauth2.xumm.app/auth");
+    assert.deepEqual([u.searchParams.get("client_id"), u.searchParams.get("redirect_uri"), u.searchParams.get("code_challenge_method"), u.searchParams.get("response_type")], ["app-key", "https://wallet.test/api/signin/xaman/callback", "S256", "code"]);
+    const code = `c${codes.size}`;
+    codes.set(code, { challenge: u.searchParams.get("code_challenge"), sub });
+    return fetch(`${base}/api/signin/xaman/callback?code=${code}&state=${tamper ? "nope" : u.searchParams.get("state")}`, { redirect: "manual" });
+  };
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).xaman, true);
+    const back = await signIn(ALICE);
+    assert.equal(back.status, 200);
+    assert.match(await back.text(), /location\.replace\("\/"\)/);
+    const cookie = back.headers.get("set-cookie").split(";")[0];
+    const call = async (method, path, body) => { const r = await fetch(base + path, { method, headers: { cookie, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
+    const me = (await call("GET", "/api/me")).body;
+    assert.deepEqual([me.id, me.address, me.chain, me.signedInWith, me.billing, me.auto], [`xrpl:${ALICE}`, ALICE, "xrpl", "xaman", null, null]);
+    assert.equal(me.xrplPay.payTo, XRPL_PAY_TO);
+    // A hash pasted without chainId goes to the XRPL check (here: not found yet).
+    assert.equal((await call("POST", "/api/billing/claim", { txHash: "A".repeat(64) })).status, 409);
+    // A state that wasn't issued here, or one used twice, doesn't sign in: back to the page with the reason.
+    const bad = await signIn(ALICE, { tamper: true });
+    assert.match(bad.headers.get("location"), /^\/\?signin_error=sign-in%20expired/);
+    assert.equal(bad.headers.get("set-cookie"), null);
+    // Xaman answering without an XRPL account: refused.
+    assert.match((await signIn("not-an-address")).headers.get("location"), /signin_error=Xaman%20did%20not%20say/);
+    // The user cancelled in Xaman.
+    assert.match((await fetch(`${base}/api/signin/xaman/callback?error=access_denied`, { redirect: "manual" })).headers.get("location"), /signin_error=access_denied/);
+  } finally { server.close(); }
+});
+
+test("Xaman: off without an API key", async () => {
+  const { base, server } = await boot();
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).xaman, false);
+    assert.equal((await fetch(`${base}/api/signin/xaman`, { redirect: "manual" })).status, 404);
   } finally { server.close(); }
 });
 

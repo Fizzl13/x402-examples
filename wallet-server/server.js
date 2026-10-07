@@ -28,6 +28,8 @@
 //                       with Phantom on Solana and paying Pro in USDC on Solana
 //   XRPL_PAY_TO         the XRPL account that receives Pro paid in RLUSD (needs an RLUSD trust line; default
 //                       Fizzl's Xaman account); "off" turns paying in RLUSD off
+//   XAMAN_API_KEY       optional: the public API key of a Xaman app (apps.xumm.dev, redirect URI
+//                       <PUBLIC_URL>/api/signin/xaman/callback); turns on signing in with Xaman (XRP Ledger)
 //   XRPL_RPC_URL        optional: an XRPL JSON-RPC node to check those payments (default https://xrplcluster.com)
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
 //   USAGE_LOG_TOKEN     optional: anonymous usage statistics to the private usage-log repo (a fine-grained
@@ -98,6 +100,7 @@ const usage = createUsage({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: en
 if (!usage.enabled) console.warn("[usage] USAGE_LOG_TOKEN not set: usage statistics are off");
 const accounts = createAccounts({
   usage,
+  xaman: env.XAMAN_API_KEY?.trim() ? { apiKey: env.XAMAN_API_KEY.trim() } : null,
   store,
   telegram,
   push,
