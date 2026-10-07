@@ -763,7 +763,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // Which Fizzl site sent the visitor here (?ref=fizzl.eu), kept for this tab only and sent once at sign-up.
   // Back from Xaman with an error: show it at the wallet buttons, and clean the address bar.
   { const e = new URLSearchParams(location.search).get("signin_error"); if (e) { setTimeout(() => { const el = document.getElementById("walletErr"); if (el) el.textContent = e.slice(0, 160); }, 0); history.replaceState(null, "", location.pathname); } }
-  { const r = new URLSearchParams(location.search).get("ref"); if (r && /^([a-z0-9-]+\.)?fizzl\.eu$/i.test(r)) { try { sessionStorage.setItem("aw_ref", r.toLowerCase()); } catch {} } }
+  { const r = new URLSearchParams(location.search).get("ref"); if (r && (/^([a-z0-9-]+\.)?fizzl\.eu$/i.test(r) || /^(readme|npm|github|pypi|mcp)$/i.test(r))) { try { sessionStorage.setItem("aw_ref", r.toLowerCase()); } catch {} } }
   const signupRef = () => { try { return sessionStorage.getItem("aw_ref") || undefined; } catch { return undefined; } };
   const STEPS = [0, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 100];
   const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
