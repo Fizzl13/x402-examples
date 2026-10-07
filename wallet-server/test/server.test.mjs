@@ -2083,3 +2083,23 @@ test("usage statistics: an XRPL (Xaman) account in USAGE_OWN_WALLETS is marked o
   assert.deepEqual(events.map((e) => [e.route, e.own ?? false]), [["signup", true], ["signup", false]]);
   assert.ok(!JSON.stringify(events).includes("r9xm"), "no address in the log");
 });
+
+test("e-mail: a welcome e-mail with the first steps after the first sign-in, only once", async () => {
+  const mail = fakeMailer();
+  const { base, server } = await boot({ mailer: mail });
+  try {
+    const signIn = async () => {
+      await jpost(base, "/api/signin/email", { email: "new@example.com" });
+      return jpost(base, "/api/signin/email/code", { email: "new@example.com", code: mail.last() });
+    };
+    assert.equal((await signIn()).status, 200);
+    const welcomes = () => mail.sent.filter((m) => /^Welcome to the Fizzl Agent Wallet/.test(m.subject));
+    assert.equal(welcomes().length, 1);
+    assert.equal(welcomes()[0].to, "new@example.com");
+    assert.match(welcomes()[0].text, /npx -y presign-guard-wallet-mcp/);
+    assert.match(welcomes()[0].text, /Test my setup/);
+    assert.ok(!/\b\d{6}\b/.test(welcomes()[0].text), "no 6-digit number that could look like a code");
+    assert.equal((await signIn()).status, 200);
+    assert.equal(welcomes().length, 1, "not again on the next sign-in");
+  } finally { server.close(); }
+});
