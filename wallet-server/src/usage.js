@@ -26,7 +26,8 @@ export function agentOf(userAgent) {
 }
 // The host a purchase went to (from the URL the agent named), or null.
 // A Fizzl site (fizzl.eu or one of its subdomains) given as where someone came from, or undefined.
-export const fizzlSite = (v) => (typeof v === "string" && /^([a-z0-9-]+\.)?fizzl\.eu$/i.test(v) ? v.toLowerCase() : undefined);
+// Where a sign-up came from: a fizzl.eu site, or one of a few fixed sources (a package README links with ?ref=readme).
+export const fizzlSite = (v) => (typeof v === "string" && (/^([a-z0-9-]+\.)?fizzl\.eu$/i.test(v) || /^(readme|npm|github|pypi|mcp)$/i.test(v)) ? v.toLowerCase() : undefined);
 export const hostOf = (url) => { try { const u = new URL(url); return /^https?:$/.test(u.protocol) ? u.hostname : null; } catch { return null; } };
 
 export function createUsage({ token = null, repo = "Fizzl13/usage-log", salt = null, ownWallets = [], fetch: fetchImpl = globalThis.fetch, now = () => new Date(), log = console, batchMs = 3000 } = {}) {

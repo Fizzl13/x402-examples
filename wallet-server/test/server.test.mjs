@@ -2103,3 +2103,13 @@ test("e-mail: a welcome e-mail with the first steps after the first sign-in, onl
     assert.equal(welcomes().length, 1, "not again on the next sign-in");
   } finally { server.close(); }
 });
+
+test("sign-up source: fizzl.eu sites and a few fixed sources (a README link), nothing else", async () => {
+  const { fizzlSite } = await import("../src/usage.js");
+  assert.equal(fizzlSite("fizzl.eu"), "fizzl.eu");
+  assert.equal(fizzlSite("lab.fizzl.eu"), "lab.fizzl.eu");
+  assert.equal(fizzlSite("README"), "readme");
+  assert.equal(fizzlSite("npm"), "npm");
+  assert.equal(fizzlSite("evil.example"), undefined);
+  assert.equal(fizzlSite("readme.evil"), undefined);
+});

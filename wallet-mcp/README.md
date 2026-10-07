@@ -16,6 +16,19 @@ The key stays on your machine; the server only decides whether a signature is al
 
 See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 
+## Quick start (hosted, about 2 minutes)
+
+No server or Telegram bot to set up: the hosted wallet at wallet.fizzl.eu does the limits, approvals and receipts. Free to start.
+
+1. **Sign in** at **[wallet.fizzl.eu](https://wallet.fizzl.eu/?ref=readme)** with e-mail, a passkey, Xaman or your wallet.
+2. **Add an agent** (Agents → Add agent) and copy the setup it shows for your app: Claude Desktop, Claude Code, Cursor or any MCP client. It is this MCP server with your agent's key filled in.
+3. **Put a few dollars of USDC** in the agent's wallet (the address is on the dashboard). Most calls cost a cent or less.
+4. **Restart your app** and ask your agent: *"what is my wallet status?"*, then something like *"find a weather API and get the forecast for Amsterdam"*. It finds a paid API, pays within your limits and shows you the receipt.
+
+Then connect Telegram on the dashboard to approve anything above your limit from your phone, and press **Test my setup** to see what's still missing.
+
+Prefer to run everything yourself? See [Set up](#set-up) below.
+
 ## Tools
 
 | Tool | What it does |
