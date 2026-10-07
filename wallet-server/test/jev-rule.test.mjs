@@ -113,3 +113,29 @@ test("unusual purchase: off without a TypeSafe key", async () => {
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(alerts.length, 0);
 });
+
+test("price jump: paying the same API 2× its usual price (and a cent more) gives one heads-up a day; never blocked", async () => {
+  const alerts = [];
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "100" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("bot");
+  const agent = await wallet.agentForKey(key);
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const buy = (micro, url = "https://api.seller.test/signal?pair=BTC") => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "signal", url } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  for (const m of [20000, 20000]) { assert.equal((await buy(m)).status, "ok"); await settle(); }
+  assert.equal(alerts.length, 0, "the usual price: no alert");
+  assert.equal((await buy(25000)).status, "ok"); await settle();
+  assert.equal(alerts.length, 0, "a bit more is not a jump");
+  assert.equal((await buy(30000, "https://api.seller.test/other")).status, "ok"); await settle();
+  assert.equal(alerts.length, 0, "another path has its own history");
+  const r = await buy(100000); await settle();
+  assert.equal(r.status, "ok", "never blocked");
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].kind, "price");
+  assert.match(alerts[0].text, /\$0\.1 to api\.seller\.test\/signal, 5× the usual \$0\.02/);
+  await buy(100000); await settle();
+  assert.equal(alerts.length, 1, "once a day per agent and API");
+  assert.ok((await wallet.state()).events.some((e) => e.type === "price_jump"));
+});

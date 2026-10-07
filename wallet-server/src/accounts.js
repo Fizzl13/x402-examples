@@ -224,7 +224,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       onAlert: async ({ kind, purchaseId, text }) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, text).catch((err) => console.warn(`[answer] telegram: ${err.message}`));
-        await pushAll(id, { title: kind === "injection" ? "Instructions aimed at your agent" : kind === "unusual" ? "An unusual purchase by your agent" : "Your agent didn't get what it paid for", body: text, url: "/#/purchases", tag: `${kind === "unusual" ? "unusual" : "answer"}-${purchaseId ?? kind}` });
+        await pushAll(id, { title: kind === "injection" ? "Instructions aimed at your agent" : kind === "unusual" ? "An unusual purchase by your agent" : kind === "price" ? "A seller charged your agent more than usual" : "Your agent didn't get what it paid for", body: text, url: "/#/purchases", tag: `${kind === "unusual" || kind === "price" ? kind : "answer"}-${purchaseId ?? kind}` });
       },
       onSettled: (approval) => telegram?.decided(approval),
     });
