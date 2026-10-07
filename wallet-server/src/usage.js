@@ -6,7 +6,7 @@
 // - a purchase is logged as the seller's host name and the amount, nothing about what was bought.
 // Settings (Render): USAGE_LOG_TOKEN (Contents read/write on the log repo only), optional
 // USAGE_LOG_REPO (default Fizzl13/usage-log), USAGE_LOG_SALT (default: the token) and
-// USAGE_OWN_WALLETS (your own sign-in addresses, comma-separated: their events are marked own).
+// USAGE_OWN_WALLETS (your own sign-in addresses, comma-separated: Ethereum 0x…, Solana or XRPL r…; their events are marked own).
 // Without a token nothing is logged. Logging never delays or breaks a request.
 import { createHmac } from "node:crypto";
 
@@ -38,7 +38,7 @@ export function createUsage({ token = null, repo = "Fizzl13/usage-log", salt = n
 
   // An account as a short, stable code; the server owner is "owner".
   const code = (accountId) => (accountId === "admin" ? "owner" : accountId && secret ? createHmac("sha256", secret).update(`wallet:${String(accountId).toLowerCase()}`).digest("hex").slice(0, 12) : undefined);
-  const isOwn = (accountId) => accountId === "admin" || own.has(String(accountId ?? "").replace(/^sol:/, "").toLowerCase());
+  const isOwn = (accountId) => accountId === "admin" || own.has(String(accountId ?? "").replace(/^(sol|xrpl):/, "").toLowerCase());
 
   async function append(path, lines) {
     for (let attempt = 0; attempt < 4; attempt++) {

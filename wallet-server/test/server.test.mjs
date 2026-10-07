@@ -2064,3 +2064,22 @@ test("tester codes: the owner makes a code for N testers; each account gets the 
     assert.equal((await alice.call("POST", "/api/feedback", { text: "one too many" })).status, 429);
   } finally { server.close(); }
 });
+
+test("usage statistics: an XRPL (Xaman) account in USAGE_OWN_WALLETS is marked own", async () => {
+  const { createUsage } = await import("../src/usage.js");
+  const files = new Map();
+  const gh = async (url, init = {}) => {
+    const path = new URL(url).pathname.split("/contents/")[1];
+    if ((init.method ?? "GET") === "GET") return files.has(path) ? Response.json({ sha: "s", content: Buffer.from(files.get(path)).toString("base64") }) : new Response("", { status: 404 });
+    files.set(path, Buffer.from(JSON.parse(init.body).content, "base64").toString("utf8"));
+    return Response.json({}, { status: 201 });
+  };
+  const usage = createUsage({ token: "ghp_test", salt: "s3cret", fetch: gh, batchMs: 0, ownWallets: ["r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw"] });
+  usage.record("signup", { account: "xrpl:r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", input: { chain: "xrpl" } });
+  usage.record("signup", { account: "xrpl:rG589ewXmZfo9hQt6ntNaciUTpRurYF8gS", input: { chain: "xrpl" } });
+  await usage.flush?.();
+  for (let i = 0; i < 50 && ![...files.values()].join("").includes("rG5") && [...files.values()].join("").split("\n").filter(Boolean).length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+  const events = [...files.values()].join("\n").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(events.map((e) => [e.route, e.own ?? false]), [["signup", true], ["signup", false]]);
+  assert.ok(!JSON.stringify(events).includes("r9xm"), "no address in the log");
+});
