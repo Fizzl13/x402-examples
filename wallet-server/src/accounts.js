@@ -78,6 +78,33 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
+// The welcome e-mail: what to do next, in the order the dashboard's setup check asks for it.
+export function welcomeMail(origin) {
+  return {
+    subject: "Welcome to the Fizzl Agent Wallet: 4 steps to your agent's first payment",
+    text: [
+      "Welcome! Your Fizzl Agent Wallet account is ready. Your agent can pay for APIs (x402) by itself, within the limits you set, and asks you first when something is unusual.",
+      "",
+      "Four steps to get started (each one is on your dashboard):",
+      "",
+      `1. Add an agent and connect it. Dashboard → Agents → Add agent, then copy the setup for your app (Claude Desktop, Claude Code, Cursor or any MCP client). It runs the wallet MCP server: npx -y presign-guard-wallet-mcp. Restart your app and ask your agent: "what is my wallet status?"`,
+      "",
+      "2. Put a few dollars in your agent's wallet. The address and the networks it pays on are shown with your agent on the dashboard. A few dollars of USDC lasts a long time: most calls cost a cent or less.",
+      "",
+      "3. Set your limits: a maximum per call and per day. Above your limit, or for anything unusual, the wallet asks you first. No answer means no payment.",
+      "",
+      "4. Get approvals on your phone: connect Telegram on your dashboard. Then you approve or deny a payment with one tap.",
+      "",
+      'When that\'s done, press "Test my setup" on the dashboard: it shows what is still missing.',
+      "",
+      `Your dashboard: ${origin}`,
+      "How it works and examples: https://fizzl.eu/agents/",
+      "",
+      "Fizzl Agent Wallet",
+    ].join("\n"),
+  };
+}
+
 export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null }) {
   const g = store.global;
   const wallets = new Map();
@@ -260,6 +287,18 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const sendsPerEmail = new Map(); // email id -> { n, since }: at most 5 codes an hour per address
   const feedbackSent = new Map(); // account -> { n, since }: at most 5 feedback messages an hour
 
+  // A welcome e-mail with the steps to get started, once per account: on sign-up, or on the next e-mail sign-in
+  // for accounts made before it existed (the address itself is never stored, so that's the only moment we have it).
+  async function welcome(id, email) {
+    if (!mailer) return;
+    const a = await g.getAccount(id);
+    if (!a || a.welcomedAt) return;
+    await g.putAccount({ ...a, welcomedAt: now() });
+    const { subject, text } = welcomeMail(site.origin);
+    mailer.send(cleanEmail(email), subject, text).catch((err) => console.warn(`[mail] welcome: ${err.message}`));
+    usage.record("welcome_sent", { account: id });
+  }
+
   const api = {
     walletFor,
     emailEnabled: !!mailer,
@@ -368,6 +407,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const fresh = !existing || existing.deletedAt;
       if (fresh) await g.putAccount({ id: key, chain: "email", address: null, emailHint: emailHint(email), createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null, ...(fizzlSite(ref) ? { ref: fizzlSite(ref) } : {}) });
       usage.record(fresh ? "signup" : "signin", { account: key, ref: fresh ? fizzlSite(ref) : existing.ref, input: { chain: "email" } });
+      await welcome(key, email);
       return key;
     },
     // Add an e-mail address to a wallet account, so it can sign in with either.
