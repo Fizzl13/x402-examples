@@ -8,12 +8,15 @@ import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, bsc, mainnet, optimism, polygon, tempo, tempoModerato } from "viem/chains";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { ExactXrplScheme } from "@x402/xrpl/exact/client";
+import { createXrplWalletSigner } from "@x402/xrpl";
+import { Wallet as XrplWallet } from "xrpl";
 import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest } from "presign-guard-wallet";
 import { telegramApprover } from "presign-guard-wallet/telegram";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.10.0";
+export const VERSION = "0.11.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -80,6 +83,57 @@ const address = z.string().refine((a) => isAddress(a, { strict: false }), "an 0x
  * Read the configuration from environment variables (see README).
  * Throws a readable error for anything missing or unsafe.
  */
+// XRP Ledger: x402 payments in RLUSD (Ripple's dollar) from the agent's own XRPL account (XRPL_SEED).
+// Only RLUSD from Ripple's issuer is paid (XRP has no dollar price here, so the per-call cap couldn't hold).
+export const XRPL = {
+  mainnet: { network: "xrpl:0", wsUrl: "wss://xrplcluster.com", rlusdIssuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De" },
+  testnet: { network: "xrpl:1", wsUrl: "wss://s.altnet.rippletest.net:51233", rlusdIssuer: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" },
+};
+export const RLUSD_HEX = "524C555344000000000000000000000000000000";
+const hexText = (t) => Buffer.from(String(t), "utf8").toString("hex").toUpperCase();
+// "RLUSD" -> its 40-hex currency code; 3-letter codes and hex codes stay as they are.
+export const xrplCurrency = (c) => (/^[0-9A-Fa-f]{40}$/.test(c) ? c.toUpperCase() : String(c).length === 3 ? String(c) : hexText(c).padEnd(40, "0"));
+export const isRlusdOffer = (r, net) => r?.network === net.network && r.scheme === "exact" && typeof r.asset === "string" && xrplCurrency(r.asset) === RLUSD_HEX && r.extra?.issuer === net.rlusdIssuer;
+// RLUSD amounts are decimal dollars ("0.02", and "2" is two dollars): x402's spend controls would read a whole
+// number as base units, so the per-call cap is checked here, in dollars.
+const rlusdWithin = (r, maxUsd) => /^\d+(\.\d+)?$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= maxUsd;
+
+/**
+ * An x402 client scheme for XRPL that also pays sellers using t54's facilitator (most XRPL services, e.g.
+ * in the XRPL AI Hub): when the offer has extra.invoiceId, the invoice is bound in Memos and InvoiceID, the
+ * SourceTag is set, and the payload carries { signedTxBlob, invoiceId }; otherwise it is @x402/xrpl's
+ * plain payload. `signer` is guarded (presign-guard-wallet's xrplSigner), so every Payment is checked first.
+ */
+export function xrplPayScheme(signer, { network, wsUrl, prepare, maxUsd = Infinity } = {}) {
+  let inner;
+  const prepareTx = async (tx, req) => {
+    const extra = req.extra ?? {};
+    const out = { ...tx };
+    for (const k of ["Amount", "SendMax"]) if (out[k] && typeof out[k] === "object") out[k] = { ...out[k], currency: xrplCurrency(out[k].currency) };
+    const tag = Number(extra.sourceTag);
+    if (extra.sourceTag !== undefined && Number.isInteger(tag) && tag >= 0 && tag <= 0xffffffff) out.SourceTag = tag;
+    if (typeof extra.invoiceId === "string" && extra.invoiceId) {
+      const memos = [{ Memo: { MemoData: hexText(extra.invoiceId) } }];
+      if (typeof extra.facilitator?.id === "string" && extra.facilitator.id) {
+        const f = { id: extra.facilitator.id, ...(extra.facilitator.name ? { name: String(extra.facilitator.name) } : {}), ...(out.SourceTag !== undefined ? { sourceTag: out.SourceTag } : {}) };
+        memos.push({ Memo: { MemoType: hexText("urn:x402:facilitator"), MemoData: hexText(JSON.stringify(f)), MemoFormat: hexText("application/json") } });
+      }
+      out.Memos = memos;
+    }
+    return prepare ? prepare(out, req) : inner.autofillPaymentTransaction(out, req);
+  };
+  inner = new ExactXrplScheme(signer, { wsUrlByNetwork: { [network]: wsUrl }, preparePaymentTransaction: prepareTx });
+  // Object.create: the x402 client also asks the scheme for findDefaultAsset (spend controls).
+  return Object.assign(Object.create(inner), {
+    async createPaymentPayload(x402Version, req) {
+      if (!rlusdWithin(req, maxUsd)) throw new Error(`the XRPL price (${req.amount}) is not an RLUSD amount within $${maxUsd}; nothing was paid`);
+      const p = await inner.createPaymentPayload(x402Version, req);
+      if (typeof req.extra?.invoiceId === "string" && req.extra.invoiceId) p.payload.invoiceId = req.extra.invoiceId;
+      return p;
+    },
+  });
+}
+
 export function configFromEnv(env = process.env) {
   const key = env.AGENT_KEY?.trim();
   if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("AGENT_KEY must be the agent wallet's private key (0x + 64 hex). Use a separate wallet with only what the agent may spend.");
@@ -109,6 +163,8 @@ export function configFromEnv(env = process.env) {
     if (mandate?.mandate?.v !== "x402-mandate/1" || mandate.alg !== "Ed25519" || typeof mandate.sig !== "string") throw new Error("MANDATE must be { mandate: { v: \"x402-mandate/1\", … }, alg: \"Ed25519\", sig }");
   }
 
+  const xrpl = xrplConfig(env);
+
   const maxPrice = env.MAX_PAYMENT_USD ?? "1";
   if (!/^\d+(\.\d+)?$/.test(maxPrice)) throw new Error("MAX_PAYMENT_USD must be a number of dollars, e.g. 1 or 0.25");
 
@@ -126,7 +182,18 @@ export function configFromEnv(env = process.env) {
     tempo: tempoConfig(env),
     discoveryUrl: env.X402_DISCOVERY_URL || DISCOVERY_URL,
     mandate,
+    // XRPL: off without XRPL_SEED. RLUSD counts toward the USDC limits.
+    xrpl,
   };
+}
+
+function xrplConfig(env) {
+  const seed = env.XRPL_SEED?.trim();
+  if (!seed) return null;
+  try { XrplWallet.fromSeed(seed); } catch { throw new Error("XRPL_SEED must be the agent's own XRPL account seed (s…). Use a separate account with only what the agent may spend."); }
+  const name = (env.XRPL_NETWORK || "mainnet").toLowerCase();
+  if (!XRPL[name]) throw new Error(`XRPL_NETWORK must be ${Object.keys(XRPL).join(" or ")}`);
+  return { seed, net: name, wsUrl: env.XRPL_WS_URL || XRPL[name].wsUrl };
 }
 
 function tempoConfig(env) {
@@ -181,6 +248,10 @@ export function createWallet(config, overrides = {}) {
     signTypedData: (typedData) => guarded.signTypedData({ account, ...typedData }),
     readContract: (args) => publicClient.readContract(args),
   };
+
+  // XRPL: the agent's own XRPL account, its Payments checked by presign-guard and kept to the limits.
+  const xrplNet = config.xrpl ? { ...XRPL[config.xrpl.net], wsUrl: config.xrpl.wsUrl } : null;
+  const xrplSigner = xrplNet ? guarded.xrplSigner(overrides.xrplSigner ?? createXrplWalletSigner(XrplWallet.fromSeed(config.xrpl.seed)), { network: xrplNet.network }) : null;
 
   // The MPP challenge this wallet can pay: method "evm", intent "charge", USDC on its own chain, EIP-3009 authorization.
   function payableMpp(res) {
@@ -293,6 +364,14 @@ export function createWallet(config, overrides = {}) {
       const mandate = await currentMandate();
       // Object.create: the x402 client also asks the scheme for findDefaultAsset (spend controls).
       client.register(`eip155:${chain.id}`, mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme);
+      // RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
+      if (xrplSigner && !mandate) {
+        client.register(xrplNet.network, xrplPayScheme(xrplSigner, { network: xrplNet.network, wsUrl: xrplNet.wsUrl, prepare: overrides.xrplPrepare, maxUsd: cap }));
+        // RLUSD written as text ("RLUSD") isn't a default asset to the spend controls; the cap is checked above.
+        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }] });
+        // Only RLUSD from Ripple, and after the USDC offers on this chain (those come first when both are there).
+        client.registerPolicy((_v, reqs) => [...reqs.filter((r) => !String(r.network).startsWith("xrpl:")), ...reqs.filter((r) => isRlusdOffer(r, xrplNet) && rlusdWithin(r, cap))]);
+      }
       let pending = first;
       const replay = (input, i) => { if (pending) { const r = pending; pending = null; return Promise.resolve(r); } return plainFetch(input, i); };
       res = await wrapFetchWithPayment(replay, client)(url, init);
@@ -337,6 +416,7 @@ export function createWallet(config, overrides = {}) {
 
   return {
     address: account.address,
+    xrplAddress: xrplSigner?.classicAddress ?? null,
     chain,
     guard: guarded,
 
@@ -355,6 +435,7 @@ export function createWallet(config, overrides = {}) {
           USDC: usdcBalance === null ? "unknown" : formatUnits(usdcBalance, usdc[1]),
           ...(tempoNet ? { [`${tempoNet.symbol} on Tempo${tempoNet.chainId === 4217 ? "" : " testnet"} (for MPP tempo charges)`]: tempoBalance === null ? "unknown" : formatUnits(tempoBalance, 6) } : {}),
         },
+        ...(xrplSigner && { xrpl: { address: xrplSigner.classicAddress, network: `${config.xrpl.net} (${xrplNet.network})`, pays: "x402 in RLUSD (Ripple's issuer), counted toward the USDC limits; the account needs an RLUSD trust line, RLUSD and a little XRP for fees" } }),
         limits: config.server ? `kept by the wallet server ${config.server.url}` : config.limits.tokens,
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
         approvals: config.server ? "wallet server (dashboard / Telegram)" : config.telegram ? "Telegram" : "none: anything over a limit is refused",
@@ -491,7 +572,7 @@ export function createServer(wallet) {
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
-    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
+    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With an XRPL account set up, x402 offers in RLUSD on the XRP Ledger are paid too (after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
     inputSchema: {
       url: z.string().url().describe("The API URL"),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),

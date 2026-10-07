@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { decodeFunctionData, erc20Abi } from "viem";
+import { Wallet } from "xrpl";
 import { configFromEnv, createServer, createWallet, words } from "../lib.js";
 
 const KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // a well-known test key (anvil #1), no funds
@@ -14,6 +15,11 @@ const MPP_API = "https://mpp.example.test/data"; // MPP only: WWW-Authenticate: 
 const TEMPO_API = "https://tempo.example.test/data"; // MPP only, method tempo (push mode, USDC.e on Tempo)
 const BOTH_API = "https://both.example.test/data"; // MPP evm on Base and tempo, like the Fizzl services
 const TEMPO_USDC = "0x20c000000000000000000000b9537d11c60e8b50";
+const XRPL_API = "https://xrpl.example.test/data"; // x402 on the XRP Ledger only (opts.xrplAccepts), like t54-built sellers
+const XRPL_SHOP = "rPmk7qVonceRjyZEMMjMSRayQesaFFtsT5";
+const RLUSD = "524C555344000000000000000000000000000000";
+const RIPPLE = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
+export const rlusdOffer = (amount = "0.02", extra = {}) => ({ scheme: "exact", network: "xrpl:0", amount, asset: RLUSD, payTo: XRPL_SHOP, maxTimeoutSeconds: 60, extra: { issuer: RIPPLE, areFeesSponsored: false, ...extra } });
 
 // presign-guard (red for the drainer) and an x402 API that costs 0.05 USDC.
 function network({ price = "50000", ...opts } = {}) {
@@ -74,6 +80,19 @@ function network({ price = "50000", ...opts } = {}) {
       const receipt = Buffer.from(JSON.stringify({ method: cred.challenge.method, reference: cred.payload.hash ?? "0xevmsettled", status: "success", timestamp: new Date().toISOString() })).toString("base64url");
       return new Response(JSON.stringify({ answer: 44 }), { status: 200, headers: { "content-type": "application/json", "payment-receipt": receipt } });
     }
+    // An x402 API on the XRP Ledger (and Base next to it with opts.xrplAndBase).
+    if (url === XRPL_API) {
+      const sig = headers.get("payment-signature") ?? headers.get("x-payment");
+      if (!sig) {
+        const accepts = [...(opts.xrplAndBase ? [requirements] : []), ...(opts.xrplAccepts ?? [rlusdOffer()])];
+        const challenge = { x402Version: 2, error: "payment required", resource: { url: XRPL_API, description: "data", mimeType: "application/json" }, accepts };
+        return new Response("{}", { status: 402, headers: { "content-type": "application/json", "payment-required": Buffer.from(JSON.stringify(challenge)).toString("base64") } });
+      }
+      const payload = JSON.parse(Buffer.from(sig, "base64").toString());
+      paid.push(payload);
+      const receipt = Buffer.from(JSON.stringify({ success: true, transaction: payload.accepted.network.startsWith("xrpl:") ? "XRPLHASH" : "0xsettled", network: payload.accepted.network })).toString("base64");
+      return new Response(JSON.stringify({ answer: 45 }), { status: 200, headers: { "content-type": "application/json", "payment-response": receipt } });
+    }
     // The x402 catalog (Bazaar discovery).
     if (url.startsWith("https://catalog.test/")) {
       catalogCalls.push(url);
@@ -126,16 +145,21 @@ function fakeWallet() {
       waitForTransactionReceipt: async () => ({ status: "success" }),
       readContract: async () => 3_000_000n,
     },
+    // XRPL: the agent's account signs (recorded); autofill without a network.
+    xrplSigner: { classicAddress: XRPL_AGENT, sign: (tx) => { sent.push(["xrpl.sign", tx]); return { signedTxBlob: "12000022", hash: "XRPLHASH" }; } },
+    xrplPrepare: async (tx) => ({ ...tx, Sequence: 7, Fee: "12", LastLedgerSequence: 1000 }),
   };
 }
 
 const ENV = { AGENT_KEY: KEY, LIMIT_USDC_PER_TX: "5", LIMIT_USDC_PER_DAY: "20" };
+const XRPL_SEED = "sEdTM1uX8pu2do5XvTnutH6HsouMaM2"; // xrpl.js docs example seed, no funds
+const XRPL_AGENT = Wallet.fromSeed(XRPL_SEED).classicAddress;
 
 async function setup(env = {}, opts = {}) {
   const net = network(opts);
   const fake = fakeWallet();
   const spends = [];
-  const wallet = createWallet(configFromEnv({ ...ENV, ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, tempoWalletClient: fake.tempoWalletClient, tempoPublicClient: fake.tempoPublicClient, fetch: net.fetch, guard: { verifyReceipts: "off", onSpend: (e) => spends.push(e) } });
+  const wallet = createWallet(configFromEnv({ ...ENV, ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, tempoWalletClient: fake.tempoWalletClient, tempoPublicClient: fake.tempoPublicClient, fetch: net.fetch, guard: { verifyReceipts: "off", onSpend: (e) => spends.push(e) }, xrplSigner: fake.xrplSigner, xrplPrepare: fake.xrplPrepare });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await createServer(wallet).connect(a);
   const client = new Client({ name: "test", version: "1" });
@@ -494,4 +518,72 @@ test("wallet server: the mandate the owner set there is fetched and used for x40
   assert.equal(net.paid[0].payload.authorization.nonce, mandateBinding(mandateDigest(mandate), sent.paymentId));
   const status = JSON.parse((await client.callTool({ name: "wallet_status", arguments: {} })).content[0].text);
   assert.equal(status.mandate.from, "wallet server");
+});
+
+test("XRPL: an RLUSD offer with a t54 invoice is paid from the agent's XRPL account, checked and counted toward USDC", async () => {
+  const { call, net, fake, spends } = await setup({ XRPL_SEED }, { xrplAccepts: [rlusdOffer("0.02", { invoiceId: "xrpl.example.test GET /data", sourceTag: 804681468, facilitator: { id: "t54", name: "t54" } })] });
+  const r = await call("pay_x402", { url: XRPL_API });
+  assert.equal(r.error, false, r.text);
+  const out = JSON.parse(r.text);
+  assert.equal(out.paid, true);
+  assert.equal(out.payment.transaction, "XRPLHASH");
+  // The payload in t54's shape: the signed blob and the invoice.
+  assert.deepEqual(net.paid[0].payload, { signedTxBlob: "12000022", invoiceId: "xrpl.example.test GET /data" });
+  // The signed Payment: RLUSD as a hex currency, the invoice in Memos and InvoiceID, the SourceTag, the facilitator memo.
+  const [[kind, tx]] = fake.sent;
+  assert.equal(kind, "xrpl.sign");
+  assert.equal(tx.TransactionType, "Payment");
+  assert.equal(tx.Account, XRPL_AGENT);
+  assert.equal(tx.Destination, XRPL_SHOP);
+  assert.deepEqual(tx.Amount, { currency: RLUSD, issuer: RIPPLE, value: "0.02" });
+  assert.equal(tx.SourceTag, 804681468);
+  assert.equal(tx.Memos[0].Memo.MemoData, Buffer.from("xrpl.example.test GET /data").toString("hex").toUpperCase());
+  assert.deepEqual(JSON.parse(Buffer.from(tx.Memos[1].Memo.MemoData, "hex").toString()), { id: "t54", name: "t54", sourceTag: 804681468 });
+  assert.match(tx.InvoiceID, /^[0-9A-F]{64}$/);
+  // presign-guard saw it first (type xrpl), and it counted as USDC.
+  assert.equal(net.checks.length, 1);
+  assert.equal(net.checks[0].type, "xrpl");
+  assert.equal(net.checks[0].network, "xrpl:0");
+  assert.equal(spends.at(-1)?.token ?? spends.at(-1)?.symbol ?? "USDC", "USDC");
+});
+
+test("XRPL: without an invoice it is @x402/xrpl's plain payload; RLUSD written as text is turned into its hex code", async () => {
+  const { call, net, fake } = await setup({ XRPL_SEED }, { xrplAccepts: [{ ...rlusdOffer("0.01"), asset: "RLUSD" }] });
+  const r = await call("pay_x402", { url: XRPL_API });
+  assert.equal(r.error, false, r.text);
+  assert.deepEqual(net.paid[0].payload, { signedTxBlob: "12000022" });
+  const tx = fake.sent[0][1];
+  assert.equal(tx.Amount.currency, RLUSD);
+  assert.equal(tx.Memos, undefined);
+});
+
+test("XRPL: XRP, fake RLUSD and a price above the cap are never paid; with Base offered too, USDC on Base goes first", async () => {
+  for (const accepts of [
+    [{ scheme: "exact", network: "xrpl:0", amount: "20000", asset: "XRP", payTo: XRPL_SHOP, maxTimeoutSeconds: 60, extra: { areFeesSponsored: false } }],
+    [rlusdOffer("0.02", { issuer: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" })],
+    [rlusdOffer("2")],
+  ]) {
+    const { call, net, fake } = await setup({ XRPL_SEED, MAX_PAYMENT_USD: "1" }, { xrplAccepts: accepts });
+    const r = await call("pay_x402", { url: XRPL_API });
+    assert.equal(r.error, true, `paid ${JSON.stringify(accepts)}`);
+    assert.equal(net.paid.length, 0);
+    assert.equal(fake.sent.length, 0);
+  }
+  const { call, net, fake } = await setup({ XRPL_SEED }, { xrplAndBase: true });
+  assert.equal((await call("pay_x402", { url: XRPL_API })).error, false);
+  assert.equal(net.paid[0].accepted.network, "eip155:8453");
+  assert.deepEqual(fake.sent, [["signTypedData", "TransferWithAuthorization"]]);
+});
+
+test("XRPL: off without XRPL_SEED; a bad seed or network is refused; wallet_status shows the XRPL account", async () => {
+  const off = await setup({}, {});
+  assert.equal((await off.call("pay_x402", { url: XRPL_API })).error, true);
+  assert.equal(off.fake.sent.length, 0);
+  assert.throws(() => configFromEnv({ ...ENV, XRPL_SEED: "not-a-seed" }), /XRPL_SEED/);
+  assert.throws(() => configFromEnv({ ...ENV, XRPL_SEED, XRPL_NETWORK: "devnet" }), /XRPL_NETWORK/);
+  assert.equal(configFromEnv({ ...ENV, XRPL_SEED, XRPL_NETWORK: "testnet" }).xrpl.net, "testnet");
+  const { call } = await setup({ XRPL_SEED });
+  const st = JSON.parse((await call("wallet_status")).text);
+  assert.equal(st.xrpl.address, XRPL_AGENT);
+  assert.match(st.xrpl.network, /xrpl:0/);
 });
