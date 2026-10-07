@@ -16,6 +16,7 @@ import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransfer
 import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decodeFunctionResult, encodeDeployData, erc20Abi } from "viem";
 import { createWallet, hashKey } from "./wallet.js";
 import { destinationTag, rlusdPaid, isXrplAddress, isXrplHash, RLUSD_ISSUER } from "./xrpl-pay.js";
+import { pkcePair, authUrl, accountFor } from "./xaman.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
@@ -77,7 +78,7 @@ const date = (t) => new Date(t).toISOString().slice(0, 10);
  *   solana?: { payTo: Solana address that receives Pro payments, rpcUrl } }
  * @param {string} o.publicUrl  e.g. https://wallet.fizzl.eu (the sign-in domain)
  */
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -114,6 +115,9 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const solPayTo = billing.solana?.payTo ?? null;
   // Solana: signed in with a Solana wallet, or an e-mail account that connected one to pay with.
   const isSol = (a) => a?.chain === "solana" || a?.payChain === "solana";
+  // Signed in with Xaman: an XRPL account (r…). Pays Pro in RLUSD; no Base billing, no automatic payment.
+  const isXrplAcct = (a) => a?.chain === "xrpl";
+  const xamanRedirect = xaman?.apiKey ? `${String(publicUrl).replace(/\/$/, "")}/api/signin/xaman/callback` : null;
   // Optional: Pro paid in RLUSD on the XRP Ledger, to the owner's XRPL account with the account's destination tag.
   if (billing.xrpl?.payTo && !isXrplAddress(billing.xrpl.payTo)) throw new Error("billing.xrpl.payTo must be an XRPL address (r…)");
   const xrplPayTo = billing.xrpl?.payTo ?? null;
@@ -151,7 +155,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   // The account's state in the subscription contract (and what its approval still allows), cached on the account.
   async function syncAuto(a, { maxAgeMs = 60_000 } = {}) {
-    if (!subscription || !a?.address || a.admin || isSol(a)) return a;
+    if (!subscription || !a?.address || a.admin || isSol(a) || isXrplAcct(a)) return a;
     if (a.auto?.checkedAt && now() - a.auto.checkedAt < maxAgeMs) return a;
     const [dueAt, paidThrough] = await Promise.all(["dueAt", "paidThrough"].map((fn) => call(subscription, SUBSCRIPTION.abi, fn, [a.address])));
     const [allowance, balance] = await Promise.all([call(token, erc20Abi, "allowance", [a.address, subscription]), call(token, erc20Abi, "balanceOf", [a.address])]);
@@ -259,6 +263,28 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     walletFor,
     emailEnabled: !!mailer,
     solanaEnabled: !!solPayTo,
+    xamanEnabled: !!xamanRedirect,
+
+    // ---------- sign in with Xaman (OAuth2 + PKCE; the XRPL account is the identity) ----------
+    async xamanStart({ ref = null } = {}) {
+      if (!xamanRedirect) throw Object.assign(new Error("signing in with Xaman is not set up on this server"), { status: 404 });
+      const { verifier, challenge } = pkcePair();
+      const state = rand(18);
+      await g.putOnce("xaman", state, { verifier, ...(ref ? { ref: String(ref).slice(0, 60) } : {}) }, NONCE_TTL_S);
+      return { url: authUrl({ apiKey: xaman.apiKey, redirectUri: xamanRedirect, state, challenge }) };
+    },
+    async xamanSignIn(code, state) {
+      if (!xamanRedirect) throw Object.assign(new Error("signing in with Xaman is not set up on this server"), { status: 404 });
+      const pending = typeof state === "string" && typeof code === "string" ? await g.takeOnce("xaman", state) : null;
+      if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
+      const { account: address } = await accountFor({ apiKey: xaman.apiKey, redirectUri: xamanRedirect, code, verifier: pending.verifier, fetch: xaman.fetch });
+      const id = `xrpl:${address}`;
+      const existing = await g.getAccount(id);
+      const fresh = !existing || existing.deletedAt;
+      if (fresh) await g.putAccount({ id, chain: "xrpl", address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null, ...(pending.ref ? { ref: pending.ref } : {}) });
+      usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? fizzlSite(pending.ref) : existing.ref, input: { chain: "xrpl" } });
+      return id;
+    },
     xrplEnabled: !!xrplPayTo,
     account,
     planOf,
@@ -393,14 +419,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
-        chain: a.admin ? null : isSol(a) ? "solana" : "ethereum",
-        signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isSol(a) ? "solana" : "ethereum",
+        chain: a.admin ? null : isXrplAcct(a) ? "xrpl" : isSol(a) ? "solana" : "ethereum",
+        signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isXrplAcct(a) ? "xaman" : isSol(a) ? "solana" : "ethereum",
         email: a.emailHint ?? null, emailSignIn: !!mailer,
         needsWallet: a.chain === "email" && !a.address,
         proPriceUsdc: Number(priceUnits) / 1e6,
         promo: a.promo ?? null,
         passkeys: (a.passkeys ?? []).map((k) => ({ id: k.id, label: k.label, at: k.at, usedAt: k.usedAt ?? null })),
-        auto: subscription && !a.admin && a.address && !isSol(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
+        auto: subscription && !a.admin && a.address && !isSol(a) && !isXrplAcct(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         withdrawal: withdrawalOf(a),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
@@ -408,7 +434,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         follow: a.follow ?? [],
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
         xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY },
-        billing: a.admin || !a.address ? null : isSol(a)
+        billing: a.admin || !a.address || isXrplAcct(a) ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
@@ -1098,6 +1124,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (chainId === "xrpl" && sa && !sa.admin) return claimXrpl(sa, txHash, tier);
     if (!sa?.address) throw Object.assign(new Error("Connect the wallet you pay from first (Your plan)."), { status: 400 });
     if (isSol(sa)) return claimSolana(sa, txHash, tier);
+    if (isXrplAcct(sa)) return claimXrpl(sa, txHash, tier);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
     const cid = Number(chainId ?? 8453), net = chains[cid];
     if (!net) throw Object.assign(new Error(`Pro can be paid on ${Object.values(chains).map((c) => c.name).join(", ")}`), { status: 400 });

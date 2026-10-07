@@ -49,6 +49,7 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `SOLANA_RPC_URL` | optional: a Solana RPC to build and check those payments (default `https://api.mainnet-beta.solana.com`) |
    | `XRPL_PAY_TO` | the XRPL account that receives Pro paid in RLUSD (needs an RLUSD trust line; default Fizzl's account). `off` turns it off |
    | `XRPL_RPC_URL` | optional: an XRPL JSON-RPC node to check those payments (default `https://xrplcluster.com`) |
+   | `XAMAN_API_KEY` | optional: the public API key of a Xaman app ([apps.xumm.dev](https://apps.xumm.dev), redirect URI `<PUBLIC_URL>/api/signin/xaman/callback`). Turns on "Sign in with Xaman": OAuth2 with PKCE, no secret needed; the XRPL account is the identity and pays Pro in RLUSD |
    | `CHARGER_KEY` | optional: private key of a **new, separate** wallet with a little ETH on Base that sends the monthly charges (never your payout wallet) |
 3. Open the URL, log in, set your price rule, add an agent and copy its key.
 
