@@ -42,7 +42,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
   // What the sign-in page offers.
-  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
+  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
 
   // ---------- agents ----------
   const agentOnly = async (req, res, next) => {
