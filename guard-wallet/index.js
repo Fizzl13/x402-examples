@@ -59,7 +59,7 @@ export const TEMPO_TOKENS = {
 };
 const TEMPO_TRANSFERS = new Set(["transfer", "transferWithMemo"]);
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.10.0";
+export const VERSION = "0.10.1";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
