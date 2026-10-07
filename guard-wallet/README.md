@@ -215,6 +215,22 @@ client.register("eip155:8453", mandatePayer(new ExactEvmScheme(signer), mandate)
 
 Only single payments are checked; the cumulative spend against the cap needs the mandate's accountant. Permit2 payments pass through unbound. The draft is still open, so details may change.
 
+## XRP Ledger (RLUSD and XRP)
+
+`xrplSigner` guards an XRPL signer the same way: before a `Payment` is signed it goes to presign-guard as `{ type: "xrpl", network, tx }` (destination, issuer of the token, flags), and red or orange stops it. Spending limits apply too: RLUSD from Ripple's issuer counts toward your `USDC` limit, drops toward `XRP`, any other token is unknown (`onUnknown`). The agent keeps its own XRPL key; anything but a `Payment` is refused.
+
+```js
+import { Wallet } from "xrpl";
+import { createXrplWalletSigner } from "@x402/xrpl";
+import { ExactXrplScheme } from "@x402/xrpl/exact/client";
+
+const guarded = guardWallet(walletClient, { pay, limits: { tokens: { USDC: { perDay: "5" } } } });
+const xrpl = guarded.xrplSigner(createXrplWalletSigner(Wallet.fromSeed(process.env.XRPL_SEED)), { network: "xrpl:0" });
+client.register("xrpl:*", new ExactXrplScheme(xrpl)); // x402 payments in RLUSD, checked and within limits
+```
+
+`network` is `"xrpl:0"` (mainnet) or `"xrpl:1"` (testnet). The check itself is still paid on Base (or with credits).
+
 ## Signed verdicts
 
 presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash of your request inside the signed body; see [Signed verdicts](https://github.com/Fizzl13/presign-guard#signed-verdicts)). The wallet checks that signature before it acts:
