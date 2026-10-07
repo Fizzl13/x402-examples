@@ -47,6 +47,8 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `ETHEREUM_RPC_URL`, `ARBITRUM_RPC_URL`, `OPTIMISM_RPC_URL`, `POLYGON_RPC_URL` | optional: RPCs to check Pro payments made on those networks (public RPCs by default). Pro can be paid in USDC on Base, Arbitrum, Optimism, Polygon or Ethereum, to `PRO_PAY_TO` on each |
    | `SOLANA_PAY_TO` | optional: the Solana address that receives Pro payments. Turns on signing in with Phantom on Solana and paying Pro in USDC on Solana |
    | `SOLANA_RPC_URL` | optional: a Solana RPC to build and check those payments (default `https://api.mainnet-beta.solana.com`) |
+   | `XRPL_PAY_TO` | the XRPL account that receives Pro paid in RLUSD (needs an RLUSD trust line; default Fizzl's account). `off` turns it off |
+   | `XRPL_RPC_URL` | optional: an XRPL JSON-RPC node to check those payments (default `https://xrplcluster.com`) |
    | `CHARGER_KEY` | optional: private key of a **new, separate** wallet with a little ETH on Base that sends the monthly charges (never your payout wallet) |
 3. Open the URL, log in, set your price rule, add an agent and copy its key.
 
@@ -61,7 +63,7 @@ Anyone can sign in with their wallet: MetaMask, Phantom, Coinbase Wallet, Rabby 
 - **On your phone:** the dashboard installs as an app (iPhone: Safari → Share → Add to Home Screen; Android and computers: Install). Turn on notifications on the Account tab and approval requests and alerts arrive as notifications; a tap opens the approval, and on Android you can approve or deny right in the notification. Standard Web Push, encrypted end to end, no extra setup: the signing key comes from `VAPID_PRIVATE_KEY` or else from the session secret.
 - **Free:** 1 agent, receipts kept 7 days.
 - **Pro:** unlimited agents, receipts kept 90 days, $5 per 30 days (`PRO_PRICE_USDC`).
-  - Paid in USDC on Base, Arbitrum, Optimism, Polygon or Ethereum (or on Solana with `SOLANA_PAY_TO`), straight from the customer's wallet to `PRO_PAY_TO`. The server checks each payment on-chain: from the signed-in address, to your address, at least the price, within 7 days, and used once.
+  - Paid in USDC on Base, Arbitrum, Optimism, Polygon or Ethereum (or on Solana with `SOLANA_PAY_TO`), straight from the customer's wallet to `PRO_PAY_TO`. The server checks each payment on-chain: from the signed-in address, to your address, at least the price, within 7 days, and used once. Or in RLUSD on the XRP Ledger (Xaman or any XRPL wallet), from any account: each account has its own destination tag; the customer pastes the transaction hash and the server checks the delivered RLUSD (Ripple's issuer, $1 each), the tag, within 7 days, used once.
   - Paying for 12 months at once adds a year.
   - A Telegram reminder goes out 3 days before Pro ends. After it ends there are 3 days of grace, then the account drops to free. Extra agents are paused, nothing is deleted.
 - **Automatic payment:** with the [subscription contract](../subscription) deployed (one click on your dashboard), customers can turn on automatic payment.

@@ -40,14 +40,14 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
   const rpcFetch = async (_url, init) => { const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) }); };
   const accounts = createAccounts({
     store, telegram, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
-    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}) },
+    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}), ...(xrpl ? { xrpl } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
     ...(usage ? { usage } : {}),
     ...(endpointMonitor ? { endpointMonitor } : {}),
@@ -849,6 +849,66 @@ test("Solana: sign in with a Solana wallet, pay Pro in USDC on Solana, checked o
     const eth = await signInAs(base, customer());
     assert.equal((await eth.call("POST", "/api/billing/solana", { months: 1 })).status, 400);
     assert.equal((await eth.call("GET", "/api/me")).body.billing.chain, "base");
+  } finally { server.close(); }
+});
+
+test("RLUSD on the XRP Ledger: any account pays with its own destination tag, checked on-ledger, once", async () => {
+  const { destinationTag, RLUSD_CURRENCY, RLUSD_ISSUER } = await import("../src/xrpl-pay.js");
+  const XRPL_PAY_TO = "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw";
+  const txs = new Map();
+  const rippleNow = () => Math.floor(Date.now() / 1000) - 946684800;
+  const xpay = (value, { tag, to = XRPL_PAY_TO, result = "tesSUCCESS", validated = true, issuer = RLUSD_ISSUER, ageDays = 0, type = "Payment", drops = false } = {}) => {
+    const hash = randomBytes(32).toString("hex").toUpperCase();
+    txs.set(hash, { validated, hash, date: rippleNow() - ageDays * 86400, Account: "rG589ewXmZfo9hQt6ntNaciUTpRurYF8gS", TransactionType: type, Destination: to, DestinationTag: tag,
+      meta: { TransactionResult: result, delivered_amount: drops ? String(value * 1e6) : { currency: RLUSD_CURRENCY, issuer, value: String(value) } } });
+    return hash;
+  };
+  const rpc = async (method, params) => (method === "tx" ? txs.get(params[0].transaction) ?? { error: "txnNotFound", status: "error" } : null);
+  const { base, server } = await boot({ rpc, xrpl: { payTo: XRPL_PAY_TO, rpcUrl: "https://xrpl.test" } });
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).xrpl, true);
+    const c = await signInAs(base, customer());
+    const me = (await c.call("GET", "/api/me")).body;
+    const tag = destinationTag(me.id);
+    assert.deepEqual({ payTo: me.xrplPay.payTo, tag: me.xrplPay.destinationTag, price: me.xrplPay.priceUsdc, token: me.xrplPay.token }, { payTo: XRPL_PAY_TO, tag, price: 5, token: "RLUSD" });
+    const claim = (txHash, tier) => c.call("POST", "/api/billing/claim", { txHash, chainId: "xrpl", ...(tier ? { tier } : {}) });
+
+    // Refused: not a hash, not found, not validated, failed, another tag, another account, fake RLUSD, XRP, too little, too old, not a Payment.
+    assert.equal((await claim("0xabc")).status, 400);
+    assert.equal((await claim(randomBytes(32).toString("hex"))).status, 409);
+    assert.equal((await claim(xpay(5, { tag, validated: false }))).status, 409);
+    assert.equal((await claim(xpay(5, { tag, result: "tecPATH_DRY" }))).status, 400);
+    assert.match((await claim(xpay(5, { tag: tag + 1 }))).body.message, new RegExp(`yours is ${tag}`));
+    assert.equal((await claim(xpay(5, { tag, to: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" }))).status, 400);
+    assert.equal((await claim(xpay(5, { tag, issuer: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" }))).status, 400);
+    assert.equal((await claim(xpay(5, { tag, drops: true }))).status, 400);
+    assert.equal((await claim(xpay(4.99, { tag }))).status, 400);
+    assert.equal((await claim(xpay(5, { tag, ageDays: 8 }))).status, 400);
+    assert.equal((await claim(xpay(5, { tag, type: "CheckCreate" }))).status, 400);
+    assert.equal((await c.call("GET", "/api/me")).body.plan, "free");
+
+    // A real payment: Pro for a month, recorded as RLUSD on the XRP Ledger with the payer; once.
+    const good = xpay(5, { tag });
+    const paid = (await claim(good.toLowerCase())).body;
+    assert.equal(paid.plan, "pro");
+    assert.deepEqual({ chain: paid.payments[0].chain, tx: paid.payments[0].tx, months: paid.payments[0].months, from: paid.payments[0].from }, { chain: "xrpl", tx: good, months: 1, from: "rG589ewXmZfo9hQt6ntNaciUTpRurYF8gS" });
+    assert.equal((await claim(good)).body.payments.length, 1);
+    // The same payment can't be claimed by another account (its tag is different anyway, and the hash is used).
+    const other = await signInAs(base, customer());
+    assert.equal((await other.call("POST", "/api/billing/claim", { txHash: good, chainId: "xrpl" })).status, 400);
+    // Pro 20 in RLUSD.
+    const t20 = (await claim(xpay(9, { tag }), "pro20")).body;
+    assert.equal(t20.tier, "pro20");
+  } finally { server.close(); }
+});
+
+test("RLUSD: off unless billing.xrpl is set", async () => {
+  const { base, server } = await boot();
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).xrpl, false);
+    const c = await signInAs(base, customer());
+    assert.equal((await c.call("GET", "/api/me")).body.xrplPay, null);
+    assert.equal((await c.call("POST", "/api/billing/claim", { txHash: "A".repeat(64), chainId: "xrpl" })).status, 503);
   } finally { server.close(); }
 });
 

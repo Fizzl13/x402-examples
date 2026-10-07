@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransferMessage, usdcPaid, USDC_MINT } from "./solana.js";
 import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decodeFunctionResult, encodeDeployData, erc20Abi } from "viem";
 import { createWallet, hashKey } from "./wallet.js";
+import { destinationTag, rlusdPaid, isXrplAddress, isXrplHash, RLUSD_ISSUER } from "./xrpl-pay.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
@@ -113,6 +114,9 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const solPayTo = billing.solana?.payTo ?? null;
   // Solana: signed in with a Solana wallet, or an e-mail account that connected one to pay with.
   const isSol = (a) => a?.chain === "solana" || a?.payChain === "solana";
+  // Optional: Pro paid in RLUSD on the XRP Ledger, to the owner's XRPL account with the account's destination tag.
+  if (billing.xrpl?.payTo && !isXrplAddress(billing.xrpl.payTo)) throw new Error("billing.xrpl.payTo must be an XRPL address (r…)");
+  const xrplPayTo = billing.xrpl?.payTo ?? null;
 
   async function account(id) {
     if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], passkeys: rec?.passkeys ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
@@ -255,6 +259,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     walletFor,
     emailEnabled: !!mailer,
     solanaEnabled: !!solPayTo,
+    xrplEnabled: !!xrplPayTo,
     account,
     planOf,
 
@@ -401,6 +406,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
+        // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
+        xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY },
         billing: a.admin || !a.address ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
@@ -582,12 +589,15 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         if (!w) throw Object.assign(new Error("The 14 days after your first Pro payment have passed, or you haven't paid for Pro."), { status: 409 });
         if ((a.auto?.dueAt ?? 0) > 0) throw Object.assign(new Error("Turn off automatic payment first (it lives on-chain, so only your wallet can stop it)."), { status: 409 });
         const paid = [...(a.payments ?? []), ...(a.autoPayments ?? [])];
-        const network = isSol(a) ? "Solana" : [...new Set(paid.map((p) => chains[p.chainId ?? 8453]?.name ?? "Base"))].join(", ");
-        await touch(a, { withdrawal: { at: now(), refundUsdc: w.refundUsdc, to: a.address, network, paidCount: paidCount(a) } });
-        await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Withdrew from Pro: ${w.refundUsdc} USDC will be refunded to ${a.address}` });
+        const network = [...new Set(paid.map((p) => (p.chain === "xrpl" ? "XRP Ledger (RLUSD)" : p.chain === "solana" || isSol(a) ? "Solana" : chains[p.chainId ?? 8453]?.name ?? "Base")))].join(", ");
+        // Paid only in RLUSD (or no wallet connected): the refund goes back to the XRPL account it came from.
+        const xrplFrom = [...paid].reverse().find((p) => p.chain === "xrpl" && p.from)?.from ?? null;
+        const to = paid.every((p) => p.chain === "xrpl") && xrplFrom ? xrplFrom : a.address ?? xrplFrom;
+        await touch(a, { withdrawal: { at: now(), refundUsdc: w.refundUsdc, to, network, paidCount: paidCount(a) } });
+        await store.scope(id).addEvent({ at: now(), type: "plan", summary: `Withdrew from Pro: ${w.refundUsdc} USDC will be refunded to ${to}` });
         usage.record("pro_withdrawn", { account: id, ref: a.ref, usd: w.refundUsdc, input: { network } });
-        if (telegram && adminChatId) await telegram.send(adminChatId, `Withdrawal (EU 14-day right): refund ${w.refundUsdc} USDC on ${network} to ${a.address} within 14 days. Pro has ended for this account. Mark it refunded on the owner dashboard once sent.`).catch(() => {});
-        await tell(id, `We received your withdrawal from Fizzl wallet Pro. You'll get ${w.refundUsdc} USDC back at ${a.address} within 14 days. Your account stays, on the free plan.`, { type: "pro_withdrawn" });
+        if (telegram && adminChatId) await telegram.send(adminChatId, `Withdrawal (EU 14-day right): refund ${w.refundUsdc} USDC on ${network} to ${to} within 14 days. Pro has ended for this account. Mark it refunded on the owner dashboard once sent.`).catch(() => {});
+        await tell(id, `We received your withdrawal from Fizzl wallet Pro. You'll get ${w.refundUsdc} ${network === "XRP Ledger (RLUSD)" ? "RLUSD" : "USDC"} back at ${to} within 14 days. Your account stays, on the free plan.`, { type: "pro_withdrawn" });
         return api.me(id);
       });
     },
@@ -1042,20 +1052,50 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   }
   // Pro for what was paid (whole months, at most 12), after any time already paid for. Months of a bigger plan
   // also add time on that plan (from now, or after what's left of it); the Pro time they add comes after any Pro left.
-  async function credit(a, tx, paid, chainId = null, tier = "pro") {
+  async function credit(a, tx, paid, chainId = null, tier = "pro", from = null) {
     const months = Math.min(12, Number(paid / unitOf(tier)));
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     const bigger = TIERS[tier] ? { tierUntil: { ...(a.tierUntil ?? {}), [tier]: Math.max(now(), a.tierUntil?.[tier] ?? 0) + months * PERIOD_MS } } : {};
-    await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
-    usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base", months, ...(TIERS[tier] ? { tier } : {}) } });
-    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
+    await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(chainId === "xrpl" ? { chain: "xrpl", ...(from ? { from } : {}) } : isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
+    usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: netName(a, chainId), months, ...(TIERS[tier] ? { tier } : {}) } });
+    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} ${chainId === "xrpl" ? "RLUSD on the XRP Ledger" : `USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}`}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
+  }
+
+  const netName = (a, chainId) => (chainId === "xrpl" ? "XRPL" : isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base");
+
+  // RLUSD on the XRP Ledger: a validated Payment to the owner's account with this account's destination tag.
+  async function claimXrpl(a, hash, tier) {
+    if (!xrplPayTo) throw Object.assign(new Error("paying in RLUSD is not set up on this server"), { status: 503 });
+    if (!isXrplHash(hash)) throw Object.assign(new Error("that is not an XRP Ledger transaction hash (64 letters and digits)"), { status: 400 });
+    const h = hash.toUpperCase();
+    if ((a.payments ?? []).some((p) => p.tx === h)) return api.me(a.id);
+    const res = await rpcFetch(billing.xrpl?.rpcUrl ?? "https://xrplcluster.com", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method: "tx", params: [{ transaction: h, binary: false }] }) });
+    const data = await res.json().catch(() => null);
+    if (!data?.result) throw Object.assign(new Error(`XRP Ledger: HTTP ${res.status}`), { status: 502 });
+    const tag = destinationTag(a.id);
+    const r = rlusdPaid(data.result, { payTo: xrplPayTo, tag });
+    const why = {
+      not_found: "not found on the XRP Ledger yet: try again in a few seconds",
+      not_validated: "not validated yet: try again in a few seconds",
+      failed: "that transaction failed on the XRP Ledger",
+      not_to_us: `that is not a payment to ${short(xrplPayTo)}`,
+      wrong_tag: `that payment has another destination tag; yours is ${tag}`,
+      not_rlusd: "that payment did not deliver RLUSD (from Ripple)",
+    };
+    if (r.error) throw Object.assign(new Error(why[r.error]), { status: r.error === "not_found" || r.error === "not_validated" ? 409 : 400 });
+    const t = tierFor(tier, r.units);
+    if (r.units < unitOf(t)) throw Object.assign(new Error(`that payment delivered ${Number(r.units) / 1e6} RLUSD; ${labelOf(t)} is ${Number(unitOf(t)) / 1e6} RLUSD`), { status: 400 });
+    if (!r.at || r.at < now() - 7 * DAY) throw Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 });
+    if (!(await g.claimTx(`xrpl:${h}`))) throw Object.assign(new Error("that payment was already used"), { status: 409 });
+    return credit(a, h, r.units, "xrpl", t, r.from);
   }
 
   async function claim(id, txHash, chainId = 8453, tier = null) {
     if (id === ADMIN) throw Object.assign(new Error("the owner's server has no plan to pay for"), { status: 400 });
     const sa = await account(id);
+    if (chainId === "xrpl" && sa && !sa.admin) return claimXrpl(sa, txHash, tier);
     if (!sa?.address) throw Object.assign(new Error("Connect the wallet you pay from first (Your plan)."), { status: 400 });
     if (isSol(sa)) return claimSolana(sa, txHash, tier);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });

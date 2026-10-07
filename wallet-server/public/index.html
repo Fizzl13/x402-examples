@@ -1173,7 +1173,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
   async function claim(txHash, say, chainId, tier) {
-    const net = me?.chain === "solana" ? "Solana" : payNet().name;
+    const net = chainId === "xrpl" ? "the XRP Ledger" : me?.chain === "solana" ? "Solana" : payNet().name;
     for (let i = 0; i < 20; i++) {
       try { me = await post("/api/billing/claim", { txHash, ...(chainId ? { chainId } : {}), ...(tier ? { tier } : {}) }); renderAccount(); return true; }
       catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say(`Waiting for ${net} to confirm the payment…`); await sleep(3000); }
@@ -1316,7 +1316,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
     const nets = me.billing.chains ?? [];
-    const txLink = (p) => (p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
+    const txLink = (p) => (p.chain === "xrpl" ? `https://livenet.xrpl.org/transactions/${p.tx}` : p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
     let picked = 8453; try { picked = Number(localStorage.getItem("aw_paychain")) || 8453; } catch {}
     const netPick = sol || nets.length < 2 ? "" : `<div class="buybar" style="margin:0"><label class="note" for="payChain">Pay on</label><select id="payChain">${nets.map((c) => `<option value="${c.chainId}"${c.chainId === picked ? " selected" : ""}>${esc(c.name)}${c.chainId === 8453 ? " · lowest fees" : c.chainId === 1 ? " · higher network fees" : ""}</option>`).join("")}</select></div>`;
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
@@ -1332,14 +1332,26 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
       <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><select id="txTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
       ${withdrawHtml()}
-      ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} USDC</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
+      ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} ${p.chain === "xrpl" ? "RLUSD" : "USDC"}</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     }
+    if (me.xrplPay) $("#planCard").insertAdjacentHTML("beforeend", xrplPayHtml(me.xrplPay));
     $("#planCard").insertAdjacentHTML("beforeend", me.promo
       ? `<p class="note" style="margin:0">🎁 Tester code used: ${esc(me.promo.days)} days of Pro (${esc(day(me.promo.at))}). Thanks for testing!</p>`
       : `<details><summary>Have a tester code?</summary><form class="paste" id="promoForm" style="margin-top:8px"><input id="promoIn" placeholder="TEST-…" aria-label="Tester code" autocapitalize="characters" autocomplete="off" maxlength="20"><button class="button small" type="submit">Use code</button></form><div class="msg" id="promoMsg" role="status"></div></details>`);
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
+  }
+  // ---------- Pro paid in RLUSD on the XRP Ledger (Xaman or any XRPL wallet): to our account with your own destination tag ----------
+  function xrplPayHtml(x) {
+    const copy = (v) => `<code>${esc(v)}</code> <button class="button small" type="button" data-copy="${esc(v)}">Copy</button>`;
+    return `<details id="xrplPay"><summary>Pay in RLUSD (XRP Ledger, e.g. Xaman)</summary><div style="display:grid;gap:8px;margin-top:8px">
+      <p class="note" style="margin:0">Send RLUSD (Ripple's dollar) from any XRPL wallet. <b style="color:#fff">Always add the destination tag</b>: it tells us the payment is yours.</p>
+      <div class="note">To: ${copy(x.payTo)}</div>
+      <div class="note">Destination tag: ${copy(String(x.destinationTag))}</div>
+      <p class="note" style="margin:0">Amount (RLUSD, 1 = $1): Pro <b style="color:#fff">${esc(x.priceUsdc)}</b> per 30 days (12 months: ${esc(x.priceUsdc * 12)}) · Pro 20 <b style="color:#fff">${esc(x.price20Usdc)}</b> · Unlimited <b style="color:#fff">${esc(x.priceUnlimitedUsdc)}</b>. Then paste the transaction hash:</p>
+      <div class="paste"><input id="xrplTx" placeholder="XRPL transaction hash (64 characters)" aria-label="XRPL transaction hash"><select id="xrplTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button small" type="button" id="xrplClaim">Check</button></div>
+      <div class="msg" id="xrplMsg" role="status"></div></div></details>`;
   }
   // ---------- the EU right of withdrawal: a button, then a confirmation ----------
   // The withdrawal itself is on the terms page (/terms#withdraw); here only a quiet link while it's possible.
@@ -1504,6 +1516,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       return;
     }
     if (e.target.closest("#tgUnlink")) { if (DEMO) return; await post("/api/telegram/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
+    if (e.target.closest("#xrplClaim")) {
+      if (DEMO) return;
+      const say = (t, cls = "") => { const m = $("#xrplMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
+      try { await claim($("#xrplTx").value.trim(), say, "xrpl", $("#xrplTier").value || undefined); $("#xrplPay")?.setAttribute("open", ""); say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      return;
+    }
     if (e.target.closest("#txClaim")) {
       const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
       try { await claim($("#txPaste").value.trim(), say, me.chain === "solana" ? undefined : payNet().chainId, $("#txTier").value || undefined); say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good"); } catch (err) { say(err.message, "bad"); }

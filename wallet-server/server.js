@@ -26,6 +26,9 @@
 //   X402_TRUST_INDEX_URL optional: x402 Doctor's Trust Index, to rank sellers by track record (default its public file)
 //   SOLANA_PAY_TO       optional: the Solana address that receives Pro payments; turns on sign-in
 //                       with Phantom on Solana and paying Pro in USDC on Solana
+//   XRPL_PAY_TO         the XRPL account that receives Pro paid in RLUSD (needs an RLUSD trust line; default
+//                       Fizzl's Xaman account); "off" turns paying in RLUSD off
+//   XRPL_RPC_URL        optional: an XRPL JSON-RPC node to check those payments (default https://xrplcluster.com)
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
 //   USAGE_LOG_TOKEN     optional: anonymous usage statistics to the private usage-log repo (a fine-grained
 //                       GitHub token, Contents read/write on that repo only; the same as the other services)
@@ -103,7 +106,8 @@ const accounts = createAccounts({
   publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
   billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), price20Usdc: Number(env.PRO20_PRICE_USDC || 9), priceUnlimitedUsdc: Number(env.PRO_UNLIMITED_PRICE_USDC || 20), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,
     chains: Object.fromEntries([[1, env.ETHEREUM_RPC_URL], [42161, env.ARBITRUM_RPC_URL], [10, env.OPTIMISM_RPC_URL], [137, env.POLYGON_RPC_URL]].filter(([, u]) => u).map(([id, rpcUrl]) => [id, { rpcUrl }])),
-    solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null },
+    solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null,
+    xrpl: env.XRPL_PAY_TO === "off" ? null : { payTo: env.XRPL_PAY_TO?.trim() || "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", rpcUrl: env.XRPL_RPC_URL || undefined } },
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
