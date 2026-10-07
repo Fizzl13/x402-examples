@@ -92,6 +92,8 @@ Everything else stays the same: red verdicts are never signed, `onOrange` still 
 
 ## Mandates
 
+Unusual purchases: once an agent has 5 or more purchases, every new one within the rules is compared with what it usually buys, by TypeSafe's Jev, in the background. Clearly out of character (85% or more, e.g. a market-data agent paying for an "airdrop claim") gives the owner a heads-up on Telegram and the phone, and a line in the log, at most once a day per agent and seller. It never blocks or delays a purchase; off without `TYPESAFE_API_KEY`.
+
 Per agent, the owner can set a spending mandate on the dashboard ([x402 `authority` extension draft](https://github.com/x402-foundation/x402/pull/3220), `x402-mandate/1`): a total budget in USDC on Base, an optional maximum per payment, the sellers it may pay (or any), how many days, and what it is for. The server signs it for the owner with an Ed25519 key of the account, derived from `MANDATE_SECRET` (set it in Render; without it, mandates are off), and is the accountant: every spend of that agent is held to the terms, including the running total, and anything outside is stopped. The purpose is judged per purchase by TypeSafe's Jev (as the plain-words rule): outside it or unsure, the owner is asked. Agents fetch the signed mandate with `GET /v1/mandate`; presign-guard-wallet-mcp (0.10+) does that by itself, so its x402 payments carry the mandate's binding and presign-guard checks them too. New terms start a new mandate (spent back to 0); "end" removes it and the normal limits apply again.
 
 ## API (for agents)
