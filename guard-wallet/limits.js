@@ -9,7 +9,10 @@
 //   - an allowance (approve, increaseAllowance, Permit, Permit2): whoever gets
 //     it can spend that amount, so it counts when it is given; an unlimited
 //     one or setApprovalForAll is over any limit;
-//   - an EIP-3009 payment or Permit2 transfer signature.
+//   - an EIP-3009 payment or Permit2 transfer signature;
+//   - an XRP Ledger Payment: XRP (drops) counts toward an XRP limit, RLUSD from
+//     Ripple's issuer toward the USDC limit (a dollar is a dollar), any other
+//     issued currency as an unknown token. SendMax, when set, is what can leave.
 // Transactions are decoded here; typed-data signatures are read from the
 // signed subject of presign-guard's verdict. A signature presign-guard could
 // not decode (or one signed without a verdict) counts as unknown spending.
@@ -33,8 +36,13 @@ const USDC = {
   4217: [["0x20c000000000000000000000b9537d11c60e8b50", 6]],
   42431: [["0x20c0000000000000000000000000000000000000", 6]],
 };
-const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL" };
-export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL"];
+const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP" };
+export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP"];
+
+// XRP Ledger networks and the RLUSD issuer on each (Ripple's).
+export const XRPL_RLUSD_ISSUERS = { "xrpl:0": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", "xrpl:1": "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
+const RLUSD_HEX = "524C555344000000000000000000000000000000";
+const XRPL_ADDRESS_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
 
 const ERC20_ABI = parseAbi([
   "function approve(address spender, uint256 amount)",
@@ -45,7 +53,7 @@ const ERC20_ABI = parseAbi([
   "function setApprovalForAll(address operator, bool approved)",
 ]);
 
-const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$|^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
 const lower = (a) => (typeof a === "string" ? a.toLowerCase() : a);
 
 export function parseWindow(window) {
@@ -67,7 +75,7 @@ export function normalizeLimits(limits) {
   if (!limits || typeof limits !== "object") throw new TypeError("limits must be an object");
   const { tokens = {}, unknownTokens = "ask", allow, window } = limits;
   if (!["stop", "ask", "allow"].includes(unknownTokens)) throw new TypeError('limits.unknownTokens must be "stop", "ask" or "allow"');
-  if (allow !== undefined && (!Array.isArray(allow) || allow.some((a) => !ADDRESS_RE.test(a)))) throw new TypeError("limits.allow must be a list of 0x addresses");
+  if (allow !== undefined && (!Array.isArray(allow) || allow.some((a) => !ADDRESS_RE.test(a)))) throw new TypeError("limits.allow must be a list of 0x (or XRPL r…) addresses");
   const budgets = new Map();
   const index = new Map(); // "chainId:token" or "*:token" -> { budget, decimals }
   const put = (k, v) => { if (index.has(k)) throw new TypeError(`limits.tokens: ${k} is covered twice`); index.set(k, v); };
@@ -80,6 +88,9 @@ export function normalizeLimits(limits) {
     const symbol = name.toUpperCase();
     if (symbol === "USDC") {
       for (const [chain, list] of Object.entries(USDC)) for (const [addr, decimals] of list) put(`${chain}:${addr}`, { budget: name, decimals });
+      for (const net of Object.keys(XRPL_RLUSD_ISSUERS)) put(`${net}:rlusd`, { budget: name, decimals: SCALE });
+    } else if (symbol === "XRP") {
+      for (const net of Object.keys(XRPL_RLUSD_ISSUERS)) put(`${net}:${NATIVE}`, { budget: name, decimals: 6 });
     } else if (["ETH", "BNB", "POL"].includes(symbol)) {
       for (const [chain, s] of Object.entries(NATIVE_SYMBOL)) if (s === symbol) put(`${chain}:${NATIVE}`, { budget: name, decimals: 18 });
     } else {
@@ -102,6 +113,7 @@ const scaled = (raw, decimals) => (decimals <= SCALE ? raw * 10n ** BigInt(SCALE
 // the addresses that receive value or rights, and whether anything could not be read.
 export function spendFor(request, verdict) {
   const out = { items: [], counterparties: [], unknown: false };
+  if (request.type === "xrpl") return xrplSpend(request, out);
   const chainId = request.chainId;
   if (request.type === "transaction") {
     const to = lower(request.to ?? null);
@@ -139,6 +151,27 @@ export function spendFor(request, verdict) {
     out.counterparties.push(lower(g.spender));
   }
   if (!subject.grants.length) out.counterparties.push(verifying);
+  return out;
+}
+
+// An XRP Ledger Payment: what can leave the account (SendMax if set, else Amount) and who receives it.
+function xrplSpend(request, out) {
+  const net = request.network ?? "xrpl:0";
+  const tx = request.tx ?? {};
+  const to = typeof tx.Destination === "string" && XRPL_ADDRESS_RE.test(tx.Destination) ? lower(tx.Destination) : null;
+  out.counterparties.push(to);
+  if (tx.TransactionType !== "Payment") { out.unknown = true; return out; }
+  const amt = tx.SendMax ?? tx.Amount;
+  if (typeof amt === "string" && /^\d+$/.test(amt)) {
+    out.items.push({ chainId: net, token: NATIVE, amount: BigInt(amt), to });
+  } else if (amt && typeof amt === "object" && /^\d+(\.\d+)?$/.test(String(amt.value ?? ""))) {
+    const currency = String(amt.currency ?? "").toUpperCase();
+    const rlusd = (currency === "RLUSD" || currency === RLUSD_HEX) && amt.issuer === XRPL_RLUSD_ISSUERS[net];
+    const value = String(amt.value).replace(/^(\d+\.\d{18})\d+$/, "$1"); // RLUSD has at most 15 significant digits; keep 18 decimals
+    out.items.push({ chainId: net, token: rlusd ? "rlusd" : `${currency}.${amt.issuer}`, amount: parseUnits(value, SCALE), to });
+  } else {
+    out.unknown = true;
+  }
   return out;
 }
 

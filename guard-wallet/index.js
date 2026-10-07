@@ -31,6 +31,13 @@
 // transferWithMemo of USDC.e (pathUSD on the testnet), with no value attached,
 // which counts toward the USDC limits like any other USDC transfer. Anything
 // else on Tempo is refused (code "unsupported_chain").
+//
+// XRP Ledger: xrplSigner(signer) wraps an XRPL signer ({ classicAddress, sign(tx) },
+// e.g. createXrplWalletSigner from @x402/xrpl) the same way. It signs only
+// Payment transactions, each checked by presign-guard first (type "xrpl": fake
+// RLUSD, partial payments, missing destination tags, issuer risks) and counted
+// toward the limits (XRP toward an XRP limit, RLUSD toward USDC). Use it with
+// @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD.
 
 import { encodeFunctionData } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
@@ -51,7 +58,8 @@ export const TEMPO_TOKENS = {
   42431: ["0x20c0000000000000000000000000000000000000"],
 };
 const TEMPO_TRANSFERS = new Set(["transfer", "transferWithMemo"]);
-export const VERSION = "0.9.1";
+export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
+export const VERSION = "0.10.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -192,7 +200,7 @@ export function guardWallet(wallet, {
 
   // The verdict for a request, or null when the check could not be done and onError is "allow".
   async function verdictFor(method, request, chainId) {
-    if (!SUPPORTED_CHAINS.includes(chainId)) {
+    if (!SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
       if (onError === "allow") return null;
       throw new PresignBlockedError(`chain ${chainId} is not covered by presign-guard; nothing was signed`, { code: "unsupported_chain", request });
     }
@@ -275,7 +283,32 @@ export function guardWallet(wallet, {
     return limiter ? withinLimits(method, request, verdict, run) : run();
   }
 
+  // XRP Ledger: sign a Payment only after presign-guard's check and within the limits.
+  async function xrplSign(signer, network, tx) {
+    if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
+    if (!tx || typeof tx !== "object" || tx.TransactionType !== "Payment") {
+      throw new PresignBlockedError(`on the XRP Ledger this wallet only signs Payment transactions (got ${tx?.TransactionType ?? "nothing"}); nothing was signed`, { code: "unsupported_chain" });
+    }
+    if (tx.Account && signer.classicAddress && tx.Account !== signer.classicAddress) {
+      throw new PresignBlockedError(`the transaction's Account ${tx.Account} is not this signer (${signer.classicAddress}); nothing was signed`, { code: "unsupported_chain" });
+    }
+    const request = { type: "xrpl", network, tx: JSON.parse(JSON.stringify(tx)), ...(origin ? { origin } : {}) };
+    const verdict = await verdictFor("signXrplPayment", request, network);
+    const run = () => signer.sign(tx);
+    return limiter ? withinLimits("signXrplPayment", request, verdict, run) : run();
+  }
+
   const extras = {
+    /**
+     * The same guard on an XRP Ledger signer ({ classicAddress, sign(tx) }, e.g. createXrplWalletSigner
+     * from @x402/xrpl): only Payment transactions, each checked by presign-guard and counted toward the
+     * limits (RLUSD toward USDC, XRP toward an XRP limit). network: "xrpl:0" (default) or "xrpl:1".
+     */
+    xrplSigner: (signer, { network = "xrpl:0" } = {}) => {
+      if (!signer || typeof signer.sign !== "function") throw new TypeError("xrplSigner(signer): signer needs a sign(tx) function (e.g. createXrplWalletSigner from @x402/xrpl)");
+      if (!XRPL_NETWORKS.includes(network)) throw new TypeError(`xrplSigner: network must be one of ${XRPL_NETWORKS.join(", ")}`);
+      return { classicAddress: signer.classicAddress, sign: (tx) => xrplSign(signer, network, tx) };
+    },
     /** Stop every checked method until resume(). */
     pause: () => { paused = true; },
     resume: () => { paused = false; },
