@@ -298,3 +298,66 @@ test("withPurchase with a wallet server: the server's answer check reaches onChe
   const plain = await g.withPurchase({ description: "data" }, async (report) => { await g.sendTransaction({ to: SPENDER, value: 1n }); report({ httpStatus: 200 }); return "same"; });
   assert.equal(plain, "same");
 });
+
+// MPP sessions on Tempo: a guarded account that signs only escrow deposits (counted) and their vouchers.
+const ESCROW = "0x4d50500000000000000000000000000000000000";
+const ESCROW_ABI = parseAbi([
+  "function open(address payee, address operator, address token, uint96 deposit, bytes32 salt, address authorizedSigner)",
+  "function topUp((address payer, address payee, address operator, address token, bytes32 salt, address authorizedSigner, bytes32 expiringNonceHash) descriptor, uint96 additionalDeposit)",
+]);
+const { encodeFunctionData } = await import("viem");
+function sessionAccount() {
+  const signed = [];
+  const base = privateKeyToAccount(generatePrivateKey());
+  return { signed, base, account: { ...base, signTransaction: async (tx) => { signed.push(tx); return "0xsignedtx"; }, signTypedData: async (td) => { signed.push(td); return "0xvoucher"; } } };
+}
+const openCall = (me, { token = TEMPO_USDC.toLowerCase(), deposit = 500_000n, signer = me } = {}) => ({ to: ESCROW, data: encodeFunctionData({ abi: ESCROW_ABI, functionName: "open", args: [SPENDER, SPENDER, token, deposit, MEMO, signer] }) });
+const voucher = (over = {}) => ({ domain: { name: "TIP20 Channel Reserve", version: "1", chainId: 4217, verifyingContract: ESCROW }, types: { Voucher: [{ name: "channelId", type: "bytes32" }, { name: "cumulativeAmount", type: "uint96" }] }, primaryType: "Voucher", message: { channelId: MEMO, cumulativeAmount: 10_000n }, ...over });
+
+test("MPP session account: an escrow open is signed and its deposit counts toward the USDC limit", async () => {
+  const w = world();
+  const s = sessionAccount();
+  const guard = make(w, { limits: { tokens: { USDC: { perTx: "1", perDay: "0.75" } } } });
+  const acct = guard.tempoSessionAccount(s.account);
+  assert.equal(acct.address, s.base.address);
+  assert.equal(await acct.signTransaction({ chainId: 4217, calls: [openCall(s.base.address)], feeToken: TEMPO_USDC }), "0xsignedtx");
+  assert.equal(w.log.checks.length, 0);
+  const [row] = await guard.spending();
+  assert.deepEqual([row.used, row.left], ["0.5", "0.25"]);
+  // A top-up of the same channel counts too: 0.5 more is over the day.
+  const descriptor = { payer: s.base.address, payee: SPENDER, operator: SPENDER, token: TEMPO_USDC.toLowerCase(), salt: MEMO, authorizedSigner: s.base.address, expiringNonceHash: MEMO };
+  const topUp = { to: ESCROW, data: encodeFunctionData({ abi: ESCROW_ABI, functionName: "topUp", args: [descriptor, 500_000n] }) };
+  await assert.rejects(acct.signTransaction({ chainId: 4217, calls: [topUp] }), (err) => err.code === "over_limit");
+  // Vouchers spend what is already deposited: signed, not counted again.
+  assert.equal(await acct.signTypedData(voucher()), "0xvoucher");
+  assert.equal(await acct.signTypedData(voucher({ primaryType: "CloseAuthorization", types: { CloseAuthorization: voucher().types.Voucher } })), "0xvoucher");
+  assert.equal((await guard.spending())[0].used, "0.5");
+});
+
+test("MPP session account: anything but one escrow deposit for this account, or a voucher, is refused", async () => {
+  const w = world();
+  const s = sessionAccount();
+  const guard = make(w);
+  const acct = guard.tempoSessionAccount(s.account);
+  const me = s.base.address;
+  const refused = [
+    acct.signTransaction({ chainId: 4217, calls: [openCall(me), openCall(me)] }),
+    acct.signTransaction({ chainId: 4217, calls: [{ to: TEMPO_USDC, data: encodeFunctionData({ abi: TIP20, functionName: "approve", args: [SPENDER, 1n] }) }] }),
+    acct.signTransaction({ chainId: 4217, calls: [openCall(me, { token: SPENDER })] }),
+    acct.signTransaction({ chainId: 4217, calls: [openCall(me, { signer: SPENDER })] }),
+    acct.signTransaction({ chainId: 4217, calls: [{ ...openCall(me), value: 1n }] }),
+    acct.signTransaction({ chainId: 4217, calls: [openCall(me)], feeToken: SPENDER }),
+    acct.signTransaction({ chainId: 1, calls: [openCall(me)] }),
+    acct.signTypedData(voucher({ domain: { ...voucher().domain, verifyingContract: SPENDER } })),
+    acct.signTypedData(voucher({ primaryType: "TransferWithAuthorization" })),
+    acct.signTypedData(voucher({ domain: { ...voucher().domain, chainId: 8453 } })),
+    acct.sign({ hash: MEMO }),
+    acct.signMessage({ message: "hi" }),
+  ];
+  for (const p of refused) await assert.rejects(p, (err) => err instanceof PresignBlockedError && err.code === "unsupported_chain");
+  guard.pause();
+  await assert.rejects(acct.signTransaction({ chainId: 4217, calls: [openCall(me)] }), (err) => err.code === "paused");
+  await assert.rejects(acct.signTypedData(voucher()), (err) => err.code === "paused");
+  assert.equal(s.signed.length, 0);
+  assert.throws(() => guard.tempoSessionAccount(s.account, { chainId: 8453 }), /chainId/);
+});

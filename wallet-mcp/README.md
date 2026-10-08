@@ -112,6 +112,8 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `TEMPO_CHAIN` | `4217` (Tempo, default) or `42431` (Moderato testnet, pays in pathUSD) |
 | `TEMPO_RPC_URL` | your own Tempo RPC (default `https://rpc.tempo.xyz`) |
 | `XRPL_SEED` | optional: the agent's own XRP Ledger account seed (`s…`, a separate account with only what it may spend). Turns on paying x402 offers in RLUSD on the XRP Ledger, including sellers on t54's facilitator (the XRPL AI Hub). Only RLUSD from Ripple's issuer is paid, never XRP; it counts toward the USDC limits, every Payment is checked by presign-guard first, and USDC on your chain goes first when an API offers both. The account needs an RLUSD trust line, RLUSD and a little XRP for fees. Not used under a mandate |
+| `MPP_SESSION_DEPOSIT` | optional: turns on paying MPP **sessions** on Tempo (e.g. presign-guard): the first call to a service opens a payment channel with this deposit in USDC.e, then each call is a signed voucher, no transaction per call; when the deposit runs out it is topped up by the same amount. Every deposit counts toward the USDC limits when it is signed; vouchers only spend what is deposited. Used whenever an API offers a session. `close_sessions` closes the channels and the unspent deposit comes back. Needs presign-guard-wallet 0.11+ |
+| `MPP_SESSION_FILE` | where open channels are kept between restarts (default `~/.presign-guard-wallet/mpp-sessions.json`) |
 | `XRPL_NETWORK` | `mainnet` (default) or `testnet` |
 | `XRPL_WS_URL` | your own XRPL node (default `wss://xrplcluster.com`) |
 | `AGENT_LABEL` | the name shown in Telegram approval messages (default `mcp-agent`) |

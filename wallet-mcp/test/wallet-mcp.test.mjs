@@ -587,3 +587,20 @@ test("XRPL: off without XRPL_SEED; a bad seed or network is refused; wallet_stat
   assert.equal(st.xrpl.address, XRPL_AGENT);
   assert.match(st.xrpl.network, /xrpl:0/);
 });
+
+test("MPP sessions: off by default, MPP_SESSION_DEPOSIT turns them on with a close_sessions tool", async () => {
+  assert.equal(configFromEnv(ENV).session, null);
+  const on = configFromEnv({ ...ENV, MPP_SESSION_DEPOSIT: "0.5", MPP_SESSION_FILE: "/tmp/x.json" });
+  assert.deepEqual(on.session, { deposit: "0.5", file: "/tmp/x.json" });
+  assert.throws(() => configFromEnv({ ...ENV, MPP_SESSION_DEPOSIT: "lots" }), /MPP_SESSION_DEPOSIT/);
+  assert.throws(() => configFromEnv({ ...ENV, MPP_SESSION_DEPOSIT: "1", TEMPO: "off" }), /Tempo/);
+  const off = await setup();
+  assert.ok(!(await off.client.listTools()).tools.some((t) => t.name === "close_sessions"));
+  const { client, call, wallet } = await setup({ MPP_SESSION_DEPOSIT: "0.5", MPP_SESSION_FILE: "/tmp/presign-guard-wallet-test-sessions.json" });
+  assert.ok((await client.listTools()).tools.some((t) => t.name === "close_sessions"));
+  assert.equal(wallet.sessionsOn, true);
+  const closed = JSON.parse((await call("close_sessions")).text);
+  assert.deepEqual(closed.closed, []);
+  const status = JSON.parse((await call("wallet_status")).text);
+  assert.deepEqual(status.mppSessions, { depositPerTopUp: "0.5 USDC.e", open: [] });
+});

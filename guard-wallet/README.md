@@ -233,6 +233,23 @@ client.register("xrpl:*", new ExactXrplScheme(xrpl)); // x402 payments in RLUSD,
 
 `network` is `"xrpl:0"` (mainnet) or `"xrpl:1"` (testnet). The check itself is still paid on Base (or with credits).
 
+## MPP sessions on Tempo
+
+`tempoSessionAccount(account)` gives a guarded viem account to pay MPP **sessions** (TIP-1034) with mppx's session client: the agent opens a payment channel once and pays each call with a signed voucher, no transaction per call.
+
+```js
+import { sessionManager } from "mppx/client";
+const session = sessionManager({
+  account: guarded.tempoSessionAccount(privateKeyToAccount(process.env.AGENT_KEY)), // { chainId: 42431 } for the testnet
+  credentialContext: { depositRaw: "1000000" }, // each deposit: 1 USDC.e
+  topUpAmount: "1",
+});
+const res = await session.fetch("https://presign-guard.fizzl.eu/v1/check", { method: "POST", body });
+await session.close(); // the service settles what was used, the rest comes back
+```
+
+The account signs only a transaction with one call to Tempo's channel escrow that opens or tops up a channel in USDC.e for this account (nothing attached, the fee in USDC.e); that deposit counts toward your `USDC` limit, booked to the payee, when it is signed. Besides that it signs the channel's vouchers and close authorizations (EIP-712, the escrow's domain), which can only move money already deposited. Raw hashes, messages and anything else are refused, and `pause()` covers it. Unspent deposit comes back when the channel closes, but stays counted as spent in the current window.
+
 ## Signed verdicts
 
 presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash of your request inside the signed body; see [Signed verdicts](https://github.com/Fizzl13/presign-guard#signed-verdicts)). The wallet checks that signature before it acts:
