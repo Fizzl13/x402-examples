@@ -1018,7 +1018,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
       $("#passkeyNote").textContent = known ? "Or Touch ID, a fingerprint or your screen lock." : "First time? Sign in another way below, then add Face ID on the Account tab.";
       if (viaCode) deviceLogin();
-      solanaOn = !!c.solana; xamanOn = !!c.xaman; if (walletsReady) renderWallets();
+      solanaOn = !!c.solana; xamanOn = !!c.xaman; algorandOn = !!c.algorand; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
       $("#orLine").hidden = !c.password || !c.wallet;
       $("#loginForm").hidden = !c.password || c.wallet;
@@ -1028,7 +1028,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   // ---------- wallets (MetaMask, Phantom, Coinbase Wallet, …) ----------
   // ---------- Solana (Phantom): sign in with a signed message, pay Pro in USDC on Solana ----------
-  let solanaOn = false, xamanOn = false;
+  let solanaOn = false, xamanOn = false, algorandOn = false;
   const solProvider = () => window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : null);
   const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   function b58(bytes) {
@@ -1053,6 +1053,36 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       start();
     } catch (err) { $("#walletErr").textContent = walletError(err); }
     finally { b.disabled = false; b.innerHTML = label; }
+  }
+  // ---------- Algorand (Pera): QR code or the Pera app, then a free signature (signData, checked on the server) ----------
+  let pera = null;
+  async function peraWallet() {
+    if (pera) return pera;
+    if (!window.PeraWalletConnect) await new Promise((ok, no) => { const s = document.createElement("script"); s.src = "/app/pera-connect.js"; s.onload = ok; s.onerror = () => no(new Error("Pera Connect could not be loaded")); document.head.appendChild(s); });
+    pera = new window.PeraWalletConnect({ chainId: 416001 });
+    return pera;
+  }
+  async function peraSignIn(b) {
+    const label = b.innerHTML;
+    $("#walletErr").textContent = "";
+    b.disabled = true; b.textContent = "Open Pera…";
+    try {
+      const p = await peraWallet();
+      try { await p.disconnect(); } catch {}
+      const [address] = await p.connect();
+      if (!address) throw new Error("Pera did not share an account.");
+      b.textContent = "Sign in Pera…";
+      const { nonce, message } = await post("/api/signin/message", { address, chain: "algorand" });
+      const [sig] = await p.signData([{ data: new TextEncoder().encode(message), message: "Sign in to Fizzl Agent Wallet (free, moves no money)" }], address);
+      const signature = btoa(String.fromCharCode(...sig));
+      await post("/api/signin", { nonce, signature, ref: signupRef() });
+      try { localStorage.setItem("aw_wallet", "algorand:pera"); } catch {}
+      try { await p.disconnect(); } catch {}
+      start();
+    } catch (err) {
+      const m = String(err?.message || err);
+      $("#walletErr").textContent = /cancel|closed|reject/i.test(m) ? "You cancelled it in Pera." : /hardware|ledger/i.test(m) ? "Pera can't sign in with a hardware account: use e-mail or a passkey." : m;
+    } finally { b.disabled = false; b.innerHTML = label; }
   }
   const hexUtf8 = (t) => "0x" + [...new TextEncoder().encode(t)].map((b) => b.toString(16).padStart(2, "0")).join("");
   const walletError = (err) => (err?.code === 4001 ? `You cancelled it in ${walletName}.` : err?.message || String(err));
@@ -1090,7 +1120,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const list = allWallets();
     const sol = (solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1"><img src="/icons/phantom.svg" alt="">Connect Phantom (Solana)</button>` : "")
       // Xaman (XRP Ledger): a page on Xaman's site asks the app (QR code on a computer, the app itself on a phone).
-      + (xamanOn ? `<a class="button primary" href="/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}"><img src="/icons/xaman.svg" alt="">Sign in with Xaman (XRP Ledger)</a>` : "");
+      + (xamanOn ? `<a class="button primary" href="/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}"><img src="/icons/xaman.svg" alt="">Sign in with Xaman (XRP Ledger)</a>` : "")
+      // Pera (Algorand): a QR code for the Pera app on a computer, the app itself on a phone.
+      + (algorandOn ? `<button class="button primary" type="button" data-pera="1"><img src="/icons/pera.svg" alt="">Sign in with Pera (Algorand)</button>` : "");
     // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
     // where it is built in. (More apps under "Other wallets".)
     const apps = isPhone && !list.length && !solProvider()
@@ -1135,6 +1167,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   $("#walletList").addEventListener("click", async (e) => {
     const sb = e.target.closest("button[data-solana]"); if (sb) return solanaSignIn(sb);
+    const pb = e.target.closest("button[data-pera]"); if (pb) return peraSignIn(pb);
     const b = e.target.closest("button[data-wallet]"); if (!b) return;
     const w = findWallet(b.dataset.wallet); if (!w) return;
     const eth = w.provider, label = b.innerHTML;
@@ -1299,7 +1332,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!DEMO) loadMonitors();
     renderFollow(); setupAgents(); renderApp(); renderMail(); renderKeys();
     $("#addrLine").hidden = !me.address;
-    if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
+    if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : me.chain === "algorand" ? " · ALGORAND" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render, and to your phone once you turn on notifications there (On your phone, below).</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
@@ -1316,7 +1349,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour, from $${esc(me.proPriceUsdc ?? 5)} per 30 days in USDC. To pay, connect the wallet you pay from: one free signature, no transaction. Your agents keep their own wallets.</p><div class="wallets" id="linkWallets"></div><div class="msg" id="linkWalletMsg" role="status"></div>`;
       renderLinkWallets();
     } else if (!me.billing) {
-      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : me.chain === "algorand" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Paying from Algorand isn't open yet: pay in RLUSD on the XRP Ledger below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
     const nets = me.billing.chains ?? [];

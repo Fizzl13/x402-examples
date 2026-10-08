@@ -9,7 +9,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes } from "node:crypt
 const COOKIE = "aw_session";
 const WEEK_MS = 7 * 86_400_000;
 const sha = (s) => createHash("sha256").update(String(s)).digest();
-const SUBJECT = /^(admin|0x[0-9a-f]{40}|sol:[1-9A-HJ-NP-Za-km-z]{32,44}|em:[0-9a-f]{40}|xrpl:r[1-9A-HJ-NP-Za-km-z]{24,34})$/; // the owner, an Ethereum, Solana, e-mail or XRPL (Xaman) account
+const SUBJECT = /^(admin|0x[0-9a-f]{40}|sol:[1-9A-HJ-NP-Za-km-z]{32,44}|em:[0-9a-f]{40}|xrpl:r[1-9A-HJ-NP-Za-km-z]{24,34}|algo:[A-Z2-7]{58})$/; // the owner, an Ethereum, Solana, e-mail, XRPL (Xaman) or Algorand (Pera) account
 
 export function createAuth({ password, secret, now = () => Date.now(), secure = true }) {
   if (password !== undefined && password !== null && password !== "" && (typeof password !== "string" || password.length < 12)) throw new Error("ADMIN_PASSWORD must be at least 12 characters");
