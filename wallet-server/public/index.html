@@ -377,7 +377,6 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .wallets .button { width: 100%; justify-content: flex-start; gap: 12px; min-height: 48px; }
 .wallets img, #deviceLogin .button img { width: 24px; height: 24px; border-radius: 6px; }
 /* Sign-ins on other networks (Phantom on Solana, Xaman, Pera, Defly): small tiles side by side instead of a long column. */
-.wallets .nets-label { color: var(--dim); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
 .wallets .netgrid { display: grid; gap: 8px; }
 .wallets .netgrid .button { flex-direction: column; justify-content: center; gap: 5px; min-height: 64px; padding: 8px 6px; border-radius: 14px; letter-spacing: 1px; }
 .wallets .netgrid .button small { font: 500 10px/1 var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); }
@@ -482,6 +481,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="wallets" id="walletList"></div>
         <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
         <div class="more-wallets" id="morePanel" hidden>
+          <div class="wallets" id="moreList"></div>
           <div class="mw-phone" id="mwQr">
             <img src="/qr.svg" alt="QR code that opens this page on your phone" width="132" height="132" loading="lazy">
             <div><b>Wallet on your phone?</b><p class="note" style="margin:4px 0 0">Scan this with your phone's camera, then open the page in your wallet app's browser (MetaMask, Coinbase Wallet, Trust, Phantom, OKX, …) and sign in there.</p></div>
@@ -1156,28 +1156,36 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const walletLogo = (name) => { const n = String(name || "").toLowerCase(); const id = n.includes("metamask") ? "metamask" : n.includes("phantom") ? "phantom" : n.includes("coinbase") ? "coinbase" : n.includes("trust") ? "trust" : n.includes("rabby") ? "rabby" : n.includes("okx") ? "okx" : null; return id ? `/icons/${id}.svg` : null; };
   function renderWallets() {
     const list = allWallets();
-    // Other networks as compact tiles: Phantom (Solana); Xaman (XRP Ledger: a page on Xaman's site asks the app);
-    // Pera and Defly (Algorand: a QR code for the app on a computer, the app itself on a phone).
-    const tile = (attrs, icon, name, net, href) => href
-      ? `<a class="button" href="${href}" title="Sign in with ${name} (${net})"><img src="/icons/${icon}.svg" alt="">${name}<small>${net}</small></a>`
-      : `<button class="button" type="button" ${attrs} title="Sign in with ${name} (${net})"><img src="/icons/${icon}.svg" alt="">${name}<small>${net}</small></button>`;
-    const tiles = [
-      solanaOn && solProvider() ? tile('data-solana="1"', "phantom", "Phantom", "Solana") : "",
-      xamanOn ? tile("", "xaman", "Xaman", "XRP Ledger", `/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}`) : "",
-      algorandOn ? tile('data-pera="1"', "pera", "Pera", "Algorand") : "",
-      algorandOn ? tile('data-defly="1"', "defly", "Defly", "Algorand") : "",
-    ].filter(Boolean);
-    const cols = tiles.length === 4 ? 2 : Math.min(tiles.length, 3);
-    const sol = tiles.length ? `<div class="nets-label">Other networks</div><div class="netgrid" style="grid-template-columns:repeat(${cols},1fr)">${tiles.join("")}</div>` : "";
-    // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
-    // where it is built in. (More apps under "Other wallets".)
-    const apps = isPhone && !list.length && !solProvider()
-      ? `<a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}"><img src="/icons/metamask.svg" alt="">Open in the MetaMask app</a><a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}"><img src="/icons/phantom.svg" alt="">Open in the Phantom app</a>`
-      : "";
-    $("#walletList").innerHTML = apps + (list.length
-      ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : walletLogo(w.info.name) ? `<img src="${walletLogo(w.info.name)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
-      : apps ? `<p class="note" style="margin:0">Your wallet app has its own browser: these buttons open this page there, so you can sign in. Another app? See "Other wallets".</p>`
-      : `<p class="note" style="margin:0">No Ethereum wallet in this browser: install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app.</p>`) + sol;
+    // Wallet tiles: name and network side by side. A tile that links somewhere (Xaman, an app, a download) is an <a>.
+    const tile = (attrs, icon, name, net, href, blank) => {
+      const img = icon ? `<img src="${esc(icon)}" alt="">` : "";
+      return href
+        ? `<a class="button" href="${esc(href)}"${blank ? ' target="_blank" rel="noopener noreferrer"' : ""} title="${esc(name)} (${esc(net)})">${img}${esc(name)}<small>${esc(net)}</small></a>`
+        : `<button class="button" type="button" ${attrs} title="Sign in with ${esc(name)} (${esc(net)})">${img}${esc(name)}<small>${esc(net)}</small></button>`;
+    };
+    const grid = (tiles) => { const t = tiles.filter(Boolean); return t.length ? `<div class="netgrid" style="grid-template-columns:repeat(${t.length === 4 ? 2 : Math.min(t.length, 3)},1fr)">${t.join("")}</div>` : ""; };
+    const iconOf = (w) => safeIcon(w.info.icon) || walletLogo(w.info.name);
+    // First choice: MetaMask, Phantom and Xaman. Not installed: on a phone the app opens this page in its own browser,
+    // on a computer the download page.
+    const mm = list.find((w) => /metamask/i.test(w.info.name)), ph = list.find((w) => /phantom/i.test(w.info.name));
+    const page = encodeURIComponent(location.href);
+    const mmTile = mm ? tile(`data-wallet="${esc(mm.info.rdns)}"`, iconOf(mm), "MetaMask", "Ethereum")
+      : isPhone ? tile("", "/icons/metamask.svg", "MetaMask", "open the app", `https://metamask.app.link/dapp/${location.host + location.pathname}`)
+      : tile("", "/icons/metamask.svg", "MetaMask", "get it", "https://metamask.io/download/", true);
+    const phTile = ph ? tile(`data-wallet="${esc(ph.info.rdns)}"`, iconOf(ph), "Phantom", "Ethereum")
+      : solanaOn && solProvider() ? tile('data-solana="1"', "/icons/phantom.svg", "Phantom", "Solana")
+      : isPhone ? tile("", "/icons/phantom.svg", "Phantom", "open the app", `https://phantom.app/ul/browse/${page}?ref=${encodeURIComponent(location.origin)}`)
+      : tile("", "/icons/phantom.svg", "Phantom", "get it", "https://phantom.com/download", true);
+    const xamanTile = xamanOn ? tile("", "/icons/xaman.svg", "Xaman", "XRP Ledger", `/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}`) : "";
+    $("#walletList").innerHTML = grid([mmTile, phTile, xamanTile]);
+    // Under "Other wallets": every other wallet in this browser, Phantom on Solana, Pera and Defly (Algorand).
+    const others = list.filter((w) => w !== mm && w !== ph).map((w) => tile(`data-wallet="${esc(w.info.rdns)}"`, iconOf(w), w.info.name.replace(/ Wallet$/, ""), "Ethereum"));
+    $("#moreList").innerHTML = grid([
+      ...others,
+      ph && solanaOn && solProvider() ? tile('data-solana="1"', "/icons/phantom.svg", "Phantom", "Solana") : "",
+      algorandOn ? tile('data-pera="1"', "/icons/pera.svg", "Pera", "Algorand") : "",
+      algorandOn ? tile('data-defly="1"', "/icons/defly.svg", "Defly", "Algorand") : "",
+    ]);
   }
   // "Other wallets": open this page inside a wallet app's own browser (where the wallet is built in),
   // a QR code to get there from a computer, and where to get a wallet. No third-party scripts.
@@ -1211,7 +1219,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (w) walletName = w.info.name;
     return w?.provider ?? null;
   }
-  $("#walletList").addEventListener("click", async (e) => {
+  $("#walletLogin").addEventListener("click", async (e) => {
     const sb = e.target.closest("button[data-solana]"); if (sb) return solanaSignIn(sb);
     const pb = e.target.closest("button[data-pera]"); if (pb) return peraSignIn(pb);
     const db = e.target.closest("button[data-defly]"); if (db) return deflySignIn(db);
