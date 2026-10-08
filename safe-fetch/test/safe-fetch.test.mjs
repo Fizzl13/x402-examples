@@ -90,7 +90,7 @@ test("caution: stops by default; pays with onCaution 'pay'; asks a function othe
   assert.equal(yes.log.paid.length, 1);
 });
 
-test("a verdict is reused for 10 minutes per method and URL, then asked again", async () => {
+test("a verdict is reused per method and URL while the offer stays the same (an hour), then asked again", async () => {
   const w = world();
   let t = 0;
   const safeFetch = make(w, { now: () => t });
@@ -99,10 +99,50 @@ test("a verdict is reused for 10 minutes per method and URL, then asked again", 
   assert.equal(w.log.preflights.length, 1);
   await safeFetch(PAID, { method: "POST", body: "{}" });
   assert.equal(w.log.preflights.length, 2, "another method is another check");
-  t = 10 * 60 * 1000 + 1;
+  t = 59 * 60 * 1000;
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 2, "same offer: still reused");
+  t = 60 * 60 * 1000 + 1;
   await safeFetch(PAID);
   assert.equal(w.log.preflights.length, 3);
-  assert.equal(w.log.paid.length, 4);
+  assert.equal(w.log.paid.length, 5);
+});
+
+test("a changed offer (price, payout address, token, network) is checked again at once; a new invoice id is not a change", async () => {
+  const offer = { scheme: "exact", network: BASE, asset: "0xUSDC", amount: "20000", payTo: "0xSeller", extra: { invoiceId: "a" } };
+  let current = offer;
+  const w = world();
+  w.baseFetch = async (url) => {
+    const challenge = { x402Version: 2, accepts: [current] };
+    return new Response("{}", { status: 402, headers: { "payment-required": Buffer.from(JSON.stringify(challenge)).toString("base64") } });
+  };
+  let t = 0;
+  const safeFetch = make(w, { now: () => t });
+  await safeFetch(PAID);
+  current = { ...offer, extra: { invoiceId: "b" } };
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 1, "a per-request invoice id doesn't count");
+  for (const change of [{ payTo: "0xAttacker" }, { amount: "900000" }, { asset: "0xOther" }, { network: "solana:x" }]) {
+    t += 1000;
+    const n = w.log.preflights.length;
+    current = { ...offer, ...change };
+    await safeFetch(PAID);
+    assert.equal(w.log.preflights.length, n + 1, JSON.stringify(change));
+  }
+});
+
+test("without a readable x402 offer, a verdict is reused for at most 10 minutes", async () => {
+  const w = world();
+  w.baseFetch = async () => new Response("not json", { status: 402 });
+  let t = 0;
+  const safeFetch = make(w, { now: () => t });
+  await safeFetch(PAID);
+  t = 9 * 60 * 1000;
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 1);
+  t = 10 * 60 * 1000 + 1;
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 2);
 });
 
 test("trusted hosts are paid without a preflight", async () => {

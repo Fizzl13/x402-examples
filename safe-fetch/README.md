@@ -10,7 +10,7 @@ A free endpoint is answered as is. For a paid one (HTTP 402), your agent first p
 | `caution` | `onCaution`: `"stop"` (default, throws), `"pay"`, or your own function (e.g. ask the user) |
 | `no_go` | Throws `SafePayError`; the endpoint is not paid |
 
-The preflight reads the endpoint's 402 challenge and checks, among others, the price against your budget and against what the service advertises, whether the option is payable on your network (USDC, a valid payout address, a Solana payout account that exists, an Algorand payout opted in to USDC), HTTPS, and whether the endpoint is listed in the CDP Bazaar. A verdict is reused for 10 minutes; hosts you already trust skip it.
+The preflight reads the endpoint's 402 challenge and checks, among others, the price against your budget and against what the service advertises, whether the option is payable on your network (USDC, a valid payout address, a Solana payout account that exists, an Algorand payout opted in to USDC), HTTPS, and whether the endpoint is listed in the CDP Bazaar. A verdict is reused while the endpoint's 402 offers the same thing (up to an hour); a changed price, payout address, token or network is checked again right away. Hosts you already trust skip it.
 
 ## Install
 
@@ -69,7 +69,7 @@ const safeFetch = createSafeFetch({
 | `onCaution` | `"stop"` | `"stop"`, `"pay"` or `async (preflight) => boolean` |
 | `trusted` | `[]` | Hosts paid without a preflight |
 | `onPreflight` | | `(preflight, { url, method, cached }) => void`, e.g. for logging |
-| `cacheMs` | 10 minutes | How long a verdict is reused per method and URL |
+| `cacheMs` | 1 hour | How long a verdict is reused per method and URL while the 402 offers the same thing (at most 10 minutes when the offer can't be read); any change in price, payout address, token or network means a new preflight |
 | `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
 | `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
 | `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
@@ -125,8 +125,8 @@ x402 Doctor signs every paid preflight (EIP-191 over canonical JSON, with the re
 
 ## Costs and limits
 
-- $0.001 per preflight (once per endpoint per 10 minutes), plus the endpoint's own price.
-- With `diagnoseOnFailure`: $0.01 per diagnosis, only when a payment fails (once per endpoint per 10 minutes).
+- $0.001 per preflight (once per endpoint per hour while its offer stays the same, again at once when it changes), plus the endpoint's own price.
+- With `diagnoseOnFailure`: $0.01 per diagnosis, only when a payment fails (once per endpoint per `cacheMs`).
 - Bodies must be strings, Buffers or `URLSearchParams`: the request is sent once unpaid (to see the 402) and once paid.
 - If Doctor is unreachable, nothing is paid (`SafePayError` with code `preflight_failed`).
 - The preflight checks whether a payment can succeed and is sensible; it does not guarantee what the service delivers after payment.

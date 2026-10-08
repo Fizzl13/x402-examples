@@ -11,6 +11,8 @@ export declare const ALGORAND_TESTNET: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCD
 export declare const XRPL: "xrpl:0";
 export declare const XRPL_TESTNET: "xrpl:1";
 /** The option paid on `network`: on Algorand only USDC, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
+/** What a 402 offers (per x402 option: scheme, network, asset, amount, payTo) as a stable string; null without a readable x402 challenge. Consumes the body. */
+export declare function offerFingerprint(res: Response): Promise<string | null>;
 export declare function payableOption<A extends { network: string; asset?: unknown; amount?: unknown; extra?: Record<string, unknown> }>(accepts: A[], network: string, maxUsd: number | string): A | null;
 
 /** The x402 Doctor preflight: see https://x402-doctor.fizzl.eu/openapi.json */
@@ -49,7 +51,7 @@ export interface SafeFetchOptions {
   /** Hosts you already trust: paid without a preflight. */
   trusted?: string[];
   onPreflight?: (preflight: Preflight, info: { url: string; method: string; cached: boolean }) => void;
-  /** How long a verdict is reused, in ms. Default 10 minutes. */
+  /** How long a verdict is reused while the endpoint's 402 offers the same thing, in ms. Default 1 hour; a changed price, payout address, token or network is checked again at once; at most 10 minutes when the offer can't be read. */
   cacheMs?: number;
   doctorUrl?: string;
   /** Check Doctor's signed receipt on every preflight (signer, and bound to this request). Default "require". */

@@ -8,7 +8,8 @@
 //   caution → onCaution: "stop" (default, throws), "pay", or your own async
 //             function that decides (e.g. ask the user)
 //   go      → pays the endpoint, never more than maxUsd
-// Trusted hosts skip the preflight; a verdict is reused for 10 minutes.
+// Trusted hosts skip the preflight. A verdict is reused while the endpoint's 402 offers the same thing
+// (up to an hour); a changed price, payout address, token or network is checked again at once.
 // With diagnoseOnFailure, a payment that still fails (the endpoint answers 402
 // again, or paying throws) gets a $0.01 Doctor diagnosis that says why and how
 // to fix it: onDiagnosis(report), diagnosisOf(response) or error.diagnosis.
@@ -51,6 +52,25 @@ const RLUSD_ISSUER = { [XRPL]: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", [XRPL_TESTN
 
 // The option to pay on `network`, or null. RLUSD prices are decimal dollars ("0.001", and "2" is two dollars),
 // which x402's spend controls would read as base units, so the budget is checked here in dollars.
+// What a 402 offers, as a stable string: per x402 option its scheme, network, asset, amount and payout address
+// (not extra: invoices and nonces change per request). null when there is no x402 challenge to read (e.g. an
+// MPP-only 402). Reads and consumes the response body.
+export async function offerFingerprint(res) {
+  let challenge = null;
+  const header = res?.headers?.get?.("payment-required");
+  if (header) {
+    try { challenge = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(header), (c) => c.charCodeAt(0)))); } catch { /* not base64 JSON */ }
+    try { await res.body?.cancel(); } catch { /* already consumed */ }
+  } else {
+    try { challenge = JSON.parse(await res.text()); } catch { /* not JSON */ }
+  }
+  if (!Array.isArray(challenge?.accepts)) return null;
+  const parts = challenge.accepts.map((a) => JSON.stringify([a?.scheme ?? null, a?.network ?? null, String(a?.asset ?? ""), String(a?.amount ?? a?.maxAmountRequired ?? ""), String(a?.payTo ?? "")]));
+  return JSON.stringify(parts.sort());
+}
+// Without an offer to compare (no readable x402 challenge), a verdict is reused for at most 10 minutes.
+const UNREAD_OFFER_MS = 10 * 60 * 1000;
+
 export function payableOption(accepts, network, maxUsd) {
   const cap = Number(String(maxUsd).replace(/^\$/, ""));
   const on = (accepts ?? []).filter((a) => a?.network === network);
@@ -136,7 +156,7 @@ function requestOf(input, init) {
  * @param {"stop"|"pay"|((preflight: object) => boolean|Promise<boolean>)} [options.onCaution]
  * @param {string[]} [options.trusted]  hosts you already trust: paid without a preflight
  * @param {(preflight: object, info: {url: string, method: string, cached: boolean}) => void} [options.onPreflight]
- * @param {number} [options.cacheMs]  how long a verdict is reused (default 10 minutes)
+ * @param {number} [options.cacheMs]  how long a verdict is reused while the 402 offers the same thing (default 1 hour; at most 10 minutes when the offer can't be read)
  * @param {string} [options.doctorUrl]
  * @param {"require"|"off"} [options.verifyReceipts]  check Doctor's signature on every preflight (default "require")
  * @param {string[]} [options.doctorSigners]  accepted Doctor signer addresses (default: the published signer)
@@ -155,7 +175,7 @@ export function createSafeFetch({
   onCaution = "stop",
   trusted = [],
   onPreflight,
-  cacheMs = 10 * 60 * 1000,
+  cacheMs = 60 * 60 * 1000,
   doctorUrl = DOCTOR_URL,
   verifyReceipts = "require",
   doctorSigners = DOCTOR_SIGNERS,
@@ -195,10 +215,11 @@ export function createSafeFetch({
   const payEndpoint = (...args) => (endpointFetch ??= makePayingFetch(budget))(...args);
 
   const verdicts = new Map();
-  async function preflightFor(url, method) {
+  async function preflightFor(url, method, offer) {
     const key = `${method} ${url}`;
     const hit = verdicts.get(key);
-    if (hit && hit.expires > now()) return { preflight: hit.preflight, cached: true };
+    const ttl = offer === null ? Math.min(cacheMs, UNREAD_OFFER_MS) : cacheMs;
+    if (hit && hit.offer === offer && hit.at + ttl > now()) return { preflight: hit.preflight, cached: true };
     const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl });
     const res = await payPreflight(pfUrl, { headers: DOCTOR_HEADERS });
     const preflight = await res.json().catch(() => null);
@@ -211,7 +232,7 @@ export function createSafeFetch({
       const check = verifyReceipt(preflight, { signers: doctorSigners, route: "GET /api/v1/preflight", input, authority, service: "x402-doctor" });
       if (!check.valid) throw new SafePayError(`preflight not trusted (${check.reason}); the endpoint was not paid`, { code: "bad_receipt", preflight, url });
     }
-    verdicts.set(key, { preflight, expires: now() + cacheMs });
+    verdicts.set(key, { preflight, offer, at: now() });
     if (verdicts.size > 1000) verdicts.delete(verdicts.keys().next().value);
     return { preflight, cached: false };
   }
@@ -289,11 +310,13 @@ export function createSafeFetch({
     const { url, method } = requestOf(input, init);
     const probe = await baseFetch(url, init);
     if (probe.status !== 402) return probe;
-    try { await probe.body?.cancel(); } catch { /* already consumed */ }
 
-    if (trustedHosts.has(hostOf(url))) return payAndCheck(url, init, method);
+    if (trustedHosts.has(hostOf(url))) {
+      try { await probe.body?.cancel(); } catch { /* already consumed */ }
+      return payAndCheck(url, init, method);
+    }
 
-    const { preflight, cached } = await preflightFor(url, method);
+    const { preflight, cached } = await preflightFor(url, method, await offerFingerprint(probe));
     const payAfterPreflight = async () => {
       const res = await payAndCheck(url, init, method);
       reportOutcome(url, method, preflight, res);
