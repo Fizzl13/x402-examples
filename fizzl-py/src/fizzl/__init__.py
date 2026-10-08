@@ -21,7 +21,7 @@ import json
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
