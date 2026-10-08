@@ -9,6 +9,8 @@ export declare const TEMPO_TOKENS: Record<number, string[]>;
 export declare const TEMPO_ESCROW: string;
 /** What an MPP session transaction deposits ({ token, payee, deposit }), or throws PresignBlockedError when the wallet would not sign it. */
 export declare function sessionDeposit(tx: any, chainId: number, address: string): { token: string; payee: string; deposit: bigint };
+/** x402 network id -> the USDC asset (ASA) id on Algorand (mainnet and testnet). */
+export declare const ALGORAND_USDC: Record<string, bigint>;
 export declare const VERSION: string;
 export declare const CREDIT_HEADER: string;
 
@@ -146,6 +148,11 @@ export interface GuardControls {
    * Tempo's escrow, in USDC.e, for this account (the deposit counts toward the USDC limits), plus its vouchers.
    */
   tempoSessionAccount<A extends LocalAccount>(account: A, opts?: { chainId?: 4217 | 42431 }): A;
+  /**
+   * A guarded Algorand signer for @x402/avm (ExactAvmScheme): signs only the agent's own USDC transfer in a
+   * payment group (no close-out, rekey or clawback), counted toward the USDC limits; anything else is refused.
+   */
+  algorandSigner<S extends { address: string; signTransactions(txns: Uint8Array[], indexesToSign?: number[]): Promise<(Uint8Array | null)[]> }>(signer: S, opts?: { network?: string }): S;
   /** The same guard (checks, limits, pause, purchases) on another WalletClient, e.g. one for Tempo: both spend from one budget. */
   wrap<W extends object>(wallet: W): W & GuardControls;
 }
