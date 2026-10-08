@@ -1,0 +1,24 @@
+{
+  "name": "fizzl-langchain",
+  "version": "0.1.0",
+  "description": "Safety checks for LangChain.js and LangGraph.js agents that pay: tools to check a transaction or signature before signing, a token before buying, a wallet's open approvals, and an x402 endpoint before paying it (presign-guard and x402 Doctor, paid per call over x402, with a free quick check to try them).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test test/*.test.mjs", "example": "node example/agent.mjs" },
+  "dependencies": { "presign-guard-ai-sdk": "^0.3.0" },
+  "peerDependencies": { "@langchain/core": ">=0.3.58 <2.0.0", "zod": "^3.25.0 || ^4.0.0" },
+  "devDependencies": { "@langchain/core": "^1.2.0", "@langchain/langgraph": "^1.0.0", "zod": "^4.0.0" },
+  "keywords": ["langchain", "langchainjs", "langgraph", "tools", "agents", "x402", "mpp", "wallet", "security", "presign", "token-check", "honeypot", "approvals", "permit2", "usdc", "base", "solana", "xrpl", "rlusd"],
+  "repository": { "type": "git", "url": "git+https://github.com/Fizzl13/x402-examples.git", "directory": "fizzl-langchain" },
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/fizzl-langchain#readme",
+  "license": "MIT"
+}
