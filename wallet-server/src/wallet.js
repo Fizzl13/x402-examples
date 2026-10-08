@@ -126,34 +126,6 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     await onAlert({ kind: "unusual", agentName: agent.name, purchaseId: p.id, host, text: `👀 ${agent.name} just bought something unlike what it usually buys: "${String(what).slice(0, 120)}"${host ? ` from ${host}` : ""} (AI check, ${Math.round(r.unusual * 100)}% sure). It was within your rules, so it went through. Check the receipt; pause the agent if this wasn't meant.` });
   }
 
-  // After a purchase within the rules: did this agent pay the same API (host + path) clearly more than it usually
-  // does? Sellers can raise prices between calls, and a per-call limit set high lets that through. A heads-up for
-  // the owner, at most once a day per agent and API: 2× the usual price (the median of its last 20 there, at least
-  // 2 of them) and at least a cent more. No AI, never blocks.
-  const PRICE_JUMP = 2, PRICE_MIN_HISTORY = 2;
-  const priceSent = new Map(); // `${agent}|${route}` -> day
-  const routeOf = (url) => { try { const u = new URL(url); return /^https?:$/.test(u.protocol) ? `${u.host}${u.pathname}` : null; } catch { return null; } };
-  const usdOfAmounts = (amounts) => (amounts ?? []).reduce((n, a) => { const m = /^([\d.]+) USDC$/.exec(a); return m ? n + Number(m[1]) : n; }, 0);
-  async function checkPriceJump(agent, purchase, p) {
-    const route = routeOf(purchase?.url), paid = usdOfAmounts(p.amounts);
-    if (!route || !paid) return;
-    const key = `${agent.id}|${route}`, day = new Date(now()).toISOString().slice(0, 10);
-    if (priceSent.get(key) === day) return;
-    const earlier = (await store.listPurchases(200))
-      .filter((x) => x.agent === agent.id && x.id !== p.id && routeOf(x.what?.url) === route)
-      .map((x) => usdOfAmounts(x.amounts)).filter((n) => n > 0).slice(0, 20).sort((a, b) => a - b);
-    if (earlier.length < PRICE_MIN_HISTORY) return;
-    const usual = earlier[Math.floor((earlier.length - 1) / 2)];
-    if (!(paid >= usual * PRICE_JUMP && paid - usual >= 0.01)) return;
-    priceSent.set(key, day);
-    if (priceSent.size > 1000) priceSent.delete(priceSent.keys().next().value);
-    const host = hostOf(purchase.url);
-    const times = Math.round((paid / usual) * 10) / 10;
-    await log("price_jump", { agent: agent.name, purchase: p.id, route, paid, usual });
-    safeTrack("price_jump", { usd: paid, input: { host }, result: { usual, times } });
-    await onAlert({ kind: "price", agentName: agent.name, purchaseId: p.id, host, text: `💸 ${agent.name} paid $${paid} to ${route}, ${times}× the usual $${usual} there. It was within your rules, so it went through. If the seller raised its price, lower the per-call limit or pause the agent.` });
-  }
-
   async function updatePurchase(agent, purchaseId, change) {
     if (typeof purchaseId !== "string") return null;
     const p = await store.getPurchase(purchaseId);
@@ -231,7 +203,6 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
         checkUnusual(agent, purchase, p).catch((err) => console.warn(`[unusual] ${err.message}`)); // in the background: the agent doesn't wait
-        checkPriceJump(agent, purchase, p).catch((err) => console.warn(`[price] ${err.message}`));
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }
       const summary = result.reasons.map((r) => r.message).join("; ");
