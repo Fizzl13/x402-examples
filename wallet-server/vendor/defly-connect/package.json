@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "description": "Builds public/app/defly-connect.js (Defly Connect for 'Sign in with Defly') as one self-hosted file: npm ci && npm run build",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --format=iife --platform=browser --target=es2020 --define:global=window --legal-comments=eof --outfile=../../public/app/defly-connect.js"
+  },
+  "dependencies": {
+    "@blockshake/defly-connect": "1.2.1",
+    "algosdk": "3.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

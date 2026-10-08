@@ -47,6 +47,8 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
   const rpcFetch = async (url, init) => {
     // The Algorand indexer (GET, REST): indexer(url) gives the JSON, or null for a 404.
     if (indexer && String(url).startsWith("https://idx.test")) { const j = await indexer(String(url)); return j === null ? new Response("{}", { status: 404 }) : Response.json(j); }
+    // An Algorand node (algod) for Defly sign-ins: the current round and the network.
+    if (String(url).startsWith("https://algod.test/v2/transactions/params")) return Response.json({ "last-round": 50_000_000, "genesis-hash": "wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", "genesis-id": "mainnet-v1.0", fee: 0, "min-fee": 1000 });
     const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) });
   };
   const accounts = createAccounts({
@@ -2233,5 +2235,53 @@ test("an Algorand USDC transfer (presign-guard-wallet algorandSigner) counts as 
     const msg = tg.calls.find((c) => c.method === "sendMessage").body.text;
     assert.match(msg, /<code>signAlgorandTransfer<\/code> · Algorand · to <code>SGLTUPAC/);
     assert.doesNotMatch(msg, /undefined/);
+  } finally { server.close(); }
+});
+
+// Sign in with Defly: Defly signs transactions only, so the sign-in is a 0 ALGO payment to yourself with a fee of 0,
+// built by the server and never sent. algosdk stands in for the wallet: it decodes the bytes, re-encodes and signs.
+test("sign in with Defly: a signed 0 ALGO, fee 0 self-payment the server built; anything else doesn't sign in", async () => {
+  const algosdk = (await import("algosdk")).default;
+  const { algorandAuthTxn, verifyAlgorandAuthTxn } = await import("../src/algorand.js");
+  const alice = algosdk.generateAccount(), mallory = algosdk.generateAccount();
+  const aliceAddr = alice.addr.toString();
+  // The server's bytes are exactly algosdk's canonical encoding, so what the wallet signs is what the server checks.
+  const bytes = algorandAuthTxn({ address: aliceAddr, note: "hello\n" + "x".repeat(400), firstValid: 50_000_000, lastValid: 50_001_000, genesisHash: "wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", genesisId: "mainnet-v1.0" });
+  const txn = algosdk.decodeUnsignedTransaction(bytes);
+  assert.deepEqual(Buffer.from(algosdk.encodeUnsignedTransaction(txn)), bytes);
+  assert.equal(txn.type, "pay");
+  assert.equal(txn.payment.amount, 0n);
+  assert.equal(txn.fee, 0n, "fee 0: below the network minimum, it can never be confirmed alone");
+  assert.equal(txn.payment.receiver.toString(), aliceAddr);
+  assert.ok(verifyAlgorandAuthTxn(aliceAddr, bytes, Buffer.from(txn.signTxn(alice.sk)).toString("base64")));
+  assert.equal(verifyAlgorandAuthTxn(aliceAddr, bytes, txn.signTxn(mallory.sk)), false, "another key");
+  assert.equal(verifyAlgorandAuthTxn(mallory.addr.toString(), bytes, txn.signTxn(mallory.sk)), false, "not that address's transaction");
+  // Rekeyed: signed by another key with "sgnr" set; refused.
+  const rekeyed = algosdk.encodeObj({ sgnr: mallory.addr.publicKey, ...algosdk.decodeObj(txn.signTxn(mallory.sk)) });
+  assert.equal(verifyAlgorandAuthTxn(aliceAddr, bytes, rekeyed), false, "a rekeyed account");
+  // A different transaction (here: 1 ALGO to mallory) signed by alice is not the sign-in.
+  const pay = algosdk.makePaymentTxnWithSuggestedParamsFromObject({ sender: aliceAddr, receiver: mallory.addr, amount: 1_000_000, suggestedParams: { fee: 0, flatFee: true, firstValid: 50_000_000, lastValid: 50_001_000, genesisHash: algosdk.base64ToBytes("wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="), genesisID: "mainnet-v1.0", minFee: 1000 } });
+  assert.equal(verifyAlgorandAuthTxn(aliceAddr, bytes, pay.signTxn(alice.sk)), false);
+
+  const { base, server } = await boot({ algorand: { payTo: "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4", algodUrl: "https://algod.test" } });
+  const post = (path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    const signWith = async (account) => {
+      const m = await (await post("/api/signin/message", { address: aliceAddr, chain: "algorand", style: "txn" })).json();
+      const t = algosdk.decodeUnsignedTransaction(Buffer.from(m.txn, "base64"));
+      assert.equal(new TextDecoder().decode(t.note), m.message);
+      assert.match(m.message, /sends 0 ALGO to yourself with a fee of 0, and it is never submitted/);
+      assert.equal(t.firstValid, 50_000_000n);
+      return post("/api/signin", { nonce: m.nonce, signature: Buffer.from(t.signTxn(account.sk)).toString("base64") });
+    };
+    assert.equal((await signWith(mallory)).status, 401);
+    const r = await signWith(alice);
+    assert.equal(r.status, 200);
+    const me = await (await fetch(`${base}/api/me`, { headers: { cookie: r.headers.get("set-cookie").split(";")[0] } })).json();
+    assert.deepEqual([me.id, me.chain], [`algo:${aliceAddr}`, "algorand"]);
+    // The same message signed as Pera does (signData) doesn't count for a Defly nonce: it expects the transaction.
+    const m = await (await post("/api/signin/message", { address: aliceAddr, chain: "algorand", style: "txn" })).json();
+    const peraStyle = nodeCrypto.sign(null, Buffer.concat([Buffer.from("MX"), Buffer.from(m.message)]), nodeCrypto.createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(alice.sk.subarray(0, 32))]), format: "der", type: "pkcs8" })).toString("base64");
+    assert.equal((await post("/api/signin", { nonce: m.nonce, signature: peraStyle })).status, 401);
   } finally { server.close(); }
 });

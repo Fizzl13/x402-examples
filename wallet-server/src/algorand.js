@@ -45,6 +45,45 @@ export function verifyAlgorandSignature(address, message, signature) {
   } catch { return false; }
 }
 
+// Sign in with Defly: Defly signs transactions only, not arbitrary data. So the sign-in is a payment of 0 ALGO
+// from the account to itself, with the sign-in message as its note and a fee of 0. This server builds the exact
+// bytes, the wallet signs them, and the server checks the signature over them; the transaction is never sent,
+// and a fee of 0 is below the network's minimum, so it could never be confirmed on its own anyway.
+const mpStr = (t) => { const b = Buffer.from(t, "utf8"); return Buffer.concat([b.length < 32 ? Buffer.from([0xa0 | b.length]) : Buffer.from([0xd9, b.length]), b]); };
+const mpBin = (b) => Buffer.concat([b.length < 256 ? Buffer.from([0xc4, b.length]) : Buffer.from([0xc5, b.length >> 8, b.length & 0xff]), b]);
+function mpUint(n) {
+  if (!Number.isSafeInteger(n) || n < 0) throw new TypeError("not an unsigned integer");
+  if (n < 128) return Buffer.from([n]);
+  if (n < 256) return Buffer.from([0xcc, n]);
+  if (n < 65536) return Buffer.from([0xcd, n >> 8, n & 0xff]);
+  const b = Buffer.alloc(n < 2 ** 32 ? 5 : 9);
+  if (n < 2 ** 32) { b[0] = 0xce; b.writeUInt32BE(n, 1); } else { b[0] = 0xcf; b.writeBigUInt64BE(BigInt(n), 1); }
+  return b;
+}
+// The canonical encoding of that transaction (keys sorted, zero values left out), as algosdk and the wallet make it.
+export function algorandAuthTxn({ address, note, firstValid, lastValid, genesisHash, genesisId }) {
+  const pub = algorandPublicKey(address);
+  if (!pub) throw new TypeError("not an Algorand address");
+  const noteBytes = Buffer.from(note, "utf8");
+  if (noteBytes.length > 1024) throw new TypeError("note too long");
+  const fields = [["fv", mpUint(firstValid)], ["gen", mpStr(genesisId)], ["gh", mpBin(Buffer.from(genesisHash, "base64"))], ["lv", mpUint(lastValid)], ["note", mpBin(noteBytes)], ["rcv", mpBin(pub)], ["snd", mpBin(pub)], ["type", mpStr("pay")]];
+  return Buffer.concat([Buffer.from([0x80 | fields.length]), ...fields.flatMap(([k, v]) => [mpStr(k), v])]);
+}
+// Did this address's own key sign exactly those transaction bytes? signed: the signed transaction (base64 or bytes),
+// which must be { sig, txn } and nothing else: a rekeyed account (signed by another key, "sgnr") can't sign in this way.
+export function verifyAlgorandAuthTxn(address, txnBytes, signed) {
+  try {
+    const pub = algorandPublicKey(address);
+    const s = typeof signed === "string" ? Buffer.from(signed, "base64") : Buffer.from(signed);
+    const head = Buffer.concat([Buffer.from([0x82]), mpStr("sig"), Buffer.from([0xc4, 64])]);
+    const mid = mpStr("txn");
+    if (!pub || s.length !== head.length + 64 + mid.length + txnBytes.length) return false;
+    if (!s.subarray(0, head.length).equals(head) || !s.subarray(head.length + 64, head.length + 64 + mid.length).equals(mid) || !s.subarray(head.length + 64 + mid.length).equals(txnBytes)) return false;
+    const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), pub]), format: "der", type: "spki" });
+    return verify(null, Buffer.concat([Buffer.from("TX"), txnBytes]), key, s.subarray(head.length, head.length + 64));
+  } catch { return false; }
+}
+
 // Pro paid in USDC on Algorand: an asset transfer of USDC (ASA 31566704) to the owner's address.
 export const ALGO_USDC = 31566704;
 export const isAlgorandTxId = (v) => typeof v === "string" && /^[A-Z2-7]{52}$/.test(v);

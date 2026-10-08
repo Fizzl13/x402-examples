@@ -114,7 +114,7 @@ const accounts = createAccounts({
     chains: Object.fromEntries([[1, env.ETHEREUM_RPC_URL], [42161, env.ARBITRUM_RPC_URL], [10, env.OPTIMISM_RPC_URL], [137, env.POLYGON_RPC_URL]].filter(([, u]) => u).map(([id, rpcUrl]) => [id, { rpcUrl }])),
     solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null,
     xrpl: env.XRPL_PAY_TO === "off" ? null : { payTo: env.XRPL_PAY_TO?.trim() || "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", rpcUrl: env.XRPL_RPC_URL || undefined },
-    algorand: env.ALGORAND_PAY_TO === "off" ? null : { payTo: env.ALGORAND_PAY_TO?.trim() || "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4", indexerUrl: env.ALGORAND_INDEXER_URL || undefined } },
+    algorand: env.ALGORAND_PAY_TO === "off" ? null : { payTo: env.ALGORAND_PAY_TO?.trim() || "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4", indexerUrl: env.ALGORAND_INDEXER_URL || undefined, algodUrl: env.ALGORAND_ALGOD_URL || undefined } },
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
