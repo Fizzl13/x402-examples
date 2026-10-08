@@ -351,8 +351,8 @@ export function createWallet(config, overrides = {}) {
   // (counted toward the USDC limits when it is signed), then each call is a signed voucher, no transaction. The
   // guarded session account signs only the channel's escrow deposit and its vouchers (presign-guard-wallet 0.11+).
   const sessions = new Map();
-  const sessionAccount = config.session && tempoNet && typeof guarded.tempoSessionAccount === "function"
-    ? guarded.tempoSessionAccount(account, { chainId: tempoNet.chainId }) : null;
+  if (config.session && typeof guarded.tempoSessionAccount !== "function") throw new Error("MPP_SESSION_DEPOSIT needs presign-guard-wallet 0.11 or newer (npm install presign-guard-wallet@latest)");
+  const sessionAccount = config.session && tempoNet ? guarded.tempoSessionAccount(account, { chainId: tempoNet.chainId }) : null;
   const channelStore = sessionAccount ? (overrides.channelStore ?? createJsonChannelStore(fileKv(config.session.file))) : null;
   function payableSession(res) {
     if (!sessionAccount) return null;

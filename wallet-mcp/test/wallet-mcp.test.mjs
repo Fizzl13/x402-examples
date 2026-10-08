@@ -596,7 +596,13 @@ test("MPP sessions: off by default, MPP_SESSION_DEPOSIT turns them on with a clo
   assert.throws(() => configFromEnv({ ...ENV, MPP_SESSION_DEPOSIT: "1", TEMPO: "off" }), /Tempo/);
   const off = await setup();
   assert.ok(!(await off.client.listTools()).tools.some((t) => t.name === "close_sessions"));
-  const { client, call, wallet } = await setup({ MPP_SESSION_DEPOSIT: "0.5", MPP_SESSION_FILE: "/tmp/presign-guard-wallet-test-sessions.json" });
+  const sessionsEnv = { MPP_SESSION_DEPOSIT: "0.5", MPP_SESSION_FILE: "/tmp/presign-guard-wallet-test-sessions.json" };
+  if (typeof off.wallet.guard.tempoSessionAccount !== "function") {
+    // Installed presign-guard-wallet is older than 0.11: a clear error instead of silently not paying sessions.
+    await assert.rejects(setup(sessionsEnv), /presign-guard-wallet 0\.11/);
+    return;
+  }
+  const { client, call, wallet } = await setup(sessionsEnv);
   assert.ok((await client.listTools()).tools.some((t) => t.name === "close_sessions"));
   assert.equal(wallet.sessionsOn, true);
   const closed = JSON.parse((await call("close_sessions")).text);
