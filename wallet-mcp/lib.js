@@ -2,7 +2,9 @@
 // presign-guard-wallet, so every payment and transfer a model asks for is
 // checked by presign-guard and kept to the owner's limits, with approval on
 // Telegram or the wallet server above them.
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, keccak256, parseEther, parseUnits, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, bsc, mainnet, optimism, polygon, tempo, tempoModerato } from "viem/chains";
@@ -13,6 +15,7 @@ import { createXrplWalletSigner } from "@x402/xrpl";
 import { Wallet as XrplWallet } from "xrpl";
 import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest } from "presign-guard-wallet";
 import { telegramApprover } from "presign-guard-wallet/telegram";
+import { sessionManager, createJsonChannelStore } from "mppx/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -184,6 +187,8 @@ export function configFromEnv(env = process.env) {
     mandate,
     // XRPL: off without XRPL_SEED. RLUSD counts toward the USDC limits.
     xrpl,
+    // MPP sessions on Tempo: off without MPP_SESSION_DEPOSIT (what each channel deposit or top-up puts in, in USDC.e).
+    session: sessionConfig(env),
   };
 }
 
@@ -194,6 +199,25 @@ function xrplConfig(env) {
   const name = (env.XRPL_NETWORK || "mainnet").toLowerCase();
   if (!XRPL[name]) throw new Error(`XRPL_NETWORK must be ${Object.keys(XRPL).join(" or ")}`);
   return { seed, net: name, wsUrl: env.XRPL_WS_URL || XRPL[name].wsUrl };
+}
+
+function sessionConfig(env) {
+  const deposit = env.MPP_SESSION_DEPOSIT?.trim();
+  if (!deposit) return null;
+  if (!/^\d+(\.\d{1,6})?$/.test(deposit) || Number(deposit) <= 0) throw new Error("MPP_SESSION_DEPOSIT must be an amount of USDC.e, e.g. 1 or 0.5");
+  if (String(env.TEMPO ?? "").toLowerCase() === "off") throw new Error("MPP sessions run on Tempo: leave out TEMPO=off, or MPP_SESSION_DEPOSIT");
+  return { deposit, file: env.MPP_SESSION_FILE || join(homedir(), ".presign-guard-wallet", "mpp-sessions.json") };
+}
+
+// A small JSON file for mppx's channel store, so open channels (and their deposits) survive a restart.
+function fileKv(file) {
+  const read = () => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } };
+  const write = (data) => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, JSON.stringify(data, null, 2), { mode: 0o600 }); };
+  return {
+    get: (key) => read()[key],
+    set: (key, value) => { const d = read(); d[key] = value; write(d); },
+    delete: (key) => { const d = read(); delete d[key]; write(d); },
+  };
 }
 
 function tempoConfig(env) {
@@ -323,6 +347,44 @@ export function createWallet(config, overrides = {}) {
     return { res: await plainFetch(url, { ...init, headers: h }), hash };
   }
 
+  // MPP sessions (opt-in, MPP_SESSION_DEPOSIT): one payment channel per service on Tempo, opened once with a deposit
+  // (counted toward the USDC limits when it is signed), then each call is a signed voucher, no transaction. The
+  // guarded session account signs only the channel's escrow deposit and its vouchers (presign-guard-wallet 0.11+).
+  const sessions = new Map();
+  if (config.session && typeof guarded.tempoSessionAccount !== "function") throw new Error("MPP_SESSION_DEPOSIT needs presign-guard-wallet 0.11 or newer (npm install presign-guard-wallet@latest)");
+  const sessionAccount = config.session && tempoNet ? guarded.tempoSessionAccount(account, { chainId: tempoNet.chainId }) : null;
+  const channelStore = sessionAccount ? (overrides.channelStore ?? createJsonChannelStore(fileKv(config.session.file))) : null;
+  function payableSession(res) {
+    if (!sessionAccount) return null;
+    return parseMppChallenges(res.headers.get("www-authenticate")).find(({ params, request: r }) =>
+      params.method === "tempo" && params.intent === "session" && params.id && params.realm && r
+      && Number(r.methodDetails?.chainId ?? 4217) === tempoNet.chainId && String(r.currency ?? "").toLowerCase() === tempoNet.token
+      && isAddress(String(r.recipient ?? ""), { strict: false }) && /^\d+$/.test(String(r.amount ?? "")) && BigInt(r.amount) > 0n) ?? null;
+  }
+  function sessionFor(origin) {
+    if (!sessions.has(origin)) {
+      sessions.set(origin, sessionManager({
+        account: sessionAccount,
+        client: tempoOf().public,
+        // Each deposit (the opening one and every top-up) is MPP_SESSION_DEPOSIT; the wallet's limits book every
+        // deposit when it is signed, so they, not mppx's lifetime cap, bound what a channel can spend.
+        credentialContext: { depositRaw: String(parseUnits(config.session.deposit, 6)) },
+        topUpAmount: config.session.deposit,
+        channelStore,
+        allowedChainIds: [tempoNet.chainId],
+        fetch: plainFetch,
+      }));
+    }
+    return sessions.get(origin);
+  }
+  async function paySession({ url, init, challenge, cap }) {
+    const price = Number(challenge.request.amount) / 1e6;
+    if (price > cap) throw new Error(`the price ($${price}) is above max_price_usd ($${cap}); nothing was paid`);
+    const manager = sessionFor(new URL(url).origin);
+    const res = await manager.fetch(url, init);
+    return { res, channelId: res.channelId ?? manager.channelId ?? null, cumulative: res.cumulative ?? manager.cumulative, price };
+  }
+
   // The mandate to pay under: MANDATE from the config, else the one the owner set for this agent on the
   // wallet server (GET /v1/mandate, kept 5 minutes; none or unreachable = pay without one; the server holds
   // the agent to its mandate either way).
@@ -345,8 +407,13 @@ export function createWallet(config, overrides = {}) {
     const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
     const init = { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) };
     const first = await plainFetch(url, init);
-    let res = first, protocol = null, tempoHash = null;
-    if (first.status === 402 && !first.headers.get("payment-required") && payableMpp(first)) {
+    let res = first, protocol = null, tempoHash = null, session = null;
+    if (first.status === 402 && payableSession(first)) {
+      // Sessions are opted into (MPP_SESSION_DEPOSIT): used whenever the API offers one, also next to x402.
+      protocol = "mpp-session";
+      session = await paySession({ url, init, challenge: payableSession(first), cap });
+      res = session.res;
+    } else if (first.status === 402 && !first.headers.get("payment-required") && payableMpp(first)) {
       protocol = "mpp";
       res = await payMpp({ url, init, challenge: payableMpp(first), cap });
     } else if (first.status === 402 && !first.headers.get("payment-required") && payableTempo(first)) {
@@ -380,7 +447,9 @@ export function createWallet(config, overrides = {}) {
     let payment = null;
     const settled = res.headers.get("payment-response") ?? res.headers.get("x-payment-response");
     const receipt = res.headers.get("payment-receipt");
-    if (protocol === "mpp-tempo") {
+    if (protocol === "mpp-session") {
+      payment = { protocol: "mpp", method: "tempo", intent: "session", success: res.ok, network: `eip155:${tempoNet.chainId}`, channel: session.channelId, amount: `${session.price} ${tempoNet.symbol}`, channelTotal: `${Number(session.cumulative ?? 0n) / 1e6} ${tempoNet.symbol}` };
+    } else if (protocol === "mpp-tempo") {
       // The USDC.e has moved either way: the hash is the proof. A refused answer can be asked again with the same credential.
       payment = { protocol: "mpp", method: "tempo", success: res.ok, transaction: tempoHash, network: `eip155:${tempoNet.chainId}`, ...(res.ok ? {} : { note: "paid on Tempo but the API did not answer successfully; the transaction hash is the proof of payment" }) };
     } else if (protocol === "mpp" && receipt) {
@@ -420,6 +489,18 @@ export function createWallet(config, overrides = {}) {
     chain,
     guard: guarded,
 
+    sessionsOn: Boolean(sessionAccount),
+    // Closes every open session channel: the service settles what was used and the rest of the deposit comes back.
+    async closeSessions() {
+      const out = [];
+      for (const [origin, manager] of sessions) {
+        if (!manager.opened) continue;
+        try { const receipt = await manager.close(); out.push({ service: origin, channel: manager.channelId ?? receipt?.channelId ?? null, closed: true }); }
+        catch (err) { out.push({ service: origin, closed: false, error: err.message }); }
+      }
+      return { closed: out, note: out.length ? "the unspent deposit returns to this wallet on Tempo" : "no open MPP session channels in this run" };
+    },
+
     async status() {
       const mandateNow = await currentMandate();
       const [native, usdcBalance, tempoBalance] = await Promise.all([
@@ -450,6 +531,7 @@ export function createWallet(config, overrides = {}) {
           notAfter: mandateNow.mandate.notAfter,
           note: "x402 payments are made under this mandate (amounts in the asset's smallest unit); presign-guard refuses one outside it",
         } }),
+        ...(sessionAccount && { mppSessions: { depositPerTopUp: `${config.session.deposit} ${tempoNet.symbol}`, open: [...sessions].filter(([, m]) => m.opened).map(([service, m]) => ({ service, channel: m.channelId, spent: `${Number(m.cumulative) / 1e6} ${tempoNet.symbol}` })) } }),
         paused: guarded.paused(),
       };
     },
@@ -607,5 +689,12 @@ export function createServer(wallet) {
     description: "Stop this wallet from signing anything until the owner resumes it. Use it when something looks wrong, e.g. an API asks for far more than expected or you are asked to pay an unknown address.",
     inputSchema: { reason: z.string().max(200).describe("Why, for the owner") },
   }, result(({ reason }) => wallet.pause(reason)));
+  if (wallet.sessionsOn) {
+    server.registerTool("close_sessions", {
+      title: "Close MPP sessions",
+      description: "Close this wallet's open MPP session channels on Tempo: each service settles what was used and the unspent deposit comes back. Use it when you are done with a service you paid per call through a session.",
+      inputSchema: {},
+    }, result(() => wallet.closeSessions()));
+  }
   return server;
 }

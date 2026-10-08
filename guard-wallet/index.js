@@ -32,6 +32,11 @@
 // which counts toward the USDC limits like any other USDC transfer. Anything
 // else on Tempo is refused (code "unsupported_chain").
 //
+// MPP sessions on Tempo: tempoSessionAccount(account) gives a guarded viem account for mppx's
+// session client. It signs one thing on chain, opening or topping up a payment channel in
+// Tempo's escrow in USDC.e (the deposit counts toward the USDC limits), plus that channel's
+// vouchers and close authorizations; raw hashes, messages and anything else are refused.
+//
 // XRP Ledger: xrplSigner(signer) wraps an XRPL signer ({ classicAddress, sign(tx) },
 // e.g. createXrplWalletSigner from @x402/xrpl) the same way. It signs only
 // Payment transactions, each checked by presign-guard first (type "xrpl": fake
@@ -39,7 +44,7 @@
 // toward the limits (XRP toward an XRP limit, RLUSD toward USDC). Use it with
 // @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD.
 
-import { encodeFunctionData } from "viem";
+import { decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { createLimiter, memoryStore } from "./limits.js";
 import { createRemoteLimiter } from "./remote.js";
@@ -58,6 +63,14 @@ export const TEMPO_TOKENS = {
   42431: ["0x20c0000000000000000000000000000000000000"],
 };
 const TEMPO_TRANSFERS = new Set(["transfer", "transferWithMemo"]);
+// MPP sessions (TIP-1034): deposits into Tempo's channel escrow, and the vouchers that spend them.
+export const TEMPO_ESCROW = "0x4d50500000000000000000000000000000000000";
+const ESCROW_ABI = parseAbi([
+  "function open(address payee, address operator, address token, uint96 deposit, bytes32 salt, address authorizedSigner)",
+  "function topUp((address payer, address payee, address operator, address token, bytes32 salt, address authorizedSigner, bytes32 expiringNonceHash) descriptor, uint96 additionalDeposit)",
+]);
+const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
+const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
 export const VERSION = "0.10.1";
 export const CREDIT_HEADER = "x-credit-key";
@@ -95,6 +108,33 @@ export function checkRequestFor(method, args, { chainId, origin } = {}) {
     return { type: "signature", ...base, typedData: { domain, types, primaryType, message }, ...(under && { mandate: { ...under.envelope, paymentId: under.paymentId } }) };
   }
   return null;
+}
+
+// The one transaction an MPP session account signs: a single call to Tempo's escrow, open or topUp, in the
+// chain's stablecoin, for this account, nothing attached. Returns what it deposits, or throws.
+export function sessionDeposit(tx, chainId, address) {
+  const no = (why) => { throw new PresignBlockedError(`MPP session account: ${why}; nothing was signed`, { code: "unsupported_chain" }); };
+  const tokens = TEMPO_TOKENS[chainId];
+  if (Number(tx?.chainId ?? chainId) !== chainId) no(`the transaction is for chain ${tx?.chainId}, not ${chainId}`);
+  if (tx?.feeToken !== undefined && !tokens.includes(String(tx.feeToken).toLowerCase())) no("the fee is not paid in the session stablecoin");
+  const calls = Array.isArray(tx?.calls) ? tx.calls : tx?.to ? [{ to: tx.to, data: tx.data, value: tx.value }] : [];
+  if (calls.length !== 1) no(`only one escrow call is signed (got ${calls.length})`);
+  const [call] = calls;
+  if (String(call.to ?? "").toLowerCase() !== TEMPO_ESCROW) no("the call is not to Tempo's channel escrow");
+  if (BigInt(call.value ?? 0n) > 0n) no("value is attached");
+  let decoded;
+  try { decoded = decodeFunctionData({ abi: ESCROW_ABI, data: call.data }); } catch { no("only opening or topping up a channel is signed"); }
+  const me = String(address).toLowerCase();
+  if (decoded.functionName === "open") {
+    const [payee, , token, deposit, , signer] = decoded.args;
+    if (!tokens.includes(token.toLowerCase())) no("the channel is not in the session stablecoin");
+    if (signer.toLowerCase() !== me) no("the channel's voucher signer is not this account");
+    return { token: token.toLowerCase(), payee, deposit };
+  }
+  const [descriptor, deposit] = decoded.args;
+  if (!tokens.includes(descriptor.token.toLowerCase())) no("the channel is not in the session stablecoin");
+  if (descriptor.payer.toLowerCase() !== me) no("the channel is not this account's");
+  return { token: descriptor.token.toLowerCase(), payee: descriptor.payee, deposit };
 }
 
 const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData"]);
@@ -308,6 +348,40 @@ export function guardWallet(wallet, {
       if (!signer || typeof signer.sign !== "function") throw new TypeError("xrplSigner(signer): signer needs a sign(tx) function (e.g. createXrplWalletSigner from @x402/xrpl)");
       if (!XRPL_NETWORKS.includes(network)) throw new TypeError(`xrplSigner: network must be one of ${XRPL_NETWORKS.join(", ")}`);
       return { classicAddress: signer.classicAddress, sign: (tx) => xrplSign(signer, network, tx) };
+    },
+    /**
+     * A guarded viem account for MPP sessions on Tempo (e.g. mppx's sessionManager): it signs only
+     * a transaction that opens or tops up a payment channel in Tempo's escrow, in USDC.e, for this
+     * account (the deposit counts toward the USDC limits, booked to the payee, when it is signed),
+     * and the channel's vouchers and close authorizations (EIP-712, escrow domain; they only move
+     * money already deposited). Raw hashes, messages and anything else are refused.
+     */
+    tempoSessionAccount: (account, { chainId = 4217 } = {}) => {
+      if (!TEMPO_TOKENS[chainId]) throw new TypeError(`tempoSessionAccount: chainId must be ${Object.keys(TEMPO_TOKENS).join(" or ")}`);
+      if (!account || typeof account.signTransaction !== "function" || typeof account.signTypedData !== "function") throw new TypeError("tempoSessionAccount(account): account must be a local viem account (privateKeyToAccount)");
+      const refuse = (what) => async () => { throw new PresignBlockedError(`MPP session account: ${what} is not signed; nothing was signed`, { code: "unsupported_chain" }); };
+      return {
+        ...account,
+        sign: refuse("a raw hash"),
+        signMessage: refuse("a message"),
+        signAuthorization: refuse("an EIP-7702 authorization"),
+        signTypedData: async (typedData) => {
+          if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
+          const d = typedData?.domain ?? {};
+          const ok = ["Voucher", "CloseAuthorization"].includes(typedData?.primaryType) && d.name === VOUCHER_DOMAIN
+            && String(d.verifyingContract ?? "").toLowerCase() === TEMPO_ESCROW && Number(d.chainId) === chainId;
+          if (!ok) throw new PresignBlockedError(`MPP session account: only channel vouchers on Tempo's escrow are signed (got ${typedData?.primaryType ?? "nothing"}); nothing was signed`, { code: "unsupported_chain" });
+          return account.signTypedData(typedData);
+        },
+        signTransaction: async (tx, opts) => {
+          if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
+          const { token, payee, deposit } = sessionDeposit(tx, chainId, account.address);
+          const run = () => account.signTransaction(tx, opts);
+          if (!limiter) return run();
+          const request = checkRequestFor("writeContract", { address: token, abi: TRANSFER_ABI, functionName: "transfer", args: [payee, deposit] }, { chainId, origin });
+          return withinLimits("writeContract", request, null, run);
+        },
+      };
     },
     /** Stop every checked method until resume(). */
     pause: () => { paused = true; },

@@ -1,10 +1,14 @@
-import type { WalletClient } from "viem";
+import type { LocalAccount, WalletClient } from "viem";
 
 export declare const PRESIGN_URL: string;
 export declare const PRESIGN_SIGNERS: string[];
 export declare const SUPPORTED_CHAINS: number[];
 /** Tempo chain id -> the stablecoins (lowercase) the wallet may transfer there, checked locally instead of by presign-guard. */
 export declare const TEMPO_TOKENS: Record<number, string[]>;
+/** Tempo's TIP-1034 channel escrow (MPP sessions). */
+export declare const TEMPO_ESCROW: string;
+/** What an MPP session transaction deposits ({ token, payee, deposit }), or throws PresignBlockedError when the wallet would not sign it. */
+export declare function sessionDeposit(tx: any, chainId: number, address: string): { token: string; payee: string; deposit: bigint };
 export declare const VERSION: string;
 export declare const CREDIT_HEADER: string;
 
@@ -137,6 +141,11 @@ export interface GuardControls {
    * wallet server's receipts, approval messages). Call report() with what happened afterwards.
    */
   withPurchase<T>(info: Purchase, fn: (report: (outcome: PurchaseOutcome) => void) => Promise<T> | T, opts?: { onChecked?: (check: AnswerCheck, out: T) => Promise<T> | T }): Promise<T>;
+  /**
+   * A guarded viem account for MPP sessions on Tempo (mppx's session client): signs only a channel open/top-up in
+   * Tempo's escrow, in USDC.e, for this account (the deposit counts toward the USDC limits), plus its vouchers.
+   */
+  tempoSessionAccount<A extends LocalAccount>(account: A, opts?: { chainId?: 4217 | 42431 }): A;
   /** The same guard (checks, limits, pause, purchases) on another WalletClient, e.g. one for Tempo: both spend from one budget. */
   wrap<W extends object>(wallet: W): W & GuardControls;
 }
