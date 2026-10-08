@@ -17,7 +17,7 @@ import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decod
 import { createWallet, hashKey } from "./wallet.js";
 import { destinationTag, rlusdPaid, isXrplAddress, isXrplHash, RLUSD_ISSUER } from "./xrpl-pay.js";
 import { pkcePair, authUrl, accountFor } from "./xaman.js";
-import { isAlgorandAddress, verifyAlgorandSignature } from "./algorand.js";
+import { isAlgorandAddress, verifyAlgorandSignature, isAlgorandTxId, algoUsdcPaid, ALGO_USDC } from "./algorand.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
@@ -150,6 +150,9 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   // Optional: Pro paid in RLUSD on the XRP Ledger, to the owner's XRPL account with the account's destination tag.
   if (billing.xrpl?.payTo && !isXrplAddress(billing.xrpl.payTo)) throw new Error("billing.xrpl.payTo must be an XRPL address (r…)");
   const xrplPayTo = billing.xrpl?.payTo ?? null;
+  if (billing.algorand?.payTo && !isAlgorandAddress(billing.algorand.payTo)) throw new Error("billing.algorand.payTo must be an Algorand address (58 characters)");
+  const algoPayTo = billing.algorand?.payTo ?? null;
+  const algoIndexer = String(billing.algorand?.indexerUrl ?? "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
 
   async function account(id) {
     if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], passkeys: rec?.passkeys ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
@@ -482,6 +485,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         follow: a.follow ?? [],
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
         xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY },
+        // USDC on Algorand: for accounts that signed in with Pera (the payment must come from that address).
+        algoPay: isAlgoAcct(a) && algoPayTo ? { payTo: algoPayTo, asset: ALGO_USDC, token: "USDC", priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY } : null,
         billing: a.admin || !a.address || isXrplAcct(a) || isAlgoAcct(a) ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
@@ -663,7 +668,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         if (!w) throw Object.assign(new Error("The 14 days after your first Pro payment have passed, or you haven't paid for Pro."), { status: 409 });
         if ((a.auto?.dueAt ?? 0) > 0) throw Object.assign(new Error("Turn off automatic payment first (it lives on-chain, so only your wallet can stop it)."), { status: 409 });
         const paid = [...(a.payments ?? []), ...(a.autoPayments ?? [])];
-        const network = [...new Set(paid.map((p) => (p.chain === "xrpl" ? "XRP Ledger (RLUSD)" : p.chain === "solana" || isSol(a) ? "Solana" : chains[p.chainId ?? 8453]?.name ?? "Base")))].join(", ");
+        const network = [...new Set(paid.map((p) => (p.chain === "xrpl" ? "XRP Ledger (RLUSD)" : p.chain === "algorand" ? "Algorand (USDC)" : p.chain === "solana" || isSol(a) ? "Solana" : chains[p.chainId ?? 8453]?.name ?? "Base")))].join(", ");
         // Paid only in RLUSD (or no wallet connected): the refund goes back to the XRPL account it came from.
         const xrplFrom = [...paid].reverse().find((p) => p.chain === "xrpl" && p.from)?.from ?? null;
         const to = paid.every((p) => p.chain === "xrpl") && xrplFrom ? xrplFrom : a.address ?? xrplFrom;
@@ -1149,13 +1154,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     const bigger = TIERS[tier] ? { tierUntil: { ...(a.tierUntil ?? {}), [tier]: Math.max(now(), a.tierUntil?.[tier] ?? 0) + months * PERIOD_MS } } : {};
-    await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(chainId === "xrpl" ? { chain: "xrpl", ...(from ? { from } : {}) } : isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
+    await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(chainId === "xrpl" ? { chain: "xrpl", ...(from ? { from } : {}) } : chainId === "algorand" ? { chain: "algorand", ...(from ? { from } : {}) } : isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
     usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: netName(a, chainId), months, ...(TIERS[tier] ? { tier } : {}) } });
-    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} ${chainId === "xrpl" ? "RLUSD on the XRP Ledger" : `USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}`}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
+    await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} ${chainId === "xrpl" ? "RLUSD on the XRP Ledger" : chainId === "algorand" ? "USDC on Algorand" : `USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}`}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
   }
 
-  const netName = (a, chainId) => (chainId === "xrpl" ? "XRPL" : isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base");
+  const netName = (a, chainId) => (chainId === "xrpl" ? "XRPL" : chainId === "algorand" ? "Algorand" : isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base");
 
   // RLUSD on the XRP Ledger: a validated Payment to the owner's account with this account's destination tag.
   async function claimXrpl(a, hash, tier) {
@@ -1184,6 +1189,55 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     return credit(a, h, r.units, "xrpl", t, r.from);
   }
 
+  // USDC on Algorand from the account's own address: a pasted transaction id, or (none pasted) the newest unused
+  // transfer from that address to the owner in the last 7 days, found through the public indexer.
+  async function claimAlgorand(a, txId, tier) {
+    if (!algoPayTo) throw Object.assign(new Error("paying on Algorand is not set up on this server"), { status: 503 });
+    if (!isAlgoAcct(a)) throw Object.assign(new Error("Paying on Algorand is for accounts that signed in with Pera."), { status: 400 });
+    const get = async (path) => {
+      const res = await rpcFetch(`${algoIndexer}${path}`, { headers: { accept: "application/json" } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw Object.assign(new Error(`Algorand indexer: HTTP ${res.status}`), { status: 502 });
+      return res.json();
+    };
+    let candidates;
+    if (txId) {
+      if (!isAlgorandTxId(txId)) throw Object.assign(new Error("that is not an Algorand transaction id (52 letters and digits)"), { status: 400 });
+      if ((a.payments ?? []).some((p) => p.tx === txId)) return api.me(a.id);
+      const data = await get(`/v2/transactions/${txId}`);
+      candidates = [data?.transaction ?? null];
+    } else {
+      const after = new Date(now() - 7 * DAY).toISOString();
+      const data = await get(`/v2/accounts/${algoPayTo}/transactions?asset-id=${ALGO_USDC}&tx-type=axfer&address-role=receiver&after-time=${encodeURIComponent(after)}&limit=50`);
+      // Only USDC transfers from this account that it hasn't used, newer than its last Algorand payment.
+      const used = new Set((a.payments ?? []).map((p) => p.tx));
+      const lastPaid = Math.max(0, ...(a.payments ?? []).filter((p) => p.chain === "algorand").map((p) => p.at ?? 0));
+      candidates = (data?.transactions ?? [])
+        .filter((tx) => tx.sender === a.address && !used.has(tx.id) && !algoUsdcPaid(tx, { payTo: algoPayTo }).error && Number(tx["round-time"] ?? 0) * 1000 > lastPaid - 60_000)
+        .sort((x, y) => (y["round-time"] ?? 0) - (x["round-time"] ?? 0));
+      if (!candidates.length) throw Object.assign(new Error(`no new USDC payment from ${short(a.address)} to ${short(algoPayTo)} found yet: wait a few seconds and check again`), { status: 409 });
+    }
+    const why = {
+      not_found: "not found on Algorand yet: try again in a few seconds",
+      not_confirmed: "not confirmed yet: try again in a few seconds",
+      not_usdc: "that is not a USDC transfer on Algorand",
+      not_to_us: `that is not a payment to ${short(algoPayTo)}`,
+    };
+    let last = null;
+    for (const tx of candidates) {
+      const r = algoUsdcPaid(tx, { payTo: algoPayTo });
+      if (r.error) { last = Object.assign(new Error(why[r.error]), { status: r.error === "not_found" || r.error === "not_confirmed" ? 409 : 400 }); continue; }
+      if (r.from !== a.address) { last = Object.assign(new Error(`that payment came from ${short(r.from)}, not from your Pera account ${short(a.address)}`), { status: 400 }); continue; }
+      if ((a.payments ?? []).some((p) => p.tx === r.id)) { last = Object.assign(new Error("that payment was already used"), { status: 409 }); continue; }
+      const t = tierFor(tier, r.units);
+      if (r.units < unitOf(t)) { last = Object.assign(new Error(`that payment was ${Number(r.units) / 1e6} USDC; ${labelOf(t)} is ${Number(unitOf(t)) / 1e6} USDC`), { status: 400 }); continue; }
+      if (!r.at || r.at < now() - 7 * DAY) { last = Object.assign(new Error("that payment is older than 7 days; contact the owner"), { status: 400 }); continue; }
+      if (!(await g.claimTx(`algo:${r.id}`))) { last = Object.assign(new Error("that payment was already used"), { status: 409 }); continue; }
+      return credit(a, r.id, r.units, "algorand", t, r.from);
+    }
+    throw last;
+  }
+
   async function claim(id, txHash, chainId = 8453, tier = null) {
     if (id === ADMIN) throw Object.assign(new Error("the owner's server has no plan to pay for"), { status: 400 });
     const sa = await account(id);
@@ -1191,7 +1245,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!sa?.address) throw Object.assign(new Error("Connect the wallet you pay from first (Your plan)."), { status: 400 });
     if (isSol(sa)) return claimSolana(sa, txHash, tier);
     if (isXrplAcct(sa)) return claimXrpl(sa, txHash, tier);
-    if (isAlgoAcct(sa)) throw Object.assign(new Error("Pro can't be paid on Algorand yet: pay in RLUSD on the XRP Ledger (Your plan)."), { status: 400 });
+    if (isAlgoAcct(sa)) return claimAlgorand(sa, txHash, tier);
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
     const cid = Number(chainId ?? 8453), net = chains[cid];
     if (!net) throw Object.assign(new Error(`Pro can be paid on ${Object.values(chains).map((c) => c.name).join(", ")}`), { status: 400 });

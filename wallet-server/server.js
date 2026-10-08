@@ -26,6 +26,9 @@
 //   X402_TRUST_INDEX_URL optional: x402 Doctor's Trust Index, to rank sellers by track record (default its public file)
 //   SOLANA_PAY_TO       optional: the Solana address that receives Pro payments; turns on sign-in
 //                       with Phantom on Solana and paying Pro in USDC on Solana
+//   ALGORAND_PAY_TO     the Algorand address that receives Pro paid in USDC (ASA 31566704) by accounts that sign in
+//                       with Pera (must be opted in to USDC; default the owner's Pera address; "off" to turn it off).
+//                       ALGORAND_INDEXER_URL overrides the public AlgoNode indexer.
 //   XRPL_PAY_TO         the XRPL account that receives Pro paid in RLUSD (needs an RLUSD trust line; default
 //                       Fizzl's Xaman account); "off" turns paying in RLUSD off
 //   XAMAN_API_KEY       optional: the public API key of a Xaman app (apps.xumm.dev, redirect URI
@@ -110,7 +113,8 @@ const accounts = createAccounts({
   billing: { payTo: env.PRO_PAY_TO || "0x6B0F4651eD42893ab58139938175E4a69f175F25", priceUsdc: Number(env.PRO_PRICE_USDC || 5), price20Usdc: Number(env.PRO20_PRICE_USDC || 9), priceUnlimitedUsdc: Number(env.PRO_UNLIMITED_PRICE_USDC || 20), rpcUrl, subscription: env.SUBSCRIPTION_CONTRACT?.trim() || null, charger,
     chains: Object.fromEntries([[1, env.ETHEREUM_RPC_URL], [42161, env.ARBITRUM_RPC_URL], [10, env.OPTIMISM_RPC_URL], [137, env.POLYGON_RPC_URL]].filter(([, u]) => u).map(([id, rpcUrl]) => [id, { rpcUrl }])),
     solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null,
-    xrpl: env.XRPL_PAY_TO === "off" ? null : { payTo: env.XRPL_PAY_TO?.trim() || "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", rpcUrl: env.XRPL_RPC_URL || undefined } },
+    xrpl: env.XRPL_PAY_TO === "off" ? null : { payTo: env.XRPL_PAY_TO?.trim() || "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", rpcUrl: env.XRPL_RPC_URL || undefined },
+    algorand: env.ALGORAND_PAY_TO === "off" ? null : { payTo: env.ALGORAND_PAY_TO?.trim() || "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4", indexerUrl: env.ALGORAND_INDEXER_URL || undefined } },
   walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });

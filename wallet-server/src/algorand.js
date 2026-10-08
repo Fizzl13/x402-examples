@@ -44,3 +44,20 @@ export function verifyAlgorandSignature(address, message, signature) {
     return verify(null, Buffer.concat([Buffer.from("MX"), Buffer.from(message, "utf8")]), key, sig);
   } catch { return false; }
 }
+
+// Pro paid in USDC on Algorand: an asset transfer of USDC (ASA 31566704) to the owner's address.
+export const ALGO_USDC = 31566704;
+export const isAlgorandTxId = (v) => typeof v === "string" && /^[A-Z2-7]{52}$/.test(v);
+
+// What an indexer transaction (GET /v2/transactions/{id}) paid: { id, from, units, at } or { error }.
+// Only a confirmed, top-level USDC transfer to payTo counts.
+export function algoUsdcPaid(tx, { payTo }) {
+  if (!tx) return { error: "not_found" };
+  if (!tx["confirmed-round"]) return { error: "not_confirmed" };
+  const x = tx["asset-transfer-transaction"];
+  if (tx["tx-type"] !== "axfer" || !x) return { error: "not_usdc" };
+  if (Number(x["asset-id"]) !== ALGO_USDC) return { error: "not_usdc" };
+  if (x.receiver !== payTo) return { error: "not_to_us" };
+  if (tx["asset-close-transaction"] || x["close-to"]) return { error: "not_usdc" };
+  return { id: tx.id, from: tx.sender, units: BigInt(x.amount ?? 0), at: Number(tx["round-time"] ?? 0) * 1000 };
+}
