@@ -2,6 +2,8 @@
 
 Safety checks for [LangChain.js](https://js.langchain.com) and [LangGraph.js](https://langchain-ai.github.io/langgraphjs/) agents that pay. The JavaScript twin of the [official LangChain integration](https://docs.langchain.com/oss/python/integrations/tools) `fizzl` for Python.
 
+Docs: [fizzl.eu/agents/langchain-js](https://fizzl.eu/agents/langchain-js/)
+
 Five LangChain tools you pass to `createAgent`, `createReactAgent` or `model.bindTools`:
 
 | Tool | What the agent checks | Service | Price |

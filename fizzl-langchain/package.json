@@ -1,6 +1,6 @@
 {
   "name": "fizzl-langchain",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Safety checks for LangChain.js and LangGraph.js agents that pay: tools to check a transaction or signature before signing, a token before buying, a wallet's open approvals, and an x402 endpoint before paying it (presign-guard and x402 Doctor, paid per call over x402, with a free quick check to try them).",
   "type": "module",
   "exports": {
