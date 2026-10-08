@@ -7,6 +7,13 @@
 // telegramApprover).
 const API = "https://api.telegram.org";
 const escape = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// The network of an approval: an EVM chain id, or an x402 network id for the XRP Ledger and Algorand.
+const network = (id) => {
+  const s = String(id ?? "");
+  if (s.startsWith("algorand:")) return s === "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=" ? "Algorand testnet" : "Algorand";
+  if (s.startsWith("xrpl:")) return s === "xrpl:1" ? "XRP Ledger testnet" : "XRP Ledger";
+  return s ? `chain ${s}` : "";
+};
 
 export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, username = null, fetch: fetchImpl = globalThis.fetch, api = API }) {
   const call = async (method, body) => {
@@ -18,7 +25,7 @@ export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, 
   const messages = new Map(); // approval id -> { chatId, messageId, body }, to edit after the decision
 
   const text = (a, spending) => {
-    const lines = [`<b>${escape(a.agentName)} wants to sign something over your limit</b>`, "", escape(a.summary), "", `<code>${escape(a.method)}</code> · chain ${escape(a.chainId)}${a.to ? ` · to <code>${escape(a.to)}</code>` : ""}`];
+    const lines = [`<b>${escape(a.agentName)} wants to sign something over your limit</b>`, "", escape(a.summary), "", `<code>${escape(a.method)}</code>${a.chainId ? ` · ${escape(network(a.chainId))}` : ""}${a.to ? ` · to <code>${escape(a.to)}</code>` : ""}`];
     if (a.purchase?.description || a.purchase?.url) {
       lines.splice(3, 0, ...[a.purchase.description ? `for: ${escape(a.purchase.description)}` : null, a.purchase.url ? `<code>${escape(a.purchase.url)}</code>` : null].filter(Boolean), "");
     }

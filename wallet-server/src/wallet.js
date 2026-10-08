@@ -219,14 +219,19 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         if (m.reason) { result.reasons.push(m.reason); result.hardStop = true; } else mandateAmount = m.amount;
       }
       const charges = result.charges.map((c) => ({ budget: c.budget, amount: c.amount.toString() }));
-      const info = { method, chainId: request.chainId, to: spend.items[0]?.to ?? request.to ?? null };
+      // EVM requests carry a chain id; XRPL and Algorand ones an x402 network id ("xrpl:0", "algorand:<genesis hash>").
+      const chainId = request.chainId ?? (typeof request.network === "string" ? request.network.slice(0, 80) : null);
+      // Limits compare recipients in lowercase; XRPL and Algorand addresses are shown as written (case matters there).
+      const written = request.type === "algorand" ? request.txn?.receiver : request.type === "xrpl" ? request.tx?.Destination : null;
+      const shownTo = typeof written === "string" && written.toLowerCase() === spend.items[0]?.to ? written : null;
+      const info = { method, chainId, to: shownTo ?? spend.items[0]?.to ?? request.to ?? null };
       agent.lastSeen = now();
       const from = request.type === "signature" ? request.typedData?.message?.from : null;
       if (typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from)) agent.address = from; // its wallet, learned from what it signs
       await store.putAgent(agent);
       if (!result.reasons.length) {
         const entries = await book(agent, charges, info);
-        const p = await openPurchase(agent, { method, chainId: request.chainId, to: info.to, entries, verdict: verdictView(trusted), purchase, mandate: countMandate(agent, mandateAmount) });
+        const p = await openPurchase(agent, { method, chainId, to: info.to, entries, verdict: verdictView(trusted), purchase, mandate: countMandate(agent, mandateAmount) });
         await store.putAgent(agent);
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
@@ -241,7 +246,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         return { status: "denied", reasons: result.reasons, summary };
       }
       const approval = {
-        id: id("ap"), status: "pending", agent: agent.id, agentName: agent.name, method, chainId: request.chainId ?? null, to: info.to,
+        id: id("ap"), status: "pending", agent: agent.id, agentName: agent.name, method, chainId, to: info.to,
         summary, reasons: result.reasons, charges, verdict: verdictView(trusted), purchase,
         createdAt: now(), expiresAt: now() + approvalTtlMs, entries: [], purchaseId: null,
         ...(mandateAmount !== null ? { mandate: { nonce: agent.mandate.nonce, amount: mandateAmount.toString() } } : {}),

@@ -2215,3 +2215,23 @@ test("Pro in USDC on Algorand: found from the Pera account, checked (asset, rece
     assert.equal(me1.payments.length, 1);
   } finally { server.close(); }
 });
+
+test("an Algorand USDC transfer (presign-guard-wallet algorandSigner) counts as USDC and names its network; Telegram shows it", async () => {
+  const { owner, agent, server, tg } = await boot();
+  try {
+    const NET = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
+    const SELLER = "SGLTUPAC7TKGKNNXKNPQ2QZCC7NJSLAKYZ7O7NOGGAPXWBFZTOLTPMSPPI";
+    const request = (usdc) => ({ type: "algorand", network: NET, txn: { type: "axfer", sender: "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA", receiver: SELLER, amount: String(usdc * 1e6), assetId: "31566704" } });
+    const ok = await agent("POST", "/v1/reserve", { method: "signAlgorandTransfer", request: request(2), purchase: { url: "https://algo-seller.example/data" } });
+    assert.equal(ok.body.status, "ok");
+    assert.equal((await agent("GET", "/v1/spending")).body.spending[0].used, "2");
+    const p = (await owner("GET", `/api/purchases/${ok.body.purchaseId}`)).body.purchase;
+    assert.deepEqual([p.chainId, p.to, p.method], [NET, SELLER, "signAlgorandTransfer"]);
+    const over = await agent("POST", "/v1/reserve", { method: "signAlgorandTransfer", request: request(8) });
+    assert.equal(over.body.status, "pending");
+    await new Promise((r) => setTimeout(r, 20));
+    const msg = tg.calls.find((c) => c.method === "sendMessage").body.text;
+    assert.match(msg, /<code>signAlgorandTransfer<\/code> · Algorand · to <code>SGLTUPAC/);
+    assert.doesNotMatch(msg, /undefined/);
+  } finally { server.close(); }
+});

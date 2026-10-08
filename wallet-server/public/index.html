@@ -2275,7 +2275,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const safeUrl = (u) => (/^https?:\/\//.test(u ?? "") ? u : null);
   const ext = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer nofollow">${esc(text)}</a>`;
   // Plain words for what an agent signs and for the safety check, instead of method names and codes.
-  const METHOD_WORDS = { signTypedData: "payment signature", eth_signTypedData_v4: "payment signature", sendTransaction: "transaction", eth_sendTransaction: "transaction", signMessage: "message signature", personal_sign: "message signature", signTransaction: "transaction" };
+  const METHOD_WORDS = { signTypedData: "payment signature", eth_signTypedData_v4: "payment signature", sendTransaction: "transaction", eth_sendTransaction: "transaction", signMessage: "message signature", personal_sign: "message signature", signTransaction: "transaction", signXrplPayment: "XRP Ledger payment", signAlgorandTransfer: "USDC transfer on Algorand" };
   const methodWord = (m) => METHOD_WORDS[m] ?? m ?? "";
   const CODE_WORDS = { KNOWN_DRAINER: "known scam address", SANCTIONED: "sanctioned address", SANCTIONED_ADDRESS: "sanctioned address", PHISHING_SITE: "known phishing site", UNLIMITED_APPROVAL: "unlimited access to your tokens", UNLIMITED_APPROVAL_TO_EOA: "unlimited access for a plain wallet", SIGNATURE_GRANT_TO_EOA: "hands a plain wallet access", TOKEN_HONEYPOT: "token that can't be sold", TOKEN_IMPERSONATION: "fake copy of a token", NEW_WALLET_SPENDER: "brand-new receiving wallet" };
   const verdictWord = (v) => ({ green: "safety check OK", orange: "safety check: caution", red: "safety check: blocked" }[v] ?? (v ? `safety check: ${v}` : ""));
@@ -2283,7 +2283,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     .replace(/presign-guard:? (green|orange|red)(?: \(([A-Z_,]+)\))?/g, (_, v, codes) => `${verdictWord(v)}${codes ? ` (${codes.split(",").map((c) => CODE_WORDS[c] ?? c.toLowerCase().replace(/_/g, " ")).join(", ")})` : ""}`)
     .replace(/\b(signTypedData|sendTransaction|signMessage|eth_signTypedData_v4|eth_sendTransaction|personal_sign)\b/g, (m) => methodWord(m))
     .replace(/· never signed/g, "· not paid");
-  const chainOf = (id) => CHAINS[Number(String(id ?? "").replace(/^eip155:/, ""))] ?? null;
+  // XRP Ledger and Algorand purchases carry an x402 network id; no explorer here (their ids aren't 0x hashes).
+  const OTHER_NETS = { "xrpl:0": ["XRP Ledger", null], "xrpl:1": ["XRP Ledger testnet", null], "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": ["Algorand", null], "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=": ["Algorand testnet", null] };
+  const chainOf = (id) => OTHER_NETS[String(id ?? "")] ?? CHAINS[Number(String(id ?? "").replace(/^eip155:/, ""))] ?? null;
   const short = (h) => (h.length > 26 ? `${h.slice(0, 14)}…${h.slice(-8)}` : h);
   const full = (t) => new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
   function receiptHtml(p) {
@@ -2301,7 +2303,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const settled = st?.transaction ? (isTx(st.transaction) && stChain ? ext(`${stChain[1]}/tx/${st.transaction}`, `${st.transaction.slice(0, 10)}…${st.transaction.slice(-8)}`) : `<code>${esc(short(st.transaction))}</code>`) + (st.network ? ` <span class="note">${esc(chainOf(st.network)?.[0] ?? st.network)}</span>` : "") : null;
     // The payment on the blockchain: the explorer, and x402 Doctor's free proof check (it reads the chain itself).
     const solTx = !p.demo && st?.transaction && /^solana:/.test(st.network || "") ? `https://solscan.io/tx/${encodeURIComponent(st.transaction)}` : null;
-    const txUrl = solTx ?? (!p.demo && st?.transaction && isTx(st.transaction) && stChain ? `${stChain[1]}/tx/${st.transaction}` : null);
+    const NET_TX = { "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "https://allo.info/tx/", "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=": "https://testnet.allo.info/tx/", "xrpl:0": "https://livenet.xrpl.org/transactions/", "xrpl:1": "https://testnet.xrpl.org/transactions/" };
+    const otherTx = !p.demo && st?.transaction && NET_TX[st.network] && /^[A-Za-z0-9]{40,80}$/.test(st.transaction) ? `${NET_TX[st.network]}${st.transaction}` : null;
+    const txUrl = solTx ?? otherTx ?? (!p.demo && st?.transaction && isTx(st.transaction) && stChain ? `${stChain[1]}/tx/${st.transaction}` : null);
     const proofUrl = !p.demo && st?.transaction && st?.network ? `https://x402-doctor.fizzl.eu/settlement?tx=${encodeURIComponent(st.transaction)}&network=${encodeURIComponent(st.network)}` : null;
     const onchain = txUrl || proofUrl ? `<p class="note onchain" style="margin:10px 0 0">On the blockchain: ${[txUrl ? ext(txUrl, "view the transaction") : "", proofUrl ? ext(proofUrl, "check the proof") : ""].filter(Boolean).join(" · ")}</p>` : "";
     const statusText = { signed: "signed", signing: "signing", failed: "failed" }[p.status] ?? p.status;
