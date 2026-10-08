@@ -20,8 +20,9 @@ const ICONS = fileURLToPath(new URL("../public/icons", import.meta.url)); // wal
 const APP = fileURLToPath(new URL("../public/app", import.meta.url)); // the dashboard as an installable app: icons
 const MANIFEST = fileURLToPath(new URL("../public/manifest.webmanifest", import.meta.url));
 const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // service worker: notifications
-// connect-src: Pera Connect (sign in with Pera) talks to Pera's WalletConnect bridge and reads its animations.
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+// connect-src: Pera Connect (sign in with Pera) talks to Pera's WalletConnect bridge and reads its animations;
+// Defly Connect uses the same bridges and reads its list of them from static.defly.app.
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null }) {
@@ -194,7 +195,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.post("/api/signin/message", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });
     if (!auth.allowSignIn(req.ip)) return res.status(429).json({ error: "slow_down", message: "Too many sign-ins. Wait a while." });
-    res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`, ["solana", "algorand"].includes(req.body?.chain) ? req.body.chain : "ethereum", req.body?.chainId));
+    res.json(await accounts.signInMessage(req.body?.address, `${req.protocol}://${req.host}`, ["solana", "algorand"].includes(req.body?.chain) ? req.body.chain : "ethereum", req.body?.chainId, req.body?.style === "txn" ? "txn" : null));
   }));
   app.post("/api/signin", wrap(async (req, res) => {
     if (!signInWithWallet) return res.status(404).json({ error: "not_found" });

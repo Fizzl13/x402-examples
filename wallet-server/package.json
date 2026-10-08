@@ -21,5 +21,8 @@
     "viem": "^2.56.9",
     "x402-safe-fetch": "^0.4.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "algosdk": "^3.7.0"
+  }
 }

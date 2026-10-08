@@ -1084,6 +1084,38 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#walletErr").textContent = /cancel|closed|reject/i.test(m) ? "You cancelled it in Pera." : /hardware|ledger/i.test(m) ? "Pera can't sign in with a hardware account: use e-mail or a passkey." : m;
     } finally { b.disabled = false; b.innerHTML = label; }
   }
+  // ---------- Algorand (Defly): Defly signs transactions only, so the sign-in is a 0 ALGO payment to yourself with a
+  // fee of 0 that the server builds and never sends (checked on the server, see src/algorand.js) ----------
+  let defly = null;
+  async function deflyWallet() {
+    if (defly) return defly;
+    if (!window.DeflyWalletConnect) await new Promise((ok, no) => { const s = document.createElement("script"); s.src = "/app/defly-connect.js"; s.onload = ok; s.onerror = () => no(new Error("Defly Connect could not be loaded")); document.head.appendChild(s); });
+    defly = new window.DeflyWalletConnect({ chainId: 416001 });
+    return defly;
+  }
+  async function deflySignIn(b) {
+    const label = b.innerHTML;
+    $("#walletErr").textContent = "";
+    b.disabled = true; b.textContent = "Open Defly…";
+    try {
+      const d = await deflyWallet();
+      try { await d.disconnect(); } catch {}
+      const [address] = await d.connect();
+      if (!address) throw new Error("Defly did not share an account.");
+      b.textContent = "Sign in Defly…";
+      const { nonce, txn } = await post("/api/signin/message", { address, chain: "algorand", style: "txn" });
+      const bytes = Uint8Array.from(atob(txn), (c) => c.charCodeAt(0));
+      const [signed] = await d.signTransaction([[{ txn: window.deflyDecodeTxn(bytes), message: "Sign in to Fizzl Agent Wallet: 0 ALGO to yourself, fee 0, never sent" }]], address);
+      const signature = btoa(String.fromCharCode(...signed));
+      await post("/api/signin", { nonce, signature, ref: signupRef() });
+      try { localStorage.setItem("aw_wallet", "algorand:defly"); } catch {}
+      try { await d.disconnect(); } catch {}
+      start();
+    } catch (err) {
+      const m = String(err?.message || err);
+      $("#walletErr").textContent = /cancel|closed|reject/i.test(m) ? "You cancelled it in Defly." : /does not match/i.test(m) ? "That signature does not match: a rekeyed or hardware account can't sign in this way. Use e-mail or a passkey." : m;
+    } finally { b.disabled = false; b.innerHTML = label; }
+  }
   const hexUtf8 = (t) => "0x" + [...new TextEncoder().encode(t)].map((b) => b.toString(16).padStart(2, "0")).join("");
   const walletError = (err) => (err?.code === 4001 ? `You cancelled it in ${walletName}.` : err?.message || String(err));
   async function post(path, body) {
@@ -1122,7 +1154,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       // Xaman (XRP Ledger): a page on Xaman's site asks the app (QR code on a computer, the app itself on a phone).
       + (xamanOn ? `<a class="button primary" href="/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}"><img src="/icons/xaman.svg" alt="">Sign in with Xaman (XRP Ledger)</a>` : "")
       // Pera (Algorand): a QR code for the Pera app on a computer, the app itself on a phone.
-      + (algorandOn ? `<button class="button primary" type="button" data-pera="1"><img src="/icons/pera.svg" alt="">Sign in with Pera (Algorand)</button>` : "");
+      + (algorandOn ? `<button class="button primary" type="button" data-pera="1"><img src="/icons/pera.svg" alt="">Sign in with Pera (Algorand)</button>` : "")
+      // Defly (Algorand): the same, through Defly Connect.
+      + (algorandOn ? `<button class="button primary" type="button" data-defly="1"><img src="/icons/defly.svg" alt="">Sign in with Defly (Algorand)</button>` : "");
     // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
     // where it is built in. (More apps under "Other wallets".)
     const apps = isPhone && !list.length && !solProvider()
@@ -1168,6 +1202,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#walletList").addEventListener("click", async (e) => {
     const sb = e.target.closest("button[data-solana]"); if (sb) return solanaSignIn(sb);
     const pb = e.target.closest("button[data-pera]"); if (pb) return peraSignIn(pb);
+    const db = e.target.closest("button[data-defly]"); if (db) return deflySignIn(db);
     const b = e.target.closest("button[data-wallet]"); if (!b) return;
     const w = findWallet(b.dataset.wallet); if (!w) return;
     const eth = w.provider, label = b.innerHTML;
@@ -1349,7 +1384,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour, from $${esc(me.proPriceUsdc ?? 5)} per 30 days in USDC. To pay, connect the wallet you pay from: one free signature, no transaction. Your agents keep their own wallets.</p><div class="wallets" id="linkWallets"></div><div class="msg" id="linkWalletMsg" role="status"></div>`;
       renderLinkWallets();
     } else if (!me.billing) {
-      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : me.chain === "algorand" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. ${me.algoPay ? `Pay in USDC on Algorand from Pera below (${esc(me.proPriceUsdc ?? 5)} USDC per 30 days), or in RLUSD on the XRP Ledger.` : `Pay in RLUSD on the XRP Ledger below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).`} Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : me.chain === "algorand" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. ${me.algoPay ? `Pay in USDC on Algorand from your wallet below (${esc(me.proPriceUsdc ?? 5)} USDC per 30 days), or in RLUSD on the XRP Ledger.` : `Pay in RLUSD on the XRP Ledger below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).`} Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
     const nets = me.billing.chains ?? [];
@@ -1381,13 +1416,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
   }
   // ---------- Pro paid in RLUSD on the XRP Ledger (Xaman or any XRPL wallet): to our account with your own destination tag ----------
-  // USDC on Algorand from the Pera account this account signed in with: a payment link opens Pera with the transfer filled
+  // USDC on Algorand from the account this account signed in with (Pera or Defly): a payment link opens Pera with the transfer filled
   // in (ARC-26), then the server finds the payment on the chain.
   function algoPayHtml(x) {
     const copy = (v) => `<code>${esc(v)}</code> <button class="button small" type="button" data-copy="${esc(v)}">Copy</button>`;
     const link = (usd, label, tier = "") => `<a class="button primary small" data-algotier="${tier}" href="algorand://${esc(x.payTo)}?amount=${Math.round(usd * 1e6)}&asset=${x.asset}&note=${encodeURIComponent("Fizzl Agent Wallet " + label)}">${esc(label)} · ${esc(usd)} USDC</a>`;
-    return `<details id="algoPay" open><summary>Pay in USDC on Algorand (Pera)</summary><div style="display:grid;gap:8px;margin-top:8px">
-      <p class="note" style="margin:0">Pay from the Pera account you signed in with: tap a plan on your phone and Pera opens with the payment filled in. On a computer, send the amount in USDC from that account to the address below.</p>
+    return `<details id="algoPay" open><summary>Pay in USDC on Algorand (Pera, Defly)</summary><div style="display:grid;gap:8px;margin-top:8px">
+      <p class="note" style="margin:0">Pay from the Algorand account you signed in with: tap a plan on your phone and your wallet (Pera or Defly) opens with the payment filled in. On a computer, send the amount in USDC from that account to the address below.</p>
       <div class="buybar" style="margin:0;flex-wrap:wrap;gap:8px">${link(x.priceUsdc, "Pro")}${link(x.priceUsdc * 12, "Pro 12 months")}${link(x.price20Usdc, "Pro 20", "pro20")}${link(x.priceUnlimitedUsdc, "Unlimited", "unlimited")}</div>
       <div class="note">To: ${copy(x.payTo)}</div>
       <p class="note" style="margin:0">USDC on Algorand (asset ${esc(x.asset)}), 1 USDC = $1. After paying, check it here (or paste the transaction id):</p>

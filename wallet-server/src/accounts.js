@@ -17,7 +17,7 @@ import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decod
 import { createWallet, hashKey } from "./wallet.js";
 import { destinationTag, rlusdPaid, isXrplAddress, isXrplHash, RLUSD_ISSUER } from "./xrpl-pay.js";
 import { pkcePair, authUrl, accountFor } from "./xaman.js";
-import { isAlgorandAddress, verifyAlgorandSignature, isAlgorandTxId, algoUsdcPaid, ALGO_USDC } from "./algorand.js";
+import { isAlgorandAddress, verifyAlgorandSignature, algorandAuthTxn, verifyAlgorandAuthTxn, isAlgorandTxId, algoUsdcPaid, ALGO_USDC } from "./algorand.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
@@ -153,6 +153,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   if (billing.algorand?.payTo && !isAlgorandAddress(billing.algorand.payTo)) throw new Error("billing.algorand.payTo must be an Algorand address (58 characters)");
   const algoPayTo = billing.algorand?.payTo ?? null;
   const algoIndexer = String(billing.algorand?.indexerUrl ?? "https://mainnet-idx.algonode.cloud").replace(/\/$/, "");
+  // An algod node for the current round of a Defly sign-in transaction (public AlgoNode by default).
+  const algoAlgod = String(billing.algorand?.algodUrl ?? "https://mainnet-api.algonode.cloud").replace(/\/$/, "");
 
   async function account(id) {
     if (id === ADMIN) { const rec = await g.getAccount(ADMIN); return { id: ADMIN, admin: true, follow: rec?.follow ?? [], alertHook: rec?.alertHook ?? null, push: rec?.push ?? [], passkeys: rec?.passkeys ?? [], telegram: adminChatId ? { chatId: String(adminChatId), userId: String(adminChatId) } : null }; }
@@ -274,7 +276,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
     let ok = false;
     if (pending.chain === "solana") ok = verifySolanaSignature(pending.address, pending.message, signature);
-    else if (pending.chain === "algorand") ok = verifyAlgorandSignature(pending.address, pending.message, signature);
+    else if (pending.chain === "algorand") ok = pending.txn ? verifyAlgorandAuthTxn(pending.address, Buffer.from(pending.txn, "base64"), signature) : verifyAlgorandSignature(pending.address, pending.message, signature);
     else {
       try { ok = await verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; }
       if (!ok && billing.publicClient) { try { ok = await billing.publicClient.verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; } }
@@ -339,9 +341,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // ---------- sign-in with Ethereum (EIP-4361) ----------
     // The domain in the message is the one the visitor actually opened (wallet.fizzl.eu, or the
     // onrender.com address): wallets compare it with the address bar and warn when they differ.
-    async signInMessage(address, origin, chain = "ethereum", chainId = null) {
+    // style "txn" (Algorand, Defly): the message travels as the note of a transaction that is never sent.
+    async signInMessage(address, origin, chain = "ethereum", chainId = null, style = null) {
       if (chain === "solana") return solanaSignInMessage(address, origin);
-      if (chain === "algorand") return algorandSignInMessage(address, origin);
+      if (chain === "algorand") return style === "txn" ? algorandSignInTxn(address, origin) : algorandSignInMessage(address, origin);
       // The network the wallet is on right now: some wallets (Phantom) refuse to sign a sign-in
       // message that names another chain. It changes nothing else; the signature is checked the same.
       const cid = Number.isSafeInteger(Number(chainId)) && Number(chainId) > 0 ? Number(chainId) : 8453;
@@ -1108,12 +1111,31 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     await g.putOnce("siwe", nonce, { address, message, chain: "algorand" }, NONCE_TTL_S);
     return { nonce, message };
   }
+  // Defly: the same sign-in, as the note of a 0 ALGO payment to itself with a fee of 0 (see src/algorand.js).
+  async function algorandSignInTxn(address, origin) {
+    if (!isAlgorandAddress(address)) throw Object.assign(new Error("address must be an Algorand address"), { status: 400 });
+    let params;
+    try {
+      const res = await rpcFetch(`${algoAlgod}/v2/transactions/params`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      params = await res.json();
+    } catch (err) { throw Object.assign(new Error(`Could not reach Algorand (${err.message}). Try again in a moment.`), { status: 502 }); }
+    const round = Number(params["last-round"]);
+    if (!Number.isSafeInteger(round) || round < 1 || typeof params["genesis-hash"] !== "string" || typeof params["genesis-id"] !== "string") throw Object.assign(new Error("Algorand answered something unexpected. Try again in a moment."), { status: 502 });
+    const nonce = rand(12);
+    const issued = new Date(now()).toISOString(), expires = new Date(now() + NONCE_TTL_S * 1000).toISOString();
+    const where = siteFor(origin);
+    const message = `${where.host} wants you to sign in with your Algorand account:\n${address}\n\nSign in to Fizzl Agent Wallet. This is free: the transaction sends 0 ALGO to yourself with a fee of 0, and it is never submitted, so it moves no money.\n\nURI: ${where.origin}\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
+    const txn = algorandAuthTxn({ address, note: message, firstValid: round, lastValid: round + 1000, genesisHash: params["genesis-hash"], genesisId: params["genesis-id"] }).toString("base64");
+    await g.putOnce("siwe", nonce, { address, message, chain: "algorand", wallet: "defly", txn }, NONCE_TTL_S);
+    return { nonce, message, txn };
+  }
   async function algorandSignIn(pending, ref) {
     const id = `algo:${pending.address}`;
     const existing = await g.getAccount(id);
     const fresh = !existing || existing.deletedAt;
     if (fresh) await g.putAccount({ id, chain: "algorand", address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null, ...(ref ? { ref } : {}) });
-    usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? ref : existing.ref, input: { chain: "algorand" } });
+    usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? ref : existing.ref, input: { chain: "algorand", ...(pending.wallet ? { wallet: pending.wallet } : {}) } });
     return id;
   }
   async function solanaSignIn(pending, ref) {
