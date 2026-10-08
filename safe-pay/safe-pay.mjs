@@ -72,10 +72,20 @@ export function payNetwork(env, payOn) {
 }
 
 // The base64 secret key @x402/avm wants (32-byte seed + 32-byte public key), from a 25-word Algorand mnemonic.
+// Wallets copy it in different shapes ("1. word", commas, capitals, one word per line): only the words count.
+// Errors never include a word, since the message ends up in a workflow log.
 export async function algorandKey(mnemonic) {
-  const { seedFromMnemonic } = await import("@algorandfoundation/algokit-utils/algo25");
+  const { seedFromMnemonic, NOT_IN_WORDS_LIST_ERROR_MSG } = await import("@algorandfoundation/algokit-utils/algo25");
   const { createPrivateKey, createPublicKey } = await import("node:crypto");
-  const seed = Buffer.from(seedFromMnemonic(String(mnemonic).trim().split(/\s+/).join(" ")));
+  const words = String(mnemonic).toLowerCase().match(/[a-z]+/g) || [];
+  if (words.length !== 25) throw new Error(`ALGORAND_MNEMONIC has ${words.length} words, an Algorand mnemonic has 25`);
+  let raw;
+  try { raw = seedFromMnemonic(words.join(" ")); } catch (e) {
+    throw new Error(e.message === NOT_IN_WORDS_LIST_ERROR_MSG
+      ? "ALGORAND_MNEMONIC has a word that is not in the Algorand word list (a typo?)"
+      : "ALGORAND_MNEMONIC: the 25 words don't add up (the last one is a checksum); check the order and spelling");
+  }
+  const seed = Buffer.from(raw);
   const priv = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
   const pub = createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32);
   return Buffer.concat([seed, pub]).toString("base64");
@@ -123,8 +133,7 @@ async function payingFetch(network, cap) {
   if (network === ALGORAND) {
     const { ExactAvmScheme } = await import("@x402/avm/exact/client");
     const { toClientAvmSigner } = await import("@x402/avm");
-    let key;
-    try { key = await algorandKey(process.env.ALGORAND_MNEMONIC); } catch { throw new Error("ALGORAND_MNEMONIC must be a 25-word Algorand mnemonic"); }
+    const key = await algorandKey(process.env.ALGORAND_MNEMONIC);
     const signer = toClientAvmSigner(key);
     client.register(ALGORAND, new ExactAvmScheme(signer, { algodUrl: process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud" }));
     return { fetch: wrapFetchWithPayment(fetch, client), payer: signer.address };
