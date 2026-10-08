@@ -55,3 +55,15 @@ test("algorand: the @x402/avm key from a 25-word mnemonic signs as that account"
   assert.match(toClientAvmSigner(key).address, /^[A-Z2-7]{58}$/);
   assert.equal(explorerUrl(ALGORAND, "TX1"), "https://allo.info/tx/TX1");
 });
+
+test("algorand: the mnemonic may be numbered, comma-separated or capitalised; errors never show a word", async () => {
+  const { mnemonicFromSeed } = await import("@algorandfoundation/algokit-utils/algo25");
+  const words = mnemonicFromSeed(new Uint8Array(32).map((_, i) => i + 7)).split(" ");
+  const plain = await algorandKey(words.join(" "));
+  assert.equal(await algorandKey(words.map((w, i) => `${i + 1}. ${w.toUpperCase()}`).join("\n")), plain);
+  assert.equal(await algorandKey(` ${words.join(", ")} `), plain);
+  const noWord = (re) => (e) => re.test(e.message) && !words.some((w) => e.message.toLowerCase().includes(` ${w} `));
+  await assert.rejects(algorandKey(words.slice(0, 24).join(" ")), noWord(/has 24 words/));
+  await assert.rejects(algorandKey(["zzzz", ...words.slice(1)].join(" ")), noWord(/not in the Algorand word list/));
+  await assert.rejects(algorandKey([words[1], words[0], ...words.slice(2)].join(" ")), noWord(/don't add up/));
+});
