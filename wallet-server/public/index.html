@@ -1863,7 +1863,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       out.innerHTML = `${head}<ol class="checks">${r.checks.map((c) => `<li class="${esc(c.status)}"><span class="ic" aria-label="${esc(c.status)}">${icon[c.status]}</span><b>${esc(c.title)}</b><span class="note">${esc(c.detail)}</span>${c.fix ? `<span class="fix">${esc(c.fix)}</span>` : ""}</li>`).join("")}</ol>
         ${needAddr ? `<div class="paste" style="display:flex;gap:8px;flex-wrap:wrap"><input id="setupAddr" placeholder="0x… your agent's wallet address (public)" aria-label="Agent wallet address" style="flex:1;min-width:220px"><button class="button small" type="button" id="setupAddrSave">Save and test again</button></div><p class="note" style="margin:0">Only the address: never paste a private key or recovery phrase anywhere.</p>` : ""}
         ${r.agent?.address ? `<p class="note" style="margin:0">Agent wallet: <code>${esc(r.agent.address)}</code> <button class="link" type="button" id="setupAddrClear">change</button></p>` : ""}
-        ${r.agent?.address ? fundHtml(r.agent, r.checks.find((c) => c.id === "balance")) : ""}`;
+        ${r.agent?.address ? fundHtml(r.agent, r.checks.find((c) => c.id === "balance")) : ""}
+        ${r.agent && r.checks.some((c) => c.id === "contact" && c.status === "fail") ? connectHtml(r.agent.name) : ""}`;
+      if ($("#cSetupCode")) wireConnect(r.agent.name);
     } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="err">${esc(err.message)}</p>`; }
     finally { btn.disabled = false; }
   }
@@ -2289,7 +2291,30 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <p class="note" id="setupWhere" style="margin:0">${esc(SETUP_WHERE.desktop)}</p>
       <pre class="setup-code" id="setupCode">${esc(setupText("desktop", key))}</pre>
       <div class="addform"><button class="button small" id="copySetup" type="button">Copy</button></div>
-      <p class="note" style="margin:0"><b style="color:var(--text)">3.</b> Then ask your agent: <i>"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"</i>. Or run <b>Test my setup</b> on its card first.</p></div>`;
+      <p class="note" style="margin:0"><b style="color:var(--text)">3.</b> Then ask your agent: <i>"What is my wallet status?"</i> That's free, no USDC needed yet. With a few dollars on its wallet: <i>"Get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"</i>. Or run <b>Test my setup</b> on its card first.</p></div>`;
+  }
+  // The agent never reached the wallet: the setup to paste, right under the check. The wallet only keeps a hash of the
+  // agent key, so the key itself is a placeholder here (it was shown once, when the agent was added).
+  const connectKey = (name) => `awk_…the key shown when you added ${name}…`;
+  function connectHtml(name) {
+    return `<div class="setup"><span class="tag">CONNECT ${esc(name.toUpperCase())}</span>
+      <p class="note" style="margin:0">Paste this into your app. Fill in the key you copied when you added ${esc(name)} (it starts with <code>awk_</code>) and your agent wallet's private key. Lost the key? Remove ${esc(name)} and add it again: you get a new one.</p>
+      <div class="setup-tabs" role="tablist">${SETUP_CLIENTS.map(([id, label], i) => `<button type="button" role="tab" class="${i ? "" : "on"}" data-csetup="${id}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
+      <p class="note" id="cSetupWhere" style="margin:0">${esc(SETUP_WHERE.desktop)}</p>
+      <pre class="setup-code" id="cSetupCode">${esc(setupText("desktop", connectKey(name)))}</pre>
+      <div class="addform"><button class="button small" id="cCopySetup" type="button">Copy</button></div>
+      <p class="note" style="margin:0">Then ask your agent: <i>"What is my wallet status?"</i> and click <b>Test my setup</b> again. That's free: no USDC needed to connect, check the wallet or find services.</p></div>`;
+  }
+  function wireConnect(name) {
+    let client = "desktop";
+    for (const b of document.querySelectorAll("[data-csetup]")) b.onclick = () => {
+      client = b.dataset.csetup;
+      for (const o of document.querySelectorAll("[data-csetup]")) { o.classList.toggle("on", o === b); o.setAttribute("aria-selected", String(o === b)); }
+      $("#cSetupWhere").textContent = SETUP_WHERE[client];
+      $("#cSetupCode").textContent = setupText(client, connectKey(name));
+      $("#cCopySetup").textContent = "Copy";
+    };
+    $("#cCopySetup").onclick = () => navigator.clipboard?.writeText(setupText(client, connectKey(name))).then(() => { $("#cCopySetup").textContent = "Copied"; }, () => { getSelection().selectAllChildren($("#cSetupCode")); });
   }
   let madeKey = null; // the wallet made for the newest agent (only in this page, until the card is closed)
   function wireSetup(key, agent) {
