@@ -376,6 +376,11 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .wallets { display: grid; gap: 8px; }
 .wallets .button { width: 100%; justify-content: flex-start; gap: 12px; min-height: 48px; }
 .wallets img, #deviceLogin .button img { width: 24px; height: 24px; border-radius: 6px; }
+/* Sign-ins on other networks (Phantom on Solana, Xaman, Pera, Defly): small tiles side by side instead of a long column. */
+.wallets .nets-label { color: var(--dim); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+.wallets .netgrid { display: grid; gap: 8px; }
+.wallets .netgrid .button { flex-direction: column; justify-content: center; gap: 5px; min-height: 64px; padding: 8px 6px; border-radius: 14px; letter-spacing: 1px; }
+.wallets .netgrid .button small { font: 500 10px/1 var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); }
 .login .or { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
 .login .or::before, .login .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
@@ -432,6 +437,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .compare .note a { text-decoration: underline; }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
 .err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
+.login .err:empty { display: none; } /* no empty error lines taking room on the sign-in card */
 .demo-banner { border-bottom: 1px solid var(--line); background: rgba(97,245,195,.08); color: var(--mint); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding-block: 10px; }
 .demo-banner a { text-decoration: underline; }
 .footbuy { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; text-transform: none; letter-spacing: 0; }
@@ -470,7 +476,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <span class="tag">Fizzl Agent Wallet</span>
       <h3>Spending limits and phone approvals for your AI agents</h3>
       <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
-      <div id="passkeyLogin" hidden style="display:grid;gap:8px;margin-bottom:14px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
+      <div id="passkeyLogin" hidden style="display:grid;gap:8px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
       <div id="walletLogin">
         <div class="wallets" id="walletList"></div>
@@ -489,7 +495,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
             <a href="https://trustwallet.com/download" target="_blank" rel="noopener noreferrer"><img src="/icons/trust.svg" alt="">Trust Wallet</a>
           </div><p class="note" style="margin:6px 0 0">Install one, reload this page, and it shows up above. Use a separate wallet for your agents, never your savings.</p></div>
         </div>
-        <p class="note" style="margin:10px 0 0">Sign in with your wallet (MetaMask, Phantom on Ethereum or Solana, Coinbase Wallet, Rabby, …): one free signature, no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month in USDC on Base or Solana.</p>
+        <p class="note" style="margin:10px 0 0">One free signature: no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month.</p>
       </div>
       <div class="err" id="walletErr"></div>
       <div id="emailLogin" hidden style="display:grid;gap:10px">
@@ -1150,22 +1156,28 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const walletLogo = (name) => { const n = String(name || "").toLowerCase(); const id = n.includes("metamask") ? "metamask" : n.includes("phantom") ? "phantom" : n.includes("coinbase") ? "coinbase" : n.includes("trust") ? "trust" : n.includes("rabby") ? "rabby" : n.includes("okx") ? "okx" : null; return id ? `/icons/${id}.svg` : null; };
   function renderWallets() {
     const list = allWallets();
-    const sol = (solanaOn && solProvider() ? `<button class="button primary" type="button" data-solana="1"><img src="/icons/phantom.svg" alt="">Connect Phantom (Solana)</button>` : "")
-      // Xaman (XRP Ledger): a page on Xaman's site asks the app (QR code on a computer, the app itself on a phone).
-      + (xamanOn ? `<a class="button primary" href="/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}"><img src="/icons/xaman.svg" alt="">Sign in with Xaman (XRP Ledger)</a>` : "")
-      // Pera (Algorand): a QR code for the Pera app on a computer, the app itself on a phone.
-      + (algorandOn ? `<button class="button primary" type="button" data-pera="1"><img src="/icons/pera.svg" alt="">Sign in with Pera (Algorand)</button>` : "")
-      // Defly (Algorand): the same, through Defly Connect.
-      + (algorandOn ? `<button class="button primary" type="button" data-defly="1"><img src="/icons/defly.svg" alt="">Sign in with Defly (Algorand)</button>` : "");
+    // Other networks as compact tiles: Phantom (Solana); Xaman (XRP Ledger: a page on Xaman's site asks the app);
+    // Pera and Defly (Algorand: a QR code for the app on a computer, the app itself on a phone).
+    const tile = (attrs, icon, name, net, href) => href
+      ? `<a class="button" href="${href}" title="Sign in with ${name} (${net})"><img src="/icons/${icon}.svg" alt="">${name}<small>${net}</small></a>`
+      : `<button class="button" type="button" ${attrs} title="Sign in with ${name} (${net})"><img src="/icons/${icon}.svg" alt="">${name}<small>${net}</small></button>`;
+    const tiles = [
+      solanaOn && solProvider() ? tile('data-solana="1"', "phantom", "Phantom", "Solana") : "",
+      xamanOn ? tile("", "xaman", "Xaman", "XRP Ledger", `/api/signin/xaman${signupRef() ? `?ref=${encodeURIComponent(signupRef())}` : ""}`) : "",
+      algorandOn ? tile('data-pera="1"', "pera", "Pera", "Algorand") : "",
+      algorandOn ? tile('data-defly="1"', "defly", "Defly", "Algorand") : "",
+    ].filter(Boolean);
+    const cols = tiles.length === 4 ? 2 : Math.min(tiles.length, 3);
+    const sol = tiles.length ? `<div class="nets-label">Other networks</div><div class="netgrid" style="grid-template-columns:repeat(${cols},1fr)">${tiles.join("")}</div>` : "";
     // On a phone's normal browser there is no wallet: open this page inside the MetaMask or Phantom app,
     // where it is built in. (More apps under "Other wallets".)
     const apps = isPhone && !list.length && !solProvider()
       ? `<a class="button primary" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}"><img src="/icons/metamask.svg" alt="">Open in the MetaMask app</a><a class="button primary" href="https://phantom.app/ul/browse/${encodeURIComponent(location.href)}?ref=${encodeURIComponent(location.origin)}"><img src="/icons/phantom.svg" alt="">Open in the Phantom app</a>`
       : "";
-    $("#walletList").innerHTML = sol + apps + (list.length
+    $("#walletList").innerHTML = apps + (list.length
       ? list.map((w) => `<button class="button primary" type="button" data-wallet="${esc(w.info.rdns)}">${safeIcon(w.info.icon) ? `<img src="${esc(w.info.icon)}" alt="">` : walletLogo(w.info.name) ? `<img src="${walletLogo(w.info.name)}" alt="">` : ""}Connect ${esc(w.info.name)}</button>`).join("")
       : apps ? `<p class="note" style="margin:0">Your wallet app has its own browser: these buttons open this page there, so you can sign in. Another app? See "Other wallets".</p>`
-      : `<p class="note" style="margin:0">No wallet found in this browser. Install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app's browser.</p>`);
+      : `<p class="note" style="margin:0">No Ethereum wallet in this browser: install <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">MetaMask</a> or <a href="https://phantom.com/download" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Phantom</a>, or open this page in your wallet app.</p>`) + sol;
   }
   // "Other wallets": open this page inside a wallet app's own browser (where the wallet is built in),
   // a QR code to get there from a computer, and where to get a wallet. No third-party scripts.
