@@ -6,6 +6,12 @@ export declare const DIAGNOSE_CAP: string;
 export declare const VERSION: string;
 export declare const BASE: "eip155:8453";
 export declare const SOLANA: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+export declare const ALGORAND: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
+export declare const ALGORAND_TESTNET: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=";
+export declare const XRPL: "xrpl:0";
+export declare const XRPL_TESTNET: "xrpl:1";
+/** The option paid on `network`: on Algorand only USDC, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
+export declare function payableOption<A extends { network: string; asset?: unknown; amount?: unknown; extra?: Record<string, unknown> }>(accepts: A[], network: string, maxUsd: number | string): A | null;
 
 /** The x402 Doctor preflight: see https://x402-doctor.fizzl.eu/openapi.json */
 export interface Preflight {
@@ -34,7 +40,7 @@ export declare class SafePayError extends Error {
 export interface SafeFetchOptions {
   /** Registers your payment schemes, e.g. (c) => c.register("eip155:8453", new ExactEvmScheme(account)). */
   register: (client: x402Client) => unknown;
-  /** The network you pay on: "base", "solana" or a CAIP-2 id. Default Base. */
+  /** The network you pay on: "base", "solana", "algorand" (USDC), "xrpl" (RLUSD), their "-testnet" forms, or a CAIP-2 id. Default Base. */
   network?: string;
   /** Budget per endpoint call in USD. Default 0.05. */
   maxUsd?: number | string;

@@ -336,7 +336,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.5\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.6\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -352,4 +352,32 @@ test("shareOutcomes: a payment answered with 402 again is paid_failed, a 500 is 
   await make(error, { shareOutcomes: true })(PAID);
   await tick();
   assert.equal(error.log.reports[0].body.outcome, "paid_error");
+});
+
+test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD within the budget in dollars", async () => {
+  const { payableOption, ALGORAND, XRPL } = await import("../index.js");
+  const RLUSD = "524C555344000000000000000000000000000000";
+  const ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
+  const algo = [
+    { scheme: "exact", network: ALGORAND, asset: "123", amount: "1000" },
+    { scheme: "exact", network: ALGORAND, asset: "31566704", amount: "1000" },
+  ];
+  assert.equal(payableOption(algo, ALGORAND, 0.05).asset, "31566704", "USDC, not another ASA");
+  assert.equal(payableOption([algo[0]], ALGORAND, 0.05), null);
+  const xrpl = (amount, extra = { issuer: ISSUER }, asset = RLUSD) => ({ scheme: "exact", network: XRPL, asset, amount, extra });
+  assert.ok(payableOption([xrpl("0.001")], XRPL, "$0.002"));
+  assert.equal(payableOption([xrpl("2")], XRPL, 0.05), null, '"2" is two dollars, over a $0.05 budget');
+  assert.equal(payableOption([xrpl("0.01", { issuer: "rFakeIssuer" })], XRPL, 0.05), null, "an RLUSD look-alike");
+  assert.equal(payableOption([xrpl("1000", {}, "XRP")], XRPL, 0.05), null, "never XRP");
+  assert.equal(payableOption([xrpl("0.02")], XRPL, 0.05).amount, "0.02");
+  // Base and Solana keep the first option on the network (x402's spend controls cap USDC there).
+  assert.equal(payableOption([{ network: "eip155:8453", asset: "0xA" }], "eip155:8453", 0.05).asset, "0xA");
+});
+
+test("network aliases: 'algorand' and 'xrpl' become their CAIP-2 ids in the preflight", async () => {
+  for (const [alias, id] of [["algorand", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], ["xrpl", "xrpl:0"], ["xrpl-testnet", "xrpl:1"]]) {
+    const w = world();
+    await make(w, { network: alias })(PAID);
+    assert.equal(w.log.preflights[0].url.searchParams.get("network"), id);
+  }
 });

@@ -10,7 +10,7 @@ A free endpoint is answered as is. For a paid one (HTTP 402), your agent first p
 | `caution` | `onCaution`: `"stop"` (default, throws), `"pay"`, or your own function (e.g. ask the user) |
 | `no_go` | Throws `SafePayError`; the endpoint is not paid |
 
-The preflight reads the endpoint's 402 challenge and checks, among others, the price against your budget and against what the service advertises, whether the option is payable on your network (USDC, a valid payout address, a Solana payout account that exists), HTTPS, and whether the endpoint is listed in the CDP Bazaar. A verdict is reused for 10 minutes; hosts you already trust skip it.
+The preflight reads the endpoint's 402 challenge and checks, among others, the price against your budget and against what the service advertises, whether the option is payable on your network (USDC, a valid payout address, a Solana payout account that exists, an Algorand payout opted in to USDC), HTTPS, and whether the endpoint is listed in the CDP Bazaar. A verdict is reused for 10 minutes; hosts you already trust skip it.
 
 ## Install
 
@@ -45,12 +45,26 @@ try {
 
 Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` from `@x402/svm/exact/client` with a `@solana/kit` signer.
 
+Algorand and the XRP Ledger work the same way, and only their dollar stablecoin is ever paid. On Algorand that is USDC (ASA 31566704), never ALGO or another ASA. On the XRP Ledger it is RLUSD from Ripple's issuer, never XRP or a look-alike token. RLUSD prices are decimal dollars, so the budget is checked in dollars. The Doctor preflight is paid on the same network.
+
+```js
+import { toClientAvmSigner } from "@x402/avm";
+import { ExactAvmScheme } from "@x402/avm/exact/client";
+
+const safeFetch = createSafeFetch({
+  network: "algorand", // your account must be opted in to USDC
+  register: (client) => client.register("algorand:*", new ExactAvmScheme(toClientAvmSigner(process.env.AVM_PRIVATE_KEY))),
+});
+// XRP Ledger: network: "xrpl" and an ExactXrplScheme from @x402/xrpl/exact/client
+// (createXrplWalletSigner(Wallet.fromSeed(process.env.XRPL_SEED))); needs an RLUSD trust line.
+```
+
 ## Options
 
 | Option | Default | |
 |---|---|---|
 | `register` | required | `(client) => client.register(network, scheme)`: your payment schemes; your keys stay in your code |
-| `network` | `"base"` | `"base"`, `"solana"` or a CAIP-2 id; the preflight checks the option on this network |
+| `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
 | `maxUsd` | `0.05` | Budget per endpoint call; the payment is capped at it and the preflight says `no_go` above it |
 | `onCaution` | `"stop"` | `"stop"`, `"pay"` or `async (preflight) => boolean` |
 | `trusted` | `[]` | Hosts paid without a preflight |
