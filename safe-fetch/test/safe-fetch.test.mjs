@@ -90,7 +90,7 @@ test("caution: stops by default; pays with onCaution 'pay'; asks a function othe
   assert.equal(yes.log.paid.length, 1);
 });
 
-test("a verdict is reused for 10 minutes per method and URL, then asked again", async () => {
+test("a verdict is reused per method and URL while the offer stays the same (an hour), then asked again", async () => {
   const w = world();
   let t = 0;
   const safeFetch = make(w, { now: () => t });
@@ -99,10 +99,50 @@ test("a verdict is reused for 10 minutes per method and URL, then asked again", 
   assert.equal(w.log.preflights.length, 1);
   await safeFetch(PAID, { method: "POST", body: "{}" });
   assert.equal(w.log.preflights.length, 2, "another method is another check");
-  t = 10 * 60 * 1000 + 1;
+  t = 59 * 60 * 1000;
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 2, "same offer: still reused");
+  t = 60 * 60 * 1000 + 1;
   await safeFetch(PAID);
   assert.equal(w.log.preflights.length, 3);
-  assert.equal(w.log.paid.length, 4);
+  assert.equal(w.log.paid.length, 5);
+});
+
+test("a changed offer (price, payout address, token, network) is checked again at once; a new invoice id is not a change", async () => {
+  const offer = { scheme: "exact", network: BASE, asset: "0xUSDC", amount: "20000", payTo: "0xSeller", extra: { invoiceId: "a" } };
+  let current = offer;
+  const w = world();
+  w.baseFetch = async (url) => {
+    const challenge = { x402Version: 2, accepts: [current] };
+    return new Response("{}", { status: 402, headers: { "payment-required": Buffer.from(JSON.stringify(challenge)).toString("base64") } });
+  };
+  let t = 0;
+  const safeFetch = make(w, { now: () => t });
+  await safeFetch(PAID);
+  current = { ...offer, extra: { invoiceId: "b" } };
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 1, "a per-request invoice id doesn't count");
+  for (const change of [{ payTo: "0xAttacker" }, { amount: "900000" }, { asset: "0xOther" }, { network: "solana:x" }]) {
+    t += 1000;
+    const n = w.log.preflights.length;
+    current = { ...offer, ...change };
+    await safeFetch(PAID);
+    assert.equal(w.log.preflights.length, n + 1, JSON.stringify(change));
+  }
+});
+
+test("without a readable x402 offer, a verdict is reused for at most 10 minutes", async () => {
+  const w = world();
+  w.baseFetch = async () => new Response("not json", { status: 402 });
+  let t = 0;
+  const safeFetch = make(w, { now: () => t });
+  await safeFetch(PAID);
+  t = 9 * 60 * 1000;
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 1);
+  t = 10 * 60 * 1000 + 1;
+  await safeFetch(PAID);
+  assert.equal(w.log.preflights.length, 2);
 });
 
 test("trusted hosts are paid without a preflight", async () => {
@@ -336,7 +376,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.5\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.6\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -352,4 +392,32 @@ test("shareOutcomes: a payment answered with 402 again is paid_failed, a 500 is 
   await make(error, { shareOutcomes: true })(PAID);
   await tick();
   assert.equal(error.log.reports[0].body.outcome, "paid_error");
+});
+
+test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD within the budget in dollars", async () => {
+  const { payableOption, ALGORAND, XRPL } = await import("../index.js");
+  const RLUSD = "524C555344000000000000000000000000000000";
+  const ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
+  const algo = [
+    { scheme: "exact", network: ALGORAND, asset: "123", amount: "1000" },
+    { scheme: "exact", network: ALGORAND, asset: "31566704", amount: "1000" },
+  ];
+  assert.equal(payableOption(algo, ALGORAND, 0.05).asset, "31566704", "USDC, not another ASA");
+  assert.equal(payableOption([algo[0]], ALGORAND, 0.05), null);
+  const xrpl = (amount, extra = { issuer: ISSUER }, asset = RLUSD) => ({ scheme: "exact", network: XRPL, asset, amount, extra });
+  assert.ok(payableOption([xrpl("0.001")], XRPL, "$0.002"));
+  assert.equal(payableOption([xrpl("2")], XRPL, 0.05), null, '"2" is two dollars, over a $0.05 budget');
+  assert.equal(payableOption([xrpl("0.01", { issuer: "rFakeIssuer" })], XRPL, 0.05), null, "an RLUSD look-alike");
+  assert.equal(payableOption([xrpl("1000", {}, "XRP")], XRPL, 0.05), null, "never XRP");
+  assert.equal(payableOption([xrpl("0.02")], XRPL, 0.05).amount, "0.02");
+  // Base and Solana keep the first option on the network (x402's spend controls cap USDC there).
+  assert.equal(payableOption([{ network: "eip155:8453", asset: "0xA" }], "eip155:8453", 0.05).asset, "0xA");
+});
+
+test("network aliases: 'algorand' and 'xrpl' become their CAIP-2 ids in the preflight", async () => {
+  for (const [alias, id] of [["algorand", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], ["xrpl", "xrpl:0"], ["xrpl-testnet", "xrpl:1"]]) {
+    const w = world();
+    await make(w, { network: alias })(PAID);
+    assert.equal(w.log.preflights[0].url.searchParams.get("network"), id);
+  }
 });
