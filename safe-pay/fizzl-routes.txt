@@ -1,0 +1,19 @@
+# Every paid route of the Fizzl services, for one run of "Safe pay (paid)" with all_fizzl_routes: each is paid once,
+# which also lists it in the paying facilitator's discovery list (on Algorand: GoPlausible's). One per line:
+# METHOD URL [JSON body]. About $1.06 in all, paid to Fizzl's own payout addresses.
+GET https://x402-doctor.fizzl.eu/api/v1/diagnose?url=https://ichimoku-signal.fizzl.eu/signal/BTC-USDT
+GET https://x402-doctor.fizzl.eu/api/v1/preflight?url=https://ichimoku-signal.fizzl.eu/signal/BTC-USDT
+GET https://x402-doctor.fizzl.eu/api/v1/preflight/batch?url=https://ichimoku-signal.fizzl.eu/signal/BTC-USDT&url=https://presign-guard.fizzl.eu/v1/token
+GET https://x402-doctor.fizzl.eu/api/v1/preflight/deep?url=https://ichimoku-signal.fizzl.eu/signal/BTC-USDT
+GET https://x402-doctor.fizzl.eu/api/v1/fix?url=https://ichimoku-signal.fizzl.eu/signal/BTC-USDT
+POST https://presign-guard.fizzl.eu/v1/check {"type":"approval","chainId":8453,"token":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","spender":"0x000000000022D473030F116dDEE9F6B43aC78BA3","amount":"1000000"}
+POST https://presign-guard.fizzl.eu/v1/check/explain {"type":"approval","chainId":8453,"token":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","spender":"0x000000000022D473030F116dDEE9F6B43aC78BA3","amount":"1000000"}
+GET https://presign-guard.fizzl.eu/v1/token?chain=base&address=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+GET https://presign-guard.fizzl.eu/v1/approvals?chain=base&address=0x6B0F4651eD42893ab58139938175E4a69f175F25
+GET https://ichimoku-signal.fizzl.eu/signal/BTC-USDT
+GET https://ichimoku-signal.fizzl.eu/signals/BTC-USDT
+GET https://ichimoku-signal.fizzl.eu/levels/BTC-USDT
+GET https://ichimoku-signal.fizzl.eu/scan
+GET https://ichimoku-signal.fizzl.eu/setups
+POST https://plaintext.fizzl.eu/api/check-wallet {"address":"0x6B0F4651eD42893ab58139938175E4a69f175F25","chain":"base"}
+POST https://plaintext.fizzl.eu/api/explain {"data":{"function":"approve","token":"USDC","spender":"0x000000000022D473030F116dDEE9F6B43aC78BA3","spender_verified":true,"approved_amount":"1"}}

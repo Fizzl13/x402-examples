@@ -1,7 +1,7 @@
 // Run: npm test (no network, nothing paid)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decide, preflightUrl, usdCap, payNetwork, evmKey, seedBytes, explorerUrl, SOLANA, BASE } from "./safe-pay.mjs";
+import { decide, preflightUrl, usdCap, payNetwork, evmKey, seedBytes, explorerUrl, algorandKey, SOLANA, BASE, ALGORAND } from "./safe-pay.mjs";
 
 test("the agent acts on the preflight: pay, ask or stop", () => {
   assert.equal(decide({ verdict: "go", summary: "OK to pay: $0.02 on Base." }).action, "pay");
@@ -34,10 +34,24 @@ test("payment network and keys", () => {
   assert.equal(payNetwork({ EVM_PRIVATE_KEY: "x" }, "solana"), SOLANA);
   assert.equal(payNetwork({ SOLANA_SEED: "y" }), SOLANA);
   assert.equal(payNetwork({}), null);
-  assert.throws(() => payNetwork({}, "tron"), /base or solana/);
+  assert.throws(() => payNetwork({}, "tron"), /base, solana or algorand/);
+  assert.equal(payNetwork({ ALGORAND_MNEMONIC: "w" }), ALGORAND);
+  assert.equal(payNetwork({ EVM_PRIVATE_KEY: "x" }, "algorand"), ALGORAND);
   assert.equal(evmKey(` ${"ab".repeat(32)}\n`), `0x${"ab".repeat(32)}`);
   assert.equal(seedBytes("a long random password of at least thirty-two chars").length, 32);
   assert.throws(() => seedBytes("short"), /32 characters/);
   assert.equal(explorerUrl(SOLANA, "t"), "https://solscan.io/tx/t");
   assert.equal(explorerUrl(BASE, null), null);
+});
+
+test("algorand: the @x402/avm key from a 25-word mnemonic signs as that account", async () => {
+  const { mnemonicFromSeed } = await import("@algorandfoundation/algokit-utils/algo25");
+  const { toClientAvmSigner } = await import("@x402/avm");
+  const seed = new Uint8Array(32).map((_, i) => i + 1);
+  const key = await algorandKey(mnemonicFromSeed(seed));
+  const bytes = Buffer.from(key, "base64");
+  assert.equal(bytes.length, 64);
+  assert.deepEqual([...bytes.subarray(0, 32)], [...seed]);
+  assert.match(toClientAvmSigner(key).address, /^[A-Z2-7]{58}$/);
+  assert.equal(explorerUrl(ALGORAND, "TX1"), "https://allo.info/tx/TX1");
 });

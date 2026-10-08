@@ -9,10 +9,12 @@
 // the option is payable on your network (USDC, a valid payout address, a Solana
 // payout account that exists), HTTPS, and whether it is listed in the CDP Bazaar.
 //
-// Pays with x402 in USDC, on Base or Solana (the same keys as token-check):
+// Pays with x402 in USDC, on Base, Solana or Algorand (the same keys as token-check):
 //   EVM_PRIVATE_KEY     0x-prefixed or bare hex private key (MetaMask exports it bare)
 //   SOLANA_PRIVATE_KEY  base58 secret key, or a JSON byte array
 //   SOLANA_SEED         or: a long random password the Solana wallet is derived from
+//   ALGORAND_MNEMONIC   the 25-word mnemonic of an Algorand account that has opted in to USDC (ASA 31566704);
+//                       the seller's facilitator pays the network fee, so it needs no ALGO beyond the minimum balance
 //
 // Usage (in this folder, after npm install):
 //   node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --dry-run   # prices only, pays nothing
@@ -28,6 +30,7 @@ import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@
 
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export const BASE = "eip155:8453";
+export const ALGORAND = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
 const DOCTOR = (process.env.DOCTOR_URL || "https://x402-doctor.fizzl.eu").replace(/\/$/, "");
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never pay more than twice that
 
@@ -57,11 +60,25 @@ export function usdCap(maxUsd) {
 
 // Which network pays: --pay-on wins, else Base when its key is set, else Solana.
 export function payNetwork(env, payOn) {
-  if (payOn === "solana" || payOn === "base") return payOn === "solana" ? SOLANA : BASE;
-  if (payOn) throw new Error("--pay-on must be base or solana");
+  const byName = { base: BASE, solana: SOLANA, algorand: ALGORAND };
+  if (payOn) {
+    if (!byName[payOn]) throw new Error("--pay-on must be base, solana or algorand");
+    return byName[payOn];
+  }
   if (env.EVM_PRIVATE_KEY) return BASE;
   if (env.SOLANA_PRIVATE_KEY || env.SOLANA_SEED) return SOLANA;
+  if (env.ALGORAND_MNEMONIC) return ALGORAND;
   return null;
+}
+
+// The base64 secret key @x402/avm wants (32-byte seed + 32-byte public key), from a 25-word Algorand mnemonic.
+export async function algorandKey(mnemonic) {
+  const { seedFromMnemonic } = await import("@algorandfoundation/algokit-utils/algo25");
+  const { createPrivateKey, createPublicKey } = await import("node:crypto");
+  const seed = Buffer.from(seedFromMnemonic(String(mnemonic).trim().split(/\s+/).join(" ")));
+  const priv = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
+  const pub = createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32);
+  return Buffer.concat([seed, pub]).toString("base64");
 }
 
 export function evmKey(key) {
@@ -86,6 +103,7 @@ async function solanaSigner(env) {
 
 export function explorerUrl(network, tx) {
   if (!tx) return null;
+  if (network === ALGORAND) return `https://allo.info/tx/${tx}`;
   return network === SOLANA ? `https://solscan.io/tx/${tx}` : `https://basescan.org/tx/${tx}`;
 }
 
@@ -100,6 +118,15 @@ async function payingFetch(network, cap) {
     const { ExactSvmScheme } = await import("@x402/svm/exact/client");
     const signer = await solanaSigner(process.env);
     client.register(SOLANA, new ExactSvmScheme(signer, process.env.SOLANA_RPC_URL ? { rpcUrl: process.env.SOLANA_RPC_URL } : undefined));
+    return { fetch: wrapFetchWithPayment(fetch, client), payer: signer.address };
+  }
+  if (network === ALGORAND) {
+    const { ExactAvmScheme } = await import("@x402/avm/exact/client");
+    const { toClientAvmSigner } = await import("@x402/avm");
+    let key;
+    try { key = await algorandKey(process.env.ALGORAND_MNEMONIC); } catch { throw new Error("ALGORAND_MNEMONIC must be a 25-word Algorand mnemonic"); }
+    const signer = toClientAvmSigner(key);
+    client.register(ALGORAND, new ExactAvmScheme(signer, { algodUrl: process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud" }));
     return { fetch: wrapFetchWithPayment(fetch, client), payer: signer.address };
   }
   const { privateKeyToAccount } = await import("viem/accounts");
@@ -129,7 +156,7 @@ async function main() {
   const valued = new Set(["--method", "--body", "--max-usd", "--pay-on"]);
   const target = args.find((a, i) => !a.startsWith("--") && !valued.has(args[i - 1]));
   if (!target || !/^https:\/\//.test(target)) {
-    console.error("usage: node safe-pay.mjs <https URL of an x402 endpoint> [--method GET|POST] [--body JSON] [--max-usd 0.05] [--pay-on base|solana] [--accept-caution] [--dry-run] [--json]");
+    console.error("usage: node safe-pay.mjs <https URL of an x402 endpoint> [--method GET|POST] [--body JSON] [--max-usd 0.05] [--pay-on base|solana|algorand] [--accept-caution] [--dry-run] [--json]");
     process.exit(2);
   }
   const method = (flag("--method") || "GET").toUpperCase();

@@ -1,7 +1,10 @@
 # A real, paid safe-pay run, started by hand only: $0.001 for the x402 Doctor
 # preflight, then the endpoint itself only when Doctor says go, within max_usd.
-# Pays on Base with EVM_PRIVATE_KEY or on Solana with SOLANA_SEED /
-# SOLANA_PRIVATE_KEY: dedicated wallets with a few cents of USDC.
+# Pays on Base with EVM_PRIVATE_KEY, on Solana with SOLANA_SEED /
+# SOLANA_PRIVATE_KEY, or on Algorand with ALGORAND_MNEMONIC (an account opted in to
+# USDC): dedicated wallets with a few cents of USDC. all_fizzl_routes pays every
+# route in safe-pay/fizzl-routes.txt once (about $1.06, to Fizzl's own addresses),
+# which lists them in the facilitator's discovery list (on Algorand: GoPlausible).
 name: Safe pay (paid)
 
 on:
@@ -27,7 +30,7 @@ on:
       pay_on:
         description: "Network to pay on"
         type: choice
-        options: [base, solana]
+        options: [base, solana, algorand]
         default: base
       accept_caution:
         description: "Pay on a caution verdict too"
@@ -35,6 +38,10 @@ on:
         default: false
       json:
         description: "Print the full result as JSON (the whole endpoint response)"
+        type: boolean
+        default: false
+      all_fizzl_routes:
+        description: "Pay every Fizzl route in safe-pay/fizzl-routes.txt once instead of url (about $1.06)"
         type: boolean
         default: false
 
@@ -62,10 +69,30 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Prices (nothing paid)
+        if: ${{ !inputs.all_fizzl_routes }}
         run: node safe-pay.mjs "$TARGET" --method "$METHOD" ${BODY:+--body "$BODY"} --max-usd "$MAX_USD" --dry-run
       - name: Paid run
+        if: ${{ !inputs.all_fizzl_routes }}
         env:
           EVM_PRIVATE_KEY: ${{ inputs.pay_on == 'base' && secrets.EVM_PRIVATE_KEY || '' }}
           SOLANA_SEED: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_SEED || '' }}
           SOLANA_PRIVATE_KEY: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_PRIVATE_KEY || '' }}
+          ALGORAND_MNEMONIC: ${{ inputs.pay_on == 'algorand' && secrets.ALGORAND_MNEMONIC || '' }}
         run: node safe-pay.mjs "$TARGET" --method "$METHOD" ${BODY:+--body "$BODY"} --max-usd "$MAX_USD" --pay-on "$PAY_ON" $ACCEPT_CAUTION $JSON
+      - name: Paid run, every Fizzl route once
+        if: ${{ inputs.all_fizzl_routes }}
+        env:
+          EVM_PRIVATE_KEY: ${{ inputs.pay_on == 'base' && secrets.EVM_PRIVATE_KEY || '' }}
+          SOLANA_SEED: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_SEED || '' }}
+          SOLANA_PRIVATE_KEY: ${{ inputs.pay_on == 'solana' && secrets.SOLANA_PRIVATE_KEY || '' }}
+          ALGORAND_MNEMONIC: ${{ inputs.pay_on == 'algorand' && secrets.ALGORAND_MNEMONIC || '' }}
+        run: |
+          failed=0
+          while read -r method url body; do
+            case "$method" in ""|\#*) continue ;; esac
+            echo "::group::$method $url"
+            node safe-pay.mjs "$url" --method "$method" ${body:+--body "$body"} --max-usd 0.6 --pay-on "$PAY_ON" --accept-caution || failed=$((failed+1))
+            echo "::endgroup::"
+          done < fizzl-routes.txt
+          echo "$failed route(s) failed"
+          [ "$failed" = 0 ]
