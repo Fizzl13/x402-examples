@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@algorandfoundation/algokit-utils": "^10.0.0-alpha.46",
+    "@algorandfoundation/xhd-wallet-api": "2.0.0-canary.1",
+    "@scure/bip39": "^1.6.0",
     "@solana/kit": "^5.5.1",
     "@x402/avm": "^2.28.0",
     "@x402/evm": "^2.27.0",
