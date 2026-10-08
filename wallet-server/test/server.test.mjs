@@ -40,14 +40,18 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
-  const rpcFetch = async (_url, init) => { const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) }); };
+  const rpcFetch = async (url, init) => {
+    // The Algorand indexer (GET, REST): indexer(url) gives the JSON, or null for a 404.
+    if (indexer && String(url).startsWith("https://idx.test")) { const j = await indexer(String(url)); return j === null ? new Response("{}", { status: 404 }) : Response.json(j); }
+    const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) });
+  };
   const accounts = createAccounts({
     store, telegram, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
-    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}), ...(xrpl ? { xrpl } : {}) },
+    billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}), ...(xrpl ? { xrpl } : {}), ...(algorand ? { algorand } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
     ...(usage ? { usage } : {}),
     ...(endpointMonitor ? { endpointMonitor } : {}),
@@ -2154,6 +2158,60 @@ test("sign in with Pera: an Algorand account from a signed message; another key,
     assert.deepEqual([me.chain, me.signedInWith, me.address, me.plan, me.billing, me.auto], ["algorand", "pera", alice.address, "free", null, null]);
     // Pro isn't paid on Algorand yet: a claim says how to pay instead.
     const claim = await post("/api/billing/claim", { txHash: "X".repeat(52) }, cookie);
-    assert.ok([400, 404].includes(claim.status));
+    assert.ok([400, 404, 503].includes(claim.status), String(claim.status));
+  } finally { server.close(); }
+});
+
+test("Pro in USDC on Algorand: found from the Pera account, checked (asset, receiver, sender, amount, age), used once", async () => {
+  const { generateKeyPairSync, createHash, sign: edSign } = nodeCrypto;
+  const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const b32 = (buf) => { let bits = 0, v = 0, out = ""; for (const b of buf) { v = (v << 8) | b; bits += 8; while (bits >= 5) { out += B32[(v >>> (bits - 5)) & 31]; bits -= 5; } } if (bits) out += B32[(v << (5 - bits)) & 31]; return out; };
+  const algoKey = () => { const { publicKey, privateKey } = generateKeyPairSync("ed25519"); const pub = publicKey.export({ format: "der", type: "spki" }).subarray(-32); return { privateKey, address: b32(Buffer.concat([pub, createHash("sha512-256").update(pub).digest().subarray(28)])) }; };
+  const alice = algoKey(), owner = algoKey(), other = algoKey();
+  const txid = (n) => b32(createHash("sha256").update(String(n)).digest()).slice(0, 52);
+  const nowS = Math.floor(Date.now() / 1000);
+  const axfer = (n, { from = alice.address, to = owner.address, amount = 5_000_000, asset = 31566704, age = 60, type = "axfer", confirmed = true } = {}) => ({ id: txid(n), sender: from, "tx-type": type, ...(confirmed ? { "confirmed-round": 1000 + n } : {}), "round-time": nowS - age, ...(type === "axfer" ? { "asset-transfer-transaction": { amount, "asset-id": asset, receiver: to, "close-amount": 0 } } : {}) });
+  let incoming = [];
+  const byId = new Map();
+  const indexer = async (url) => {
+    const m = /\/v2\/transactions\/([A-Z2-7]{52})$/.exec(url);
+    if (m) return byId.has(m[1]) ? { transaction: byId.get(m[1]) } : null;
+    if (url.includes(`/v2/accounts/${owner.address}/transactions`)) { assert.match(url, /asset-id=31566704/); return { transactions: incoming }; }
+    return null;
+  };
+  const { base, server } = await boot({ algorand: { payTo: owner.address, indexerUrl: "https://idx.test" }, indexer });
+  const post = (path, body, cookie) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+  try {
+    const m = await (await post("/api/signin/message", { address: alice.address, chain: "algorand" })).json();
+    const sig = edSign(null, Buffer.concat([Buffer.from("MX"), Buffer.from(m.message)]), alice.privateKey).toString("base64");
+    const cookie = (await post("/api/signin", { nonce: m.nonce, signature: sig })).headers.get("set-cookie").split(";")[0];
+    const me0 = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json();
+    assert.deepEqual({ payTo: me0.algoPay.payTo, asset: me0.algoPay.asset, price: me0.algoPay.priceUsdc }, { payTo: owner.address, asset: 31566704, price: 5 });
+    const claim = async (body) => { const r = await post("/api/billing/claim", body, cookie); return { status: r.status, body: await r.json().catch(() => null) }; };
+
+    // Nothing paid yet: "not found yet" (409, the dashboard keeps looking).
+    const none = await claim({ chainId: "algorand" });
+    assert.equal(none.status, 409, JSON.stringify(none.body));
+    // Only someone else's payment, an app call, another asset, too little, too old: none counts.
+    incoming = [axfer(1, { from: other.address }), axfer(2, { type: "appl" }), axfer(3, { asset: 1 }), axfer(4, { amount: 1_000_000 }), axfer(5, { age: 8 * 86400 })];
+    const refused = await claim({ chainId: "algorand" });
+    assert.equal(refused.status, 400);
+    // A pasted id of someone else's payment, or of a payment to someone else.
+    for (const tx of [axfer(6, { from: other.address }), axfer(7, { to: other.address })]) byId.set(tx.id, tx);
+    assert.match((await claim({ chainId: "algorand", txHash: txid(6) })).body.message, /came from/);
+    assert.match((await claim({ chainId: "algorand", txHash: txid(7) })).body.message, /not a payment to/);
+    assert.equal((await claim({ chainId: "algorand", txHash: "nope" })).status, 400);
+    // The real one: 5 USDC from alice's own Pera account, a minute ago.
+    incoming.push(axfer(8));
+    const ok = await claim({ chainId: "algorand" });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.plan, "pro");
+    assert.equal(ok.body.payments[0].chain, "algorand");
+    assert.equal(ok.body.payments[0].tx, txid(8));
+    // Used once: checking again finds nothing new; the same id pasted is a no-op on the same account.
+    assert.equal((await claim({ chainId: "algorand" })).status, 409);
+    assert.equal((await claim({ chainId: "algorand", txHash: txid(8) })).status, 200);
+    const me1 = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json();
+    assert.equal(me1.payments.length, 1);
   } finally { server.close(); }
 });

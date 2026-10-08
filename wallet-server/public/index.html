@@ -1210,7 +1210,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
   async function claim(txHash, say, chainId, tier) {
-    const net = chainId === "xrpl" ? "the XRP Ledger" : me?.chain === "solana" ? "Solana" : payNet().name;
+    const net = chainId === "xrpl" ? "the XRP Ledger" : chainId === "algorand" ? "Algorand" : me?.chain === "solana" ? "Solana" : payNet().name;
     for (let i = 0; i < 20; i++) {
       try { me = await post("/api/billing/claim", { txHash, ...(chainId ? { chainId } : {}), ...(tier ? { tier } : {}) }); renderAccount(); return true; }
       catch (err) { if (err.status !== 409 || /already used/.test(err.message)) throw err; say(`Waiting for ${net} to confirm the payment…`); await sleep(3000); }
@@ -1349,11 +1349,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour, from $${esc(me.proPriceUsdc ?? 5)} per 30 days in USDC. To pay, connect the wallet you pay from: one free signature, no transaction. Your agents keep their own wallets.</p><div class="wallets" id="linkWallets"></div><div class="msg" id="linkWalletMsg" role="status"></div>`;
       renderLinkWallets();
     } else if (!me.billing) {
-      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : me.chain === "algorand" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Paying from Algorand isn't open yet: pay in RLUSD on the XRP Ledger below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
+      $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : me.chain === "algorand" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. ${me.algoPay ? `Pay in USDC on Algorand from Pera below (${esc(me.proPriceUsdc ?? 5)} USDC per 30 days), or in RLUSD on the XRP Ledger.` : `Pay in RLUSD on the XRP Ledger below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).`} Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
     } else {
     const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
     const nets = me.billing.chains ?? [];
-    const txLink = (p) => (p.chain === "xrpl" ? `https://livenet.xrpl.org/transactions/${p.tx}` : p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
+    const txLink = (p) => (p.chain === "xrpl" ? `https://livenet.xrpl.org/transactions/${p.tx}` : p.chain === "algorand" ? `https://explorer.perawallet.app/tx/${p.tx}` : p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
     let picked = 8453; try { picked = Number(localStorage.getItem("aw_paychain")) || 8453; } catch {}
     const netPick = sol || nets.length < 2 ? "" : `<div class="buybar" style="margin:0"><label class="note" for="payChain">Pay on</label><select id="payChain">${nets.map((c) => `<option value="${c.chainId}"${c.chainId === picked ? " selected" : ""}>${esc(c.name)}${c.chainId === 8453 ? " · lowest fees" : c.chainId === 1 ? " · higher network fees" : ""}</option>`).join("")}</select></div>`;
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
@@ -1371,6 +1371,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${withdrawHtml()}
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} ${p.chain === "xrpl" ? "RLUSD" : "USDC"}</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     }
+    if (me.algoPay) $("#planCard").insertAdjacentHTML("beforeend", algoPayHtml(me.algoPay));
     if (me.xrplPay) { $("#planCard").insertAdjacentHTML("beforeend", xrplPayHtml(me.xrplPay)); if (me.chain === "xrpl") $("#xrplPay")?.setAttribute("open", ""); }
     $("#planCard").insertAdjacentHTML("beforeend", me.promo
       ? `<p class="note" style="margin:0">🎁 Tester code used: ${esc(me.promo.days)} days of Pro (${esc(day(me.promo.at))}). Thanks for testing!</p>`
@@ -1380,6 +1381,19 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
   }
   // ---------- Pro paid in RLUSD on the XRP Ledger (Xaman or any XRPL wallet): to our account with your own destination tag ----------
+  // USDC on Algorand from the Pera account this account signed in with: a payment link opens Pera with the transfer filled
+  // in (ARC-26), then the server finds the payment on the chain.
+  function algoPayHtml(x) {
+    const copy = (v) => `<code>${esc(v)}</code> <button class="button small" type="button" data-copy="${esc(v)}">Copy</button>`;
+    const link = (usd, label, tier = "") => `<a class="button primary small" data-algotier="${tier}" href="algorand://${esc(x.payTo)}?amount=${Math.round(usd * 1e6)}&asset=${x.asset}&note=${encodeURIComponent("Fizzl Agent Wallet " + label)}">${esc(label)} · ${esc(usd)} USDC</a>`;
+    return `<details id="algoPay" open><summary>Pay in USDC on Algorand (Pera)</summary><div style="display:grid;gap:8px;margin-top:8px">
+      <p class="note" style="margin:0">Pay from the Pera account you signed in with: tap a plan on your phone and Pera opens with the payment filled in. On a computer, send the amount in USDC from that account to the address below.</p>
+      <div class="buybar" style="margin:0;flex-wrap:wrap;gap:8px">${link(x.priceUsdc, "Pro")}${link(x.priceUsdc * 12, "Pro 12 months")}${link(x.price20Usdc, "Pro 20", "pro20")}${link(x.priceUnlimitedUsdc, "Unlimited", "unlimited")}</div>
+      <div class="note">To: ${copy(x.payTo)}</div>
+      <p class="note" style="margin:0">USDC on Algorand (asset ${esc(x.asset)}), 1 USDC = $1. After paying, check it here (or paste the transaction id):</p>
+      <div class="paste"><input id="algoTx" placeholder="Algorand transaction id (optional)" aria-label="Algorand transaction id"><select id="algoTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button small" type="button" id="algoClaim">I've paid</button></div>
+      <div class="msg" id="algoMsg" role="status"></div></div></details>`;
+  }
   function xrplPayHtml(x) {
     const copy = (v) => `<code>${esc(v)}</code> <button class="button small" type="button" data-copy="${esc(v)}">Copy</button>`;
     return `<details id="xrplPay"><summary>Pay in RLUSD (XRP Ledger, e.g. Xaman)</summary><div style="display:grid;gap:8px;margin-top:8px">
@@ -1553,6 +1567,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       return;
     }
     if (e.target.closest("#tgUnlink")) { if (DEMO) return; await post("/api/telegram/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
+    const algoLink = e.target.closest("a[data-algotier]");
+    if (algoLink && $("#algoTier")) $("#algoTier").value = algoLink.dataset.algotier;
+    if (e.target.closest("#algoClaim")) {
+      if (DEMO) return;
+      const say = (t, cls = "") => { const m = $("#algoMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
+      say("Looking for your payment on Algorand…");
+      try { await claim($("#algoTx").value.trim(), say, "algorand", $("#algoTier").value || undefined); say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      return;
+    }
     if (e.target.closest("#xrplClaim")) {
       if (DEMO) return;
       const say = (t, cls = "") => { const m = $("#xrplMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
