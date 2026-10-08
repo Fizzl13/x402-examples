@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "description": "Builds public/app/pera-connect.js (Pera Connect for 'Sign in with Pera') as one self-hosted file: npm ci && npm run build",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --format=iife --platform=browser --target=es2020 --define:global=window --legal-comments=eof --outfile=../../public/app/pera-connect.js"
+  },
+  "dependencies": {
+    "@perawallet/connect": "1.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

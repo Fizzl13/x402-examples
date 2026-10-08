@@ -17,6 +17,7 @@ import { getAddress, isAddress, verifyMessage, padHex, encodeFunctionData, decod
 import { createWallet, hashKey } from "./wallet.js";
 import { destinationTag, rlusdPaid, isXrplAddress, isXrplHash, RLUSD_ISSUER } from "./xrpl-pay.js";
 import { pkcePair, authUrl, accountFor } from "./xaman.js";
+import { isAlgorandAddress, verifyAlgorandSignature } from "./algorand.js";
 import { ADMIN } from "./store.js";
 import { CATEGORIES } from "./catalog.js";
 import { noUsage, fizzlSite } from "./usage.js";
@@ -144,6 +145,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const isSol = (a) => a?.chain === "solana" || a?.payChain === "solana";
   // Signed in with Xaman: an XRPL account (r…). Pays Pro in RLUSD; no Base billing, no automatic payment.
   const isXrplAcct = (a) => a?.chain === "xrpl";
+  const isAlgoAcct = (a) => a?.chain === "algorand";
   const xamanRedirect = xaman?.apiKey ? `${String(publicUrl).replace(/\/$/, "")}/api/signin/xaman/callback` : null;
   // Optional: Pro paid in RLUSD on the XRP Ledger, to the owner's XRPL account with the account's destination tag.
   if (billing.xrpl?.payTo && !isXrplAddress(billing.xrpl.payTo)) throw new Error("billing.xrpl.payTo must be an XRPL address (r…)");
@@ -182,7 +184,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   // The account's state in the subscription contract (and what its approval still allows), cached on the account.
   async function syncAuto(a, { maxAgeMs = 60_000 } = {}) {
-    if (!subscription || !a?.address || a.admin || isSol(a) || isXrplAcct(a)) return a;
+    if (!subscription || !a?.address || a.admin || isSol(a) || isXrplAcct(a) || isAlgoAcct(a)) return a;
     if (a.auto?.checkedAt && now() - a.auto.checkedAt < maxAgeMs) return a;
     const [dueAt, paidThrough] = await Promise.all(["dueAt", "paidThrough"].map((fn) => call(subscription, SUBSCRIPTION.abi, fn, [a.address])));
     const [allowance, balance] = await Promise.all([call(token, erc20Abi, "allowance", [a.address, subscription]), call(token, erc20Abi, "balanceOf", [a.address])]);
@@ -269,6 +271,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!pending) throw Object.assign(new Error("sign-in expired, try again"), { status: 401 });
     let ok = false;
     if (pending.chain === "solana") ok = verifySolanaSignature(pending.address, pending.message, signature);
+    else if (pending.chain === "algorand") ok = verifyAlgorandSignature(pending.address, pending.message, signature);
     else {
       try { ok = await verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; }
       if (!ok && billing.publicClient) { try { ok = await billing.publicClient.verifyMessage({ address: pending.address, message: pending.message, signature }); } catch { ok = false; } }
@@ -304,6 +307,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     emailEnabled: !!mailer,
     solanaEnabled: !!solPayTo,
     xamanEnabled: !!xamanRedirect,
+    algorandEnabled: true,
 
     // ---------- sign in with Xaman (OAuth2 + PKCE; the XRPL account is the identity) ----------
     async xamanStart({ ref = null } = {}) {
@@ -334,6 +338,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // onrender.com address): wallets compare it with the address bar and warn when they differ.
     async signInMessage(address, origin, chain = "ethereum", chainId = null) {
       if (chain === "solana") return solanaSignInMessage(address, origin);
+      if (chain === "algorand") return algorandSignInMessage(address, origin);
       // The network the wallet is on right now: some wallets (Phantom) refuse to sign a sign-in
       // message that names another chain. It changes nothing else; the signature is checked the same.
       const cid = Number.isSafeInteger(Number(chainId)) && Number(chainId) > 0 ? Number(chainId) : 8453;
@@ -351,9 +356,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async signIn(nonce, signature, { ref = null } = {}) {
       const pending = await verifySigned(nonce, signature);
       // A wallet linked to an account made with e-mail signs in to that account.
-      const linked = await aliasOf(pending.chain === "solana" ? `sol:${pending.address}` : pending.address.toLowerCase());
+      const linked = await aliasOf(pending.chain === "solana" ? `sol:${pending.address}` : pending.chain === "algorand" ? `algo:${pending.address}` : pending.address.toLowerCase());
       if (linked) { usage.record("signin", { account: linked, input: { chain: pending.chain ?? "ethereum" } }); return linked; }
       if (pending.chain === "solana") return solanaSignIn(pending, fizzlSite(ref));
+      if (pending.chain === "algorand") return algorandSignIn(pending, fizzlSite(ref));
       const id = pending.address.toLowerCase();
       const existing = await g.getAccount(id);
       const fresh = !existing || existing.deletedAt;
@@ -438,6 +444,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // An account made with e-mail connects the wallet it pays Pro from (one free signature).
     async walletLink(id, nonce, signature) {
       const pending = await verifySigned(nonce, signature);
+      if (pending.chain === "algorand") throw Object.assign(new Error("Pro can't be paid on Algorand yet: connect an Ethereum or Solana wallet, or pay in RLUSD on the XRP Ledger."), { status: 400 });
       const walletId = pending.chain === "solana" ? `sol:${pending.address}` : pending.address.toLowerCase();
       return serial(id, async () => {
         const a = await g.getAccount(id);
@@ -460,14 +467,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
-        chain: a.admin ? null : isXrplAcct(a) ? "xrpl" : isSol(a) ? "solana" : "ethereum",
-        signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isXrplAcct(a) ? "xaman" : isSol(a) ? "solana" : "ethereum",
+        chain: a.admin ? null : isXrplAcct(a) ? "xrpl" : isAlgoAcct(a) ? "algorand" : isSol(a) ? "solana" : "ethereum",
+        signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isXrplAcct(a) ? "xaman" : isAlgoAcct(a) ? "pera" : isSol(a) ? "solana" : "ethereum",
         email: a.emailHint ?? null, emailSignIn: !!mailer,
         needsWallet: a.chain === "email" && !a.address,
         proPriceUsdc: Number(priceUnits) / 1e6,
         promo: a.promo ?? null,
         passkeys: (a.passkeys ?? []).map((k) => ({ id: k.id, label: k.label, at: k.at, usedAt: k.usedAt ?? null })),
-        auto: subscription && !a.admin && a.address && !isSol(a) && !isXrplAcct(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
+        auto: subscription && !a.admin && a.address && !isSol(a) && !isXrplAcct(a) && !isAlgoAcct(a) ? { contract: subscription, on: (a.auto?.dueAt ?? 0) > 0, nextCharge: a.auto?.dueAt || null, paidThrough: a.auto?.paidThrough || null, monthsApproved: a.auto ? Number(BigInt(a.auto.allowance ?? "0") / priceUnits) : 0, balanceUsdc: a.auto ? Number(BigInt(a.auto.balance ?? "0")) / 1e6 : null } : null,
         payments: (a.payments ?? []).slice(-24).reverse(),
         withdrawal: withdrawalOf(a),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
@@ -475,7 +482,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         follow: a.follow ?? [],
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
         xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY },
-        billing: a.admin || !a.address || isXrplAcct(a) ? null : isSol(a)
+        billing: a.admin || !a.address || isXrplAcct(a) || isAlgoAcct(a) ? null : isSol(a)
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
@@ -1086,6 +1093,24 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     await g.putOnce("siwe", nonce, { address, message, chain: "solana" }, NONCE_TTL_S);
     return { nonce, message };
   }
+  // ---------- Algorand: sign in with Pera (signData over the message, "MX"-prefixed, checked here) ----------
+  async function algorandSignInMessage(address, origin) {
+    if (!isAlgorandAddress(address)) throw Object.assign(new Error("address must be an Algorand address"), { status: 400 });
+    const nonce = rand(12);
+    const issued = new Date(now()).toISOString(), expires = new Date(now() + NONCE_TTL_S * 1000).toISOString();
+    const where = siteFor(origin);
+    const message = `${where.host} wants you to sign in with your Algorand account:\n${address}\n\nSign in to Fizzl Agent Wallet. This is free: it is not a transaction and moves no money.\n\nURI: ${where.origin}\nVersion: 1\nChain ID: mainnet\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`;
+    await g.putOnce("siwe", nonce, { address, message, chain: "algorand" }, NONCE_TTL_S);
+    return { nonce, message };
+  }
+  async function algorandSignIn(pending, ref) {
+    const id = `algo:${pending.address}`;
+    const existing = await g.getAccount(id);
+    const fresh = !existing || existing.deletedAt;
+    if (fresh) await g.putAccount({ id, chain: "algorand", address: pending.address, createdAt: now(), paidUntil: 0, payments: existing?.payments ?? [], autoPayments: [], telegram: null, ...(ref ? { ref } : {}) });
+    usage.record(fresh ? "signup" : "signin", { account: id, ref: fresh ? ref : existing.ref, input: { chain: "algorand" } });
+    return id;
+  }
   async function solanaSignIn(pending, ref) {
     const id = `sol:${pending.address}`;
     const existing = await g.getAccount(id);
@@ -1166,6 +1191,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (!sa?.address) throw Object.assign(new Error("Connect the wallet you pay from first (Your plan)."), { status: 400 });
     if (isSol(sa)) return claimSolana(sa, txHash, tier);
     if (isXrplAcct(sa)) return claimXrpl(sa, txHash, tier);
+    if (isAlgoAcct(sa)) throw Object.assign(new Error("Pro can't be paid on Algorand yet: pay in RLUSD on the XRP Ledger (Your plan)."), { status: 400 });
     if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Object.assign(new Error("txHash must be a transaction hash"), { status: 400 });
     const cid = Number(chainId ?? 8453), net = chains[cid];
     if (!net) throw Object.assign(new Error(`Pro can be paid on ${Object.values(chains).map((c) => c.name).join(", ")}`), { status: 400 });

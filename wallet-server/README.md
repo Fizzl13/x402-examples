@@ -50,6 +50,8 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `XRPL_PAY_TO` | the XRPL account that receives Pro paid in RLUSD (needs an RLUSD trust line; default Fizzl's account). `off` turns it off |
    | `XRPL_RPC_URL` | optional: an XRPL JSON-RPC node to check those payments (default `https://xrplcluster.com`) |
    | `XAMAN_API_KEY` | optional: the public API key of a Xaman app ([apps.xumm.dev](https://apps.xumm.dev), redirect URI `<PUBLIC_URL>/api/signin/xaman/callback`). Turns on "Sign in with Xaman": OAuth2 with PKCE, no secret needed; the XRPL account is the identity and pays Pro in RLUSD |
+
+"Sign in with Pera" (Algorand) needs no setting: Pera Connect is served from this server (`public/app/pera-connect.js`, built from `vendor/pera-connect`), Pera signs the sign-in message with `signData` ("MX" + the bytes) and the server checks the ed25519 signature against the address itself. Accounts are `algo:<address>`; Pro is paid in RLUSD for now (no Algorand payment yet). Rekeyed and hardware accounts can't sign in this way. Add your own Algorand address to `USAGE_OWN_WALLETS` to mark your sign-ins as own.
    | `CHARGER_KEY` | optional: private key of a **new, separate** wallet with a little ETH on Base that sends the monthly charges (never your payout wallet) |
 3. Open the URL, log in, set your price rule, add an agent and copy its key.
 

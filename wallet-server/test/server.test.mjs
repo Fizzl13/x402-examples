@@ -2113,3 +2113,47 @@ test("sign-up source: fizzl.eu sites and a few fixed sources (a README link), no
   assert.equal(fizzlSite("evil.example"), undefined);
   assert.equal(fizzlSite("readme.evil"), undefined);
 });
+
+// Sign in with Pera (Algorand): an ed25519 signature over "MX" + the message, as Pera's signData makes it.
+test("sign in with Pera: an Algorand account from a signed message; another key, text or address doesn't sign in", async () => {
+  const { generateKeyPairSync, createHash, sign: edSign } = nodeCrypto;
+  const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const b32 = (buf) => { let bits = 0, v = 0, out = ""; for (const b of buf) { v = (v << 8) | b; bits += 8; while (bits >= 5) { out += B32[(v >>> (bits - 5)) & 31]; bits -= 5; } } if (bits) out += B32[(v << (5 - bits)) & 31]; return out; };
+  const algoKey = () => {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const pub = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+    return { privateKey, address: b32(Buffer.concat([pub, createHash("sha512-256").update(pub).digest().subarray(28)])) };
+  };
+  const peraSign = (k, message) => edSign(null, Buffer.concat([Buffer.from("MX"), Buffer.from(message, "utf8")]), k.privateKey).toString("base64");
+  const alice = algoKey(), mallory = algoKey();
+  const { algorandPublicKey } = await import("../src/algorand.js");
+  assert.ok(algorandPublicKey(alice.address), "the test's own address encoding is a valid Algorand address");
+  assert.equal(algorandPublicKey("LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4")?.length, 32);
+  assert.equal(algorandPublicKey("LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX5"), null, "non-canonical padding");
+  assert.equal(algorandPublicKey("LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAA4"), null, "bad checksum");
+
+  const { base, server } = await boot();
+  const post = (path, body, cookie) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).algorand, true);
+    assert.equal((await post("/api/signin/message", { address: "NOTANADDRESS", chain: "algorand" })).status, 400);
+    const m = await (await post("/api/signin/message", { address: alice.address, chain: "algorand" })).json();
+    assert.match(m.message, /^127\.0\.0\.1:\d+ wants you to sign in with your Algorand account:\n/);
+    assert.ok(m.message.includes(alice.address));
+    assert.equal((await post("/api/signin", { nonce: m.nonce, signature: peraSign(mallory, m.message) })).status, 401);
+    const m1 = await (await post("/api/signin/message", { address: alice.address, chain: "algorand" })).json();
+    // Signed without Pera's "MX" prefix: not what Pera signs, refused.
+    const bare = nodeCrypto.sign(null, Buffer.from(m1.message, "utf8"), alice.privateKey).toString("base64");
+    assert.equal((await post("/api/signin", { nonce: m1.nonce, signature: bare })).status, 401);
+    const m2 = await (await post("/api/signin/message", { address: alice.address, chain: "algorand" })).json();
+    const r = await post("/api/signin", { nonce: m2.nonce, signature: peraSign(alice, m2.message) });
+    assert.equal(r.status, 200);
+    const cookie = r.headers.get("set-cookie").split(";")[0];
+    const me = await (await fetch(`${base}/api/me`, { headers: { cookie } })).json();
+    assert.equal(me.id, `algo:${alice.address}`);
+    assert.deepEqual([me.chain, me.signedInWith, me.address, me.plan, me.billing, me.auto], ["algorand", "pera", alice.address, "free", null, null]);
+    // Pro isn't paid on Algorand yet: a claim says how to pay instead.
+    const claim = await post("/api/billing/claim", { txHash: "X".repeat(52) }, cookie);
+    assert.ok([400, 404].includes(claim.status));
+  } finally { server.close(); }
+});
