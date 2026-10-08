@@ -45,6 +45,6 @@ MCP clients can use the same check as the `x402_preflight` tool ($0.001) on `htt
 
 ## Paid run from GitHub
 
-The workflow **Safe pay (paid)** (Actions tab, run by hand) takes the URL, method, budget and network. It pays with the repository secret `EVM_PRIVATE_KEY` (Base), `SOLANA_SEED` / `SOLANA_PRIVATE_KEY` (Solana) or `ALGORAND_MNEMONIC` (Algorand: an account opted in to USDC, ASA 31566704; the seller's facilitator pays the network fee). With **all_fizzl_routes** it pays every route in [`fizzl-routes.txt`](fizzl-routes.txt) once instead (about $1.06, to Fizzl's own payout addresses): the first settled payment on a route lists it in that facilitator's discovery list, on Algorand GoPlausible's.
+The workflow **Safe pay (paid)** (Actions tab, run by hand) takes the URL, method, budget and network. It pays with the repository secret `EVM_PRIVATE_KEY` (Base), `SOLANA_SEED` / `SOLANA_PRIVATE_KEY` (Solana) or `ALGORAND_MNEMONIC` (Algorand: the 25 words of an account opted in to USDC, ASA 31566704, or the 24-word recovery phrase of a Pera wallet, whose first account holding USDC pays; the seller's facilitator pays the network fee). A wallet that also controls Fizzl's Algorand pay-to address is refused. With **all_fizzl_routes** it pays every route in [`fizzl-routes.txt`](fizzl-routes.txt) once instead (about $1.06, to Fizzl's own payout addresses): the first settled payment on a route lists it in that facilitator's discovery list, on Algorand GoPlausible's.
 
 Use a dedicated wallet with a few cents of USDC and never commit its key.

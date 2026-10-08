@@ -13,8 +13,10 @@
 //   EVM_PRIVATE_KEY     0x-prefixed or bare hex private key (MetaMask exports it bare)
 //   SOLANA_PRIVATE_KEY  base58 secret key, or a JSON byte array
 //   SOLANA_SEED         or: a long random password the Solana wallet is derived from
-//   ALGORAND_MNEMONIC   the 25-word mnemonic of an Algorand account that has opted in to USDC (ASA 31566704);
-//                       the seller's facilitator pays the network fee, so it needs no ALGO beyond the minimum balance
+//   ALGORAND_MNEMONIC   the 25-word mnemonic of an Algorand account that has opted in to USDC (ASA 31566704),
+//                       or the 24-word recovery phrase of a Pera wallet (HD, ARC-52): then the first of its accounts
+//                       that holds USDC pays (ALGORAND_ADDRESS picks one). The seller's facilitator pays the network
+//                       fee, so the account needs no ALGO beyond the minimum balance
 //
 // Usage (in this folder, after npm install):
 //   node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --dry-run   # prices only, pays nothing
@@ -31,6 +33,9 @@ import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@
 export const SOLANA = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 export const BASE = "eip155:8453";
 export const ALGORAND = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
+// Where the Fizzl services are paid on Algorand. A paying wallet must never also control it.
+export const FIZZL_ALGORAND_PAY_TO = "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4";
+const ALGORAND_USDC = 31566704;
 const DOCTOR = (process.env.DOCTOR_URL || "https://x402-doctor.fizzl.eu").replace(/\/$/, "");
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never pay more than twice that
 
@@ -72,12 +77,14 @@ export function payNetwork(env, payOn) {
 }
 
 // The base64 secret key @x402/avm wants (32-byte seed + 32-byte public key), from a 25-word Algorand mnemonic.
+export const mnemonicWords = (mnemonic) => String(mnemonic).toLowerCase().match(/[a-z]+/g) || [];
+
 // Wallets copy it in different shapes ("1. word", commas, capitals, one word per line): only the words count.
 // Errors never include a word, since the message ends up in a workflow log.
 export async function algorandKey(mnemonic) {
   const { seedFromMnemonic, NOT_IN_WORDS_LIST_ERROR_MSG } = await import("@algorandfoundation/algokit-utils/algo25");
   const { createPrivateKey, createPublicKey } = await import("node:crypto");
-  const words = String(mnemonic).toLowerCase().match(/[a-z]+/g) || [];
+  const words = mnemonicWords(mnemonic);
   if (words.length !== 25) throw new Error(`ALGORAND_MNEMONIC has ${words.length} words, an Algorand mnemonic has 25`);
   let raw;
   try { raw = seedFromMnemonic(words.join(" ")); } catch (e) {
@@ -89,6 +96,74 @@ export async function algorandKey(mnemonic) {
   const priv = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
   const pub = createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32);
   return Buffer.concat([seed, pub]).toString("base64");
+}
+
+// Pera's newer wallets are HD wallets (ARC-52): a 24-word BIP39 recovery phrase, account n at m/44'/283'/n'/0/i.
+// ARC-52 has two derivation modes (Peikert, the libraries' default, and Khovratovich); which one a wallet used isn't
+// visible from the words, so both are derived and the account that holds USDC decides.
+export const HD_PATHS = [...Array.from({ length: 10 }, (_, a) => [a, 0]), [0, 1], [0, 2], [0, 3], [0, 4]];
+
+export async function algorandHdAccounts(mnemonic, paths = HD_PATHS) {
+  const { validateMnemonic, mnemonicToSeedSync } = await import("@scure/bip39");
+  const { wordlist } = await import("@scure/bip39/wordlists/english");
+  const phrase = mnemonicWords(mnemonic).join(" ");
+  if (!validateMnemonic(phrase, wordlist)) throw new Error("ALGORAND_MNEMONIC: the 24 words are not a valid recovery phrase; check the order and spelling");
+  const { XHDWalletAPI, fromSeed, KeyContext, BIP32DerivationType } = await import("@algorandfoundation/xhd-wallet-api");
+  const xhd = new XHDWalletAPI();
+  const root = fromSeed(Buffer.from(mnemonicToSeedSync(phrase)));
+  const accounts = [];
+  for (const mode of ["Peikert", "Khovratovich"]) {
+    const type = BIP32DerivationType[mode];
+    for (const [account, index] of paths) {
+      accounts.push({
+        mode, account, index,
+        ed25519Pubkey: await xhd.keyGen(root, KeyContext.Address, account, index, type),
+        rawEd25519Signer: (bytes) => xhd.signAlgoTransaction(root, KeyContext.Address, account, index, bytes, type),
+      });
+    }
+  }
+  return accounts;
+}
+
+// The same ClientAvmSigner as @x402/avm's toClientAvmSigner, for a key that isn't a plain 32-byte seed.
+export async function avmSigner({ ed25519Pubkey, rawEd25519Signer }) {
+  const { generateAddressWithSigners, decodeTransaction } = await import("@algorandfoundation/algokit-utils/transact");
+  const { ALGOKIT_SIGNER } = await import("@x402/avm");
+  const signers = generateAddressWithSigners({ ed25519Pubkey, rawEd25519Signer });
+  const signer = {
+    address: signers.addr.toString(),
+    signTransactions: (txns, indexesToSign) => Promise.all(txns.map(async (txn, i) =>
+      indexesToSign && !indexesToSign.includes(i) ? null : (await signers.signer([decodeTransaction(txn)], [0]))[0])),
+  };
+  Object.defineProperty(signer, ALGOKIT_SIGNER, { value: signers, enumerable: false, writable: false });
+  return signer;
+}
+
+async function holdsUsdc(address, algodUrl) {
+  const res = await fetch(`${algodUrl}/v2/accounts/${address}`);
+  if (!res.ok) return false;
+  const { assets = [] } = await res.json();
+  return assets.some((a) => a["asset-id"] === ALGORAND_USDC && a.amount > 0);
+}
+
+// The signer for ALGORAND_MNEMONIC: a 25-word account as is; from a 24-word HD wallet, ALGORAND_ADDRESS or the first
+// account that holds USDC. Refuses a wallet that also controls the Fizzl pay-to address.
+export async function algorandSigner(mnemonic, { algodUrl, address, holds = holdsUsdc } = {}) {
+  if (mnemonicWords(mnemonic).length !== 24) {
+    const { toClientAvmSigner } = await import("@x402/avm");
+    return toClientAvmSigner(await algorandKey(mnemonic));
+  }
+  const signers = await Promise.all((await algorandHdAccounts(mnemonic)).map(avmSigner));
+  if (signers.some((s) => s.address === FIZZL_ALGORAND_PAY_TO)) {
+    throw new Error(`ALGORAND_MNEMONIC also controls ${FIZZL_ALGORAND_PAY_TO}, where Fizzl is paid; use a separate wallet with its own recovery phrase`);
+  }
+  if (address) {
+    const picked = signers.find((s) => s.address === address);
+    if (!picked) throw new Error(`ALGORAND_ADDRESS ${address} is not one of the first accounts of this wallet`);
+    return picked;
+  }
+  for (const s of signers) if (await holds(s.address, algodUrl)) return s;
+  throw new Error(`none of the first accounts of this wallet holds USDC: ${signers.map((s) => s.address).join(", ")}`);
 }
 
 export function evmKey(key) {
@@ -132,10 +207,9 @@ async function payingFetch(network, cap) {
   }
   if (network === ALGORAND) {
     const { ExactAvmScheme } = await import("@x402/avm/exact/client");
-    const { toClientAvmSigner } = await import("@x402/avm");
-    const key = await algorandKey(process.env.ALGORAND_MNEMONIC);
-    const signer = toClientAvmSigner(key);
-    client.register(ALGORAND, new ExactAvmScheme(signer, { algodUrl: process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud" }));
+    const algodUrl = process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud";
+    const signer = await algorandSigner(process.env.ALGORAND_MNEMONIC, { algodUrl, address: process.env.ALGORAND_ADDRESS });
+    client.register(ALGORAND, new ExactAvmScheme(signer, { algodUrl }));
     return { fetch: wrapFetchWithPayment(fetch, client), payer: signer.address };
   }
   const { privateKeyToAccount } = await import("viem/accounts");
