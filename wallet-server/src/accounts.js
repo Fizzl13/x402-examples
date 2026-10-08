@@ -575,7 +575,9 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         try {
           const bal = Number(await call(token, erc20Abi, "balanceOf", [agent.address])) / 1e6;
           const where = `${agent.address.slice(0, 6)}…${agent.address.slice(-4)}`;
-          if (bal <= 0) add("balance", "fail", "Money to pay with", `${agent.name}'s wallet (${where}) has no USDC on Base.`, `Send a few dollars of USDC on Base to ${agent.address}. Only what it may spend: it's your agent's wallet, not your main one.`);
+          // No money yet is a tip, not a blocker: without USDC the agent can already reach the wallet, check its status
+          // and find services, so a newcomer can try everything up to the first purchase before funding it.
+          if (bal <= 0) add("balance", "warn", "Money to pay with", `${agent.name}'s wallet (${where}) has no USDC on Base yet. It can already check its wallet and find services for free; it needs USDC before it buys anything.`, `Send a few dollars of USDC on Base to ${agent.address} when you want it to buy. Only what it may spend: it's your agent's wallet, not your main one.`);
           else add("balance", bal < 1 ? "warn" : "ok", "Money to pay with", `${agent.name}'s wallet (${where}) has ${bal.toFixed(2)} USDC on Base.`, bal < 1 ? "That's enough for small calls only. Add a few dollars of USDC on Base if your agent needs more." : null);
         } catch (err) { add("balance", "warn", "Money to pay with", `The balance couldn't be read right now (${err.message}).`, "Try again in a minute."); }
       } else if (agent) add("balance", "warn", "Money to pay with", `The wallet doesn't know ${agent.name}'s address yet, so it can't see its balance.`, "Paste your agent's wallet address (0x…, public, not the private key) below, or it's filled in after its first purchase.");

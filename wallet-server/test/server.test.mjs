@@ -1194,8 +1194,10 @@ test("test my setup: key, contact, rules, balance and Telegram, checked without 
     assert.equal((await owner("PUT", `/api/agents/${r.agent.id}/address`, { address: "not-an-address" })).status, 400);
     assert.equal((await owner("PUT", `/api/agents/${r.agent.id}/address`, { address: AGENT })).body.address, AGENT);
     r = await check();
-    assert.equal(r.by.balance.status, "fail");
+    assert.equal(r.by.balance.status, "warn"); // no USDC yet: a tip, it can still check its wallet and find services
+    assert.match(r.by.balance.detail, /for free/);
     assert.match(r.by.balance.fix, /USDC on Base/);
+    assert.equal(r.ready, true);
     balance = 2_500_000n;
     r = await check();
     assert.equal(r.by.balance.status, "ok");
