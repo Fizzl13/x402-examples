@@ -18,6 +18,7 @@ node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --dry-run    
 
 EVM_PRIVATE_KEY=... node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --max-usd 0.05
 SOLANA_SEED=... node safe-pay.mjs "https://presign-guard.fizzl.eu/v1/token?chain=solana&address=<mint>" --pay-on solana
+ALGORAND_MNEMONIC="word1 … word25" node safe-pay.mjs https://ichimoku-signal.fizzl.eu/signal/BTC-USDT --pay-on algorand
 node safe-pay.mjs <url> --method POST --body '{"...": "..."}'                            # POST endpoints
 node safe-pay.mjs <url> --json                                                           # everything as JSON
 ```
@@ -44,6 +45,6 @@ MCP clients can use the same check as the `x402_preflight` tool ($0.001) on `htt
 
 ## Paid run from GitHub
 
-The workflow **Safe pay (paid)** (Actions tab, run by hand) takes the URL, method, budget and network. It pays with the repository secret `EVM_PRIVATE_KEY` (Base) or `SOLANA_SEED` / `SOLANA_PRIVATE_KEY` (Solana).
+The workflow **Safe pay (paid)** (Actions tab, run by hand) takes the URL, method, budget and network. It pays with the repository secret `EVM_PRIVATE_KEY` (Base), `SOLANA_SEED` / `SOLANA_PRIVATE_KEY` (Solana) or `ALGORAND_MNEMONIC` (Algorand: an account opted in to USDC, ASA 31566704; the seller's facilitator pays the network fee). With **all_fizzl_routes** it pays every route in [`fizzl-routes.txt`](fizzl-routes.txt) once instead (about $1.06, to Fizzl's own payout addresses): the first settled payment on a route lists it in that facilitator's discovery list, on Algorand GoPlausible's.
 
 Use a dedicated wallet with a few cents of USDC and never commit its key.
