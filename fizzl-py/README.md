@@ -2,6 +2,8 @@
 
 Safety checks for Python AI agents that pay: LangChain, LangGraph, the OpenAI Agents SDK, CrewAI or your own loop.
 
+An [official LangChain integration](https://docs.langchain.com/oss/python/integrations/tools): listed in the LangChain docs under tools.
+
 | Check | What the agent checks | Service | Price |
 |---|---|---|---|
 | `check_before_signing` | a transaction, token approval or signature **before signing it**: green / orange / red with reason codes (drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens) | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 |
