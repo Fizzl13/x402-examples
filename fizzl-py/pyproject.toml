@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fizzl"
-version = "0.4.0"
+version = "0.4.1"
 description = "Safety checks for AI agents that pay: check a transaction or signature before signing, a token before buying, a wallet's approvals, and an x402 endpoint before paying it (presign-guard, x402 Doctor)."
 readme = "README.md"
 license = "MIT"
