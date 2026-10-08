@@ -12,6 +12,10 @@ import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { ExactXrplScheme } from "@x402/xrpl/exact/client";
 import { createXrplWalletSigner } from "@x402/xrpl";
+import { ExactAvmScheme } from "@x402/avm/exact/client";
+import { toClientAvmSigner } from "@x402/avm";
+import { seedFromMnemonic } from "@algorandfoundation/algokit-utils/algo25";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import { Wallet as XrplWallet } from "xrpl";
 import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest } from "presign-guard-wallet";
 import { telegramApprover } from "presign-guard-wallet/telegram";
@@ -86,6 +90,20 @@ const address = z.string().refine((a) => isAddress(a, { strict: false }), "an 0x
  * Read the configuration from environment variables (see README).
  * Throws a readable error for anything missing or unsafe.
  */
+// Algorand: x402 payments in USDC from the agent's own Algorand account (ALGORAND_MNEMONIC), settled by the seller's
+// facilitator (which pays the network fee). The guarded signer signs only the USDC transfer.
+export const ALGORAND = {
+  mainnet: { network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", usdc: 31566704, algod: "https://mainnet-api.algonode.cloud" },
+  testnet: { network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=", usdc: 10458941, algod: "https://testnet-api.algonode.cloud" },
+};
+// The base64 secret key @x402/avm wants (32-byte seed + 32-byte public key), from a 25-word Algorand mnemonic.
+export function algorandKeyFromMnemonic(mnemonic) {
+  const seed = Buffer.from(seedFromMnemonic(String(mnemonic).trim().split(/\s+/).join(" ")));
+  const priv = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
+  const pub = createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32);
+  return Buffer.concat([seed, pub]).toString("base64");
+}
+
 // XRP Ledger: x402 payments in RLUSD (Ripple's dollar) from the agent's own XRPL account (XRPL_SEED).
 // Only RLUSD from Ripple's issuer is paid (XRP has no dollar price here, so the per-call cap couldn't hold).
 export const XRPL = {
@@ -167,6 +185,7 @@ export function configFromEnv(env = process.env) {
   }
 
   const xrpl = xrplConfig(env);
+  const algorand = algorandConfig(env);
 
   const maxPrice = env.MAX_PAYMENT_USD ?? "1";
   if (!/^\d+(\.\d+)?$/.test(maxPrice)) throw new Error("MAX_PAYMENT_USD must be a number of dollars, e.g. 1 or 0.25");
@@ -187,9 +206,21 @@ export function configFromEnv(env = process.env) {
     mandate,
     // XRPL: off without XRPL_SEED. RLUSD counts toward the USDC limits.
     xrpl,
+    // Algorand: off without ALGORAND_MNEMONIC. USDC on Algorand counts toward the USDC limits.
+    algorand,
     // MPP sessions on Tempo: off without MPP_SESSION_DEPOSIT (what each channel deposit or top-up puts in, in USDC.e).
     session: sessionConfig(env),
   };
+}
+
+function algorandConfig(env) {
+  const words = env.ALGORAND_MNEMONIC?.trim();
+  if (!words) return null;
+  let key;
+  try { key = algorandKeyFromMnemonic(words); } catch { throw new Error("ALGORAND_MNEMONIC must be the agent's own 25-word Algorand account mnemonic. Use a separate account with only what the agent may spend."); }
+  const name = (env.ALGORAND_NETWORK || "mainnet").toLowerCase();
+  if (!ALGORAND[name]) throw new Error(`ALGORAND_NETWORK must be ${Object.keys(ALGORAND).join(" or ")}`);
+  return { key, net: name, algodUrl: env.ALGORAND_ALGOD_URL || ALGORAND[name].algod };
 }
 
 function xrplConfig(env) {
@@ -272,6 +303,12 @@ export function createWallet(config, overrides = {}) {
     signTypedData: (typedData) => guarded.signTypedData({ account, ...typedData }),
     readContract: (args) => publicClient.readContract(args),
   };
+
+  // Algorand: the agent's own Algorand account, signing only USDC transfers, kept to the limits.
+  const algoNet = config.algorand ? { ...ALGORAND[config.algorand.net], algodUrl: config.algorand.algodUrl } : null;
+  if (algoNet && typeof guarded.algorandSigner !== "function") throw new Error("ALGORAND_MNEMONIC needs presign-guard-wallet 0.12 or newer (npm install presign-guard-wallet@latest)");
+  const algoSigner = algoNet ? guarded.algorandSigner(overrides.algorandSigner ?? toClientAvmSigner(config.algorand.key), { network: algoNet.network }) : null;
+  const isAlgoUsdcOffer = (r, cap) => r?.network === algoNet?.network && r.scheme === "exact" && String(r.asset) === String(algoNet.usdc) && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
 
   // XRPL: the agent's own XRPL account, its Payments checked by presign-guard and kept to the limits.
   const xrplNet = config.xrpl ? { ...XRPL[config.xrpl.net], wsUrl: config.xrpl.wsUrl } : null;
@@ -431,13 +468,21 @@ export function createWallet(config, overrides = {}) {
       const mandate = await currentMandate();
       // Object.create: the x402 client also asks the scheme for findDefaultAsset (spend controls).
       client.register(`eip155:${chain.id}`, mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme);
-      // RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
+      // USDC on Algorand and RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
+      if (algoSigner && !mandate) client.register(algoNet.network, overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
       if (xrplSigner && !mandate) {
         client.register(xrplNet.network, xrplPayScheme(xrplSigner, { network: xrplNet.network, wsUrl: xrplNet.wsUrl, prepare: overrides.xrplPrepare, maxUsd: cap }));
         // RLUSD written as text ("RLUSD") isn't a default asset to the spend controls; the cap is checked above.
-        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }] });
-        // Only RLUSD from Ripple, and after the USDC offers on this chain (those come first when both are there).
-        client.registerPolicy((_v, reqs) => [...reqs.filter((r) => !String(r.network).startsWith("xrpl:")), ...reqs.filter((r) => isRlusdOffer(r, xrplNet) && rlusdWithin(r, cap))]);
+        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [{ network: algoNet.network, asset: String(algoNet.usdc) }] : [])] });
+      }
+      // The order: USDC on this chain first, then USDC on Algorand, then RLUSD from Ripple; other offers on those
+      // networks (another asset, above the cap) are left out.
+      if ((algoSigner || xrplSigner) && !mandate) {
+        client.registerPolicy((_v, reqs) => [
+          ...reqs.filter((r) => !String(r.network).startsWith("xrpl:") && !String(r.network).startsWith("algorand:")),
+          ...(algoSigner ? reqs.filter((r) => isAlgoUsdcOffer(r, cap)) : []),
+          ...(xrplSigner ? reqs.filter((r) => isRlusdOffer(r, xrplNet) && rlusdWithin(r, cap)) : []),
+        ]);
       }
       let pending = first;
       const replay = (input, i) => { if (pending) { const r = pending; pending = null; return Promise.resolve(r); } return plainFetch(input, i); };
@@ -486,6 +531,7 @@ export function createWallet(config, overrides = {}) {
   return {
     address: account.address,
     xrplAddress: xrplSigner?.classicAddress ?? null,
+    algorandAddress: algoSigner?.address ?? null,
     chain,
     guard: guarded,
 
@@ -502,6 +548,14 @@ export function createWallet(config, overrides = {}) {
     },
 
     async status() {
+      async function algoUsdcBalance() {
+        try {
+          const r = await plainFetch(`${algoNet.algodUrl}/v2/accounts/${algoSigner.address}/assets/${algoNet.usdc}`, { signal: AbortSignal.timeout(8000) });
+          if (r.status === 404) return "not opted in to USDC";
+          const j = await r.json();
+          return formatUnits(BigInt(j["asset-holding"]?.amount ?? 0), 6);
+        } catch { return "unknown"; }
+      }
       const mandateNow = await currentMandate();
       const [native, usdcBalance, tempoBalance] = await Promise.all([
         publicClient.getBalance({ address: account.address }).catch(() => null),
@@ -516,6 +570,7 @@ export function createWallet(config, overrides = {}) {
           USDC: usdcBalance === null ? "unknown" : formatUnits(usdcBalance, usdc[1]),
           ...(tempoNet ? { [`${tempoNet.symbol} on Tempo${tempoNet.chainId === 4217 ? "" : " testnet"} (for MPP tempo charges)`]: tempoBalance === null ? "unknown" : formatUnits(tempoBalance, 6) } : {}),
         },
+        ...(algoSigner && { algorand: { address: algoSigner.address, network: `${config.algorand.net} (${algoNet.network})`, usdc: await algoUsdcBalance(), pays: "x402 in USDC on Algorand (the seller's facilitator pays the network fee), counted toward the USDC limits; the account must be opted in to USDC (ASA " + algoNet.usdc + ")" } }),
         ...(xrplSigner && { xrpl: { address: xrplSigner.classicAddress, network: `${config.xrpl.net} (${xrplNet.network})`, pays: "x402 in RLUSD (Ripple's issuer), counted toward the USDC limits; the account needs an RLUSD trust line, RLUSD and a little XRP for fees" } }),
         limits: config.server ? `kept by the wallet server ${config.server.url}` : config.limits.tokens,
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
@@ -654,7 +709,7 @@ export function createServer(wallet) {
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
-    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With an XRPL account set up, x402 offers in RLUSD on the XRP Ledger are paid too (after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
+    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With an Algorand account set up, x402 offers in USDC on Algorand are paid too, and with an XRPL account x402 offers in RLUSD on the XRP Ledger (both after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
     inputSchema: {
       url: z.string().url().describe("The API URL"),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),

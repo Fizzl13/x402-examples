@@ -32,6 +32,8 @@
         { "name": "TEMPO_CHAIN", "description": "4217 (Tempo, default) or 42431 (Moderato testnet)" },
         { "name": "TEMPO_RPC_URL", "description": "Optional Tempo RPC URL" },
         { "name": "MPP_SESSION_DEPOSIT", "description": "Optional: pay MPP sessions on Tempo; the USDC.e each channel deposit or top-up puts in (counted toward the USDC limits); then each call is a signed voucher" },
+        { "name": "ALGORAND_MNEMONIC", "description": "Optional: the agent's own Algorand account (25 words); pays x402 offers in USDC on Algorand (counted toward the USDC limits)", "isSecret": true },
+        { "name": "ALGORAND_NETWORK", "description": "mainnet (default) or testnet" },
         { "name": "XRPL_SEED", "description": "Optional: the agent's own XRPL account seed; pays x402 offers in RLUSD on the XRP Ledger (counted toward the USDC limits)", "isSecret": true },
         { "name": "XRPL_NETWORK", "description": "mainnet (default) or testnet" },
         { "name": "XRPL_WS_URL", "description": "Optional XRPL node websocket URL" }

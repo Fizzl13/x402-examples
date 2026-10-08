@@ -233,6 +233,21 @@ client.register("xrpl:*", new ExactXrplScheme(xrpl)); // x402 payments in RLUSD,
 
 `network` is `"xrpl:0"` (mainnet) or `"xrpl:1"` (testnet). The check itself is still paid on Base (or with credits).
 
+## Algorand (USDC)
+
+`algorandSigner` guards an Algorand signer for x402's AVM client (`@x402/avm`). In an x402 payment group the agent signs one transaction: its USDC transfer to the seller (the seller's facilitator signs and pays the fee transaction). The guarded signer signs only that: an asset transfer of USDC (ASA 31566704 on mainnet, 10458941 on testnet) from the agent's own address, with no close-out, rekey or clawback. It counts toward your `USDC` limit, and pause stops it. Anything else is refused with `unsupported_chain`.
+
+```js
+import { toClientAvmSigner } from "@x402/avm";
+import { ExactAvmScheme } from "@x402/avm/exact/client";
+
+const guarded = guardWallet(walletClient, { pay, limits: { tokens: { USDC: { perDay: "5" } } } });
+const algo = guarded.algorandSigner(toClientAvmSigner(process.env.AVM_PRIVATE_KEY), { network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=" });
+client.register("algorand:*", new ExactAvmScheme(algo)); // x402 payments in USDC on Algorand, within limits
+```
+
+`network` is the mainnet id above (default) or `"algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="` (testnet). The account must be opted in to USDC. Algorand transfers aren't sent to presign-guard (it checks EVM and XRPL); the local rules above are the check.
+
 ## MPP sessions on Tempo
 
 `tempoSessionAccount(account)` gives a guarded viem account to pay MPP **sessions** (TIP-1034) with mppx's session client: the agent opens a payment channel once and pays each call with a signed voucher, no transaction per call.
