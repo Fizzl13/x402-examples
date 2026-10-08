@@ -1,7 +1,7 @@
 {
   "name": "presign-guard-wallet-mcp",
-  "version": "0.13.0",
-  "description": "An MCP server that gives AI agents (Claude, Cursor, …) a wallet with spending limits: pay x402 and MPP APIs (Base, Tempo and RLUSD on the XRP Ledger) and send USDC, every signature checked by presign-guard (Tempo: a local USDC.e-only check), approval on your phone over the limit.",
+  "version": "0.13.1",
+  "description": "An MCP server that gives AI agents (Claude, Cursor, …) a wallet with spending limits: pay x402 and MPP APIs (USDC on Base, USDC.e on Tempo incl. sessions, RLUSD on the XRP Ledger, USDC on Algorand) and send USDC, every payment checked by presign-guard or a local check, approval on your phone over the limit.",
   "mcpName": "io.github.Fizzl13/presign-guard-wallet",
   "type": "module",
   "bin": {

@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Fizzl13/presign-guard-wallet",
   "title": "presign-guard wallet",
-  "description": "Agent wallet with spending limits: pays x402 and MPP APIs (Base, Tempo), phone approval over limit.",
-  "version": "0.13.0",
+  "description": "Agent wallet with limits: pays x402/MPP on Base, Tempo, XRP Ledger and Algorand; phone approval.",
+  "version": "0.13.1",
   "repository": {
     "url": "https://github.com/Fizzl13/x402-examples",
     "source": "github",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "presign-guard-wallet-mcp",
-      "version": "0.13.0",
+      "version": "0.13.1",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "AGENT_KEY", "description": "Private key of the agent's own wallet (a separate wallet holding only what the agent may spend)", "isRequired": true, "isSecret": true },
