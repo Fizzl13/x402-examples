@@ -19,6 +19,6 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
-      - run: sudo apt-get install -y -qq redis-server
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq redis-server
       - run: npm ci
       - run: npm test
