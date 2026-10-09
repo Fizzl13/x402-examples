@@ -610,3 +610,28 @@ test("MPP sessions: off by default, MPP_SESSION_DEPOSIT turns them on with a clo
   const status = JSON.parse((await call("wallet_status")).text);
   assert.deepEqual(status.mppSessions, { depositPerTopUp: "0.5 USDC.e", open: [] });
 });
+
+test("without AGENT_KEY the server starts in setup mode: tools listed, each explains the setup, nothing signed", async () => {
+  const { spawn } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const transport = new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL("../server.js", import.meta.url))], env: { PATH: process.env.PATH }, stderr: "ignore" });
+  const client = new Client({ name: "glama-like", version: "1" });
+  await client.connect(transport);
+  try {
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "send_usdc", "send_native", "pause_spending"]);
+    const out = await client.callTool({ name: "send_usdc", arguments: { to: "0x6B0F4651eD42893ab58139938175E4a69f175F25", amount: "1" } });
+    assert.equal(out.isError, true);
+    assert.match(out.content[0].text, /No wallet yet: set AGENT_KEY/);
+  } finally {
+    await client.close();
+  }
+  // A malformed key is still a hard error, not setup mode.
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../server.js", import.meta.url))], { env: { PATH: process.env.PATH, AGENT_KEY: "0x12" }, stdio: ["ignore", "ignore", "pipe"] });
+  let err = "";
+  child.stderr.on("data", (d) => { err += d; });
+  const code = await new Promise((r) => child.on("exit", r));
+  assert.equal(code, 1);
+  assert.match(err, /AGENT_KEY must be/);
+});

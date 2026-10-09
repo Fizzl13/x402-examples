@@ -23,7 +23,7 @@ import { sessionManager, createJsonChannelStore } from "mppx/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.13.1";
+export const VERSION = "0.13.2";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -683,6 +683,28 @@ function result(fn) {
       const why = blocked ? `Not done (${blocked.code}): ${blocked.message}` : guardText ? `Not done: ${guardText}` : `Failed: ${err.message}`;
       return { isError: true, content: [{ type: "text", text: why }] };
     }
+  };
+}
+
+export const SETUP_MESSAGE = "No wallet yet: set AGENT_KEY (the agent wallet's private key, 0x + 64 hex, a separate wallet with only what the agent may spend) in this MCP server's environment and restart it. See https://www.npmjs.com/package/presign-guard-wallet-mcp";
+
+/**
+ * A stand-in wallet for when AGENT_KEY is not set: the server still starts and
+ * lists its tools (so MCP clients and directories such as Glama can inspect it),
+ * and every tool answers with how to set the wallet up. Nothing can be signed.
+ */
+export function setupWallet() {
+  const notSetUp = () => { throw new Error(SETUP_MESSAGE); };
+  return {
+    address: null,
+    sessionsOn: false,
+    status: notSetUp,
+    findServices: notSetUp,
+    payX402: notSetUp,
+    sendUsdc: notSetUp,
+    sendNative: notSetUp,
+    pause: notSetUp,
+    closeSessions: notSetUp,
   };
 }
 

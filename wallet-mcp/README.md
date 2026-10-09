@@ -98,7 +98,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 
 | Variable | |
 |---|---|
-| `AGENT_KEY` | **required**: private key of the agent's own wallet |
+| `AGENT_KEY` | **required** to pay: private key of the agent's own wallet. Without it the server starts in setup mode: it lists its tools and each one answers with how to add the key (nothing can be signed) |
 | `LIMIT_USDC_PER_TX`, `LIMIT_USDC_PER_DAY` | USDC limits (payments and transfers together). Limits or a wallet server are required |
 | `LIMIT_NATIVE_PER_TX`, `LIMIT_NATIVE_PER_DAY` | limits for the native coin; without them, sending it needs approval |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | approvals on Telegram; without them, anything over a limit is refused |
