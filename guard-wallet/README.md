@@ -202,6 +202,21 @@ const wallet = guardWallet(walletClient, {
 
 If the server can't be reached the wallet stops (`limit_unavailable`); paused on the dashboard means `paused`.
 
+## Checking x402 payments against what the seller asked
+
+Wrap the x402 payment scheme with `x402Checked` and the payment requirements it pays (the `accepts` entry it chose) go along with the presign-guard check of its EIP-3009 signature. presign-guard then makes a signature that pays more than asked, someone else, another token or another chain red (`X402_AMOUNT_ABOVE_REQUIRED`, `X402_RECIPIENT_MISMATCH`, `X402_ASSET_MISMATCH`, `X402_NETWORK_MISMATCH`), and one that stays valid far longer than the seller's timeout orange (`X402_VALIDITY_TOO_LONG`), before anything is signed. It catches a hostile server or a broken client library.
+
+```js
+import { guardWallet, x402Checked } from "presign-guard-wallet";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
+
+const wallet = guardWallet(walletClient, { pay });
+const signer = { address: account.address, signTypedData: (t) => wallet.signTypedData({ account, ...t }) };
+client.register("eip155:8453", x402Checked(new ExactEvmScheme(signer)));
+```
+
+It combines with a mandate: `x402Checked(mandatePayer(scheme, mandate))`.
+
 ## Paying under a mandate
 
 A principal can give an agent a signed spending mandate ([x402 `authority` extension draft](https://github.com/x402-foundation/x402/pull/3220), `x402-mandate/1`): "spend up to CAP, to recipients in R, until T". Wrap the payment scheme with `mandatePayer` and each x402 payment is made under it: the EIP-3009 nonce becomes the binding of (mandate, paymentId), so the settled payment proves which grant it used, and the guarded wallet sends the mandate along with the check. presign-guard then makes a payment outside the mandate red (over `perPayment` or `cap`, another recipient, payer or token, expired, bad signature), before anything is signed.

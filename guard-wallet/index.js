@@ -78,7 +78,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.12.0";
+export const VERSION = "0.13.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -96,8 +96,33 @@ export class PresignBlockedError extends Error {
 // JSON with bigints as decimal strings (viem uses bigint for values and amounts).
 const toJson = (value) => JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
 
+// The x402 payment requirements being paid right now (x402Checked), so presign-guard can check that the
+// EIP-3009 signature pays exactly what the seller asked: amount, payTo, asset, network, validity.
+const x402Paying = new AsyncLocalStorage();
+function cleanRequirements(r) {
+  if (!r || typeof r !== "object") return null;
+  const out = {};
+  for (const k of ["scheme", "network", "amount", "maxAmountRequired", "asset", "payTo", "maxTimeoutSeconds"]) if (r[k] !== undefined && r[k] !== null) out[k] = typeof r[k] === "bigint" ? r[k].toString() : r[k];
+  if (r.extra && typeof r.extra === "object") out.extra = { ...(r.extra.name !== undefined && { name: r.extra.name }), ...(r.extra.version !== undefined && { version: r.extra.version }) };
+  return out;
+}
+
+/**
+ * Wrap an x402 client scheme (e.g. new ExactEvmScheme(guardedSigner)) so the payment requirements it pays go
+ * along with the presign-guard check of the EIP-3009 signature: a signature that pays more, someone else, another
+ * token or chain than the seller asked is red (X402_AMOUNT_ABOVE_REQUIRED, X402_RECIPIENT_MISMATCH, …).
+ */
+export function x402Checked(scheme) {
+  return Object.assign(Object.create(scheme), {
+    scheme: scheme.scheme ?? "exact",
+    createPaymentPayload(x402Version, requirements, ...rest) {
+      return x402Paying.run(cleanRequirements(requirements), () => scheme.createPaymentPayload(x402Version, requirements, ...rest));
+    },
+  });
+}
+
 // What presign-guard should check for a wallet call, or null for calls it does not cover.
-export function checkRequestFor(method, args, { chainId, origin } = {}) {
+export function checkRequestFor(method, args, { chainId, origin, x402 } = {}) {
   const base = { chainId, ...(origin ? { origin } : {}) };
   if (method === "sendTransaction") {
     if (!args?.to) return null; // contract deployment: nothing to screen
@@ -111,7 +136,8 @@ export function checkRequestFor(method, args, { chainId, origin } = {}) {
     const { domain, types, primaryType, message } = args;
     // A payment made by mandatePayer() (mandate.js) is checked against its mandate too.
     const under = primaryType === "TransferWithAuthorization" ? mandateFor(message?.nonce) : null;
-    return { type: "signature", ...base, typedData: { domain, types, primaryType, message }, ...(under && { mandate: { ...under.envelope, paymentId: under.paymentId } }) };
+    const paying = primaryType === "TransferWithAuthorization" && x402 ? { x402: { accepted: x402 } } : {};
+    return { type: "signature", ...base, typedData: { domain, types, primaryType, message }, ...(under && { mandate: { ...under.envelope, paymentId: under.paymentId } }), ...paying };
   }
   return null;
 }
@@ -317,7 +343,7 @@ export function guardWallet(wallet, {
       const request = tempoRequest(method, args, chainId);
       return limiter ? withinLimits(method, request, null, run) : run();
     }
-    const request = checkRequestFor(method, args, { chainId, origin });
+    const request = checkRequestFor(method, args, { chainId, origin, x402: x402Paying.getStore() });
     if (!request) {
       // A contract deployment is not checked, but the value it sends still counts.
       if (limiter && method === "sendTransaction") {
