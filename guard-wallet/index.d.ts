@@ -192,7 +192,12 @@ export interface GuardOptions {
 
 /** The same wallet client; sendTransaction, writeContract and signTypedData are checked first. */
 export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
-export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string }): CheckRequest | null;
+export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string; x402?: Record<string, unknown> }): CheckRequest | null;
+/**
+ * Wrap an x402 client scheme so the payment requirements it pays go along with the presign-guard check of its
+ * EIP-3009 signature (red when the signature pays more, someone else, another token or chain than asked).
+ */
+export function x402Checked<S extends { scheme?: string; createPaymentPayload: (...args: any[]) => Promise<unknown> }>(scheme: S): S;
 
 /** A principal's signed spending mandate (x402 `authority` extension draft, x402-mandate/1). */
 export interface MandateEnvelope {
