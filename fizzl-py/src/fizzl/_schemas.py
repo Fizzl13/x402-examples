@@ -17,6 +17,9 @@ class SignArgs(BaseModel):
     value: Optional[str] = Field(None, description="transaction: native value in wei")
     typedData: Optional[Union[dict, str]] = Field(None, description="signature: the eth_signTypedData_v4 payload")
     origin: Optional[str] = Field(None, description="the site asking for the signature or transaction, if any")
+    from_address: Optional[str] = Field(None, description="transaction: your wallet address (0x…); the transaction is then simulated, so you see what really leaves the wallet (orange HIDDEN_APPROVAL, SIMULATION_NFT_OUT, SIMULATION_FAILS)")
+    intent: Optional[str] = Field(None, max_length=500, description='what you are trying to do, in one sentence (e.g. "swap 10 USDC for ETH"); orange INTENT_MISMATCH when signing does more or something else')
+    x402: Optional[dict] = Field(None, description="signature paying an x402 challenge: the accepts entry you chose ({accepted: {scheme, network, amount, asset, payTo, maxTimeoutSeconds}}); red when the signature pays more, someone else, another token or chain")
 
 class XrplArgs(BaseModel):
     tx: dict = Field(description="The unsigned XRP Ledger transaction JSON (TransactionType, Account, ...)")

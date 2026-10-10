@@ -18,10 +18,11 @@ credits). The checks never sign, pay or move anything themselves, and a failed c
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -134,15 +135,25 @@ class Fizzl:
 
     def check_before_signing(self, type: str, chainId: int, token: Optional[str] = None, spender: Optional[str] = None,
                              amount: Optional[str] = None, to: Optional[str] = None, data: Optional[str] = None,
-                             value: Optional[str] = None, typedData: Any = None, origin: Optional[str] = None) -> dict:
+                             value: Optional[str] = None, typedData: Any = None, origin: Optional[str] = None,
+                             from_address: Optional[str] = None, intent: Optional[str] = None, x402: Optional[dict] = None) -> dict:
         """Check a transaction, token approval or signature BEFORE signing it (presign-guard, $0.01).
-        Returns verdict green / orange / red with reason codes. Never sign on red; ask the user on orange."""
+        Returns verdict green / orange / red with reason codes. Pass from_address (your wallet) with a transaction to
+        simulate it, intent to catch signing something else than you meant, and x402 (the accepts entry) when paying
+        an x402 challenge. Never sign on red; ask the user on orange."""
         if type not in ("approval", "transaction", "signature"):
             return _error("bad_input", 'type must be "approval", "transaction" or "signature"')
         if chainId not in EVM_CHAIN_IDS:
             return _error("bad_input", f"chainId must be one of {EVM_CHAIN_IDS}")
         body = {k: v for k, v in dict(type=type, chainId=chainId, token=token, spender=spender, amount=amount, to=to,
-                                      data=data, value=value, typedData=typedData, origin=origin).items() if v is not None}
+                                      data=data, value=value, typedData=typedData, origin=origin,
+                                      intent=intent, x402=x402).items() if v is not None}
+        if from_address is not None:
+            if not isinstance(from_address, str) or not re.fullmatch(r"0x[0-9a-fA-F]{40}", from_address):
+                return _error("bad_input", "from_address must be a 0x wallet address")
+            body["from"] = from_address
+        if intent is not None and len(intent) > 500:
+            return _error("bad_input", "intent must be one sentence (up to 500 characters)")
         return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_before_signing",
                              lambda: self._free_signing(body))
 

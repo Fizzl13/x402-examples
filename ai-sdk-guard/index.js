@@ -7,7 +7,7 @@
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
@@ -100,7 +100,7 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
 
   const all = {
     check_before_signing: {
-      description: `Check a transaction, token approval or signature BEFORE signing it (presign-guard, ${PRICES.check_before_signing}). Returns verdict green/orange/red with reason codes: known drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens, x402 payments to the wrong place. Never sign on red; ask the user on orange.`,
+      description: `Check a transaction, token approval or signature BEFORE signing it (presign-guard, ${PRICES.check_before_signing}). Returns verdict green/orange/red with reason codes: known drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens, x402 payments to the wrong place. Pass from (your wallet) with a transaction to simulate it, intent to catch signing something else than you meant, and x402 (the accepts entry) when paying an x402 challenge. Never sign on red; ask the user on orange.`,
       inputSchema: z.object({
         type: z.enum(["approval", "transaction", "signature"]).describe("What is about to be signed"),
         chainId: z.number().int().refine((n) => EVM_CHAIN_IDS.includes(n), "supported: 1, 10, 56, 137, 8453, 42161").describe("EVM chain id, e.g. 8453 for Base"),
@@ -112,6 +112,9 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
         value: z.string().optional().describe("transaction: native value in wei"),
         typedData: z.union([z.record(z.string(), z.any()), z.string()]).optional().describe("signature: the eth_signTypedData_v4 payload"),
         origin: z.string().optional().describe("the site asking for the signature or transaction, if any"),
+        from: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().describe("transaction: your wallet address; the transaction is then simulated, so you see what really leaves the wallet (orange HIDDEN_APPROVAL, SIMULATION_NFT_OUT, SIMULATION_FAILS)"),
+        intent: z.string().max(500).optional().describe("what you are trying to do, in one sentence (e.g. \"swap 10 USDC for ETH\"); orange INTENT_MISMATCH when signing does more or something else"),
+        x402: z.record(z.string(), z.any()).optional().describe("signature paying an x402 challenge: the accepts entry you chose ({ accepted: { scheme, network, amount, asset, payTo, maxTimeoutSeconds } }); red when the signature pays more, someone else, another token or chain"),
       }),
       execute: async (input) => orFree(await presign("/v1/check", { method: "POST", body: input }), PRICES.check_before_signing, () => freePresignCheck(fetchImpl, presignUrl, input, timeoutMs)),
     },

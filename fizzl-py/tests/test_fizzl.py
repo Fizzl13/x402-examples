@@ -121,3 +121,18 @@ def test_xrpl_transaction_and_token():
     assert f.check_xrpl_transaction(tx, network="xrpl:9")["error"] == "bad_input"
     f.check_token("xrpl", "RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De")
     assert "chain=xrpl&address=RLUSD." in s.calls[1]["url"]
+
+
+def test_check_before_signing_passes_from_intent_and_x402():
+    s = StandIn({"/v1/check": (200, {"verdict": "orange", "reasons": [{"code": "SIMULATION_FAILS"}]})})
+    f = Fizzl(session=s)
+    wallet = "0x" + "12" * 20
+    f.check_before_signing(type="transaction", chainId=8453, to="0x1", data="0x", from_address=wallet, intent="send 1 USDC to Bob")
+    body = s.calls[0]["json"]
+    assert body["from"] == wallet and body["intent"] == "send 1 USDC to Bob" and "from_address" not in body
+    accepted = {"scheme": "exact", "network": "eip155:8453", "amount": "10000"}
+    f.check_before_signing(type="signature", chainId=8453, typedData={}, x402={"accepted": accepted})
+    assert s.calls[1]["json"]["x402"] == {"accepted": accepted}
+    assert f.check_before_signing(type="transaction", chainId=8453, to="0x1", from_address="0x12")["error"] == "bad_input"
+    assert f.check_before_signing(type="transaction", chainId=8453, to="0x1", intent="x" * 501)["error"] == "bad_input"
+    assert len(s.calls) == 2

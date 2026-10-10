@@ -6,7 +6,7 @@ Five tools you add to `generateText`, `streamText` or an agent in one line:
 
 | Tool | What the agent checks | Service | Price |
 |---|---|---|---|
-| `check_before_signing` | a transaction, token approval or signature **before signing it**: green / orange / red with reason codes (drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens) | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 |
+| `check_before_signing` | a transaction, token approval or signature **before signing it**: green / orange / red with reason codes (drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens). With `from` (the agent's wallet) a transaction is simulated, so a hidden approval, an NFT leaving or a transaction that would fail shows up; with `intent` (one sentence) signing something else than meant is caught; with `x402` (the accepts entry being paid) a payment that pays more or someone else is red | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 |
 | `check_xrpl_transaction` | an **XRP Ledger** transaction before signing it: account takeover (SetRegularKey, SignerListSet, master key off), AccountDelete, fake RLUSD (red); partial payments, destinations that refuse or need a tag, risky issuers, DEX orders far below the order book or AMM price (orange) | presign-guard | $0.01 |
 | `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, and XRPL tokens as `CURRENCY.rIssuer`: clawback, freeze, transfer fee, fake RLUSD) | presign-guard | $0.01 |
 | `check_wallet_approvals` | every open approval of a wallet and which to revoke | presign-guard | $0.02 |
