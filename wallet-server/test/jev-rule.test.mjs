@@ -139,3 +139,25 @@ test("price jump: paying the same API 2× its usual price (and a cent more) give
   assert.equal(alerts.length, 1, "once a day per agent and API");
   assert.ok((await wallet.state()).events.some((e) => e.type === "price_jump"));
 });
+
+test("a stopped purchase tells the owner (with the reasons and what it was for), at most once per agent per 10 minutes", async () => {
+  const alerts = [];
+  let t = 1_000_000;
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, now: () => t, ruleChecker: createRuleChecker({ apiKey: "k", fetch: jev(0.03).fetch, log: quiet }), onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "20" } }, unknownTokens: "ask", window: "24h", rule: { text: "Only crypto market data.", mode: "stop" } });
+  const agent = await wallet.agentForKey((await wallet.addAgent("bot")).key);
+  const buy = () => wallet.reserve(agent, { method: "sendTransaction", request: req, purchase: { description: "AI image of a cat", url: "https://images.test/gen" } });
+  assert.equal((await buy()).status, "denied");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].kind, "blocked");
+  assert.match(alerts[0].text, /bot was stopped and nothing was signed: .*outside your rule/);
+  assert.match(alerts[0].text, /for: AI image of a cat · images\.test/);
+  await buy();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(alerts.length, 1, "a second stop within 10 minutes is not sent again");
+  t += 11 * 60e3;
+  await buy();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(alerts.length, 2);
+});
