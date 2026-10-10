@@ -92,6 +92,22 @@ test("XRPL: check_xrpl_transaction posts type xrpl; check_token takes chain xrpl
   assert.match(s.calls[1].url, /chain=xrpl&address=RLUSD/);
 });
 
+test("check_before_signing passes from (simulation), intent and the x402 requirements to presign-guard", async () => {
+  const s = standIn({ "/v1/check": [200, { verdict: "orange", reasons: [{ code: "SIMULATION_FAILS" }] }] });
+  const t = fizzlTools({ fetch: s.fetch });
+  const from = "0x" + "12".repeat(20);
+  const accepted = { scheme: "exact", network: "eip155:8453", amount: "10000", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", payTo: "0x" + "34".repeat(20) };
+  const input = { type: "transaction", chainId: 8453, from, to: "0x1", data: "0x", intent: "send 1 USDC to Bob" };
+  assert.equal(t.check_before_signing.inputSchema.safeParse(input).success, true);
+  await t.check_before_signing.execute(input);
+  assert.equal(s.calls[0].body.from, from);
+  assert.equal(s.calls[0].body.intent, "send 1 USDC to Bob");
+  await t.check_before_signing.execute({ type: "signature", chainId: 8453, typedData: {}, x402: { accepted } });
+  assert.deepEqual(s.calls[1].body.x402, { accepted });
+  assert.equal(t.check_before_signing.inputSchema.safeParse({ ...input, from: "0x12" }).success, false);
+  assert.equal(t.check_before_signing.inputSchema.safeParse({ ...input, intent: "x".repeat(501) }).success, false);
+});
+
 test("schemas refuse bad input before anything is paid", () => {
   const t = fizzlTools();
   assert.equal(t.check_before_signing.inputSchema.safeParse({ type: "approval", chainId: 999 }).success, false);
