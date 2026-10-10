@@ -17,13 +17,13 @@ import { toClientAvmSigner } from "@x402/avm";
 import { seedFromMnemonic } from "@algorandfoundation/algokit-utils/algo25";
 import { createPrivateKey, createPublicKey } from "node:crypto";
 import { Wallet as XrplWallet } from "xrpl";
-import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest } from "presign-guard-wallet";
+import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest, x402Checked } from "presign-guard-wallet";
 import { telegramApprover } from "presign-guard-wallet/telegram";
 import { sessionManager, createJsonChannelStore } from "mppx/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.13.2";
+export const VERSION = "0.14.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -467,7 +467,9 @@ export function createWallet(config, overrides = {}) {
       const scheme = new ExactEvmScheme(signer);
       const mandate = await currentMandate();
       // Object.create: the x402 client also asks the scheme for findDefaultAsset (spend controls).
-      client.register(`eip155:${chain.id}`, mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme);
+      // x402Checked: the requirements being paid go along with the presign-guard check, so a signature that pays
+      // more, someone else, another token or chain than the seller asked is refused before it is signed.
+      client.register(`eip155:${chain.id}`, x402Checked(mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme));
       // USDC on Algorand and RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
       if (algoSigner && !mandate) client.register(algoNet.network, overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
       if (xrplSigner && !mandate) {

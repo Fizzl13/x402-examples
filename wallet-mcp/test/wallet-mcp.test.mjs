@@ -253,6 +253,11 @@ test("pay_x402: pays the API through the guard and returns its answer", async ()
   assert.deepEqual(fake.sent, [["signTypedData", "TransferWithAuthorization"]]);
   assert.equal(net.checks.length, 1);
   assert.equal(net.checks[0].type, "signature");
+  // The requirements being paid go along (x402Checked), so presign-guard can refuse a signature that pays more or elsewhere.
+  const sent = net.checks[0].x402?.accepted;
+  assert.ok(sent, "the check carries the x402 requirements");
+  assert.equal(sent.payTo.toLowerCase(), net.paid[0].payload.authorization.to.toLowerCase());
+  assert.equal(String(sent.amount), String(net.paid[0].payload.authorization.value));
 });
 
 test("pay_x402: a price above the cap is not paid", async () => {
