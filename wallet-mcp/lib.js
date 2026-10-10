@@ -23,7 +23,7 @@ import { sessionManager, createJsonChannelStore } from "mppx/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.14.0";
+export const VERSION = "0.15.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
