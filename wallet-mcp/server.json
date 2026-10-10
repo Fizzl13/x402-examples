@@ -3,7 +3,7 @@
   "name": "io.github.Fizzl13/presign-guard-wallet",
   "title": "presign-guard wallet",
   "description": "Agent wallet with limits: pays x402/MPP on Base, Tempo, XRP Ledger and Algorand; phone approval.",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "repository": {
     "url": "https://github.com/Fizzl13/x402-examples",
     "source": "github",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "presign-guard-wallet-mcp",
-      "version": "0.13.2",
+      "version": "0.14.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "AGENT_KEY", "description": "Private key of the agent's own wallet (a separate wallet holding only what the agent may spend)", "isRequired": true, "isSecret": true },
