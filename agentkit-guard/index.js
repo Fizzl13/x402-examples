@@ -24,7 +24,7 @@ import { z } from "zod";
 import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
 
 export { PresignBlockedError };
-export const VERSION = "0.1.1";
+export const VERSION = "0.2.0";
 
 const SIGN_ONLY = Symbol("signOnly");
 
@@ -41,6 +41,8 @@ export function guardWalletProvider(provider, { allowRawSign = false, allowUngua
   // The small wallet shape presign-guard-wallet guards.
   const inner = {
     get chain() { return { id: Number(provider.getNetwork().chainId) }; },
+    // The sending address goes with each transaction check, so presign-guard simulates it.
+    get account() { try { return { address: provider.getAddress() }; } catch { return undefined; } },
     sendTransaction: (args) => (args?.[SIGN_ONLY] ? provider.signTransaction(strip(args)) : provider.sendTransaction(args)),
     signTypedData: (typedData) => provider.signTypedData(typedData),
   };

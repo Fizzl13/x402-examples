@@ -68,7 +68,10 @@ test("green transactions are checked, then signed by the real provider", async (
   assert.equal(calls.length, 1);
   assert.equal(calls[0].type, "transaction");
   assert.equal(calls[0].chainId, 8453);
+  assert.equal(calls[0].from, inner.getAddress()); // so presign-guard simulates it
   assert.deepEqual(inner.signed, [["sendTransaction", USDC_BASE, 0n]]);
+  await wallet.signTypedData(permit(SHOP));
+  assert.equal(calls[1].from, undefined);
 });
 
 test("red is never signed, and the agent gets the reason", async () => {

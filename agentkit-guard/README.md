@@ -123,6 +123,8 @@ All options of [presign-guard-wallet](https://github.com/Fizzl13/x402-examples/t
 | `signMessage` | sign-in messages | not checked (plain text, no spending) |
 | reads (`getBalance`, `readContract`, …) | | passed through |
 
+Transactions are checked with the wallet's address, so presign-guard also simulates them: an approval the call doesn't show (`HIDDEN_APPROVAL`, e.g. inside a swap router), an NFT leaving the wallet (`SIMULATION_NFT_OUT`) or a transaction that would fail (`SIMULATION_FAILS`) is orange and, by default, not signed.
+
 Only EVM wallets are covered (Ethereum, Base, Optimism, Arbitrum, Polygon and BNB Chain). Solana providers are refused.
 
 ## The agent's own actions
