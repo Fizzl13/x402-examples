@@ -78,7 +78,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.13.0";
+export const VERSION = "0.14.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -121,16 +121,25 @@ export function x402Checked(scheme) {
   });
 }
 
-// What presign-guard should check for a wallet call, or null for calls it does not cover.
-export function checkRequestFor(method, args, { chainId, origin, x402 } = {}) {
+// The wallet a transaction is sent from: the call's account, else the client's.
+function senderOf(args, client) {
+  const a = args?.account ?? client?.account;
+  const address = typeof a === "string" ? a : a?.address;
+  return typeof address === "string" && /^0x[0-9a-fA-F]{40}$/.test(address) ? address : null;
+}
+
+// What presign-guard should check for a wallet call, or null for calls it does not cover. With `from` (the
+// sending wallet) presign-guard simulates a transaction and reports what really leaves the wallet.
+export function checkRequestFor(method, args, { chainId, origin, x402, from } = {}) {
   const base = { chainId, ...(origin ? { origin } : {}) };
+  const sender = from ? { from } : {};
   if (method === "sendTransaction") {
     if (!args?.to) return null; // contract deployment: nothing to screen
-    return { type: "transaction", ...base, to: args.to, data: args.data ?? "0x", value: String(args.value ?? 0n) };
+    return { type: "transaction", ...base, ...sender, to: args.to, data: args.data ?? "0x", value: String(args.value ?? 0n) };
   }
   if (method === "writeContract") {
     const data = encodeFunctionData({ abi: args.abi, functionName: args.functionName, args: args.args });
-    return { type: "transaction", ...base, to: args.address, data, value: String(args.value ?? 0n) };
+    return { type: "transaction", ...base, ...sender, to: args.address, data, value: String(args.value ?? 0n) };
   }
   if (method === "signTypedData") {
     const { domain, types, primaryType, message } = args;
@@ -343,7 +352,7 @@ export function guardWallet(wallet, {
       const request = tempoRequest(method, args, chainId);
       return limiter ? withinLimits(method, request, null, run) : run();
     }
-    const request = checkRequestFor(method, args, { chainId, origin, x402: x402Paying.getStore() });
+    const request = checkRequestFor(method, args, { chainId, origin, x402: x402Paying.getStore(), from: senderOf(args, target) });
     if (!request) {
       // A contract deployment is not checked, but the value it sends still counts.
       if (limiter && method === "sendTransaction") {

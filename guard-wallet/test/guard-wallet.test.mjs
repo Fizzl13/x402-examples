@@ -44,11 +44,27 @@ test("green: the transaction is checked (signed verdict for exactly this request
   const seen = [];
   const hash = await make(w, { onVerdict: (v, info) => seen.push([v.verdict, info.method]) }).sendTransaction({ to: SPENDER, data: "0x", value: 5n });
   assert.equal(hash, "0xtx");
-  assert.deepEqual(w.log.checks[0].input, { type: "transaction", chainId: 8453, to: SPENDER, data: "0x", value: "5" });
+  assert.deepEqual(w.log.checks[0].input, { type: "transaction", chainId: 8453, from: "0x2222222222222222222222222222222222222222", to: SPENDER, data: "0x", value: "5" });
   assert.match(w.log.checks[0].url, /presign-guard\.fizzl\.eu\/v1\/check$/);
   assert.match(w.log.checks[0].ua, /^presign-guard-wallet\//);
   assert.equal(w.log.signed.length, 1);
   assert.deepEqual(seen, [["green", "sendTransaction"]]);
+});
+
+test("from: the sending wallet goes with a transaction check (so presign-guard simulates it), not with a signature", async () => {
+  const w = world();
+  const g = make(w);
+  const other = "0x3333333333333333333333333333333333333333";
+  await g.sendTransaction({ account: other, to: SPENDER, data: "0x" });
+  await g.writeContract({ account: { address: other, type: "local" }, address: TOKEN, abi: parseAbi(["function transfer(address to, uint256 amount)"]), functionName: "transfer", args: [SPENDER, 1n] });
+  await g.signTypedData({ domain: { name: "X", chainId: 8453 }, types: { M: [{ name: "a", type: "uint256" }] }, primaryType: "M", message: { a: 1n } }).catch(() => {});
+  assert.equal(w.log.checks[0].input.from, other);
+  assert.equal(w.log.checks[1].input.from, other);
+  assert.equal(w.log.checks[2]?.input.from, undefined);
+  const bare = world();
+  delete bare.wallet.account;
+  await make(bare).sendTransaction({ to: SPENDER, data: "0x" });
+  assert.equal("from" in bare.log.checks[0].input, false);
 });
 
 test("red: throws PresignBlockedError with the reasons; nothing is signed", async () => {
