@@ -25,7 +25,7 @@ export interface PresignVerdict {
 
 /** What is sent to presign-guard's POST /v1/check. */
 export type CheckRequest =
-  | { type: "transaction"; chainId: number; to: string; data: string; value: string; origin?: string }
+  | { type: "transaction"; chainId: number; to: string; data: string; value: string; origin?: string; from?: string }
   | { type: "signature"; chainId: number; typedData: unknown; origin?: string };
 
 export declare class PresignBlockedError extends Error {
@@ -192,7 +192,7 @@ export interface GuardOptions {
 
 /** The same wallet client; sendTransaction, writeContract and signTypedData are checked first. */
 export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
-export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string; x402?: Record<string, unknown> }): CheckRequest | null;
+export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string; x402?: Record<string, unknown>; from?: string }): CheckRequest | null;
 /**
  * Wrap an x402 client scheme so the payment requirements it pays go along with the presign-guard check of its
  * EIP-3009 signature (red when the signature pays more, someone else, another token or chain than asked).

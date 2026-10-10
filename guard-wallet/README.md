@@ -14,6 +14,8 @@ On top of that it can keep to **spending limits** you set per token (per transac
 
 presign-guard decodes approvals, `increaseAllowance`, `setApprovalForAll`, EIP-2612 and Permit2 permits, EIP-3009 transfer authorizations (what an x402 payment signs) and Seaport orders, and screens every spender, recipient and token: known drainers and phishing addresses, sanctions, unlimited approvals to a plain wallet, honeypot tokens, unverified or brand-new contracts, and, with `origin`, new or lookalike domains and phishing sites. See the [reason codes](https://github.com/Fizzl13/presign-guard#reason-codes).
 
+Transactions are also **simulated**: the wallet sends its own address along (`from`), and presign-guard runs the transaction against the latest block to see what really leaves the wallet, also inside routers, multicalls and batches. An approval the call doesn't show (`HIDDEN_APPROVAL`), an NFT leaving the wallet (`SIMULATION_NFT_OUT`) or a transaction that would fail (`SIMULATION_FAILS`) is orange, so with the default `onOrange: "stop"` nothing is signed.
+
 > **Just want an agent that pays within limits, with approvals on your phone?** The hosted [Fizzl Agent Wallet](https://wallet.fizzl.eu/?ref=readme) wraps this library in an MCP server for Claude, Cursor and other MCP clients: sign in, add an agent, copy its setup. No code needed.
 
 ## Install
