@@ -80,6 +80,18 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     return used;
   }
   async function log(type, fields) { await store.addEvent({ at: now(), type, ...fields }); }
+  // A purchase stopped by a hard rule (the agent's mandate, a "stop" spending rule) is not signed and asks no one,
+  // so the owner hears about it here, with the reasons the agent got. At most once per agent per 10 minutes, so a
+  // looping agent doesn't flood the owner's phone. In the background: the agent gets its answer at once.
+  const lastBlocked = new Map(); // agent id -> time of the last message
+  function tellBlocked(agent, summary, purchase) {
+    const last = lastBlocked.get(agent.id) ?? 0;
+    if (now() - last < 10 * 60e3) return;
+    lastBlocked.set(agent.id, now());
+    const what = [purchase?.description, hostOf(purchase?.url)].filter(Boolean).join(" · ");
+    const text = `⛔ ${agent.name} was stopped and nothing was signed: ${summary}${what ? `\nfor: ${what}` : ""}\n\nIf this purchase was fine, change the agent's mandate or spending rule on the dashboard.`;
+    Promise.resolve(onAlert({ kind: "blocked", purchaseId: null, text, agent: agent.name })).catch((err) => console.warn(`[blocked] ${err.message}`));
+  }
 
   // A verdict counts only with presign-guard's valid signature over exactly this request.
   function trustedVerdict(verdict, request) {
@@ -242,6 +254,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       const summary = result.reasons.map((r) => r.message).join("; ");
       if (result.hardStop) {
         await log("blocked", { agent: agent.name, method, summary, what: purchase?.description ?? purchase?.url ?? null });
+        tellBlocked(agent, summary, purchase);
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "blocked", verdict: trusted?.verdict ?? "none", why: result.reasons.map((r) => r.code).filter(Boolean).join(",") || undefined } });
         return { status: "denied", reasons: result.reasons, summary };
       }
