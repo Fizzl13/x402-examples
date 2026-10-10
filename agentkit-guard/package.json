@@ -1,6 +1,6 @@
 {
   "name": "presign-guard-agentkit",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Spending limits and phone approvals for Coinbase AgentKit agents: wraps the wallet provider so every transfer, swap, approval, permit and x402 payment is checked by presign-guard, kept to per-token limits, and sent to you for approval over the limit.",
   "type": "module",
   "exports": {
@@ -14,7 +14,7 @@
   "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "scripts": { "test": "node --test test/*.test.mjs", "demo": "node example/demo.mjs" },
-  "dependencies": { "presign-guard-wallet": "^0.5.0" },
+  "dependencies": { "presign-guard-wallet": "^0.14.0" },
   "peerDependencies": { "@coinbase/agentkit": ">=0.10.0", "zod": "^3.22.0 || ^4.0.0" },
   "devDependencies": { "@coinbase/agentkit": "^0.10.4", "zod": "^3.25.0" },
   "keywords": ["agentkit", "coinbase", "x402", "agents", "wallet", "security", "presign", "spending-limits", "budget", "approvals", "telegram", "human-in-the-loop", "usdc", "permit2"],
