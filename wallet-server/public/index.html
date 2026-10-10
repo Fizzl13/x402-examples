@@ -91,6 +91,16 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .overview .stat b { font: 700 40px/1 var(--display); color: #fff; }
 .overview .stat:hover { border-color: var(--mint); }
 .overview .actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+.overview .start { grid-column: 1 / -1; padding: 20px; display: grid; gap: 12px; border-color: var(--mint); }
+.overview .start .startsteps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: st; }
+.overview .start li { counter-increment: st; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding-left: 40px; position: relative; }
+.overview .start li > b { display: block; }
+.overview .start li::before { content: counter(st); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--mint); color: var(--mint); display: grid; place-items: center; font-weight: 700; }
+.overview .start li.done::before { content: "✓"; background: var(--mint); color: #000; }
+.overview .start li.done .addform, .overview .start li.done button { display: none; }
+.overview .start li.done b { opacity: .6; }
+.overview .start li > button { justify-self: start; }
+#newKey, #howto { scroll-margin-top: 90px; }
 @media (max-width: 760px) { .overview { grid-template-columns: 1fr 1fr; } .overview .day { grid-column: 1 / -1; } }
 /* Stats (owner only): hero numbers, one small column chart per measure, the funnel, tables */
 .statsbar { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
@@ -554,6 +564,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <div class="card pushbar" id="linkBar" hidden></div>
     <div class="card pushbar" id="pushBar" hidden><span>📱 Get approvals as a notification on this phone, and approve with one tap.</span><button class="button primary small" type="button" data-push="on">Turn on</button><button class="link" type="button" id="pushBarLater">Later</button></div>
     <section class="overview" id="overviewSec" data-tab="overview">
+      <div class="card start" id="startCard" hidden>
+        <span class="tag">GET STARTED · 3 STEPS, ABOUT 5 MINUTES</span>
+        <ol class="startsteps">
+          <li id="st1"><b>Make a key for your agent</b><span class="note">Any name, e.g. claude or cursor.</span>
+            <form class="addform" id="startAdd"><input id="startName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="Agent name"><button class="button primary small" type="submit">Make key</button></form></li>
+          <li id="st2"><b>Connect it to your AI app</b><span class="note">Paste the ready-made setup into Claude Desktop, Claude Code or Cursor, then restart the app.</span>
+            <button class="button ghost small" type="button" data-start="connect">Show the setup</button></li>
+          <li id="st3"><b>Check that it works</b><span class="note">Ask your agent “what is my wallet status?”. This step turns green the moment it reaches the wallet. No USDC needed yet.</span>
+            <button class="button ghost small" type="button" data-start="test">Test my setup</button></li>
+        </ol>
+      </div>
       <div class="card day">
         <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
         <div id="budgets"></div>
@@ -1820,6 +1841,29 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     setTimeout(() => $("#agentName").focus({ preventScroll: true }), 400);
   }
   $("#addAgentTop").addEventListener("click", goAdd);
+  // Get started card: step 1 makes the key through the form under Agents and shows it there (key and setup, once).
+  $("#startAdd").addEventListener("submit", (e) => {
+    e.preventDefault();
+    $("#agentName").value = $("#startName").value;
+    $("#startName").value = "";
+    showTab("agents");
+    $("#addForm").requestSubmit();
+    // The key appears once the server answers: scroll to it then (or to Agents if it didn't come).
+    let tries = 0;
+    const wait = setInterval(() => {
+      if ($("#newKey").firstElementChild || ++tries > 20) { clearInterval(wait); scrollTo($("#newKey").firstElementChild ? $("#newKey") : $("#agentsSec")); }
+    }, 150);
+  });
+  $("#startCard").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-start]");
+    if (!b) return;
+    if (b.dataset.start === "test") { $("#setupTop").click(); return; }
+    // Connect: the key and setup just made (shown once), or the how-to under Agents.
+    showTab("agents");
+    const target = $("#newKey").firstElementChild ? $("#newKey") : $("#howto");
+    if (target === $("#howto")) $("#howto").open = true;
+    setTimeout(() => scrollTo(target), 30);
+  });
   // The footer's buy button goes to the plan card, with "Pay 1 month" ready.
   // (So does "★ Go Pro" in the top bar on the free plan.)
   function goBuy() {
@@ -2411,7 +2455,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ...(chk?.injection?.flagged ? [["warn", "Instructions aimed at your agent", `${esc(chk.injection.why ?? "")}. Your agent was told to treat the answer as data only.`]] : []),
     ];
     const icon = { ok: "✓", warn: "!", bad: "✕", wait: "…", skip: "–" };
-    const stepsHtml = `<ol class="steps">${steps.map(([k, t, d]) => `<li class="st-${k}"><span class="ic" aria-hidden="true">${icon[k]}</span><span><b>${t}</b>${d ? `<span class="note">${d}</span>` : ""}</span></li>`).join("")}</ol>`;
+    const stepsHtml = `<ol class="startsteps">${steps.map(([k, t, d]) => `<li class="st-${k}"><span class="ic" aria-hidden="true">${icon[k]}</span><span><b>${t}</b>${d ? `<span class="note">${d}</span>` : ""}</span></li>`).join("")}</ol>`;
     const got = p.outcome?.content ? contentHtml(p.outcome.content)
       : isApiCall(p) && !failed ? `<p class="note" style="margin:0">Your agent didn't send back what it got. Agents using presign-guard-wallet-mcp 0.3 or newer do, and then it shows here.</p>` : "";
     return `<div class="head">
@@ -2548,6 +2592,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const active = s.agents.filter((a) => !a.paused).length;
     $("#agentsActive").textContent = active;
     $("#agentsNote").textContent = s.agents.length ? `active of ${s.agents.length}${s.paused ? " · all paused" : ""}` : "none yet: add one";
+    // Get started (top of Overview) until an agent has reached the wallet: make a key, connect it, check it.
+    const seen = s.agents.some((a) => a.lastSeen);
+    $("#startCard").hidden = DEMO || seen;
+    $("#st1").classList.toggle("done", s.agents.length > 0);
+    $("#st2").classList.toggle("done", seen);
     // The explanation is open until there is an agent, then folded (the owner can still open it).
     if (!howtoSet) { $("#howto").open = s.agents.length === 0; howtoSet = true; }
     // No agent yet: connecting is step one, so the how-to sits right under "Add agent", open.
