@@ -18,7 +18,7 @@ function standIn(answers) {
   return { fetch, calls };
 }
 
-test("seven LangChain tools with name, description and schema; `only` picks, unknown names throw", () => {
+test("eight LangChain tools with name, description and schema; `only` picks, unknown names throw", () => {
   const tools = fizzlTools({ fetch: async () => new Response("{}") });
   assert.deepEqual(tools.map((t) => t.name).sort(), Object.keys(PRICES).sort());
   for (const t of tools) { assert.match(t.description, /\$0\.0/); assert.ok(t.schema); assert.equal(typeof t.invoke, "function"); }
@@ -31,7 +31,8 @@ test("calls the right API with credit keys and its own user agent, answers JSON 
     "/v1/check": [200, { verdict: "red", reasons: [{ code: "known_drainer" }], receipt: { signature: "0x…" } }],
     "/api/v1/preflight": [200, { verdict: "caution" }],
   });
-  const [signing, , , , , , endpoint] = fizzlTools({ fetch: s.fetch, creditKeys: { presign: "pk", doctor: "dk" } });
+  const byName = Object.fromEntries(fizzlTools({ fetch: s.fetch, creditKeys: { presign: "pk", doctor: "dk" } }).map((t) => [t.name, t]));
+  const signing = byName.check_before_signing, endpoint = byName.check_endpoint_before_paying;
   const out = await signing.invoke({ type: "approval", chainId: 8453, token: "0xa", spender: "0xb", amount: "1" });
   assert.equal(typeof out, "string");
   assert.deepEqual(JSON.parse(out), { verdict: "red", reasons: [{ code: "known_drainer" }] });
@@ -81,6 +82,16 @@ test("works inside a LangGraph agent", async () => {
   const { messages } = await agent.invoke({ messages: [{ role: "user", content: "Is BONK safe to buy?" }] });
   assert.match(s.calls[0].url, /\/v1\/token\?chain=solana&address=Dez/);
   assert.equal(messages.at(-1).content, "The check says: orange");
+});
+
+test("check_algorand_transaction reaches presign-guard as type algorand, one transaction or a group", async () => {
+  const s = standIn({ "/v1/check": [200, { verdict: "red", reasons: [{ code: "ALGORAND_REKEY" }] }] });
+  const tools = Object.fromEntries(fizzlTools({ fetch: s.fetch, creditKeys: { presign: "pk" } }).map((t) => [t.name, t]));
+  const transaction = "iqNhbXTOAA9CQKNmZWXNA+iiZnbOAAAD6KNnZW6sbWFpbm5ldC12MS4w";
+  assert.equal(JSON.parse(await tools.check_algorand_transaction.invoke({ transaction })).verdict, "red");
+  await tools.check_algorand_transaction.invoke({ transactions: [transaction, transaction] });
+  assert.deepEqual(s.calls.map((c) => c.body), [{ type: "algorand", transaction }, { type: "algorand", transactions: [transaction, transaction] }]);
+  await assert.rejects(() => tools.check_algorand_transaction.invoke({}), "one of transaction or transactions");
 });
 
 test("check_solana_transaction and check_message reach presign-guard as type solana and type message", async () => {
