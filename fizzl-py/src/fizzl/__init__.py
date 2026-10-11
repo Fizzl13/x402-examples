@@ -22,7 +22,7 @@ import re
 from typing import Any, List, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -38,7 +38,7 @@ PRICES = {
     "check_endpoint_before_paying": "$0.001",
 }
 EVM_CHAIN_IDS = (1, 10, 56, 137, 8453, 42161)
-TOKEN_CHAINS = ("solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl")
+TOKEN_CHAINS = ("solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl", "algorand")
 APPROVAL_CHAINS = ("base", "ethereum", "arbitrum", "optimism", "polygon", "bsc")
 
 
@@ -242,10 +242,12 @@ class Fizzl:
 
     def check_token(self, chain: str, address: str) -> dict:
         """Check a token BEFORE buying, holding or accepting it (presign-guard, $0.01): honeypot, rug-pull
-        signs, look-alikes of known tokens. Solana, EVM chains, and XRPL tokens as CURRENCY.rIssuer (issuer
-        clawback, freeze, transfer fee, fake RLUSD)."""
+        signs, look-alikes of known tokens. Solana, EVM chains, XRPL tokens as CURRENCY.rIssuer (issuer
+        clawback, freeze, transfer fee, fake RLUSD) and Algorand assets by id (fake USDC, clawback, default-frozen)."""
         if chain not in TOKEN_CHAINS:
             return _error("bad_input", f"chain must be one of {TOKEN_CHAINS}")
+        if chain == "algorand" and not re.fullmatch(r"[1-9]\d{0,19}", str(address)):
+            return _error("bad_input", "address must be the Algorand asset id, e.g. 31566704")
         q = urlencode({"chain": chain, "address": address})
         return self._or_free(self._call("presign", "GET", f"{self.presign_url}/v1/token?{q}"), "check_token",
                              lambda: self._free("GET", f"{self.presign_url}/v1/token/quick?{q}"))
