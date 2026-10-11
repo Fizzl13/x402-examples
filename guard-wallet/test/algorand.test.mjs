@@ -84,3 +84,71 @@ test("algorandSigner on testnet: testnet USDC (10458941) is the stablecoin there
   await signer.signTransactions(group(axfer({ asset: 10458941n })), [1]);
   await assert.rejects(signer.signTransactions(group(axfer()), [1]), /not USDC/);
 });
+
+// algorandSigner with any: other transactions and groups go to presign-guard (type algorand) first. A fake
+// presign-guard answers with a signed verdict; the signer is the real AVM client signer.
+import { privateKeyToAccount as presignAccount } from "viem/accounts";
+import { canonicalJson, inputHash } from "x402-safe-fetch";
+
+const presignKey = presignAccount(generatePrivateKey());
+async function signedVerdict(body, input) {
+  const route = "POST /v1/check";
+  const receipt = { request_id: "a1", route, input_sha256: inputHash(route, input), signed_at: "2026-10-11T18:00:00.000Z", signer: presignKey.address, algorithm: "eip191-canonical-json-v1" };
+  return { ...body, receipt: { ...receipt, signature: await presignKey.signMessage({ message: canonicalJson({ ...body, receipt }) }) } };
+}
+function anyGuard({ verdict = "green", reasons = [], limits, network = MAIN, subjectNetwork = network } = {}) {
+  const checks = [];
+  const pay = async (_url, init) => {
+    const input = JSON.parse(init.body);
+    checks.push(input);
+    return Response.json(await signedVerdict({ version: "2", verdict, reasons, subject: { kind: "algorand_transaction", network: subjectNetwork, wallet: agent.address }, checkedAt: "2026-10-11T18:00:00.000Z" }, input));
+  };
+  const w = { chain: { id: 8453 }, account: privateKeyToAccount(generatePrivateKey()), signTypedData: async () => "0x" };
+  const guard = guardWallet(w, { pay, signers: [presignKey.address], ...(limits && { limits }) });
+  return { guard, checks, signer: guard.algorandSigner(toClientAvmSigner(agent.b64), { network, any: true }) };
+}
+const algoPay = (amount, o = {}) => encodeTransactionRaw(pay({ from: agent.address, to: shop.address, amount, fee: 1000n, ...o }));
+
+test("algorandSigner any: an ALGO payment is checked by presign-guard (the whole group, from this account) and counts toward ALGO", async () => {
+  const { guard, checks, signer } = anyGuard({ limits: { tokens: { ALGO: { perTx: "5", perDay: "6" } } } });
+  const signed = await signer.signTransactions([algoPay(4_000_000n)]);
+  assert.ok(signed[0] instanceof Uint8Array);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].type, "algorand");
+  assert.equal(checks[0].from, agent.address);
+  assert.equal(checks[0].transactions.length, 1);
+  const [row] = await guard.spending();
+  assert.deepEqual([row.token, row.used], ["ALGO", "4"]);
+  await assert.rejects(signer.signTransactions([algoPay(3_000_000n)]), { code: "over_limit" }, "4 + 3 is over the 6 ALGO day limit");
+});
+
+test("algorandSigner any: a group signs only this account's transactions; USDC sent counts toward USDC, other assets are asked about", async () => {
+  const { guard, checks, signer } = anyGuard({ limits: { tokens: { USDC: { perTx: "1" } } } });
+  const txns = groupTransactions([pay(), axfer({ amount: 300_000n }), pay({ from: shop.address, to: agent.address, amount: 5n })]).map((x) => encodeTransactionRaw(x));
+  const signed = await signer.signTransactions(txns);
+  assert.equal(signed[0], null);
+  assert.ok(signed[1] instanceof Uint8Array);
+  assert.equal(signed[2], null, "the other accounts' transactions are theirs to sign");
+  assert.equal(checks[0].transactions.length, 3, "presign-guard sees the whole group");
+  assert.equal((await guard.spending())[0].used, "0.3");
+  await assert.rejects(signer.signTransactions([encodeTransactionRaw(axfer({ asset: 777n, amount: 5n }))]), { code: "over_limit" }, "an asset without a limit");
+});
+
+test("algorandSigner any: red and an unapproved orange are never signed; a rekey or close counts as unknown; other networks and other senders are refused", async () => {
+  const red = anyGuard({ verdict: "red", reasons: [{ code: "ALGORAND_REKEY", severity: "red" }] });
+  await assert.rejects(red.signer.signTransactions([algoPay(1n)]), { code: "red" });
+  const orange = anyGuard({ verdict: "orange", reasons: [{ code: "ALGORAND_APP_CLEAR_STATE", severity: "orange" }] });
+  await assert.rejects(orange.signer.signTransactions([algoPay(1n)]), { code: "orange" });
+  // If a human lets an orange through, a close-out still can't be counted: unknown spending, asked about.
+  const close = anyGuard({ limits: { tokens: { USDC: { perTx: "1" } } } });
+  await assert.rejects(close.signer.signTransactions([encodeTransactionRaw(axfer({ amount: 0n, to: agent.address, close: shop.address }))]), { code: "over_limit" });
+  const wrongNet = anyGuard({ subjectNetwork: TEST });
+  await assert.rejects(wrongNet.signer.signTransactions([algoPay(1n)]), (err) => err.code === "unsupported_chain" && /not algorand:wGHE/.test(err.message));
+  const other = anyGuard();
+  await assert.rejects(other.signer.signTransactions([encodeTransactionRaw(pay({ from: shop.address, to: agent.address, amount: 1n }))]), { code: "unsupported_chain" });
+  assert.equal(other.checks.length, 0, "nothing of ours to sign: no check is paid");
+  // A plain x402 USDC payment still takes the local path: no presign-guard call.
+  const x = anyGuard({ limits: { tokens: { USDC: { perTx: "1" } } } });
+  await x.signer.signTransactions(group(axfer({ amount: 10_000n })), [1]);
+  assert.equal(x.checks.length, 0);
+});

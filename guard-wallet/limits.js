@@ -44,8 +44,8 @@ const USDC = {
   4217: [["0x20c000000000000000000000b9537d11c60e8b50", 6]],
   42431: [["0x20c0000000000000000000000000000000000000", 6]],
 };
-const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])) };
-export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP", "SOL"];
+const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])), ...Object.fromEntries(Object.keys(ALGORAND_USDC).map((n) => [n, "ALGO"])) };
+export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP", "SOL", "ALGO"];
 
 // XRP Ledger networks and the RLUSD issuer on each (Ripple's).
 export const XRPL_RLUSD_ISSUERS = { "xrpl:0": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", "xrpl:1": "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
@@ -103,6 +103,8 @@ export function normalizeLimits(limits) {
       for (const net of Object.keys(XRPL_RLUSD_ISSUERS)) put(`${net}:${NATIVE}`, { budget: name, decimals: 6 });
     } else if (symbol === "SOL") {
       for (const net of Object.keys(SOLANA_USDC)) put(`${net}:${NATIVE}`, { budget: name, decimals: 9 });
+    } else if (symbol === "ALGO") {
+      for (const net of Object.keys(ALGORAND_USDC)) put(`${net}:${NATIVE}`, { budget: name, decimals: 6 });
     } else if (["ETH", "BNB", "POL"].includes(symbol)) {
       for (const [chain, s] of Object.entries(NATIVE_SYMBOL)) if (s === symbol) put(`${chain}:${NATIVE}`, { budget: name, decimals: 18 });
     } else {
@@ -190,9 +192,26 @@ function xrplSpend(request, out) {
 }
 
 // An Algorand asset transfer (read from the unsigned transaction by algorandSigner): the asset, amount and receiver.
-// Anything else (a payment in ALGO, a close-out, a rekey, a clawback) can't be counted and is unknown.
+// Anything else (a payment in ALGO, a close-out, a rekey, a clawback) can't be counted and is unknown. With any, a
+// group of this account's transactions: ALGO paid and assets sent; a close-out, rekey or clawback is unknown.
 function algorandSpend(request, out) {
   const net = request.network;
+  if (Array.isArray(request.group)) {
+    const digits = (v) => /^\d+$/.test(String(v ?? ""));
+    for (const t of request.group) {
+      const to = typeof t.receiver === "string" ? t.receiver : null;
+      if (t.rekeyTo || t.closeTo || t.clawbackFrom) { out.unknown = true; out.counterparties.push(t.rekeyTo ?? t.closeTo ?? t.clawbackFrom); continue; }
+      if (t.type === "pay") {
+        if (!digits(t.amount)) { out.unknown = true; continue; }
+        if (BigInt(t.amount) > 0n && to !== t.sender) { out.items.push({ chainId: net, token: NATIVE, amount: BigInt(t.amount), to }); out.counterparties.push(to); }
+      } else if (t.type === "axfer") {
+        if (!digits(t.amount) || !digits(t.assetId)) { out.unknown = true; continue; }
+        if (BigInt(t.amount) > 0n && to !== t.sender) { out.items.push({ chainId: net, token: String(t.assetId), amount: BigInt(t.amount), to }); out.counterparties.push(to); }
+      }
+      // App calls, asset config and freeze, key registration: they move nothing out of this account by themselves.
+    }
+    return out;
+  }
   const t = request.txn ?? {};
   const to = typeof t.receiver === "string" ? lower(t.receiver) : null;
   out.counterparties.push(to);

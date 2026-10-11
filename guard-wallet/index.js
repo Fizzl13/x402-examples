@@ -39,7 +39,9 @@
 //
 // Algorand: algorandSigner(signer) wraps an x402 AVM client signer (toClientAvmSigner from @x402/avm). It
 // signs only an asset transfer of USDC from that account (no close-out, rekey or clawback), checked here
-// (presign-guard doesn't cover Algorand) and counted toward the USDC limits.
+// and counted toward the USDC limits. With { any: true } it also signs other transactions and groups, each
+// checked by presign-guard first (type "algorand": rekeys, closes, clawbacks, fake USDC, simulated); what
+// the account's own transactions send counts toward the limits (ALGO toward ALGO, USDC toward USDC).
 //
 // XRP Ledger: xrplSigner(signer) wraps an XRPL signer ({ classicAddress, sign(tx) },
 // e.g. createXrplWalletSigner from @x402/xrpl) the same way. It signs only
@@ -79,7 +81,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.17.1";
+export const VERSION = "0.18.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -292,7 +294,7 @@ export function guardWallet(wallet, {
 
   // The verdict for a request, or null when the check could not be done and onError is "allow".
   async function verdictFor(method, request, chainId) {
-    if (request.type !== "message" && request.type !== "solana" && !SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
+    if (request.type !== "message" && request.type !== "solana" && request.type !== "algorand" && !SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
       if (onError === "allow") return null;
       throw new PresignBlockedError(`chain ${chainId} is not covered by presign-guard; nothing was signed`, { code: "unsupported_chain", request });
     }
@@ -396,11 +398,15 @@ export function guardWallet(wallet, {
     return limiter ? withinLimits("signXrplPayment", request, verdict, run) : run();
   }
 
-  // Algorand: sign only a USDC transfer from this address, within the limits (Algorand is not covered by presign-guard).
-  async function algorandSign(signer, network, txns, indexesToSign) {
+  // Algorand: sign only a USDC transfer from this address, within the limits (checked here, no presign-guard
+  // call); with any, anything else goes to presign-guard first (algorandSignAny).
+  async function algorandSign(signer, network, txns, indexesToSign, any) {
     if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
     const mine = (indexesToSign ?? txns.map((_, i) => i)).filter((i) => Number.isInteger(i) && i >= 0 && i < txns.length);
-    if (mine.length !== 1) throw new PresignBlockedError(`on Algorand this wallet signs one USDC transfer per payment (asked for ${mine.length}); nothing was signed`, { code: "unsupported_chain" });
+    if (mine.length !== 1) {
+      if (any) return algorandSignAny(signer, network, txns, indexesToSign);
+      throw new PresignBlockedError(`on Algorand this wallet signs one USDC transfer per payment (asked for ${mine.length}); nothing was signed`, { code: "unsupported_chain" });
+    }
     let t;
     try { t = readAlgorandTxn(txns[mine[0]]); } catch (err) { throw new PresignBlockedError(`could not read the Algorand transaction (${err.message}); nothing was signed`, { code: "unsupported_chain" }); }
     const usdc = ALGORAND_USDC[network];
@@ -412,10 +418,34 @@ export function guardWallet(wallet, {
       : t.clawbackFrom ? "it is a clawback"
       : !t.receiver ? "it has no receiver"
       : null;
+    if (why && any) return algorandSignAny(signer, network, txns, indexesToSign);
     if (why) throw new PresignBlockedError(`on Algorand this wallet only sends USDC: ${why}; nothing was signed`, { code: "unsupported_chain" });
     const request = { type: "algorand", network, txn: { type: t.type, sender: t.sender, receiver: t.receiver, amount: String(t.amount), assetId: String(t.assetId) }, ...(origin ? { origin } : {}) };
     const run = () => signer.signTransactions(txns, mine);
     return limiter ? withinLimits("signAlgorandTransfer", request, null, run) : run();
+  }
+
+  // Any other Algorand transaction or group (algorandSigner with any): the whole group goes to presign-guard (type
+  // "algorand", which also simulates it); red is never signed. What this account's own transactions send, read
+  // from the transactions themselves, counts toward the limits.
+  async function algorandSignAny(signer, network, txns, indexesToSign) {
+    let read;
+    try { read = txns.map((b) => readAlgorandTxn(b)); } catch (err) {
+      throw new PresignBlockedError(`could not read the Algorand transactions (${err.message}); nothing was signed`, { code: "unsupported_chain" });
+    }
+    const mine = indexesToSign ?? read.flatMap((t, i) => (t.sender === signer.address ? [i] : []));
+    if (!mine.length || mine.some((i) => !Number.isInteger(i) || i < 0 || i >= txns.length || read[i].sender !== signer.address)) {
+      throw new PresignBlockedError("on Algorand this wallet signs only transactions sent from its own account; nothing was signed", { code: "unsupported_chain" });
+    }
+    const request = { type: "algorand", transactions: txns.map((b) => Buffer.from(b).toString("base64")), from: signer.address, ...(origin ? { origin } : {}) };
+    const verdict = await verdictFor("signAlgorandTransaction", request, network);
+    if (verdict?.subject?.network && verdict.subject.network !== network) {
+      throw new PresignBlockedError(`the transactions are for ${verdict.subject.network}, not ${network}; nothing was signed`, { code: "unsupported_chain", verdict, request });
+    }
+    const str = (v) => (v === null || v === undefined ? null : String(v));
+    const group = mine.map((i) => read[i]).map((t) => ({ type: t.type, sender: t.sender, receiver: t.receiver, amount: str(t.amount), assetId: str(t.assetId), closeTo: t.closeTo, rekeyTo: t.rekeyTo, clawbackFrom: t.clawbackFrom }));
+    const run = () => signer.signTransactions(txns, mine);
+    return limiter ? withinLimits("signAlgorandTransaction", { type: "algorand", network, from: signer.address, group }, verdict, run) : run();
   }
 
   // Solana: sign only an x402 payment (one USDC TransferChecked from this account, compute-budget settings and a
@@ -502,7 +532,9 @@ export function guardWallet(wallet, {
      * toClientAvmSigner from @x402/avm): of the transactions it is asked to sign it signs only an asset transfer
      * of USDC on that network from this address (no close-out, rekey or clawback), counted toward the USDC limit.
      * The facilitator's fee-payer transaction in the same group is not this signer's and is left unsigned.
-     * network: the x402 id of Algorand mainnet (default) or testnet.
+     * network: the x402 id of Algorand mainnet (default) or testnet. any: also sign other transactions and
+     * groups (payments in ALGO, asset transfers, app calls), each group checked by presign-guard first; what
+     * this account's transactions send counts toward the limits (ALGO toward ALGO, USDC toward USDC).
      */
     /**
      * The same guard on a Solana signer for x402's SVM client (a @solana/kit TransactionPartialSigner, e.g.
@@ -516,10 +548,10 @@ export function guardWallet(wallet, {
       if (!SOLANA_USDC[network]) throw new TypeError(`solanaSigner: network must be one of ${Object.keys(SOLANA_USDC).join(", ")}`);
       return { address: signer.address, signTransactions: (transactions, config) => solanaSign(signer, network, transactions, config, any === true) };
     },
-    algorandSigner: (signer, { network = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=" } = {}) => {
+    algorandSigner: (signer, { network = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", any = false } = {}) => {
       if (!signer || typeof signer.signTransactions !== "function" || typeof signer.address !== "string") throw new TypeError("algorandSigner(signer): signer needs address and signTransactions(txns, indexesToSign) (e.g. toClientAvmSigner from @x402/avm)");
       if (!ALGORAND_USDC[network]) throw new TypeError(`algorandSigner: network must be one of ${Object.keys(ALGORAND_USDC).join(", ")}`);
-      return { address: signer.address, signTransactions: (txns, indexesToSign) => algorandSign(signer, network, txns, indexesToSign) };
+      return { address: signer.address, signTransactions: (txns, indexesToSign) => algorandSign(signer, network, txns, indexesToSign, any === true) };
     },
     /** Stop every checked method until resume(). */
     pause: () => { paused = true; },
