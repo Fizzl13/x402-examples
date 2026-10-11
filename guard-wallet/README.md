@@ -250,7 +250,7 @@ const xrpl = guarded.xrplSigner(createXrplWalletSigner(Wallet.fromSeed(process.e
 client.register("xrpl:*", new ExactXrplScheme(xrpl)); // x402 payments in RLUSD, checked and within limits
 ```
 
-`network` is `"xrpl:0"` (mainnet) or `"xrpl:1"` (testnet). The check itself is still paid on Base (or with credits).
+`network` is `"xrpl:0"` (mainnet) or `"xrpl:1"` (testnet). The check itself is paid through `pay` (Base, Solana, XRPL or Algorand, whatever your x402 client can pay) or with credits.
 
 ## Algorand (USDC)
 
@@ -281,7 +281,7 @@ const sol = guarded.solanaSigner(keypair); // mainnet; { network: "solana:EtWTRA
 client.register("solana:*", new ExactSvmScheme(sol)); // x402 payments in USDC on Solana, checked and within limits
 ```
 
-The check itself is still paid on Base (or with credits).
+The check itself is paid through `pay`, which can pay it in USDC on Solana too (or with credits).
 
 **Other Solana transactions.** With `{ any: true }` the signer also signs transfers, swaps and other transactions, for an agent that does more than pay x402 APIs (an AgentKit Solana wallet, for example). Each one is checked by presign-guard first: every instruction is read and the transaction is simulated, so a token account handed to someone else is red, and a hidden owner or delegate change is orange. What the simulation shows leaving the wallet counts toward your limits: SOL beyond the network fee toward a `SOL` limit, USDC toward `USDC`. Without a complete simulation the spending counts as unknown, so it goes to `onOverLimit`.
 

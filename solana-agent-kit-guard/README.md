@@ -10,7 +10,7 @@ Wrap your agent's wallet in one line. Every transaction it signs then goes throu
 - **Over the limit, it waits for you.** You get a Telegram message with Approve / Deny, or decide on the [wallet server](https://github.com/Fizzl13/x402-examples/tree/main/wallet-server) dashboard. No answer means no signature.
 - **Nothing is signed when something fails.** If the check can't be done or the simulation is incomplete, the spending counts as unknown and goes to you.
 
-The key stays in your wallet. This package only decides whether a signature is allowed. Each check costs $0.01, paid in USDC on Base over x402 or from prepaid credits.
+The key stays in your wallet. This package only decides whether a signature is allowed. Each check costs $0.01, paid in USDC on Solana or Base over x402, or from prepaid credits.
 
 ## Install
 
@@ -28,14 +28,31 @@ import { guardSolanaWallet, GuardPlugin } from "presign-guard-solana-agent-kit";
 import { telegramApprover } from "presign-guard-wallet/telegram";
 
 const rpcUrl = process.env.RPC_URL;
-const wallet = guardSolanaWallet(new KeypairWallet(Keypair.fromSecretKey(secretKey), rpcUrl), {
-  pay,     // an x402-paying fetch for the $0.01 checks (wrapFetchWithPayment from @x402/fetch), or creditKey
+const keypair = Keypair.fromSecretKey(secretKey);
+const wallet = guardSolanaWallet(new KeypairWallet(keypair, rpcUrl), {
+  pay,     // an x402-paying fetch for the $0.01 checks (below), or creditKey
   limits: { tokens: { SOL: { perTx: "0.1", perDay: "0.5" }, USDC: { perTx: "5", perDay: "20" } } },
   onOverLimit: telegramApprover({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
 });
 
 const agent = new SolanaAgentKit(wallet, rpcUrl, {}).use(TokenPlugin).use(GuardPlugin);
 ```
+
+### Paying the checks on Solana
+
+`pay` is a fetch that pays x402. The checks accept USDC on Solana, so the agent's own Solana account can pay them. It is not guarded itself: guarding the check would check the check, and the spend cap keeps it small.
+
+```js
+import { createKeyPairSignerFromBytes } from "@solana/kit";
+import { wrapFetchWithPayment, x402Client } from "@x402/fetch";
+import { ExactSvmScheme } from "@x402/svm/exact/client";
+
+const checkPayer = new x402Client().setSpendControls({ maxAmountPerPayment: "$0.05" });
+checkPayer.register("solana:*", new ExactSvmScheme(await createKeyPairSignerFromBytes(keypair.secretKey)));
+const pay = wrapFetchWithPayment(fetch, checkPayer);
+```
+
+Or buy prepaid credits once (100 checks for $0.80) and pass `creditKey` instead.
 
 A refused transaction throws `PresignBlockedError` with a `code`: `red`, `orange`, `over_limit`, `paused`, `check_failed` or `unchecked`. The action fails with that message, so the agent can tell the user why.
 
