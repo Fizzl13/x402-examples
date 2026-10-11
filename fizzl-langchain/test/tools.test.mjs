@@ -18,7 +18,7 @@ function standIn(answers) {
   return { fetch, calls };
 }
 
-test("eight LangChain tools with name, description and schema; `only` picks, unknown names throw", () => {
+test("nine LangChain tools with name, description and schema; `only` picks, unknown names throw", () => {
   const tools = fizzlTools({ fetch: async () => new Response("{}") });
   assert.deepEqual(tools.map((t) => t.name).sort(), Object.keys(PRICES).sort());
   for (const t of tools) { assert.match(t.description, /\$0\.0/); assert.ok(t.schema); assert.equal(typeof t.invoke, "function"); }
@@ -54,6 +54,17 @@ test("unpaid: the free quick check answers with a note; failures come back as { 
   assert.deepEqual(JSON.parse(await tools.check_wallet_approvals.invoke({ chain: "base", address: "0x6B0F4651eD42893ab58139938175E4a69f175F25" })), { error: "http_500", message: "boom" });
   const [down] = fizzlTools({ fetch: async () => { throw new TypeError("fetch failed"); }, only: ["check_endpoint_before_paying"] });
   assert.deepEqual(JSON.parse(await down.invoke({ url: "https://a.example" })), { error: "check_failed", message: "TypeError: fetch failed" });
+});
+
+test("screen_wallet: an address to /v1/screen with its own user agent; a bad address is refused before any call", async () => {
+  const s = standIn({ "/v1/screen": [200, { verdict: "red", one_liner: "AVOID: on the OFAC SDN list (X)", receipt: {} }] });
+  const [screen] = fizzlTools({ fetch: s.fetch, only: ["screen_wallet"] });
+  assert.match(screen.description, /OFAC/);
+  assert.deepEqual(JSON.parse(await screen.invoke({ address: "TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81" })), { verdict: "red", one_liner: "AVOID: on the OFAC SDN list (X)" });
+  assert.equal(s.calls[0].url, "https://presign-guard.fizzl.eu/v1/screen?address=TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81");
+  assert.equal(s.calls[0].headers["user-agent"], `fizzl-langchain/${VERSION}`);
+  await assert.rejects(screen.invoke({ address: "0x12" }));
+  assert.equal(s.calls.length, 1);
 });
 
 test("bad input from the model is refused before any call", async () => {

@@ -1,6 +1,6 @@
 // Fizzl safety checks as LangChain.js tools, for LangChain and LangGraph agents: check a transaction or
-// signature before signing, a token before buying, a wallet's open approvals, and an x402 endpoint before
-// paying it. Each tool calls a paid Fizzl API (presign-guard or x402 Doctor) through the fetch you pass: an
+// signature before signing, a token before buying, a wallet's open approvals, a wallet against the OFAC
+// sanctions list, and an x402 endpoint before paying it. Each tool calls a paid Fizzl API (presign-guard or x402 Doctor) through the fetch you pass: an
 // x402-paying fetch (@x402/fetch) or prepaid credit keys. Without either, the free quick check answers
 // (the verdict only, a few per hour).
 //
@@ -9,7 +9,7 @@
 import { tool } from "@langchain/core/tools";
 import { fizzlTools as checks, PRICES, PRESIGN_URL, DOCTOR_URL } from "presign-guard-ai-sdk";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 export { PRICES, PRESIGN_URL, DOCTOR_URL };
 
 // The same checks as presign-guard-ai-sdk; only the user agent says where the call came from.
@@ -22,7 +22,7 @@ function withUserAgent(fetchImpl) {
  * @param {object} [options]
  * @param {typeof fetch} [options.fetch] fetch that pays x402 (wrapFetchWithPayment from @x402/fetch); plain fetch works with credit keys
  * @param {{ presign?: string, doctor?: string }} [options.creditKeys] prepaid credit keys (x-credit-key) per service
- * @param {string[]} [options.only] the tool names to include (default: all eight)
+ * @param {string[]} [options.only] the tool names to include (default: all nine)
  * @param {boolean} [options.free] fall back to the free quick checks when a check can't be paid (default true)
  * @param {string} [options.presignUrl] @param {string} [options.doctorUrl] @param {number} [options.timeoutMs]
  */
