@@ -56,6 +56,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { mandateFor } from "./mandate.js";
 import { ALGORAND_USDC, readAlgorandTxn } from "./algorand.js";
+import { SOLANA_USDC, readSolanaPayment, wireTransaction } from "./solana.js";
 export { ALGORAND_USDC } from "./algorand.js";
 export { mandatePayer, mandateDigest, mandateBinding } from "./mandate.js";
 export { memoryStore };
@@ -78,7 +79,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.15.0";
+export const VERSION = "0.16.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -291,7 +292,7 @@ export function guardWallet(wallet, {
 
   // The verdict for a request, or null when the check could not be done and onError is "allow".
   async function verdictFor(method, request, chainId) {
-    if (request.type !== "message" && !SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
+    if (request.type !== "message" && request.type !== "solana" && !SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
       if (onError === "allow") return null;
       throw new PresignBlockedError(`chain ${chainId} is not covered by presign-guard; nothing was signed`, { code: "unsupported_chain", request });
     }
@@ -417,6 +418,25 @@ export function guardWallet(wallet, {
     return limiter ? withinLimits("signAlgorandTransfer", request, null, run) : run();
   }
 
+  // Solana: sign only an x402 payment (one USDC TransferChecked from this account, compute-budget settings and a
+  // memo), each checked by presign-guard (decoded and simulated) and counted toward the USDC limit.
+  async function solanaSign(signer, network, transactions, config) {
+    const out = [];
+    for (const tx of transactions) {
+      if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
+      let payment;
+      try { payment = readSolanaPayment(tx.messageBytes, signer.address, network); } catch (err) {
+        throw new PresignBlockedError(`on Solana this wallet only signs x402 USDC payments: ${err.message}; nothing was signed`, { code: "unsupported_chain" });
+      }
+      const request = { type: "solana", transaction: wireTransaction(tx.messageBytes, payment.numSigners), from: signer.address, ...(origin ? { origin } : {}) };
+      const verdict = await verdictFor("signSolanaTransfer", request, network);
+      const run = async () => (await signer.signTransactions([tx], config))[0];
+      const spend = { type: "solana", network, transfer: { mint: payment.mint, amount: String(payment.amount), destination: payment.destination } };
+      out.push(await (limiter ? withinLimits("signSolanaTransfer", spend, verdict, run) : run()));
+    }
+    return out;
+  }
+
   const extras = {
     /**
      * The same guard on an XRP Ledger signer ({ classicAddress, sign(tx) }, e.g. createXrplWalletSigner
@@ -469,6 +489,17 @@ export function guardWallet(wallet, {
      * The facilitator's fee-payer transaction in the same group is not this signer's and is left unsigned.
      * network: the x402 id of Algorand mainnet (default) or testnet.
      */
+    /**
+     * The same guard on a Solana signer for x402's SVM client (a @solana/kit TransactionPartialSigner, e.g.
+     * createKeyPairSignerFromBytes): it signs only an x402 payment (one USDC TransferChecked from this account),
+     * checked by presign-guard (decoded and simulated) and counted toward the USDC limit. network: mainnet
+     * (default) or devnet, as x402 CAIP-2 ids.
+     */
+    solanaSigner: (signer, { network = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" } = {}) => {
+      if (!signer || typeof signer.signTransactions !== "function" || typeof signer.address !== "string") throw new TypeError("solanaSigner(signer): signer needs address and signTransactions(transactions) (a @solana/kit TransactionPartialSigner, e.g. createKeyPairSignerFromBytes)");
+      if (!SOLANA_USDC[network]) throw new TypeError(`solanaSigner: network must be one of ${Object.keys(SOLANA_USDC).join(", ")}`);
+      return { address: signer.address, signTransactions: (transactions, config) => solanaSign(signer, network, transactions, config) };
+    },
     algorandSigner: (signer, { network = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=" } = {}) => {
       if (!signer || typeof signer.signTransactions !== "function" || typeof signer.address !== "string") throw new TypeError("algorandSigner(signer): signer needs address and signTransactions(txns, indexesToSign) (e.g. toClientAvmSigner from @x402/avm)");
       if (!ALGORAND_USDC[network]) throw new TypeError(`algorandSigner: network must be one of ${Object.keys(ALGORAND_USDC).join(", ")}`);

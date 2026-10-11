@@ -266,6 +266,22 @@ client.register("algorand:*", new ExactAvmScheme(algo)); // x402 payments in USD
 
 `network` is the mainnet id above (default) or `"algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="` (testnet). The account must be opted in to USDC. Algorand transfers aren't sent to presign-guard (it checks EVM and XRPL); the local rules above are the check.
 
+## Solana (USDC)
+
+`solanaSigner` guards a Solana signer for x402's SVM client (`@x402/svm`). An x402 payment on Solana is one transaction: compute-budget settings, one USDC `TransferChecked` from the agent's account to the seller, and a memo (the seller's facilitator pays the fee). The guarded signer signs only that shape, with USDC as the token and the agent as the transfer's authority. Before it signs, presign-guard checks the transaction (`type: "solana"`): it reads every instruction and simulates it, so a hidden owner change or delegate is caught. The payment counts toward your `USDC` limit, and pause stops it. Anything else is refused with `unsupported_chain` before any check is paid.
+
+```js
+import { createKeyPairSignerFromBytes, getBase58Encoder } from "@solana/kit";
+import { ExactSvmScheme } from "@x402/svm/exact/client";
+
+const guarded = guardWallet(walletClient, { pay, limits: { tokens: { USDC: { perDay: "5" } } } });
+const keypair = await createKeyPairSignerFromBytes(getBase58Encoder().encode(process.env.SVM_PRIVATE_KEY));
+const sol = guarded.solanaSigner(keypair); // mainnet; { network: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" } for devnet
+client.register("solana:*", new ExactSvmScheme(sol)); // x402 payments in USDC on Solana, checked and within limits
+```
+
+The check itself is still paid on Base (or with credits).
+
 ## MPP sessions on Tempo
 
 `tempoSessionAccount(account)` gives a guarded viem account to pay MPP **sessions** (TIP-1034) with mppx's session client: the agent opens a payment channel once and pays each call with a signed voucher, no transaction per call.
