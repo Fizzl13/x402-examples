@@ -133,7 +133,7 @@ EVM wallets on Ethereum, Base, Optimism, Arbitrum, Polygon and BNB Chain are cov
 
 ```js
 const walletProvider = guardWalletProvider(await SolanaKeypairWalletProvider.fromNetwork("solana-mainnet", process.env.SOLANA_PRIVATE_KEY), {
-  pay, // the checks are paid in USDC on Base (or creditKey)
+  pay, // pays the $0.01 checks over x402, in USDC on Base or Solana (or creditKey)
   limits: { tokens: { SOL: { perTx: "0.1", perDay: "0.5" }, USDC: { perDay: "5" } } },
   onOverLimit,
 });
