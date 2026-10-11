@@ -53,6 +53,7 @@ def test_failures_come_back_as_error_dicts():
     assert Fizzl(session=StandIn(ConnectionError("down"))).check_endpoint_before_paying("https://a.example") == {"error": "check_failed", "message": "ConnectionError: down"}
     assert f.check_before_signing(type="approval", chainId=999)["error"] == "bad_input"
     assert f.check_token("dogechain", "x")["error"] == "bad_input"
+    assert f.check_token("algorand", "ALGO")["error"] == "bad_input"
 
 
 def test_free_fallback_when_unpaid_and_off_with_free_false():

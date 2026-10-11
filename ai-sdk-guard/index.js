@@ -7,7 +7,7 @@
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.6.1";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_solana_transaction: "$0.01", check_algorand_transaction: "$0.01", check_message: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
@@ -170,11 +170,11 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
       },
     },
     check_token: {
-      description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana, EVM chains and the XRP Ledger (issuer clawback, freeze, transfer fee, fake RLUSD).`,
+      description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana, EVM chains, the XRP Ledger (issuer clawback, freeze, transfer fee, fake RLUSD) and Algorand (fake USDC, clawback, default-frozen, holders).`,
       inputSchema: z.object({
-        chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl"]),
-        address: z.string().min(20).describe("Solana mint (base58), EVM token contract (0x…), or an XRPL token as CURRENCY.rIssuer (e.g. RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De)"),
-      }),
+        chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl", "algorand"]),
+        address: z.string().min(1).max(80).describe("Solana mint (base58), EVM token contract (0x…), an XRPL token as CURRENCY.rIssuer (e.g. RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De), or an Algorand asset id (e.g. 31566704)"),
+      }).refine(({ chain, address }) => (chain === "algorand" ? /^[1-9]\d{0,19}$/.test(address) : address.length >= 20), "address doesn't fit the chain (Algorand: the asset id; elsewhere a full address)"),
       execute: async ({ chain, address }) => orFree(await presign(`/v1/token?${new URLSearchParams({ chain, address })}`, {}), PRICES.check_token, () => freeTokenCheck(fetchImpl, presignUrl, { chain, address }, timeoutMs)),
     },
     check_wallet_approvals: {

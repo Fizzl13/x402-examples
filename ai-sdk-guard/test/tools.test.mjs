@@ -81,6 +81,18 @@ test("free fallback: unpaid checks answer with the free quick check, marked free
   assert.equal((await off.check_token.execute({ chain: "base", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" })).error, "payment_required");
 });
 
+test("check_token takes chain algorand with an asset id; other chains still need a full address", async () => {
+  const s = standIn({ "/v1/token": [200, { verdict: "green", grade: "SAFE" }] });
+  const t = fizzlTools({ fetch: s.fetch });
+  await t.check_token.execute({ chain: "algorand", address: "31566704" });
+  assert.match(s.calls[0].url, /\/v1\/token\?chain=algorand&address=31566704$/);
+  const schema = t.check_token.inputSchema;
+  assert.equal(schema.safeParse({ chain: "algorand", address: "312769" }).success, true);
+  assert.equal(schema.safeParse({ chain: "algorand", address: "ALGO" }).success, false);
+  assert.equal(schema.safeParse({ chain: "algorand", address: "0" }).success, false);
+  assert.equal(schema.safeParse({ chain: "base", address: "31566704" }).success, false, "a short address on an EVM chain");
+});
+
 test("XRPL: check_xrpl_transaction posts type xrpl; check_token takes chain xrpl", async () => {
   const s = standIn({ "/v1/check": [200, { verdict: "red", reasons: [{ code: "XRPL_REGULAR_KEY_CHANGE" }] }], "/v1/token": [200, { verdict: "green" }] });
   const t = fizzlTools({ fetch: s.fetch });

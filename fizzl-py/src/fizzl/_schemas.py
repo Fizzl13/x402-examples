@@ -50,8 +50,8 @@ class MessageArgs(BaseModel):
 
 
 class TokenArgs(BaseModel):
-    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl"]
-    address: str = Field(description="Solana mint (base58), EVM token contract (0x…), or an XRPL token as CURRENCY.rIssuer")
+    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl", "algorand"]
+    address: str = Field(description="Solana mint (base58), EVM token contract (0x…), an XRPL token as CURRENCY.rIssuer, or an Algorand asset id (e.g. 31566704)")
 
 class ApprovalArgs(BaseModel):
     chain: Literal["base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]
