@@ -42,17 +42,17 @@ function tx(ixs) {
 }
 const x402Payment = (opts) => tx([computeLimit(), transferChecked(opts), memo()]);
 
-function setup({ verdict = "green", reasons = [], limits } = {}) {
+function setup({ verdict = "green", reasons = [], limits, simulation, any = false } = {}) {
   const checks = [];
   const signedTxs = [];
   const pay = async (_url, init) => {
     const input = JSON.parse(init.body);
     checks.push(input);
-    return Response.json(await signed({ version: "2", verdict, reasons, checkedAt: "2026-10-11T10:00:00.000Z" }, input));
+    return Response.json(await signed({ version: "2", verdict, reasons, ...(simulation && { simulation }), checkedAt: "2026-10-11T10:00:00.000Z" }, input));
   };
   const guard = guardWallet({ chain: { id: 8453 } }, { pay, signers: [presignKey.address], ...(limits && { limits }) });
   const inner = { address: OWNER, signTransactions: async (txs) => { signedTxs.push(...txs); return txs.map(() => ({ [OWNER]: new Uint8Array(64).fill(7) })); } };
-  return { signer: guard.solanaSigner(inner), checks, signedTxs, guard };
+  return { signer: guard.solanaSigner(inner, { any }), checks, signedTxs, guard };
 }
 
 test("readSolanaPayment reads an x402 payment; wireTransaction gives a decodable transaction with empty signatures", () => {
@@ -107,4 +107,42 @@ test("limits: the payment counts toward USDC (6 decimals); over the limit nothin
   await assert.rejects(signer.signTransactions([x402Payment({ amount: 1000n })]), { code: "paused" });
   assert.throws(() => guard.solanaSigner({ address: OWNER }), /signTransactions/);
   assert.throws(() => guard.solanaSigner({ address: OWNER, signTransactions() {} }, { network: "solana:nope" }), /network/);
+});
+
+test("any: other transactions are checked by presign-guard; the signed simulation counts SOL (beyond the fee) and tokens", async () => {
+  const sim = (changes, extra = {}) => ({ ok: true, fee: 0.000005, changes, ...extra });
+  const solOut = (lamports) => sim([{ type: "sol", account: OWNER, change: -lamports / 1e9, lamports: String(-lamports - 5000) }]);
+  // 0.4 SOL leaves (plus the fee, which doesn't count): within a SOL limit of 0.5 per tx.
+  const ok = setup({ any: true, limits: { tokens: { SOL: { perTx: "0.5" } } }, simulation: solOut(400_000_000) });
+  await ok.signer.signTransactions([tx([systemTransfer()])]);
+  assert.equal(ok.signedTxs.length, 1);
+  assert.equal(ok.checks[0].type, "solana");
+  const [row] = await ok.guard.spending();
+  assert.deepEqual([row.token, row.used], ["SOL", "0.4"]);
+
+  const over = setup({ any: true, limits: { tokens: { SOL: { perTx: "0.5" } } }, simulation: solOut(600_000_000) });
+  await assert.rejects(over.signer.signTransactions([tx([systemTransfer()])]), { code: "over_limit" });
+  assert.equal(over.signedTxs.length, 0);
+
+  // USDC leaving counts toward USDC; a token without a limit, a delegate, or no / an incomplete simulation is asked about.
+  const usdc = setup({ any: true, limits: { tokens: { USDC: { perTx: "1" } } }, simulation: sim([{ type: "token", account: SOURCE_ATA, mint: USDC, change: -0.5, raw: "-500000", decimals: 6 }]) });
+  await usdc.signer.signTransactions([tx([systemTransfer()])]);
+  assert.equal((await usdc.guard.spending())[0].used, "0.5");
+  for (const simulation of [
+    sim([{ type: "token", account: SOURCE_ATA, mint: "So11111111111111111111111111111111111111112", change: -1, raw: "-1000000000", decimals: 9 }]),
+    sim([{ type: "delegate", account: SOURCE_ATA, mint: USDC, delegate: DEST_ATA, amount: "5" }]),
+    sim([], { partial: true }),
+    undefined,
+  ]) {
+    const s = setup({ any: true, limits: { tokens: { USDC: { perTx: "1" } } }, simulation });
+    await assert.rejects(s.signer.signTransactions([tx([systemTransfer()])]), { code: "over_limit" });
+    assert.equal(s.signedTxs.length, 0);
+  }
+
+  // Red is never signed; x402 payments still go the payment path.
+  const red = setup({ any: true, verdict: "red", reasons: [{ code: "SOLANA_ACCOUNT_ASSIGN", severity: "red" }] });
+  await assert.rejects(red.signer.signTransactions([tx([systemTransfer()])]), { code: "red" });
+  const pay = setup({ any: true, limits: { tokens: { USDC: { perTx: "1" } } } });
+  await pay.signer.signTransactions([x402Payment({ amount: 20000n })]);
+  assert.equal((await pay.guard.spending())[0].used, "0.02");
 });

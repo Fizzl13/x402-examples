@@ -157,9 +157,10 @@ export interface GuardControls {
   /**
    * A guarded Solana signer for @x402/svm (ExactSvmScheme): signs only an x402 USDC payment from this account
    * (compute budget, one TransferChecked, memo), checked by presign-guard and counted toward the USDC limits;
-   * anything else is refused.
+   * anything else is refused, unless `any`: then it is checked by presign-guard and what its simulation shows
+   * leaving the wallet counts toward the limits (SOL, USDC; other tokens as unknown).
    */
-  solanaSigner<S extends { address: string; signTransactions(txs: readonly { messageBytes: Uint8Array }[], config?: unknown): Promise<readonly Record<string, Uint8Array>[]> }>(signer: S, opts?: { network?: string }): Pick<S, "address" | "signTransactions">;
+  solanaSigner<S extends { address: string; signTransactions(txs: readonly { messageBytes: Uint8Array }[], config?: unknown): Promise<readonly Record<string, Uint8Array>[]> }>(signer: S, opts?: { network?: string; any?: boolean }): Pick<S, "address" | "signTransactions">;
   /** The same guard (checks, limits, pause, purchases) on another WalletClient, e.g. one for Tempo: both spend from one budget. */
   wrap<W extends object>(wallet: W): W & GuardControls;
 }

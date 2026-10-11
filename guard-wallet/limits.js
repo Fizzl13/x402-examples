@@ -12,6 +12,10 @@
 //   - an EIP-3009 payment or Permit2 transfer signature;
 //   - an Algorand asset transfer: USDC (ASA 31566704) counts toward the USDC limit;
 //   - a Solana USDC transfer (x402 SVM payment): counts toward the USDC limit;
+//   - any other Solana transaction (solanaSigner with any): what presign-guard's signed simulation shows
+//     leaving the wallet, SOL (beyond the network fee) toward a SOL limit, USDC toward the USDC limit,
+//     other tokens as unknown; a token delegate is over any limit, and no or an incomplete simulation
+//     counts as unknown spending;
 //   - an XRP Ledger Payment: XRP (drops) counts toward an XRP limit, RLUSD from
 //     Ripple's issuer toward the USDC limit (a dollar is a dollar), any other
 //     issued currency as an unknown token. SendMax, when set, is what can leave.
@@ -40,8 +44,8 @@ const USDC = {
   4217: [["0x20c000000000000000000000b9537d11c60e8b50", 6]],
   42431: [["0x20c0000000000000000000000000000000000000", 6]],
 };
-const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP" };
-export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP"];
+const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])) };
+export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP", "SOL"];
 
 // XRP Ledger networks and the RLUSD issuer on each (Ripple's).
 export const XRPL_RLUSD_ISSUERS = { "xrpl:0": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", "xrpl:1": "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
@@ -97,6 +101,8 @@ export function normalizeLimits(limits) {
       for (const [net, mint] of Object.entries(SOLANA_USDC)) put(`${net}:${mint}`, { budget: name, decimals: 6 });
     } else if (symbol === "XRP") {
       for (const net of Object.keys(XRPL_RLUSD_ISSUERS)) put(`${net}:${NATIVE}`, { budget: name, decimals: 6 });
+    } else if (symbol === "SOL") {
+      for (const net of Object.keys(SOLANA_USDC)) put(`${net}:${NATIVE}`, { budget: name, decimals: 9 });
     } else if (["ETH", "BNB", "POL"].includes(symbol)) {
       for (const [chain, s] of Object.entries(NATIVE_SYMBOL)) if (s === symbol) put(`${chain}:${NATIVE}`, { budget: name, decimals: 18 });
     } else {
@@ -121,7 +127,7 @@ export function spendFor(request, verdict) {
   const out = { items: [], counterparties: [], unknown: false };
   if (request.type === "xrpl") return xrplSpend(request, out);
   if (request.type === "algorand") return algorandSpend(request, out);
-  if (request.type === "solana") return solanaSpend(request, out);
+  if (request.type === "solana") return request.simulated ? solanaSimulatedSpend(request, verdict, out) : solanaSpend(request, out);
   const chainId = request.chainId;
   if (request.type === "transaction") {
     const to = lower(request.to ?? null);
@@ -201,6 +207,30 @@ function solanaSpend(request, out) {
   out.counterparties.push(typeof t.destination === "string" ? t.destination : null);
   if (typeof t.mint !== "string" || !/^\d+$/.test(String(t.amount ?? ""))) { out.unknown = true; return out; }
   out.items.push({ chainId: request.network, token: t.mint, amount: BigInt(t.amount), to: t.destination });
+  return out;
+}
+
+// Any Solana transaction: what leaves the wallet in presign-guard's signed simulation (base units).
+function solanaSimulatedSpend(request, verdict, out) {
+  const sim = verdict?.simulation;
+  out.counterparties.push(null); // no single receiver to hold against an allow list
+  if (!sim || !sim.ok || sim.partial || !Array.isArray(sim.changes)) { out.unknown = true; return out; }
+  const chainId = request.network;
+  const fee = typeof sim.fee === "number" ? BigInt(Math.round(sim.fee * 1e9)) : 0n;
+  for (const c of sim.changes) {
+    if (c.type === "sol" && c.account === request.from) {
+      if (!/^-?\d+$/.test(String(c.lamports ?? ""))) { out.unknown = true; continue; }
+      const leaving = -BigInt(c.lamports) - fee;
+      if (leaving > 0n) out.items.push({ chainId, token: NATIVE, amount: leaving, to: null });
+    } else if (c.type === "token") {
+      if (!/^-?\d+$/.test(String(c.raw ?? ""))) { out.unknown = true; continue; }
+      if (BigInt(c.raw) < 0n) out.items.push({ chainId, token: c.mint, amount: -BigInt(c.raw), to: null });
+    } else if (c.type === "delegate") {
+      out.items.push({ chainId, token: c.mint, amount: null, to: c.delegate }); // someone else may spend it later
+    } else if (c.type === "owner") {
+      out.unknown = true;
+    }
+  }
   return out;
 }
 

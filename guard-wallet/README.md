@@ -104,7 +104,7 @@ const wallet = guardWallet(walletClient, {
   limits: {
     tokens: {
       USDC: { perTx: "5", perDay: "20" },     // whole tokens; native and bridged USDC on every chain
-      ETH: { perTx: "0.002", perDay: "0.01" }, // the native coin; also BNB, POL
+      ETH: { perTx: "0.002", perDay: "0.01" }, // the native coin; also BNB, POL, XRP, SOL
       // any other token by address (any chain) or "chainId:0x…", with its decimals:
       // "8453:0x4200…0006": { perDay: "0.01", decimals: 18 },
     },
@@ -129,7 +129,8 @@ What counts as spending:
 - the native value sent with a transaction, also with a contract deployment;
 - an ERC-20 `transfer` or `transferFrom`;
 - an **allowance** (`approve`, `increaseAllowance`, Permit, Permit2): whoever gets it can spend that amount, so it counts when it is given. An unlimited allowance or `setApprovalForAll` is over any limit, and if a human approves one anyway it uses up the rest of the window. Revoking costs nothing;
-- an EIP-3009 payment or Permit2 transfer signature, read from presign-guard's signed verdict. A signature it cannot decode counts as unknown spending (`unknownTokens`).
+- an EIP-3009 payment or Permit2 transfer signature, read from presign-guard's signed verdict. A signature it cannot decode counts as unknown spending (`unknownTokens`);
+- on Solana with `solanaSigner(…, { any: true })`: what presign-guard's signed simulation shows leaving the wallet. SOL beyond the network fee counts toward `SOL`, USDC toward `USDC`, other tokens as tokens without a limit. A token delegate is over any limit, and a transaction without a complete simulation counts as unknown spending.
 
 Other contract calls (a swap that uses an allowance you already gave) spend nothing new: the allowance was counted when it was given. Budgets are shared across chains (`USDC: { perDay: "20" }` is 20 USDC in total), checked one at a time so parallel transactions cannot both fit in the last of a budget, booked before signing and given back when signing fails. A store that cannot be read stops the wallet (`limit_unavailable`).
 
@@ -281,6 +282,13 @@ client.register("solana:*", new ExactSvmScheme(sol)); // x402 payments in USDC o
 ```
 
 The check itself is still paid on Base (or with credits).
+
+**Other Solana transactions.** With `{ any: true }` the signer also signs transfers, swaps and other transactions, for an agent that does more than pay x402 APIs (an AgentKit Solana wallet, for example). Each one is checked by presign-guard first: every instruction is read and the transaction is simulated, so a token account handed to someone else is red, and a hidden owner or delegate change is orange. What the simulation shows leaving the wallet counts toward your limits: SOL beyond the network fee toward a `SOL` limit, USDC toward `USDC`. Without a complete simulation the spending counts as unknown, so it goes to `onOverLimit`.
+
+```js
+const sol = guarded.solanaSigner(keypair, { any: true });
+// limits: { tokens: { USDC: { perDay: "5" }, SOL: { perTx: "0.1", perDay: "0.5" } } }
+```
 
 ## MPP sessions on Tempo
 
