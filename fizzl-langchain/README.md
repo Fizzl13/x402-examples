@@ -4,7 +4,7 @@ Safety checks for [LangChain.js](https://js.langchain.com) and [LangGraph.js](ht
 
 Docs: [fizzl.eu/agents/langchain-js](https://fizzl.eu/agents/langchain-js/)
 
-Five LangChain tools you pass to `createAgent`, `createReactAgent` or `model.bindTools`:
+Nine LangChain tools you pass to `createAgent`, `createReactAgent` or `model.bindTools`:
 
 | Tool | What the agent checks | Service | Price |
 |---|---|---|---|
@@ -13,8 +13,9 @@ Five LangChain tools you pass to `createAgent`, `createReactAgent` or `model.bin
 | `check_solana_transaction` | a **Solana** transaction before signing it: every instruction is read and the transaction simulated. Token account takeover (SetAuthority), System Assign (red); unlimited delegates, durable nonces, closing to someone else, hidden owner or delegate changes, a failing transaction (orange) | presign-guard | $0.01 |
 | `check_message` | a plain message before `personal_sign` / `eth_sign`: eth_sign, a Sign-In with Ethereum message for another site (red); unreadable bytes, a sign-in for another URI, address or chain (orange) | presign-guard | $0.01 |
 | `check_algorand_transaction` | an **Algorand** transaction or atomic group before signing it: every transaction your account sends is read and the group simulated. Rekey to another key, closing the account or an asset holding to someone else, fake USDC (red); clawbacks, risky opt-ins, app update/delete/clear-state, a partial group, a group that would fail (orange) | presign-guard | $0.01 |
-| `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, and XRPL tokens as `CURRENCY.rIssuer`: clawback, freeze, transfer fee, fake RLUSD) | presign-guard | $0.01 |
+| `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, XRPL tokens as `CURRENCY.rIssuer`: clawback, freeze, transfer fee, fake RLUSD, and Algorand assets by id: fake USDC, clawback, default-frozen) | presign-guard | $0.01 |
 | `check_wallet_approvals` | every open approval of a wallet and which to revoke | presign-guard | $0.02 |
+| `screen_wallet` | a wallet address **before paying it or accepting money from it**: any chain's address (EVM, Solana, Tron, Bitcoin, XRPL, Algorand) against the OFAC SDN sanctions list, synced from the US Treasury, plus theft and phishing reports for EVM (red names the SDN entry) | presign-guard | $0.01 |
 | `check_endpoint_before_paying` | an x402 or MPP paid API **before paying it**: go / caution / no_go, the cheapest option that settles, budget, track record, bait signs (fake brands, airdrop lures, output that doesn't match) | [x402 Doctor](https://x402-doctor.fizzl.eu) | $0.001 |
 
 The tools only check. They never sign, pay or move anything themselves. A failed check comes back to the model as `{ "error", "message" }`, so the agent can tell the user instead of crashing. Each tool returns its answer as a JSON string.
@@ -77,7 +78,7 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 |---|---|---|
 | `fetch` | global `fetch` | An x402-paying fetch (`wrapFetchWithPayment` from `@x402/fetch`), or plain fetch with credit keys |
 | `creditKeys` | none | `{ presign, doctor }`, sent as `x-credit-key` |
-| `only` | all eight | Tool names to include |
+| `only` | all nine | Tool names to include |
 | `free` | `true` | Fall back to the free quick check (verdict only) when a check can't be paid |
 | `timeoutMs` | 30000 | Per check |
 | `presignUrl`, `doctorUrl` | the fizzl.eu services | For tests or self-hosting |
