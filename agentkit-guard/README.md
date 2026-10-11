@@ -120,12 +120,32 @@ All options of [presign-guard-wallet](https://github.com/Fizzl13/x402-examples/t
 | `toSigner()`, `toEip1193Provider()` | x402 actions, other libraries | built from the guarded methods |
 | `sign(hash)` | | **refused**: a raw hash can't be checked (`allowRawSign: true` to permit) |
 | `getClient()` | CDP swap / spend-permission actions | **refused**: the CDP client signs around the guard (`allowUnguardedClient: true` to permit) |
-| `signMessage` | sign-in messages | not checked (plain text, no spending) |
+| `signMessage` | sign-in messages | checked (a sign-in message for another site is red), no spending |
 | reads (`getBalance`, `readContract`, …) | | passed through |
 
 Transactions are checked with the wallet's address, so presign-guard also simulates them: an approval the call doesn't show (`HIDDEN_APPROVAL`, e.g. inside a swap router), an NFT leaving the wallet (`SIMULATION_NFT_OUT`) or a transaction that would fail (`SIMULATION_FAILS`) is orange and, by default, not signed.
 
-Only EVM wallets are covered (Ethereum, Base, Optimism, Arbitrum, Polygon and BNB Chain). Solana providers are refused.
+EVM wallets on Ethereum, Base, Optimism, Arbitrum, Polygon and BNB Chain are covered, and Solana wallets (below).
+
+### Solana wallets
+
+`guardWalletProvider` also takes AgentKit's Solana wallet providers (`SolanaKeypairWalletProvider`, `CdpSolanaWalletProvider`, on `solana-mainnet` or `solana-devnet`). Every transaction is checked by presign-guard before the wallet signs it: every instruction is read and the transaction is simulated, so handing a token account to someone else or a System Assign is red, and an unlimited delegate, a durable nonce or an owner or delegate change the instructions don't show is orange. What the simulation shows leaving the wallet counts toward your limits: SOL beyond the network fee toward `SOL`, USDC toward `USDC`, other tokens as tokens without a limit.
+
+```js
+const walletProvider = guardWalletProvider(await SolanaKeypairWalletProvider.fromNetwork("solana-mainnet", process.env.SOLANA_PRIVATE_KEY), {
+  pay, // the checks are paid in USDC on Base (or creditKey)
+  limits: { tokens: { SOL: { perTx: "0.1", perDay: "0.5" }, USDC: { perDay: "5" } } },
+  onOverLimit,
+});
+```
+
+| Solana wallet provider method | Used by | Guarded |
+|---|---|---|
+| `signTransaction`, `signAndSendTransaction` | SPL transfers, Jupiter swaps | checked, counts toward limits |
+| `nativeTransfer` | `walletActionProvider` | checked (rebuilt and sent through the guard) |
+| `toSigner()` | x402 actions | the guarded signer: x402 payments in USDC and other transactions, checked and counted |
+| `sendTransaction` | | passed through (it sends a transaction that is already signed) |
+| `getKeyPairSigner()`, `signMessage` | | **refused**: the raw key and Solana messages can't be checked (`allowRawSign: true` to permit) |
 
 ## The agent's own actions
 
