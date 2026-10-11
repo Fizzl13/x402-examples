@@ -11,6 +11,7 @@
 //     one or setApprovalForAll is over any limit;
 //   - an EIP-3009 payment or Permit2 transfer signature;
 //   - an Algorand asset transfer: USDC (ASA 31566704) counts toward the USDC limit;
+//   - a Solana USDC transfer (x402 SVM payment): counts toward the USDC limit;
 //   - an XRP Ledger Payment: XRP (drops) counts toward an XRP limit, RLUSD from
 //     Ripple's issuer toward the USDC limit (a dollar is a dollar), any other
 //     issued currency as an unknown token. SendMax, when set, is what can leave.
@@ -22,6 +23,7 @@
 // different decimals on different chains (USDC is 18 on BNB Chain, 6 elsewhere).
 import { decodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
 import { ALGORAND_USDC } from "./algorand.js";
+import { SOLANA_USDC } from "./solana.js";
 
 const SCALE = 18;
 const NATIVE = "native";
@@ -92,6 +94,7 @@ export function normalizeLimits(limits) {
       for (const [chain, list] of Object.entries(USDC)) for (const [addr, decimals] of list) put(`${chain}:${addr}`, { budget: name, decimals });
       for (const net of Object.keys(XRPL_RLUSD_ISSUERS)) put(`${net}:rlusd`, { budget: name, decimals: SCALE });
       for (const [net, asa] of Object.entries(ALGORAND_USDC)) put(`${net}:${asa}`, { budget: name, decimals: 6 });
+      for (const [net, mint] of Object.entries(SOLANA_USDC)) put(`${net}:${mint}`, { budget: name, decimals: 6 });
     } else if (symbol === "XRP") {
       for (const net of Object.keys(XRPL_RLUSD_ISSUERS)) put(`${net}:${NATIVE}`, { budget: name, decimals: 6 });
     } else if (["ETH", "BNB", "POL"].includes(symbol)) {
@@ -118,6 +121,7 @@ export function spendFor(request, verdict) {
   const out = { items: [], counterparties: [], unknown: false };
   if (request.type === "xrpl") return xrplSpend(request, out);
   if (request.type === "algorand") return algorandSpend(request, out);
+  if (request.type === "solana") return solanaSpend(request, out);
   const chainId = request.chainId;
   if (request.type === "transaction") {
     const to = lower(request.to ?? null);
@@ -188,6 +192,15 @@ function algorandSpend(request, out) {
   out.counterparties.push(to);
   if (t.type !== "axfer" || t.closeTo || t.rekeyTo || t.clawbackFrom || !/^\d+$/.test(String(t.assetId ?? "")) || !/^\d+$/.test(String(t.amount ?? ""))) { out.unknown = true; return out; }
   out.items.push({ chainId: net, token: String(t.assetId), amount: BigInt(t.amount), to });
+  return out;
+}
+
+// A Solana USDC transfer (read from the transaction by solanaSigner): the mint, amount and receiving token account.
+function solanaSpend(request, out) {
+  const t = request.transfer ?? {};
+  out.counterparties.push(typeof t.destination === "string" ? t.destination : null);
+  if (typeof t.mint !== "string" || !/^\d+$/.test(String(t.amount ?? ""))) { out.unknown = true; return out; }
+  out.items.push({ chainId: request.network, token: t.mint, amount: BigInt(t.amount), to: t.destination });
   return out;
 }
 
