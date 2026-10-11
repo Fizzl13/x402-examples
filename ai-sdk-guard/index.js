@@ -7,10 +7,10 @@
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
-export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_solana_transaction: "$0.01", check_message: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
+export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_solana_transaction: "$0.01", check_algorand_transaction: "$0.01", check_message: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
 
 const EVM_CHAIN_IDS = [1, 10, 56, 137, 8453, 42161];
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -138,6 +138,20 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
       execute: async (input) => {
         const body = { type: "solana", ...input };
         return orFree(await presign("/v1/check", { method: "POST", body }), PRICES.check_solana_transaction, () => freePresignCheck(fetchImpl, presignUrl, body, timeoutMs));
+      },
+    },
+    check_algorand_transaction: {
+      description: `Check an Algorand transaction or atomic group BEFORE signing it (presign-guard, ${PRICES.check_algorand_transaction}): every transaction your account sends is read and the group is simulated. Red: rekeying your account to another key (ALGORAND_REKEY), closing your account or an asset holding to someone else (ALGORAND_CLOSE_ACCOUNT, ALGORAND_ASSET_CLOSE), fake USDC/USDt. Orange: clawbacks, opting in to an asset with a clawback, app update/delete/clear-state, asset control handed over, fees far above normal, one transaction of a group sent without the rest, a group that would fail. Never sign on red; ask the user on orange.`,
+      inputSchema: z.object({
+        transaction: z.string().max(12000).regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64").optional().describe("One base64 msgpack transaction about to be signed (algosdk.encodeUnsignedTransaction, or as the dapp hands it over)"),
+        transactions: z.array(z.string().max(12000).regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64")).min(1).max(16).optional().describe("A whole atomic group, each base64 msgpack; send the group so every transaction is checked"),
+        from: z.string().regex(/^[A-Z2-7]{58}$/).optional().describe("your account address, when it isn't the first transaction's sender"),
+        origin: z.string().optional().describe("the site asking for the signature, if any"),
+        intent: z.string().max(500).optional().describe("what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else"),
+      }).refine((i) => Boolean(i.transaction) !== Boolean(i.transactions), "send transaction (one) or transactions (a group)"),
+      execute: async (input) => {
+        const body = { type: "algorand", ...input };
+        return orFree(await presign("/v1/check", { method: "POST", body }), PRICES.check_algorand_transaction, () => freePresignCheck(fetchImpl, presignUrl, body, timeoutMs));
       },
     },
     check_message: {

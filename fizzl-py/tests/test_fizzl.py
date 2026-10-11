@@ -75,7 +75,7 @@ def test_free_fallback_when_unpaid_and_off_with_free_false():
 
 
 def test_prices_cover_every_check():
-    assert sorted(PRICES) == sorted(["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"])
+    assert sorted(PRICES) == sorted(["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"])
 
 
 def test_langchain_tools_call_the_checks():
@@ -83,7 +83,7 @@ def test_langchain_tools_call_the_checks():
     from fizzl.langchain import fizzl_tools
     s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
     tools = fizzl_tools(session=s)
-    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
     pre = next(t for t in tools if t.name == "check_endpoint_before_paying")
     assert "BEFORE paying" in pre.description
     assert pre.invoke({"url": "https://api.example.com/x", "max_usd": 0.01})["verdict"] == "no_go"
@@ -99,12 +99,13 @@ def test_openai_agents_tools_call_the_checks():
     from fizzl.openai_agents import fizzl_tools
     s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
     tools = fizzl_tools(session=s)
-    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
-    pre = tools[6]
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying"]
+    by = {t.name: t for t in tools}
+    pre = by["check_endpoint_before_paying"]
     assert "BEFORE paying" in pre.description and pre.params_json_schema["required"] == ["url"]
     out = json.loads(asyncio.run(pre.on_invoke_tool(None, json.dumps({"url": "https://api.example.com/x", "max_usd": 0.01}))))
     assert out["verdict"] == "no_go" and "max_usd=0.01" in s.calls[0]["url"] and "network=" not in s.calls[0]["url"]
-    bad = json.loads(asyncio.run(tools[4].on_invoke_tool(None, json.dumps({"chain": "dogechain", "address": "x"}))))
+    bad = json.loads(asyncio.run(by["check_token"].on_invoke_tool(None, json.dumps({"chain": "dogechain", "address": "x"}))))
     assert bad["error"] == "bad_input" and len(s.calls) == 1
     assert [t.name for t in fizzl_tools(session=s, only=["check_token"])] == ["check_token"]
     with pytest.raises(ValueError):
@@ -136,6 +137,28 @@ def test_check_before_signing_passes_from_intent_and_x402():
     assert f.check_before_signing(type="transaction", chainId=8453, to="0x1", from_address="0x12")["error"] == "bad_input"
     assert f.check_before_signing(type="transaction", chainId=8453, to="0x1", intent="x" * 501)["error"] == "bad_input"
     assert len(s.calls) == 2
+
+
+def test_algorand_transaction():
+    s = StandIn({"/v1/check": (200, {"verdict": "red", "reasons": [{"code": "ALGORAND_REKEY"}]})})
+    f = Fizzl(session=s)
+    tx = "iqNhbXTOAA9CQKNmZWXNA+iiZnbOAAAD6KNnZW6sbWFpbm5ldC12MS4w"
+    account = "A" * 58
+    assert f.check_algorand_transaction(tx, from_address=account, intent="pay 1 ALGO")["verdict"] == "red"
+    assert s.calls[0]["json"] == {"type": "algorand", "transaction": tx, "from": account, "intent": "pay 1 ALGO"}
+    f.check_algorand_transaction(transactions=[tx, tx])
+    assert s.calls[1]["json"] == {"type": "algorand", "transactions": [tx, tx]}
+    assert f.check_algorand_transaction()["error"] == "bad_input"
+    assert f.check_algorand_transaction(tx, transactions=[tx])["error"] == "bad_input"
+    assert f.check_algorand_transaction("not base64!")["error"] == "bad_input"
+    assert f.check_algorand_transaction(transactions=[tx] * 17)["error"] == "bad_input"
+    assert f.check_algorand_transaction(tx, from_address="0x12")["error"] == "bad_input"
+    assert len(s.calls) == 2
+
+    unpaid = StandIn({"/v1/check": (402, {}), "/mcp": (200, {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps({"verdict": "red"})}]}})})
+    free = Fizzl(session=unpaid).check_algorand_transaction(tx)
+    assert free["verdict"] == "red" and free["free"] is True
+    assert unpaid.calls[-1]["json"]["params"]["arguments"] == {"type": "algorand", "transaction": tx}
 
 
 def test_solana_transaction_and_message():
