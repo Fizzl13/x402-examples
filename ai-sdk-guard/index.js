@@ -7,10 +7,10 @@
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
-export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
+export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_solana_transaction: "$0.01", check_message: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
 
 const EVM_CHAIN_IDS = [1, 10, 56, 137, 8453, 42161];
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -126,6 +126,34 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
         origin: z.string().optional().describe("the site asking for the signature, if any"),
       }),
       execute: async ({ tx, network, origin }) => presign("/v1/check", { method: "POST", body: { type: "xrpl", tx, ...(network && { network }), ...(origin && { origin }) } }),
+    },
+    check_solana_transaction: {
+      description: `Check a Solana transaction BEFORE signing it (presign-guard, ${PRICES.check_solana_transaction}): every instruction is read and the transaction is simulated. Red: SetAuthority handing your token account to someone else (SOLANA_TOKEN_ACCOUNT_TAKEOVER), System Assign of your account (SOLANA_ACCOUNT_ASSIGN). Orange: unlimited token delegates, durable nonces (signable much later), closing an account to someone else, an owner or delegate change the instructions don't show (HIDDEN_APPROVAL), a transaction that fails. Never sign on red; ask the user on orange.`,
+      inputSchema: z.object({
+        transaction: z.string().max(2400).regex(/^[A-Za-z0-9+/]+={0,2}$/, "base64").describe("The base64 wire transaction about to be signed (as the dapp hands it over, or getBase64EncodedWireTransaction)"),
+        from: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).optional().describe("your wallet address, when it isn't the fee payer"),
+        origin: z.string().optional().describe("the site asking for the signature, if any"),
+        intent: z.string().max(500).optional().describe("what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else"),
+      }),
+      execute: async (input) => {
+        const body = { type: "solana", ...input };
+        return orFree(await presign("/v1/check", { method: "POST", body }), PRICES.check_solana_transaction, () => freePresignCheck(fetchImpl, presignUrl, body, timeoutMs));
+      },
+    },
+    check_message: {
+      description: `Check a plain message BEFORE signing it with personal_sign or eth_sign (presign-guard, ${PRICES.check_message}). Red: eth_sign (it can sign a transaction blind), a Sign-In with Ethereum message for another site than the one asking (a relayed login). Orange: unreadable bytes, a sign-in for another URI, address or chain. Never sign on red; ask the user on orange.`,
+      inputSchema: z.object({
+        message: z.string().min(1).max(16384).describe("The text, or 0x-hex bytes, about to be signed"),
+        method: z.enum(["personal_sign", "eth_sign"]).optional().describe("How it is signed (default personal_sign)"),
+        origin: z.string().optional().describe("the site asking for the signature; needed to catch a sign-in for another site"),
+        from: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().describe("your wallet address"),
+        chainId: z.number().int().positive().optional().describe("the chain your wallet is on"),
+        intent: z.string().max(500).optional().describe("what you are trying to do, in one sentence"),
+      }),
+      execute: async (input) => {
+        const body = { type: "message", ...input };
+        return orFree(await presign("/v1/check", { method: "POST", body }), PRICES.check_message, () => freePresignCheck(fetchImpl, presignUrl, body, timeoutMs));
+      },
     },
     check_token: {
       description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana, EVM chains and the XRP Ledger (issuer clawback, freeze, transfer fee, fake RLUSD).`,

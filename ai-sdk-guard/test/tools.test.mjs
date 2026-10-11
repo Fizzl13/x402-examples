@@ -134,3 +134,22 @@ test("inside generateText: the model calls check_endpoint_before_paying and gets
   assert.equal(results[0].output.verdict, "no_go");
   assert.match(s.calls[0].url, /max_usd=0.01/);
 });
+
+test("Solana and messages: check_solana_transaction posts type solana, check_message type message; both fall back to the free check", async () => {
+  const s = standIn({ "/v1/check": [200, { verdict: "red", reasons: [{ code: "SOLANA_TOKEN_ACCOUNT_TAKEOVER" }] }] });
+  const t = fizzlTools({ fetch: s.fetch });
+  const transaction = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  assert.equal((await t.check_solana_transaction.execute({ transaction, intent: "pay 1 USDC" })).verdict, "red");
+  assert.deepEqual(s.calls[0].body, { type: "solana", transaction, intent: "pay 1 USDC" });
+  assert.equal(t.check_solana_transaction.inputSchema.safeParse({ transaction: "not base64!" }).success, false);
+  assert.equal(t.check_solana_transaction.inputSchema.safeParse({ transaction, from: "0x12" }).success, false);
+  await t.check_message.execute({ message: "hello", origin: "https://app.example" });
+  assert.deepEqual(s.calls[1].body, { type: "message", message: "hello", origin: "https://app.example" });
+  assert.equal(t.check_message.inputSchema.safeParse({ message: "x", method: "eth_signTypedData" }).success, false);
+
+  const unpaid = standIn({ "/v1/check": [402, {}], "/mcp": [200, { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify({ verdict: "red" }) }] } }] });
+  const u = fizzlTools({ fetch: unpaid.fetch });
+  const free = await u.check_message.execute({ message: "x", method: "eth_sign" });
+  assert.equal(free.free, true);
+  assert.deepEqual(unpaid.calls.find((c) => c.url.endsWith("/mcp")).body.params.arguments, { type: "message", message: "x", method: "eth_sign" });
+});

@@ -1,4 +1,4 @@
-"""The typed arguments of the four checks (pydantic), shared by the LangChain and OpenAI Agents tools."""
+"""The typed arguments of the checks (pydantic), shared by the LangChain and OpenAI Agents tools."""
 from __future__ import annotations
 
 from typing import Literal, Optional, Union
@@ -27,6 +27,21 @@ class XrplArgs(BaseModel):
     origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
 
 
+class SolanaArgs(BaseModel):
+    transaction: str = Field(max_length=2400, description="The base64 wire transaction about to be signed")
+    from_address: Optional[str] = Field(None, description="your wallet address (base58), when it isn't the fee payer")
+    origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
+    intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
+
+class MessageArgs(BaseModel):
+    message: str = Field(max_length=16384, description="The text, or 0x-hex bytes, about to be signed")
+    method: Optional[Literal["personal_sign", "eth_sign"]] = Field(None, description="How it is signed (default personal_sign)")
+    origin: Optional[str] = Field(None, description="the site asking for the signature; needed to catch a sign-in for another site")
+    from_address: Optional[str] = Field(None, description="your wallet address (0x…)")
+    chainId: Optional[int] = Field(None, description="the chain your wallet is on")
+    intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence")
+
+
 class TokenArgs(BaseModel):
     chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl"]
     address: str = Field(description="Solana mint (base58), EVM token contract (0x…), or an XRPL token as CURRENCY.rIssuer")
@@ -45,6 +60,8 @@ class EndpointArgs(BaseModel):
 ARGS = {
     "check_before_signing": SignArgs,
     "check_xrpl_transaction": XrplArgs,
+    "check_solana_transaction": SolanaArgs,
+    "check_message": MessageArgs,
     "check_token": TokenArgs,
     "check_wallet_approvals": ApprovalArgs,
     "check_endpoint_before_paying": EndpointArgs,
@@ -53,7 +70,7 @@ TOOL_NAMES = tuple(ARGS)
 
 
 def pick(only):
-    """The tool names to build: all four, or the ones in ``only`` (unknown names raise)."""
+    """The tool names to build: all of them, or the ones in ``only`` (unknown names raise)."""
     names = list(only) if only else list(TOOL_NAMES)
     unknown = [n for n in names if n not in ARGS]
     if unknown:

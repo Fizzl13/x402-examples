@@ -22,7 +22,7 @@ import re
 from typing import Any, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -30,6 +30,8 @@ DOCTOR_URL = "https://x402-doctor.fizzl.eu"
 PRICES = {
     "check_before_signing": "$0.01",
     "check_xrpl_transaction": "$0.01",
+    "check_solana_transaction": "$0.01",
+    "check_message": "$0.01",
     "check_token": "$0.01",
     "check_wallet_approvals": "$0.02",
     "check_endpoint_before_paying": "$0.001",
@@ -49,7 +51,7 @@ def _free_note(price: str) -> str:
 
 
 class Fizzl:
-    """The four checks. ``session`` is anything with ``request(method, url, **kwargs)`` like a
+    """The checks. ``session`` is anything with ``request(method, url, **kwargs)`` like a
     ``requests.Session``; wrap it with x402's ``wrapRequestsWithPayment`` to pay per check, or pass
     ``credit_keys={"presign": ..., "doctor": ...}`` to pay from prepaid credits with a plain session.
 
@@ -168,6 +170,47 @@ class Fizzl:
             return _error("bad_input", 'network must be "xrpl:0" (mainnet) or "xrpl:1" (testnet)')
         body = {"type": "xrpl", "tx": tx, **({"network": network} if network else {}), **({"origin": origin} if origin else {})}
         return self._call("presign", "POST", f"{self.presign_url}/v1/check", body)
+
+    def check_solana_transaction(self, transaction: str, from_address: Optional[str] = None, origin: Optional[str] = None,
+                                 intent: Optional[str] = None) -> dict:
+        """Check a Solana transaction BEFORE signing it (presign-guard, $0.01): every instruction is read and the
+        transaction is simulated. Red: SetAuthority handing your token account to someone else, System Assign of
+        your account. Orange: unlimited token delegates, durable nonces, closing an account to someone else, an
+        owner or delegate change the instructions don't show, a transaction that fails. Pass the base64 wire
+        transaction. Never sign on red; ask the user on orange."""
+        if not isinstance(transaction, str) or len(transaction) > 2400 or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", transaction.strip()):
+            return _error("bad_input", "transaction must be the base64 wire transaction about to be signed")
+        body = {"type": "solana", "transaction": transaction.strip()}
+        if from_address is not None:
+            if not isinstance(from_address, str) or not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", from_address):
+                return _error("bad_input", "from_address must be a Solana address (base58)")
+            body["from"] = from_address
+        if intent is not None and len(intent) > 500:
+            return _error("bad_input", "intent must be one sentence (up to 500 characters)")
+        body.update({k: v for k, v in dict(origin=origin, intent=intent).items() if v is not None})
+        return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_solana_transaction",
+                             lambda: self._free_signing(body))
+
+    def check_message(self, message: str, method: Optional[str] = None, origin: Optional[str] = None,
+                      from_address: Optional[str] = None, chainId: Optional[int] = None, intent: Optional[str] = None) -> dict:
+        """Check a plain message BEFORE signing it with personal_sign or eth_sign (presign-guard, $0.01). Red:
+        eth_sign (it can sign a transaction blind), a Sign-In with Ethereum message for another site than the one
+        asking (pass origin). Orange: unreadable bytes, a sign-in for another URI, address or chain. Never sign on
+        red; ask the user on orange."""
+        if not isinstance(message, str) or not message or len(message) > 16384:
+            return _error("bad_input", "message must be the text (or 0x-hex) about to be signed, up to 16384 characters")
+        if method is not None and method not in ("personal_sign", "eth_sign"):
+            return _error("bad_input", 'method must be "personal_sign" or "eth_sign"')
+        body = {k: v for k, v in dict(type="message", message=message, method=method, origin=origin, chainId=chainId,
+                                      intent=intent).items() if v is not None}
+        if from_address is not None:
+            if not isinstance(from_address, str) or not re.fullmatch(r"0x[0-9a-fA-F]{40}", from_address):
+                return _error("bad_input", "from_address must be a 0x wallet address")
+            body["from"] = from_address
+        if intent is not None and len(intent) > 500:
+            return _error("bad_input", "intent must be one sentence (up to 500 characters)")
+        return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_message",
+                             lambda: self._free_signing(body))
 
     def check_token(self, chain: str, address: str) -> dict:
         """Check a token BEFORE buying, holding or accepting it (presign-guard, $0.01): honeypot, rug-pull
