@@ -2,7 +2,7 @@
 
 A wallet with spending limits for AI agents, as an [MCP](https://modelcontextprotocol.io) server. Add it to Claude Desktop, Claude Code, Cursor or any other MCP client, and your agent can:
 - pay for x402 APIs, and MPP APIs: method `evm` (USDC on the wallet's chain) and method `tempo` (USDC.e on Tempo, what nearly every MPP API asks for);
-- with its own accounts there, also pay x402 offers in RLUSD on the XRP Ledger (`XRPL_SEED`) and in USDC on Algorand (`ALGORAND_MNEMONIC`), and MPP sessions on Tempo (`MPP_SESSION_DEPOSIT`);
+- with its own accounts there, also pay x402 offers in RLUSD on the XRP Ledger (`XRPL_SEED`) and in USDC on Solana (`SOLANA_PRIVATE_KEY`) and Algorand (`ALGORAND_MNEMONIC`), and MPP sessions on Tempo (`MPP_SESSION_DEPOSIT`);
 - send USDC.
 
 It can only do that within the budget you set:
@@ -113,6 +113,9 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `TEMPO_CHAIN` | `4217` (Tempo, default) or `42431` (Moderato testnet, pays in pathUSD) |
 | `TEMPO_RPC_URL` | your own Tempo RPC (default `https://rpc.tempo.xyz`) |
 | `XRPL_SEED` | optional: the agent's own XRP Ledger account seed (`s…`, a separate account with only what it may spend). Turns on paying x402 offers in RLUSD on the XRP Ledger, including sellers on t54's facilitator (the XRPL AI Hub). Only RLUSD from Ripple's issuer is paid, never XRP; it counts toward the USDC limits, every Payment is checked by presign-guard first, and USDC on your chain goes first when an API offers both. The account needs an RLUSD trust line, RLUSD and a little XRP for fees. Not used under a mandate |
+| `SOLANA_PRIVATE_KEY` | optional: the agent's own Solana account (secret key in base58, as wallets export it, or the byte array from a `solana-keygen` file; a separate account with only what it may spend). Turns on paying x402 offers in USDC on Solana: only the agent's USDC transfer to the seller is signed, after presign-guard has checked the transaction (instructions and a simulation), the seller's facilitator pays the network fee (no SOL needed), and it counts toward the USDC limits. USDC on your chain goes first when an API offers both. Not used under a mandate. Needs presign-guard-wallet 0.16+ |
+| `SOLANA_NETWORK` | `mainnet` (default) or `devnet` |
+| `SOLANA_RPC_URL` | your own Solana RPC (default the public mainnet or devnet one) |
 | `ALGORAND_MNEMONIC` | optional: the agent's own Algorand account (25-word mnemonic; a separate account with only what it may spend). Turns on paying x402 offers in USDC on Algorand: only the agent's USDC transfer to the seller is signed (never ALGO, no close-out or rekey), the seller's facilitator pays the network fee, and it counts toward the USDC limits. USDC on your chain goes first when an API offers both. The account must be opted in to USDC (ASA 31566704). Not used under a mandate. Needs presign-guard-wallet 0.12+ |
 | `ALGORAND_NETWORK` | `mainnet` (default) or `testnet` |
 | `ALGORAND_ALGOD_URL` | your own algod node (default AlgoNode's free one) |
