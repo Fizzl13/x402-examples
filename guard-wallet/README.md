@@ -52,7 +52,7 @@ try {
 }
 ```
 
-`wallet` is the same client: every other method (`getAddresses`, `signMessage`, `extend`, …) works as before, unchecked.
+`wallet` is the same client. `signMessage` is checked too, as a plain message: a sign-in message (Sign-In with Ethereum) for another site than `origin` is red, unreadable bytes are orange; it counts toward no limit (`checkMessages: false` turns this off). Every other method (`getAddresses`, `extend`, …) works as before, unchecked.
 
 ## Options
 
@@ -66,6 +66,7 @@ try {
 | `origin` | | The site asking for the signature: its domain age and phishing lists are checked too |
 | `onVerdict` | | `(verdict, { method, request, paidWith, creditsLeft }) => void`, e.g. for logging; `paidWith` is `"credits"` or `"x402"` |
 | `verifyReceipts` | `"require"` | Check presign-guard's signed receipt on every verdict; `"off"` skips it |
+| `checkMessages` | `true` | Check `signMessage` too ($0.01 per message, like any check); `false` signs messages unchecked |
 | `signers` | presign-guard's published signer | Accepted signer addresses |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `signers` |
 | `limits` | | Spending limits per token, see [Spending limits](#spending-limits) |
@@ -292,7 +293,7 @@ presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash
 
 ## Costs and coverage
 
-- $0.01 per checked signature, paid with your `pay` fetch, or $0.008 / $0.007 with [prepaid credits](#prepaid-credits). Calls presign-guard does not cover (`signMessage`, contract deployments) are not checked and cost nothing.
+- $0.01 per checked signature, paid with your `pay` fetch, or $0.008 / $0.007 with [prepaid credits](#prepaid-credits). Calls presign-guard does not cover (contract deployments) are not checked and cost nothing; `signMessage` is checked unless `checkMessages: false`.
 - presign-guard reads public data (GoPlus, RugCheck, DexScreener, OFAC via PG1, phishing lists). A green verdict means no known problem was found, not a guarantee.
 - The requests carry `user-agent: presign-guard-wallet/<version>` so the service can count how often the package is used.
 
