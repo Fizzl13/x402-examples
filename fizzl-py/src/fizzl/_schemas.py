@@ -1,7 +1,7 @@
 """The typed arguments of the checks (pydantic), shared by the LangChain and OpenAI Agents tools."""
 from __future__ import annotations
 
-from typing import Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +33,13 @@ class SolanaArgs(BaseModel):
     origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
     intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
 
+class AlgorandArgs(BaseModel):
+    transaction: Optional[str] = Field(None, max_length=12000, description="One base64 msgpack transaction about to be signed (algosdk encodeUnsignedTransaction, or as the dapp hands it over)")
+    transactions: Optional[List[str]] = Field(None, max_length=16, description="A whole atomic group, each base64 msgpack; send the group so every transaction is checked")
+    from_address: Optional[str] = Field(None, description="your account address, when it isn't the first transaction's sender")
+    origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
+    intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
+
 class MessageArgs(BaseModel):
     message: str = Field(max_length=16384, description="The text, or 0x-hex bytes, about to be signed")
     method: Optional[Literal["personal_sign", "eth_sign"]] = Field(None, description="How it is signed (default personal_sign)")
@@ -61,6 +68,7 @@ ARGS = {
     "check_before_signing": SignArgs,
     "check_xrpl_transaction": XrplArgs,
     "check_solana_transaction": SolanaArgs,
+    "check_algorand_transaction": AlgorandArgs,
     "check_message": MessageArgs,
     "check_token": TokenArgs,
     "check_wallet_approvals": ApprovalArgs,

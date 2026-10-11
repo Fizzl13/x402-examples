@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Mapping, Optional
+from typing import Any, List, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -31,6 +31,7 @@ PRICES = {
     "check_before_signing": "$0.01",
     "check_xrpl_transaction": "$0.01",
     "check_solana_transaction": "$0.01",
+    "check_algorand_transaction": "$0.01",
     "check_message": "$0.01",
     "check_token": "$0.01",
     "check_wallet_approvals": "$0.02",
@@ -189,6 +190,33 @@ class Fizzl:
             return _error("bad_input", "intent must be one sentence (up to 500 characters)")
         body.update({k: v for k, v in dict(origin=origin, intent=intent).items() if v is not None})
         return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_solana_transaction",
+                             lambda: self._free_signing(body))
+
+    def check_algorand_transaction(self, transaction: Optional[str] = None, transactions: Optional[List[str]] = None,
+                                   from_address: Optional[str] = None, origin: Optional[str] = None,
+                                   intent: Optional[str] = None) -> dict:
+        """Check an Algorand transaction or atomic group BEFORE signing it (presign-guard, $0.01): every
+        transaction your account sends is read and the group is simulated. Red: rekeying your account to another
+        key, closing your account or an asset holding to someone else, fake USDC/USDt. Orange: clawbacks, opting in
+        to an asset with a clawback, app update/delete/clear-state, asset control handed over, fees far above
+        normal, one transaction of a group sent without the rest, a group that would fail. Pass one base64 msgpack
+        transaction, or the whole group as transactions. Never sign on red; ask the user on orange."""
+        b64 = lambda t: isinstance(t, str) and 0 < len(t) <= 12000 and re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", t.strip())
+        if (transaction is None) == (transactions is None):
+            return _error("bad_input", "pass transaction (one) or transactions (a group), not both")
+        if transaction is not None and not b64(transaction):
+            return _error("bad_input", "transaction must be a base64 msgpack Algorand transaction")
+        if transactions is not None and (not isinstance(transactions, list) or not 1 <= len(transactions) <= 16 or not all(b64(t) for t in transactions)):
+            return _error("bad_input", "transactions must be an atomic group: 1 to 16 base64 msgpack transactions")
+        body = {"type": "algorand", **({"transaction": transaction.strip()} if transaction is not None else {"transactions": [t.strip() for t in transactions]})}
+        if from_address is not None:
+            if not isinstance(from_address, str) or not re.fullmatch(r"[A-Z2-7]{58}", from_address):
+                return _error("bad_input", "from_address must be an Algorand address")
+            body["from"] = from_address
+        if intent is not None and len(intent) > 500:
+            return _error("bad_input", "intent must be one sentence (up to 500 characters)")
+        body.update({k: v for k, v in dict(origin=origin, intent=intent).items() if v is not None})
+        return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_algorand_transaction",
                              lambda: self._free_signing(body))
 
     def check_message(self, message: str, method: Optional[str] = None, origin: Optional[str] = None,

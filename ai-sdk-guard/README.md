@@ -2,13 +2,14 @@
 
 Safety checks for [Vercel AI SDK](https://ai-sdk.dev) agents that pay.
 
-Five tools you add to `generateText`, `streamText` or an agent in one line:
+Eight tools you add to `generateText`, `streamText` or an agent in one line:
 
 | Tool | What the agent checks | Service | Price |
 |---|---|---|---|
 | `check_before_signing` | a transaction, token approval or signature **before signing it**: green / orange / red with reason codes (drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens). With `from` (the agent's wallet) a transaction is simulated, so a hidden approval, an NFT leaving or a transaction that would fail shows up; with `intent` (one sentence) signing something else than meant is caught; with `x402` (the accepts entry being paid) a payment that pays more or someone else is red | [presign-guard](https://presign-guard.fizzl.eu) | $0.01 |
 | `check_xrpl_transaction` | an **XRP Ledger** transaction before signing it: account takeover (SetRegularKey, SignerListSet, master key off), AccountDelete, fake RLUSD (red); partial payments, destinations that refuse or need a tag, risky issuers, DEX orders far below the order book or AMM price (orange) | presign-guard | $0.01 |
 | `check_solana_transaction` | a **Solana** transaction before signing it: every instruction is read and the transaction simulated. Token account takeover (SetAuthority), System Assign (red); unlimited delegates, durable nonces, closing to someone else, hidden owner or delegate changes, a failing transaction (orange) | presign-guard | $0.01 |
+| `check_algorand_transaction` | an **Algorand** transaction or atomic group before signing it: every transaction your account sends is read and the group simulated. Rekey to another key, closing the account or an asset holding to someone else, fake USDC (red); clawbacks, risky opt-ins, app update/delete/clear-state, a partial group, a group that would fail (orange) | presign-guard | $0.01 |
 | `check_message` | a plain message before `personal_sign` / `eth_sign`: eth_sign, a Sign-In with Ethereum message for another site (red); unreadable bytes, a sign-in for another URI, address or chain (orange) | presign-guard | $0.01 |
 | `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, and XRPL tokens as `CURRENCY.rIssuer`: clawback, freeze, transfer fee, fake RLUSD) | presign-guard | $0.01 |
 | `check_wallet_approvals` | every open approval of a wallet and which to revoke | presign-guard | $0.02 |
@@ -65,7 +66,7 @@ const result = await generateText({
 });
 ```
 
-**Try it without a wallet:** with no paying fetch and no credit keys, `check_token`, `check_before_signing`, `check_solana_transaction`, `check_message` and `check_endpoint_before_paying` fall back to the free quick checks: the verdict only (green / orange / red, or go / caution / no_go with the problems found), a few per hour, marked `free: true` with a note on what the full check costs. `check_wallet_approvals` and `check_xrpl_transaction` have no free version. Pass `free: false` to get `payment_required` instead.
+**Try it without a wallet:** with no paying fetch and no credit keys, `check_token`, `check_before_signing`, `check_solana_transaction`, `check_algorand_transaction`, `check_message` and `check_endpoint_before_paying` fall back to the free quick checks: the verdict only (green / orange / red, or go / caution / no_go with the problems found), a few per hour, marked `free: true` with a note on what the full check costs. `check_wallet_approvals` and `check_xrpl_transaction` have no free version. Pass `free: false` to get `payment_required` instead.
 
 **Prepaid credits instead of a payment per check:** buy a pack once ([presign-guard](https://presign-guard.fizzl.eu/v1/credits): 100 checks for $0.80; [x402 Doctor](https://x402-doctor.fizzl.eu/api/v1/credits): 1000 preflights for $0.80), then pass the keys and a plain `fetch`:
 
@@ -81,7 +82,7 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 |---|---|---|
 | `fetch` | global `fetch` | An x402-paying fetch (`wrapFetchWithPayment` from `@x402/fetch`), or plain fetch with credit keys |
 | `creditKeys` | none | `{ presign, doctor }`, sent as `x-credit-key` |
-| `only` | all seven | Tool names to include |
+| `only` | all eight | Tool names to include |
 | `free` | `true` | Fall back to the free quick check (verdict only) when a check can't be paid |
 | `timeoutMs` | 30000 | Per check |
 | `presignUrl`, `doctorUrl` | the fizzl.eu services | For tests or self-hosting |

@@ -10,7 +10,7 @@ from typing import Any, List, Optional
 
 from . import Fizzl
 
-TOOL_NAMES = ("check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying")
+TOOL_NAMES = ("check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "check_endpoint_before_paying")
 
 
 def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, **kwargs) -> list:

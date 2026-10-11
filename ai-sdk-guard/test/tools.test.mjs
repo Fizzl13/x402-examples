@@ -135,6 +135,27 @@ test("inside generateText: the model calls check_endpoint_before_paying and gets
   assert.match(s.calls[0].url, /max_usd=0.01/);
 });
 
+test("Algorand: check_algorand_transaction posts type algorand with one transaction or a group, and falls back to the free check", async () => {
+  const s = standIn({ "/v1/check": [200, { verdict: "red", reasons: [{ code: "ALGORAND_REKEY" }] }] });
+  const t = fizzlTools({ fetch: s.fetch });
+  const transaction = "iqNhbXTOAA9CQKNmZWXNA+iiZnbOAAAD6KNnZW6sbWFpbm5ldC12MS4w";
+  assert.equal((await t.check_algorand_transaction.execute({ transaction, intent: "pay 1 ALGO" })).verdict, "red");
+  assert.deepEqual(s.calls[0].body, { type: "algorand", transaction, intent: "pay 1 ALGO" });
+  await t.check_algorand_transaction.execute({ transactions: [transaction, transaction] });
+  assert.deepEqual(s.calls[1].body, { type: "algorand", transactions: [transaction, transaction] });
+  const schema = t.check_algorand_transaction.inputSchema;
+  assert.equal(schema.safeParse({}).success, false, "one of transaction or transactions");
+  assert.equal(schema.safeParse({ transaction, transactions: [transaction] }).success, false, "not both");
+  assert.equal(schema.safeParse({ transaction: "not base64!" }).success, false);
+  assert.equal(schema.safeParse({ transactions: Array(17).fill(transaction) }).success, false, "a group holds at most 16");
+  assert.equal(schema.safeParse({ transaction, from: "0x12" }).success, false);
+
+  const unpaid = standIn({ "/v1/check": [402, {}], "/mcp": [200, { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify({ verdict: "red" }) }] } }] });
+  const free = await fizzlTools({ fetch: unpaid.fetch }).check_algorand_transaction.execute({ transaction });
+  assert.equal(free.verdict, "red");
+  assert.equal(unpaid.calls[1].body.params.arguments.type, "algorand");
+});
+
 test("Solana and messages: check_solana_transaction posts type solana, check_message type message; both fall back to the free check", async () => {
   const s = standIn({ "/v1/check": [200, { verdict: "red", reasons: [{ code: "SOLANA_TOKEN_ACCOUNT_TAKEOVER" }] }] });
   const t = fizzlTools({ fetch: s.fetch });
