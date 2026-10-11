@@ -1,7 +1,7 @@
 """Fizzl safety checks for AI agents that pay.
 
-Check a transaction or signature before signing, a token before buying, a wallet's open approvals, and an
-x402 endpoint before paying it (presign-guard and x402 Doctor, paid per call over x402 or with prepaid
+Check a transaction or signature before signing, a token before buying, a wallet's open approvals, a wallet
+against the OFAC sanctions list, and an x402 endpoint before paying it (presign-guard and x402 Doctor, paid per call over x402 or with prepaid
 credits). The checks never sign, pay or move anything themselves, and a failed check comes back as
 ``{"error": ..., "message": ...}`` instead of an exception, so an agent can tell its user.
 
@@ -22,7 +22,7 @@ import re
 from typing import Any, List, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -35,6 +35,7 @@ PRICES = {
     "check_message": "$0.01",
     "check_token": "$0.01",
     "check_wallet_approvals": "$0.02",
+    "screen_wallet": "$0.01",
     "check_endpoint_before_paying": "$0.001",
 }
 EVM_CHAIN_IDS = (1, 10, 56, 137, 8453, 42161)
@@ -257,6 +258,15 @@ class Fizzl:
         if chain not in APPROVAL_CHAINS:
             return _error("bad_input", f"chain must be one of {APPROVAL_CHAINS}")
         return self._call("presign", "GET", f"{self.presign_url}/v1/approvals?{urlencode({'chain': chain, 'address': address})}")
+
+    def screen_wallet(self, address: str) -> dict:
+        """Screen a wallet address BEFORE paying it or accepting money from it (presign-guard, $0.01): any chain's
+        address (EVM, Solana, Tron, Bitcoin, XRP Ledger, Algorand) against the OFAC SDN sanctions list, synced from
+        the US Treasury, plus theft, phishing and mixer reports for EVM addresses. Red SANCTIONED_ADDRESS names the
+        SDN entry. Never pay or accept funds on red; ask the user on orange."""
+        if not re.fullmatch(r"[A-Za-z0-9:]{20,120}", str(address)):
+            return _error("bad_input", "address must be a wallet address (EVM 0x..., Solana, Tron, Bitcoin, XRP Ledger, Algorand)")
+        return self._call("presign", "GET", f"{self.presign_url}/v1/screen?{urlencode({'address': address})}")
 
     def check_endpoint_before_paying(self, url: str, max_usd: Optional[float] = None, network: Optional[str] = None,
                                      method: Optional[str] = None) -> dict:

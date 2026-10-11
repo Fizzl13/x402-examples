@@ -1,16 +1,16 @@
 // Fizzl safety checks as Vercel AI SDK tools: an agent built with the AI SDK (generateText, streamText,
 // ToolLoopAgent) can check a transaction or signature before signing, a token before buying, a wallet's open
-// approvals, and an x402 endpoint before paying it. Each tool calls a paid Fizzl API (presign-guard or
+// approvals, a wallet against the OFAC sanctions list before paying it, and an x402 endpoint before paying it. Each tool calls a paid Fizzl API (presign-guard or
 // x402 Doctor) through the fetch you pass: an x402-paying fetch (@x402/fetch) or prepaid credit keys.
 //
 // The tools only check; they never sign, pay or move anything themselves. A failed check comes back as
 // { error } so the model can tell the user, never as an exception that ends the run.
 import { z } from "zod";
 
-export const VERSION = "0.6.1";
+export const VERSION = "0.7.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
-export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_solana_transaction: "$0.01", check_algorand_transaction: "$0.01", check_message: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", check_endpoint_before_paying: "$0.001" };
+export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "$0.01", check_solana_transaction: "$0.01", check_algorand_transaction: "$0.01", check_message: "$0.01", check_token: "$0.01", check_wallet_approvals: "$0.02", screen_wallet: "$0.01", check_endpoint_before_paying: "$0.001" };
 
 const EVM_CHAIN_IDS = [1, 10, 56, 137, 8453, 42161];
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -84,7 +84,7 @@ async function freeEndpointCheck(fetchImpl, doctorUrl, { url, method }, timeoutM
  * @param {object} [options]
  * @param {typeof fetch} [options.fetch] fetch that pays x402 (wrapFetchWithPayment from @x402/fetch); plain fetch works with credit keys
  * @param {{ presign?: string, doctor?: string }} [options.creditKeys] prepaid credit keys (x-credit-key) per service
- * @param {string[]} [options.only] the tool names to include (default: all four)
+ * @param {string[]} [options.only] the tool names to include (default: all nine)
  * @param {boolean} [options.free] fall back to the free quick checks when a check can't be paid (default true)
  * @param {string} [options.presignUrl] @param {string} [options.doctorUrl] @param {number} [options.timeoutMs]
  */
@@ -184,6 +184,13 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
         address: z.string().regex(/^0x[0-9a-fA-F]{40}$/).describe("Wallet address (0x…)"),
       }),
       execute: async ({ chain, address }) => presign(`/v1/approvals?${new URLSearchParams({ chain, address })}`, {}),
+    },
+    screen_wallet: {
+      description: `Screen a wallet address BEFORE paying it or accepting money from it (presign-guard, ${PRICES.screen_wallet}): any chain's address (EVM, Solana, Tron, Bitcoin, XRP Ledger, Algorand) against the OFAC SDN sanctions list, synced from the US Treasury, plus theft, phishing and mixer reports for EVM addresses. Red SANCTIONED_ADDRESS names the SDN entry. Never pay or accept funds on red; ask the user on orange.`,
+      inputSchema: z.object({
+        address: z.string().regex(/^[A-Za-z0-9:]{20,120}$/, "a wallet address").describe("The wallet address to screen, any chain: EVM (0x…), Solana, Tron, Bitcoin, XRP Ledger, Algorand"),
+      }),
+      execute: async ({ address }) => presign(`/v1/screen?${new URLSearchParams({ address })}`, {}),
     },
     check_endpoint_before_paying: {
       description: `Check an x402 or MPP paid API BEFORE paying it (x402 Doctor, ${PRICES.check_endpoint_before_paying}): go / caution / no_go, the cheapest option that will settle, whether it is over your budget, its track record, and bait signs (fake brands, airdrop lures, output that does not match). Do not pay on no_go; tell the user on caution.`,
