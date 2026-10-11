@@ -2,7 +2,7 @@
 
 Safety checks for [Vercel AI SDK](https://ai-sdk.dev) agents that pay.
 
-Eight tools you add to `generateText`, `streamText` or an agent in one line:
+Nine tools you add to `generateText`, `streamText` or an agent in one line:
 
 | Tool | What the agent checks | Service | Price |
 |---|---|---|---|
@@ -13,6 +13,7 @@ Eight tools you add to `generateText`, `streamText` or an agent in one line:
 | `check_message` | a plain message before `personal_sign` / `eth_sign`: eth_sign, a Sign-In with Ethereum message for another site (red); unreadable bytes, a sign-in for another URI, address or chain (orange) | presign-guard | $0.01 |
 | `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, XRPL tokens as `CURRENCY.rIssuer`: clawback, freeze, transfer fee, fake RLUSD, and Algorand assets by id: fake USDC, clawback, default-frozen) | presign-guard | $0.01 |
 | `check_wallet_approvals` | every open approval of a wallet and which to revoke | presign-guard | $0.02 |
+| `screen_wallet` | a wallet address **before paying it or accepting money from it**: any chain's address (EVM, Solana, Tron, Bitcoin, XRPL, Algorand) against the OFAC SDN sanctions list, synced from the US Treasury, plus theft and phishing reports for EVM (red names the SDN entry) | presign-guard | $0.01 |
 | `check_endpoint_before_paying` | an x402 or MPP paid API **before paying it**: go / caution / no_go, the cheapest option that settles, budget, track record, bait signs (fake brands, airdrop lures, output that doesn't match) | [x402 Doctor](https://x402-doctor.fizzl.eu) | $0.001 |
 
 The tools only check. They never sign, pay or move anything themselves. A failed check comes back to the model as `{ error, message }`, so the agent can tell the user instead of crashing.
@@ -66,7 +67,7 @@ const result = await generateText({
 });
 ```
 
-**Try it without a wallet:** with no paying fetch and no credit keys, `check_token`, `check_before_signing`, `check_solana_transaction`, `check_algorand_transaction`, `check_message` and `check_endpoint_before_paying` fall back to the free quick checks: the verdict only (green / orange / red, or go / caution / no_go with the problems found), a few per hour, marked `free: true` with a note on what the full check costs. `check_wallet_approvals` and `check_xrpl_transaction` have no free version. Pass `free: false` to get `payment_required` instead.
+**Try it without a wallet:** with no paying fetch and no credit keys, `check_token`, `check_before_signing`, `check_solana_transaction`, `check_algorand_transaction`, `check_message` and `check_endpoint_before_paying` fall back to the free quick checks: the verdict only (green / orange / red, or go / caution / no_go with the problems found), a few per hour, marked `free: true` with a note on what the full check costs. `check_wallet_approvals`, `screen_wallet` and `check_xrpl_transaction` have no free version. Pass `free: false` to get `payment_required` instead.
 
 **Prepaid credits instead of a payment per check:** buy a pack once ([presign-guard](https://presign-guard.fizzl.eu/v1/credits): 100 checks for $0.80; [x402 Doctor](https://x402-doctor.fizzl.eu/api/v1/credits): 1000 preflights for $0.80), then pass the keys and a plain `fetch`:
 
@@ -82,7 +83,7 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 |---|---|---|
 | `fetch` | global `fetch` | An x402-paying fetch (`wrapFetchWithPayment` from `@x402/fetch`), or plain fetch with credit keys |
 | `creditKeys` | none | `{ presign, doctor }`, sent as `x-credit-key` |
-| `only` | all eight | Tool names to include |
+| `only` | all nine | Tool names to include |
 | `free` | `true` | Fall back to the free quick check (verdict only) when a check can't be paid |
 | `timeoutMs` | 30000 | Per check |
 | `presignUrl`, `doctorUrl` | the fizzl.eu services | For tests or self-hosting |

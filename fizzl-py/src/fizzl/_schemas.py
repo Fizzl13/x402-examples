@@ -57,6 +57,9 @@ class ApprovalArgs(BaseModel):
     chain: Literal["base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]
     address: str = Field(description="Wallet address (0x…)")
 
+class ScreenArgs(BaseModel):
+    address: str = Field(min_length=20, max_length=120, description="The wallet address to screen, any chain: EVM (0x…), Solana, Tron, Bitcoin, XRP Ledger, Algorand")
+
 class EndpointArgs(BaseModel):
     url: str = Field(description="The paid endpoint you are about to pay")
     max_usd: Optional[float] = Field(None, description="Your budget for this call in USD")
@@ -72,6 +75,7 @@ ARGS = {
     "check_message": MessageArgs,
     "check_token": TokenArgs,
     "check_wallet_approvals": ApprovalArgs,
+    "screen_wallet": ScreenArgs,
     "check_endpoint_before_paying": EndpointArgs,
 }
 TOOL_NAMES = tuple(ARGS)

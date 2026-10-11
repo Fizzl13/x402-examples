@@ -5,7 +5,7 @@ export declare const PRESIGN_URL: string;
 export declare const DOCTOR_URL: string;
 export declare const PRICES: Record<FizzlToolName, string>;
 
-export type FizzlToolName = "check_before_signing" | "check_xrpl_transaction" | "check_solana_transaction" | "check_algorand_transaction" | "check_message" | "check_token" | "check_wallet_approvals" | "check_endpoint_before_paying";
+export type FizzlToolName = "check_before_signing" | "check_xrpl_transaction" | "check_solana_transaction" | "check_algorand_transaction" | "check_message" | "check_token" | "check_wallet_approvals" | "screen_wallet" | "check_endpoint_before_paying";
 
 /** A failed check, returned to the model instead of thrown. */
 export interface FizzlToolError { error: string; message: string }
@@ -22,7 +22,7 @@ export interface FizzlToolsOptions {
   fetch?: typeof fetch;
   /** Prepaid credit keys (sent as x-credit-key), per service. */
   creditKeys?: { presign?: string; doctor?: string };
-  /** The tools to include (default: all eight). */
+  /** The tools to include (default: all nine). */
   only?: FizzlToolName[];
   /** Fall back to the free quick check (verdict only, a few per hour) when a check can't be paid. Default true. */
   free?: boolean;

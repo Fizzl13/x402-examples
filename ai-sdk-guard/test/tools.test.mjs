@@ -120,6 +120,22 @@ test("check_before_signing passes from (simulation), intent and the x402 require
   assert.equal(t.check_before_signing.inputSchema.safeParse({ ...input, intent: "x".repeat(501) }).success, false);
 });
 
+test("screen_wallet: any chain's address to /v1/screen; a bad address is refused before paying; no free fallback", async () => {
+  const s = standIn({ "/v1/screen": [200, { verdict: "red", one_liner: "AVOID: on the OFAC SDN list (X)", receipt: {} }] });
+  const t = fizzlTools({ fetch: s.fetch, creditKeys: { presign: "pk" } });
+  for (const address of ["TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81", "0x098B716B8Aaf21512996dC57EB0615e2383E2f96", "bc1qjzk63wwatq2f638psymq3qapn00aqgksyx56l3t8eg7zuuccwasq498khf"]) {
+    assert.equal(t.screen_wallet.inputSchema.safeParse({ address }).success, true, address);
+  }
+  assert.deepEqual(await t.screen_wallet.execute({ address: "TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81" }), { verdict: "red", one_liner: "AVOID: on the OFAC SDN list (X)" });
+  assert.equal(s.calls[0].url, "https://presign-guard.fizzl.eu/v1/screen?address=TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81");
+  assert.equal(s.calls[0].headers["x-credit-key"], "pk");
+  assert.equal(t.screen_wallet.inputSchema.safeParse({ address: "0x12" }).success, false);
+  assert.equal(t.screen_wallet.inputSchema.safeParse({ address: "<script>alert(1)</script>" }).success, false);
+  const unpaid = fizzlTools({ fetch: standIn({ "/v1/screen": [402, {}] }).fetch });
+  assert.equal((await unpaid.screen_wallet.execute({ address: "TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81" })).error, "payment_required");
+  assert.equal(PRICES.screen_wallet, "$0.01");
+});
+
 test("schemas refuse bad input before anything is paid", () => {
   const t = fizzlTools();
   assert.equal(t.check_before_signing.inputSchema.safeParse({ type: "approval", chainId: 999 }).success, false);
