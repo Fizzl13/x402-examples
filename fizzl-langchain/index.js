@@ -9,7 +9,7 @@
 import { tool } from "@langchain/core/tools";
 import { fizzlTools as checks, PRICES, PRESIGN_URL, DOCTOR_URL } from "presign-guard-ai-sdk";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 export { PRICES, PRESIGN_URL, DOCTOR_URL };
 
 // The same checks as presign-guard-ai-sdk; only the user agent says where the call came from.
@@ -22,7 +22,7 @@ function withUserAgent(fetchImpl) {
  * @param {object} [options]
  * @param {typeof fetch} [options.fetch] fetch that pays x402 (wrapFetchWithPayment from @x402/fetch); plain fetch works with credit keys
  * @param {{ presign?: string, doctor?: string }} [options.creditKeys] prepaid credit keys (x-credit-key) per service
- * @param {string[]} [options.only] the tool names to include (default: all five)
+ * @param {string[]} [options.only] the tool names to include (default: all seven)
  * @param {boolean} [options.free] fall back to the free quick checks when a check can't be paid (default true)
  * @param {string} [options.presignUrl] @param {string} [options.doctorUrl] @param {number} [options.timeoutMs]
  */
