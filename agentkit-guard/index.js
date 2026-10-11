@@ -17,14 +17,27 @@
 // Raw hash signing (sign) can't be checked, so it is refused unless you set
 // allowRawSign. getClient (the CDP SDK client, which the CDP swap actions use to
 // sign on their own) would go around the guard, so it is refused unless you set
-// allowUnguardedClient. signMessage (plain text, personal_sign) is not checked,
-// as in presign-guard-wallet.
+// allowUnguardedClient. signMessage (personal_sign) is checked too: a sign-in
+// message for another site is red.
+//
+// Solana wallet providers (SolanaKeypairWalletProvider, CdpSolanaWalletProvider)
+// are guarded the same way: signTransaction and signAndSendTransaction (SPL
+// transfers, Jupiter swaps), nativeTransfer and the x402 actions (toSigner) go
+// through presign-guard, which reads every instruction and simulates the
+// transaction; what leaves the wallet counts toward the limits (SOL, USDC).
+// getKeyPairSigner (the raw key) and signMessage can't be checked, so they are
+// refused unless you set allowRawSign.
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import { EvmWalletProvider, customActionProvider } from "@coinbase/agentkit";
 import { z } from "zod";
 import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
 
 export { PresignBlockedError };
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
+
+// AgentKit's Solana network ids and the x402 (CAIP-2) ids presign-guard-wallet uses.
+const SOLANA_NETWORKS = { "solana-mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "solana-devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" };
 
 const SIGN_ONLY = Symbol("signOnly");
 
@@ -35,8 +48,10 @@ const SIGN_ONLY = Symbol("signOnly");
  * paying for a check is not itself checked.
  */
 export function guardWalletProvider(provider, { allowRawSign = false, allowUnguardedClient = false, ...options } = {}) {
-  const evm = provider instanceof EvmWalletProvider || ["sendTransaction", "signTypedData", "signTransaction", "getNetwork"].every((m) => typeof provider?.[m] === "function") && provider.getNetwork()?.protocolFamily === "evm";
-  if (!evm) throw new TypeError("guardWalletProvider needs an AgentKit EVM wallet provider (Solana providers aren't covered by presign-guard)");
+  const family = typeof provider?.getNetwork === "function" ? provider.getNetwork()?.protocolFamily : undefined;
+  if (family === "svm" && ["signTransaction", "sendTransaction", "getAddress"].every((m) => typeof provider[m] === "function")) return guardSvmProvider(provider, { allowRawSign, ...options });
+  const evm = provider instanceof EvmWalletProvider || ["sendTransaction", "signTypedData", "signTransaction", "getNetwork"].every((m) => typeof provider?.[m] === "function") && family === "evm";
+  if (!evm) throw new TypeError("guardWalletProvider needs an AgentKit EVM or Solana wallet provider");
 
   // The small wallet shape presign-guard-wallet guards.
   const inner = {
@@ -45,6 +60,8 @@ export function guardWalletProvider(provider, { allowRawSign = false, allowUngua
     get account() { try { return { address: provider.getAddress() }; } catch { return undefined; } },
     sendTransaction: (args) => (args?.[SIGN_ONLY] ? provider.signTransaction(strip(args)) : provider.sendTransaction(args)),
     signTypedData: (typedData) => provider.signTypedData(typedData),
+    // viem's shape ({ message: string | { raw } }) back to AgentKit's (string | bytes).
+    signMessage: ({ message }) => provider.signMessage(typeof message === "string" ? message : message.raw),
   };
   const guarded = guardWallet(inner, options);
 
@@ -61,6 +78,7 @@ export function guardWalletProvider(provider, { allowRawSign = false, allowUngua
         case "sendTransaction": return (tx) => guarded.sendTransaction(tx);
         case "signTransaction": return (tx) => guarded.sendTransaction({ ...tx, [SIGN_ONLY]: true });
         case "signTypedData": return (typedData) => guarded.signTypedData(typedData);
+        case "signMessage": return (message) => guarded.signMessage({ message: typeof message === "string" ? message : { raw: message } });
         case "nativeTransfer": return async (to, value) => receiver.sendTransaction({ to, value: BigInt(value), data: "0x" });
         case "sign":
           if (allowRawSign) return target.sign.bind(target);
@@ -79,6 +97,85 @@ export function guardWalletProvider(provider, { allowRawSign = false, allowUngua
     },
   });
   return proxy;
+}
+
+/**
+ * A Solana wallet provider behind the same guard. Every signature goes through presign-guard-wallet's
+ * Solana signer with any: checked (decoded and simulated) and kept to the limits.
+ */
+function guardSvmProvider(provider, { allowRawSign, ...options }) {
+  const network = SOLANA_NETWORKS[provider.getNetwork().networkId];
+  if (!network) throw new TypeError(`guardWalletProvider: Solana network ${provider.getNetwork().networkId} is not covered (${Object.keys(SOLANA_NETWORKS).join(", ")})`);
+  const web3 = solanaWeb3();
+  const guarded = guardWallet({}, options);
+  const address = provider.getAddress();
+
+  // The signer presign-guard-wallet guards: it gets @solana/kit-style transactions ({ messageBytes })
+  // and has the provider sign them. A transaction the agent handed over keeps its other signatures.
+  const handed = new Map();
+  const inner = {
+    address,
+    signTransactions: async (txs) => Promise.all(txs.map(async (t) => {
+      const key = Buffer.from(t.messageBytes).toString("base64");
+      const vtx = handed.get(key) ?? new web3.VersionedTransaction(web3.VersionedMessage.deserialize(t.messageBytes));
+      const signed = await provider.signTransaction(vtx);
+      handed.set(key, signed);
+      const i = signed.message.staticAccountKeys.findIndex((k) => k.toBase58() === address);
+      if (i < 0) throw new PresignBlockedError("the wallet is not a signer of this transaction; nothing was signed", { code: "unsupported_chain" });
+      return { [address]: signed.signatures[i] };
+    })),
+  };
+  const signer = guarded.solanaSigner(inner, { network, any: true });
+  const signVersioned = async (vtx) => {
+    const messageBytes = vtx.message.serialize();
+    const key = Buffer.from(messageBytes).toString("base64");
+    handed.set(key, vtx);
+    try {
+      await signer.signTransactions([{ messageBytes, signatures: {} }]);
+      return handed.get(key);
+    } finally { handed.delete(key); }
+  };
+  const refused = (what) => async () => { throw new PresignBlockedError(`${what} can't be checked by presign-guard; nothing was signed (set allowRawSign to permit it)`, { code: "unchecked" }); };
+
+  const controls = {
+    pause: () => guarded.pause(),
+    resume: () => guarded.resume(),
+    paused: () => guarded.paused(),
+    spending: () => guarded.spending(),
+  };
+
+  return new Proxy(provider, {
+    get(target, prop, receiver) {
+      switch (prop) {
+        case "signTransaction": return (vtx) => signVersioned(vtx);
+        case "signAndSendTransaction": return async (vtx) => target.sendTransaction(await signVersioned(vtx));
+        // The provider's own builds and signs inside itself: rebuilt here so it goes through the guard.
+        case "nativeTransfer": return async (to, value) => {
+          const payer = target.getPublicKey();
+          const { blockhash } = await target.getConnection().getLatestBlockhash();
+          const message = web3.MessageV0.compile({
+            payerKey: payer,
+            recentBlockhash: blockhash,
+            instructions: [web3.SystemProgram.transfer({ fromPubkey: payer, toPubkey: new web3.PublicKey(to), lamports: BigInt(value) })],
+          });
+          return receiver.signAndSendTransaction(new web3.VersionedTransaction(message));
+        };
+        // The x402 actions pay with this signer: x402 payments and anything else, checked and counted.
+        case "toSigner": return async () => signer;
+        case "getKeyPairSigner": return allowRawSign ? target.getKeyPairSigner.bind(target) : refused("handing out the private key");
+        case "signMessage": return allowRawSign ? target.signMessage.bind(target) : refused("a Solana message signature");
+        case "guard": return controls;
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+// @solana/web3.js as AgentKit itself has it, so the transactions are the classes its actions build.
+function solanaWeb3() {
+  const here = createRequire(import.meta.url);
+  return here(here.resolve("@solana/web3.js", { paths: [dirname(here.resolve("@coinbase/agentkit"))] }));
 }
 
 function strip(args) {

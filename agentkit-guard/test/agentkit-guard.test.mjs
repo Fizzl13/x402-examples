@@ -174,8 +174,9 @@ test("the agent's actions: see the budget, pause itself", async () => {
   assert.match(await plain[0].invoke({}), /no spending guard/);
 });
 
-test("Solana and other non-EVM providers are refused", () => {
-  assert.throws(() => guardWalletProvider({ getNetwork: () => ({ protocolFamily: "svm" }) }, { pay: async () => {} }), /EVM/);
+test("other providers are refused; a Solana provider needs the methods and a covered network", () => {
+  assert.throws(() => guardWalletProvider({ getNetwork: () => ({ protocolFamily: "svm" }) }, { pay: async () => {} }), /EVM or Solana/);
+  assert.throws(() => guardWalletProvider({ getNetwork: () => ({ protocolFamily: "bitcoin" }) }, { pay: async () => {} }), /EVM or Solana/);
   assert.throws(() => guardWalletProvider(new FakeProvider(), {}), /pay is required/);
 });
 
@@ -203,4 +204,127 @@ test("the offline demo runs and shows green, red, over the limit and paused", as
   assert.match(out, /not signed \(red\): not signed: red \(known_drainer\)/);
   assert.match(out, /not signed \(over_limit\)/);
   assert.match(out, /not signed \(paused\)/);
+});
+
+// ---- Solana ----
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
+const here = createRequire(import.meta.url);
+const web3 = here(here.resolve("@solana/web3.js", { paths: [dirname(here.resolve("@coinbase/agentkit"))] }));
+const { SolanaKeypairWalletProvider, SvmWalletProvider } = await import("@coinbase/agentkit");
+const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+const OTHER = new web3.PublicKey("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM");
+
+// presign-guard for Solana: a fixed verdict, with the simulation the wallet counts from.
+function solPresign({ verdict = "green", simulation } = {}) {
+  const calls = [];
+  const pay = async (_url, init) => {
+    calls.push(JSON.parse(init.body));
+    return Response.json({ verdict, reasons: verdict === "green" ? [] : [{ code: "SOLANA_TOKEN_ACCOUNT_TAKEOVER", severity: verdict }], ...(simulation && { simulation }) });
+  };
+  return { pay, calls };
+}
+const solOut = (from, lamports) => ({ ok: true, fee: 0.000005, changes: [{ type: "sol", account: from, change: -lamports / 1e9, lamports: String(-lamports - 5000) }] });
+const transferTx = (from, lamports = 1000n) => new web3.VersionedTransaction(web3.MessageV0.compile({
+  payerKey: from, recentBlockhash: "11111111111111111111111111111111",
+  instructions: [web3.SystemProgram.transfer({ fromPubkey: from, toPubkey: OTHER, lamports })],
+}));
+async function verifies(tx, pubkey) {
+  const key = await crypto.subtle.importKey("raw", pubkey.toBytes(), "Ed25519", false, ["verify"]);
+  return crypto.subtle.verify("Ed25519", key, tx.signatures[0], tx.message.serialize());
+}
+
+function keypairWallet(options = {}) {
+  const keypair = web3.Keypair.generate();
+  const inner = new SolanaKeypairWalletProvider({ keypair: keypair.secretKey, rpcUrl: "http://127.0.0.1:9", genesisHash: MAINNET_GENESIS });
+  const p = solPresign(options.presign);
+  const wallet = guardWalletProvider(inner, { pay: p.pay, verifyReceipts: "off", ...options.guard });
+  return { keypair, inner, wallet, calls: p.calls };
+}
+
+test("Solana: AgentKit's keypair wallet signs only after presign-guard (type solana, from the wallet); red is not signed", async () => {
+  const { keypair, wallet, calls } = keypairWallet();
+  assert.ok(wallet instanceof SvmWalletProvider, "still a Solana wallet provider to AgentKit's actions");
+  const signed = await wallet.signTransaction(transferTx(keypair.publicKey));
+  assert.ok(await verifies(signed, keypair.publicKey));
+  assert.deepEqual([calls[0].type, calls[0].from], ["solana", keypair.publicKey.toBase58()]);
+  assert.ok(Buffer.from(calls[0].transaction, "base64").length > 100);
+
+  const red = keypairWallet({ presign: { verdict: "red" } });
+  const tx = transferTx(red.keypair.publicKey);
+  await assert.rejects(red.wallet.signTransaction(tx), (e) => e instanceof PresignBlockedError && e.code === "red");
+  assert.ok(tx.signatures[0].every((b) => b === 0), "nothing was signed");
+});
+
+test("Solana: what the simulation shows leaving counts toward a SOL limit; over it nothing is signed", async () => {
+  const keypair = web3.Keypair.generate();
+  const from = keypair.publicKey.toBase58();
+  for (const [lamports, ok] of [[300_000_000, true], [700_000_000, false]]) {
+    const inner = new SolanaKeypairWalletProvider({ keypair: keypair.secretKey, rpcUrl: "http://127.0.0.1:9", genesisHash: MAINNET_GENESIS });
+    const p = solPresign({ simulation: solOut(from, lamports) });
+    const wallet = guardWalletProvider(inner, { pay: p.pay, verifyReceipts: "off", limits: { tokens: { SOL: { perTx: "0.5" } } } });
+    const tx = transferTx(keypair.publicKey, BigInt(lamports));
+    if (ok) {
+      await wallet.signTransaction(tx);
+      assert.equal((await wallet.guard.spending())[0].used, "0.3");
+    } else {
+      await assert.rejects(wallet.signTransaction(tx), { code: "over_limit" });
+      assert.ok(tx.signatures[0].every((b) => b === 0));
+    }
+  }
+});
+
+// A Solana provider whose sending is recorded (no network): for signAndSend, nativeTransfer and the refusals.
+class FakeSvm extends SvmWalletProvider {
+  #kp = web3.Keypair.generate();
+  sent = []; ownTransfer = 0;
+  trackInitialization() {}
+  getAddress() { return this.#kp.publicKey.toBase58(); }
+  getPublicKey() { return this.#kp.publicKey; }
+  getNetwork() { return { protocolFamily: "svm", networkId: "solana-mainnet" }; }
+  getName() { return "fake_svm"; }
+  getConnection() { return { getLatestBlockhash: async () => ({ blockhash: "11111111111111111111111111111111", lastValidBlockHeight: 1 }) }; }
+  async getBalance() { return 10n ** 9n; }
+  async signTransaction(tx) { tx.sign([this.#kp]); return tx; }
+  async sendTransaction(tx) { this.sent.push(tx); return "SIG"; }
+  async signAndSendTransaction(tx) { return this.sendTransaction(await this.signTransaction(tx)); }
+  async nativeTransfer() { this.ownTransfer++; return "UNGUARDED"; }
+  async signMessage() { return new Uint8Array(64); }
+  async getKeyPairSigner() { return "the raw key"; }
+  async getSignatureStatus() { return null; }
+  async waitForSignatureResult() { return { value: { err: null } }; }
+}
+
+test("Solana: signAndSendTransaction and nativeTransfer go through the guard; the raw key and messages are refused", async () => {
+  const inner = new FakeSvm();
+  const p = solPresign();
+  const wallet = guardWalletProvider(inner, { pay: p.pay, verifyReceipts: "off" });
+  assert.equal(await wallet.signAndSendTransaction(transferTx(inner.getPublicKey())), "SIG");
+  assert.equal(inner.sent.length, 1);
+  assert.ok(await verifies(inner.sent[0], inner.getPublicKey()));
+  assert.equal(await wallet.nativeTransfer(OTHER.toBase58(), "1000"), "SIG");
+  assert.equal(inner.ownTransfer, 0, "the provider's own transfer (signing inside itself) was not used");
+  assert.equal(p.calls.length, 2);
+  await assert.rejects(wallet.getKeyPairSigner(), { code: "unchecked" });
+  await assert.rejects(wallet.signMessage(new Uint8Array([1])), { code: "unchecked" });
+  const open = guardWalletProvider(new FakeSvm(), { pay: p.pay, verifyReceipts: "off", allowRawSign: true });
+  assert.equal(await open.getKeyPairSigner(), "the raw key");
+
+  // toSigner (what AgentKit's x402 actions pay with): the guarded signer, for @solana/kit transactions.
+  const signer = await wallet.toSigner();
+  assert.equal(signer.address, inner.getAddress());
+  const [sigs] = await signer.signTransactions([{ messageBytes: transferTx(inner.getPublicKey()).message.serialize(), signatures: {} }]);
+  assert.equal(sigs[inner.getAddress()].length, 64);
+  assert.equal(p.calls.length, 3);
+  wallet.guard.pause();
+  await assert.rejects(wallet.signTransaction(transferTx(inner.getPublicKey())), { code: "paused" });
+});
+
+test("EVM signMessage is checked by presign-guard (type message) before the provider signs", async () => {
+  const { inner, wallet, calls } = setup();
+  assert.equal(await wallet.signMessage("hello"), "0xmsg");
+  assert.deepEqual([calls[0].type, calls[0].method, calls[0].message], ["message", "personal_sign", "hello"]);
+  assert.deepEqual(inner.signed.at(-1), ["signMessage", "hello"]);
+  await wallet.signMessage(new Uint8Array([1, 2]));
+  assert.equal(calls[1].message, "0x0102");
 });
