@@ -15,6 +15,8 @@ import { createXrplWalletSigner } from "@x402/xrpl";
 import { ExactAvmScheme } from "@x402/avm/exact/client";
 import { toClientAvmSigner } from "@x402/avm";
 import { seedFromMnemonic } from "@algorandfoundation/algokit-utils/algo25";
+import { ExactSvmScheme } from "@x402/svm/exact/client";
+import { createKeyPairSignerFromPrivateKeyBytes, getBase58Decoder, getBase58Encoder } from "@solana/kit";
 import { createPrivateKey, createPublicKey } from "node:crypto";
 import { Wallet as XrplWallet } from "xrpl";
 import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest, x402Checked } from "presign-guard-wallet";
@@ -23,7 +25,7 @@ import { sessionManager, createJsonChannelStore } from "mppx/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-export const VERSION = "0.15.0";
+export const VERSION = "0.16.0";
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -102,6 +104,25 @@ export function algorandKeyFromMnemonic(mnemonic) {
   const priv = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
   const pub = createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32);
   return Buffer.concat([seed, pub]).toString("base64");
+}
+
+// Solana: x402 payments in USDC from the agent's own Solana account (SOLANA_PRIVATE_KEY), settled by the seller's
+// facilitator (which pays the network fee). The guarded signer signs only the USDC transfer, after presign-guard.
+export const SOLANA = {
+  mainnet: { network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", usdc: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", rpc: "https://api.mainnet-beta.solana.com" },
+  devnet: { network: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1", usdc: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", rpc: "https://api.devnet.solana.com" },
+};
+// The 32-byte seed and the address from a Solana secret key: base58 (as wallets export it) or the JSON byte array
+// of a solana-keygen file; 64 bytes (seed + public key) or the 32-byte seed alone.
+export function solanaKey(text) {
+  const t = String(text).trim();
+  const bytes = t.startsWith("[") ? Uint8Array.from(JSON.parse(t)) : getBase58Encoder().encode(t);
+  if (bytes.length !== 64 && bytes.length !== 32) throw new Error("not 32 or 64 bytes");
+  const seed = Buffer.from(bytes.subarray(0, 32));
+  const priv = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
+  const pub = createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32);
+  if (bytes.length === 64 && !pub.equals(Buffer.from(bytes.subarray(32)))) throw new Error("the public half doesn't match");
+  return { seed, address: getBase58Decoder().decode(pub) };
 }
 
 // XRP Ledger: x402 payments in RLUSD (Ripple's dollar) from the agent's own XRPL account (XRPL_SEED).
@@ -186,6 +207,7 @@ export function configFromEnv(env = process.env) {
 
   const xrpl = xrplConfig(env);
   const algorand = algorandConfig(env);
+  const solana = solanaConfig(env);
 
   const maxPrice = env.MAX_PAYMENT_USD ?? "1";
   if (!/^\d+(\.\d+)?$/.test(maxPrice)) throw new Error("MAX_PAYMENT_USD must be a number of dollars, e.g. 1 or 0.25");
@@ -208,6 +230,8 @@ export function configFromEnv(env = process.env) {
     xrpl,
     // Algorand: off without ALGORAND_MNEMONIC. USDC on Algorand counts toward the USDC limits.
     algorand,
+    // Solana: off without SOLANA_PRIVATE_KEY. USDC on Solana counts toward the USDC limits.
+    solana,
     // MPP sessions on Tempo: off without MPP_SESSION_DEPOSIT (what each channel deposit or top-up puts in, in USDC.e).
     session: sessionConfig(env),
   };
@@ -221,6 +245,16 @@ function algorandConfig(env) {
   const name = (env.ALGORAND_NETWORK || "mainnet").toLowerCase();
   if (!ALGORAND[name]) throw new Error(`ALGORAND_NETWORK must be ${Object.keys(ALGORAND).join(" or ")}`);
   return { key, net: name, algodUrl: env.ALGORAND_ALGOD_URL || ALGORAND[name].algod };
+}
+
+function solanaConfig(env) {
+  const text = env.SOLANA_PRIVATE_KEY?.trim();
+  if (!text) return null;
+  let key;
+  try { key = solanaKey(text); } catch { throw new Error("SOLANA_PRIVATE_KEY must be the agent's own Solana secret key (base58, or the byte array of a solana-keygen file). Use a separate account with only what the agent may spend."); }
+  const name = (env.SOLANA_NETWORK || "mainnet").toLowerCase();
+  if (!SOLANA[name]) throw new Error(`SOLANA_NETWORK must be ${Object.keys(SOLANA).join(" or ")}`);
+  return { ...key, net: name, rpcUrl: env.SOLANA_RPC_URL || SOLANA[name].rpc };
 }
 
 function xrplConfig(env) {
@@ -309,6 +343,16 @@ export function createWallet(config, overrides = {}) {
   if (algoNet && typeof guarded.algorandSigner !== "function") throw new Error("ALGORAND_MNEMONIC needs presign-guard-wallet 0.12 or newer (npm install presign-guard-wallet@latest)");
   const algoSigner = algoNet ? guarded.algorandSigner(overrides.algorandSigner ?? toClientAvmSigner(config.algorand.key), { network: algoNet.network }) : null;
   const isAlgoUsdcOffer = (r, cap) => r?.network === algoNet?.network && r.scheme === "exact" && String(r.asset) === String(algoNet.usdc) && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
+
+  // Solana: the agent's own Solana account, signing only x402 USDC payments, checked by presign-guard and kept to the limits.
+  const solNet = config.solana ? { ...SOLANA[config.solana.net], rpcUrl: config.solana.rpcUrl } : null;
+  if (solNet && typeof guarded.solanaSigner !== "function") throw new Error("SOLANA_PRIVATE_KEY needs presign-guard-wallet 0.16 or newer (npm install presign-guard-wallet@latest)");
+  let keypair = null; // made on first use (WebCrypto is async); the address is known from the key already
+  const solSigner = solNet ? guarded.solanaSigner(overrides.solanaSigner ?? {
+    address: config.solana.address,
+    signTransactions: async (txs, cfg) => (await (keypair ??= createKeyPairSignerFromPrivateKeyBytes(config.solana.seed))).signTransactions(txs, cfg),
+  }, { network: solNet.network }) : null;
+  const isSolUsdcOffer = (r, cap) => r?.network === solNet?.network && r.scheme === "exact" && r.asset === solNet.usdc && typeof r.extra?.feePayer === "string" && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
 
   // XRPL: the agent's own XRPL account, its Payments checked by presign-guard and kept to the limits.
   const xrplNet = config.xrpl ? { ...XRPL[config.xrpl.net], wsUrl: config.xrpl.wsUrl } : null;
@@ -470,18 +514,20 @@ export function createWallet(config, overrides = {}) {
       // x402Checked: the requirements being paid go along with the presign-guard check, so a signature that pays
       // more, someone else, another token or chain than the seller asked is refused before it is signed.
       client.register(`eip155:${chain.id}`, x402Checked(mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme));
-      // USDC on Algorand and RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
+      // USDC on Solana and Algorand and RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
+      if (solSigner && !mandate) client.register(solNet.network, overrides.solanaScheme ?? new ExactSvmScheme(solSigner, { rpcUrl: solNet.rpcUrl }));
       if (algoSigner && !mandate) client.register(algoNet.network, overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
       if (xrplSigner && !mandate) {
         client.register(xrplNet.network, xrplPayScheme(xrplSigner, { network: xrplNet.network, wsUrl: xrplNet.wsUrl, prepare: overrides.xrplPrepare, maxUsd: cap }));
         // RLUSD written as text ("RLUSD") isn't a default asset to the spend controls; the cap is checked above.
-        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [{ network: algoNet.network, asset: String(algoNet.usdc) }] : [])] });
+        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [{ network: algoNet.network, asset: String(algoNet.usdc) }] : []), ...(solSigner ? [{ network: solNet.network, asset: solNet.usdc }] : [])] });
       }
-      // The order: USDC on this chain first, then USDC on Algorand, then RLUSD from Ripple; other offers on those
-      // networks (another asset, above the cap) are left out.
-      if ((algoSigner || xrplSigner) && !mandate) {
+      // The order: USDC on this chain first, then USDC on Solana, then on Algorand, then RLUSD from Ripple; other
+      // offers on those networks (another asset, above the cap) are left out.
+      if ((solSigner || algoSigner || xrplSigner) && !mandate) {
         client.registerPolicy((_v, reqs) => [
-          ...reqs.filter((r) => !String(r.network).startsWith("xrpl:") && !String(r.network).startsWith("algorand:")),
+          ...reqs.filter((r) => !/^(xrpl|algorand|solana):/.test(String(r.network))),
+          ...(solSigner ? reqs.filter((r) => isSolUsdcOffer(r, cap)) : []),
           ...(algoSigner ? reqs.filter((r) => isAlgoUsdcOffer(r, cap)) : []),
           ...(xrplSigner ? reqs.filter((r) => isRlusdOffer(r, xrplNet) && rlusdWithin(r, cap)) : []),
         ]);
@@ -534,6 +580,7 @@ export function createWallet(config, overrides = {}) {
     address: account.address,
     xrplAddress: xrplSigner?.classicAddress ?? null,
     algorandAddress: algoSigner?.address ?? null,
+    solanaAddress: solSigner?.address ?? null,
     chain,
     guard: guarded,
 
@@ -550,6 +597,16 @@ export function createWallet(config, overrides = {}) {
     },
 
     async status() {
+      async function solUsdcBalance() {
+        try {
+          const r = await plainFetch(solNet.rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(8000),
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTokenAccountsByOwner", params: [solSigner.address, { mint: solNet.usdc }, { encoding: "jsonParsed" }] }) });
+          const accounts = (await r.json()).result?.value;
+          if (!Array.isArray(accounts)) return "unknown";
+          if (!accounts.length) return "no USDC account yet";
+          return formatUnits(accounts.reduce((sum, a) => sum + BigInt(a.account?.data?.parsed?.info?.tokenAmount?.amount ?? 0), 0n), 6);
+        } catch { return "unknown"; }
+      }
       async function algoUsdcBalance() {
         try {
           const r = await plainFetch(`${algoNet.algodUrl}/v2/accounts/${algoSigner.address}/assets/${algoNet.usdc}`, { signal: AbortSignal.timeout(8000) });
@@ -572,6 +629,7 @@ export function createWallet(config, overrides = {}) {
           USDC: usdcBalance === null ? "unknown" : formatUnits(usdcBalance, usdc[1]),
           ...(tempoNet ? { [`${tempoNet.symbol} on Tempo${tempoNet.chainId === 4217 ? "" : " testnet"} (for MPP tempo charges)`]: tempoBalance === null ? "unknown" : formatUnits(tempoBalance, 6) } : {}),
         },
+        ...(solSigner && { solana: { address: solSigner.address, network: `${config.solana.net} (${solNet.network})`, usdc: await solUsdcBalance(), pays: "x402 in USDC on Solana (the seller's facilitator pays the network fee), checked by presign-guard and counted toward the USDC limits; no SOL needed" } }),
         ...(algoSigner && { algorand: { address: algoSigner.address, network: `${config.algorand.net} (${algoNet.network})`, usdc: await algoUsdcBalance(), pays: "x402 in USDC on Algorand (the seller's facilitator pays the network fee), counted toward the USDC limits; the account must be opted in to USDC (ASA " + algoNet.usdc + ")" } }),
         ...(xrplSigner && { xrpl: { address: xrplSigner.classicAddress, network: `${config.xrpl.net} (${xrplNet.network})`, pays: "x402 in RLUSD (Ripple's issuer), counted toward the USDC limits; the account needs an RLUSD trust line, RLUSD and a little XRP for fees" } }),
         limits: config.server ? `kept by the wallet server ${config.server.url}` : config.limits.tokens,
@@ -733,7 +791,7 @@ export function createServer(wallet) {
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
-    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With an Algorand account set up, x402 offers in USDC on Algorand are paid too, and with an XRPL account x402 offers in RLUSD on the XRP Ledger (both after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
+    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With a Solana or Algorand account set up, x402 offers in USDC there are paid too, and with an XRPL account x402 offers in RLUSD on the XRP Ledger (all after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call.",
     inputSchema: {
       url: z.string().url().describe("The API URL"),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),
