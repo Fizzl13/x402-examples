@@ -153,7 +153,7 @@ export interface GuardControls {
    * A guarded Algorand signer for @x402/avm (ExactAvmScheme): signs only the agent's own USDC transfer in a
    * payment group (no close-out, rekey or clawback), counted toward the USDC limits; anything else is refused.
    */
-  algorandSigner<S extends { address: string; signTransactions(txns: Uint8Array[], indexesToSign?: number[]): Promise<(Uint8Array | null)[]> }>(signer: S, opts?: { network?: string }): S;
+  algorandSigner<S extends { address: string; signTransactions(txns: Uint8Array[], indexesToSign?: number[]): Promise<(Uint8Array | null)[]> }>(signer: S, opts?: { network?: string; any?: boolean }): S;
   /**
    * A guarded Solana signer for @x402/svm (ExactSvmScheme): signs only an x402 USDC payment from this account
    * (compute budget, one TransferChecked, memo), checked by presign-guard and counted toward the USDC limits;

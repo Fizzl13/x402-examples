@@ -130,6 +130,7 @@ What counts as spending:
 - an ERC-20 `transfer` or `transferFrom`;
 - an **allowance** (`approve`, `increaseAllowance`, Permit, Permit2): whoever gets it can spend that amount, so it counts when it is given. An unlimited allowance or `setApprovalForAll` is over any limit, and if a human approves one anyway it uses up the rest of the window. Revoking costs nothing;
 - an EIP-3009 payment or Permit2 transfer signature, read from presign-guard's signed verdict. A signature it cannot decode counts as unknown spending (`unknownTokens`);
+- on Algorand with `algorandSigner(…, { any: true })`: ALGO paid and assets sent by the account's own transactions in the group (ALGO toward `ALGO`, USDC toward `USDC`, other assets as tokens without a limit). A close-out, rekey or clawback counts as unknown spending;
 - on Solana with `solanaSigner(…, { any: true })`: what presign-guard's signed simulation shows leaving the wallet. SOL beyond the network fee counts toward `SOL`, USDC toward `USDC`, other tokens as tokens without a limit. A token delegate is over any limit, and a transaction without a complete simulation counts as unknown spending.
 
 Other contract calls (a swap that uses an allowance you already gave) spend nothing new: the allowance was counted when it was given. Budgets are shared across chains (`USDC: { perDay: "20" }` is 20 USDC in total), checked one at a time so parallel transactions cannot both fit in the last of a budget, booked before signing and given back when signing fails. A store that cannot be read stops the wallet (`limit_unavailable`).
@@ -265,7 +266,14 @@ const algo = guarded.algorandSigner(toClientAvmSigner(process.env.AVM_PRIVATE_KE
 client.register("algorand:*", new ExactAvmScheme(algo)); // x402 payments in USDC on Algorand, within limits
 ```
 
-`network` is the mainnet id above (default) or `"algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="` (testnet). The account must be opted in to USDC. Algorand transfers aren't sent to presign-guard (it checks EVM and XRPL); the local rules above are the check.
+`network` is the mainnet id above (default) or `"algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="` (testnet). The account must be opted in to USDC. An x402 USDC payment is checked by the local rules above, without a presign-guard call.
+
+**Other Algorand transactions.** With `{ any: true }` the signer also signs other transactions and atomic groups: payments in ALGO, asset transfers, app calls, for an agent that does more than pay x402 APIs. The whole group goes to presign-guard first (`type: "algorand"`): a rekey to another key, closing the account or an asset holding to someone else, or fake USDC is red and never signed; clawbacks, risky opt-ins, app update/delete/clear-state and a group that would fail are orange (`onOrange`). Only this account's own transactions in the group are signed. What they send counts toward your limits: ALGO toward an `ALGO` limit, USDC toward `USDC`, other assets as tokens without a limit; a close-out, rekey or clawback counts as unknown spending, so it goes to `onOverLimit`.
+
+```js
+const algo = guarded.algorandSigner(toClientAvmSigner(process.env.AVM_PRIVATE_KEY), { any: true });
+// limits: { tokens: { USDC: { perDay: "5" }, ALGO: { perTx: "10", perDay: "25" } } }
+```
 
 ## Solana (USDC)
 

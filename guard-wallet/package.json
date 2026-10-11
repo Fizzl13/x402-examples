@@ -1,7 +1,7 @@
 {
   "name": "presign-guard-wallet",
-  "version": "0.17.1",
-  "description": "A wallet for AI agents (viem on EVM chains, and Solana) that asks presign-guard ($0.01 over x402) before every transaction, contract write and signature, refuses to sign red, and keeps to per-token spending limits, with approval from your phone over the limit.",
+  "version": "0.18.0",
+  "description": "A wallet for AI agents (viem on EVM chains, Solana and Algorand) that asks presign-guard ($0.01 over x402) before every transaction, contract write and signature, refuses to sign red, and keeps to per-token spending limits, with approval from your phone over the limit.",
   "type": "module",
   "exports": {
     ".": {
@@ -62,6 +62,7 @@
     "wallet",
     "viem",
     "solana",
+    "algorand",
     "security",
     "presign",
     "approvals",
