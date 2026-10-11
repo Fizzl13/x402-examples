@@ -1,6 +1,6 @@
 # presign-guard-wallet
 
-A [viem](https://viem.sh) wallet for AI agents that asks [presign-guard](https://presign-guard.fizzl.eu) before it signs.
+A [viem](https://viem.sh) wallet for AI agents that asks [presign-guard](https://presign-guard.fizzl.eu) before it signs. Solana signers too: see [Solana](#solana-usdc).
 
 Before every `sendTransaction`, `writeContract` and `signTypedData`, the wallet pays **$0.01** (x402, USDC on Base) for a verdict on exactly what is about to be signed, and acts on it:
 
