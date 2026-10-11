@@ -26,7 +26,8 @@ export interface PresignVerdict {
 /** What is sent to presign-guard's POST /v1/check. */
 export type CheckRequest =
   | { type: "transaction"; chainId: number; to: string; data: string; value: string; origin?: string; from?: string }
-  | { type: "signature"; chainId: number; typedData: unknown; origin?: string };
+  | { type: "signature"; chainId: number; typedData: unknown; origin?: string }
+  | { type: "message"; method: "personal_sign"; message: string; chainId?: number; origin?: string; from?: string };
 
 export declare class PresignBlockedError extends Error {
   code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain" | "over_limit" | "paused" | "limit_unavailable";
@@ -174,6 +175,8 @@ export interface GuardOptions {
   presignUrl?: string;
   /** Check presign-guard's signed receipt on every verdict. Default "require". */
   verifyReceipts?: "require" | "off";
+  /** Check signMessage with presign-guard too (default true): eth_sign-style hashes are orange, a sign-in message for another site than origin is red. */
+  checkMessages?: boolean;
   /** Accepted signer addresses. Default: the published signer (PRESIGN_SIGNERS). */
   signers?: string[];
   /** Wallet whose certificates also make a signer trusted (key rotation). Default: the Fizzl payout wallet; null accepts only `signers`. */

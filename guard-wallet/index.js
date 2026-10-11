@@ -48,7 +48,7 @@
 // toward the limits (XRP toward an XRP limit, RLUSD toward USDC). Use it with
 // @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD.
 
-import { decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
+import { bytesToHex, decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { createLimiter, memoryStore } from "./limits.js";
 import { createRemoteLimiter } from "./remote.js";
@@ -78,7 +78,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.14.0";
+export const VERSION = "0.15.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -140,6 +140,13 @@ export function checkRequestFor(method, args, { chainId, origin, x402, from } = 
   if (method === "writeContract") {
     const data = encodeFunctionData({ abi: args.abi, functionName: args.functionName, args: args.args });
     return { type: "transaction", ...base, ...sender, to: args.address, data, value: String(args.value ?? 0n) };
+  }
+  if (method === "signMessage") {
+    // viem: a string is signed as text, { raw } as bytes (hex or a byte array).
+    const m = args?.message;
+    const message = typeof m === "string" ? m : typeof m?.raw === "string" ? m.raw : m?.raw instanceof Uint8Array ? bytesToHex(m.raw) : null;
+    if (message === null) return null;
+    return { type: "message", method: "personal_sign", message, ...(chainId ? { chainId } : {}), ...(origin ? { origin } : {}), ...sender };
   }
   if (method === "signTypedData") {
     const { domain, types, primaryType, message } = args;
@@ -213,6 +220,7 @@ function cleanPurchase(info) {
  * @param {(entry: object) => void} [options.onSpend]  after each signed spend
  * @param {{url: string, key: string}} [options.server]  a wallet server (fizzl wallet-server) keeps the limits, budget and approvals for all your agents
  * @param {object} [options.store]  where spending is kept (default in memory; fileStore from presign-guard-wallet/file-store)
+ * @param {boolean} [options.checkMessages]  check signMessage too (default true): a sign-in message for another site is red
  */
 export function guardWallet(wallet, {
   pay,
@@ -225,6 +233,7 @@ export function guardWallet(wallet, {
   signers = PRESIGN_SIGNERS,
   authority = AUTHORITY,
   creditKey,
+  checkMessages = true,
   fetch: plainFetch = globalThis.fetch,
   limits,
   onOverLimit,
@@ -238,6 +247,7 @@ export function guardWallet(wallet, {
   if (!["stop", "allow"].includes(onOrange) && typeof onOrange !== "function") throw new TypeError('onOrange must be "stop", "allow" or a function');
   if (!["stop", "allow"].includes(onError)) throw new TypeError('onError must be "stop" or "allow"');
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
+  if (typeof checkMessages !== "boolean") throw new TypeError("checkMessages must be true or false");
 
   if (server !== undefined && (limits !== undefined || onOverLimit || store)) throw new TypeError("with server, the limits and approvals live on the wallet server: leave out limits, onOverLimit and store");
   if (server === undefined && limits === undefined && (onOverLimit || onSpend || store)) throw new TypeError("onOverLimit, onSpend and store need limits");
@@ -281,7 +291,7 @@ export function guardWallet(wallet, {
 
   // The verdict for a request, or null when the check could not be done and onError is "allow".
   async function verdictFor(method, request, chainId) {
-    if (!SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
+    if (request.type !== "message" && !SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
       if (onError === "allow") return null;
       throw new PresignBlockedError(`chain ${chainId} is not covered by presign-guard; nothing was signed`, { code: "unsupported_chain", request });
     }
@@ -348,6 +358,12 @@ export function guardWallet(wallet, {
     if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
     const chainId = args?.chain?.id ?? target.chain?.id;
     const run = () => original(args, ...rest);
+    // A plain message moves nothing by itself, so it is checked but not counted toward the limits.
+    if (method === "signMessage") {
+      const request = checkRequestFor(method, args, { chainId, origin, from: senderOf(args, target) });
+      if (request) await verdictFor(method, request, chainId);
+      return run();
+    }
     if (TEMPO_TOKENS[chainId]) {
       const request = tempoRequest(method, args, chainId);
       return limiter ? withinLimits(method, request, null, run) : run();
@@ -506,7 +522,7 @@ export function guardWallet(wallet, {
     get(target, prop, receiver) {
       if (Object.hasOwn(extras, prop) && !(prop in target)) return extras[prop];
       const value = Reflect.get(target, prop, receiver);
-      if (typeof prop !== "string" || !GUARDED.has(prop) || typeof value !== "function") return value;
+      if (typeof prop !== "string" || !(GUARDED.has(prop) || (checkMessages && prop === "signMessage")) || typeof value !== "function") return value;
       return (args, ...rest) => guarded(target, prop, value.bind(target), args, rest);
     },
   });

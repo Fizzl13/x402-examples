@@ -377,3 +377,36 @@ test("MPP session account: anything but one escrow deposit for this account, or 
   assert.equal(s.signed.length, 0);
   assert.throws(() => guard.tempoSessionAccount(s.account, { chainId: 8453 }), /chainId/);
 });
+
+test("signMessage is checked as a plain message (type message, with from); red is never signed; checkMessages: false skips it", async () => {
+  const w = world();
+  w.wallet.signMessage = async (args) => { w.log.signed.push(["signMessage", args]); return "0xmsg"; };
+  const g = make(w, { origin: "https://app.example.org" });
+  assert.equal(await g.signMessage({ message: "app.example.org wants you to sign in with your Ethereum account:\n0x2222222222222222222222222222222222222222\n" }), "0xmsg");
+  assert.deepEqual(w.log.checks[0].input, { type: "message", method: "personal_sign", message: "app.example.org wants you to sign in with your Ethereum account:\n0x2222222222222222222222222222222222222222\n", chainId: 8453, origin: "https://app.example.org", from: "0x2222222222222222222222222222222222222222" });
+  await g.signMessage({ message: { raw: new Uint8Array([0xde, 0xad]) } });
+  assert.equal(w.log.checks[1].input.message, "0xdead");
+  assert.equal(w.log.signed.length, 2);
+
+  const red = world({ verdict: "red", reasons: [{ code: "SIGN_IN_DOMAIN_MISMATCH", severity: "red" }] });
+  red.wallet.signMessage = async () => { red.log.signed.push("signMessage"); return "0xmsg"; };
+  await assert.rejects(make(red).signMessage({ message: "evil.example wants you to sign in…" }), { code: "red" });
+  assert.equal(red.log.signed.length, 0);
+
+  const off = world();
+  off.wallet.signMessage = async () => "0xmsg";
+  assert.equal(await make(off, { checkMessages: false }).signMessage({ message: "hi" }), "0xmsg");
+  assert.equal(off.log.checks.length, 0);
+  assert.throws(() => make(off, { checkMessages: "yes" }), /checkMessages/);
+});
+
+test("signMessage: checked on any chain (a message has no chain), stopped while paused, never counted toward limits", async () => {
+  const w = world();
+  w.wallet.chain = { id: 4217 };
+  w.wallet.signMessage = async () => "0xmsg";
+  const g = make(w, { limits: { tokens: { USDC: { perTx: "1" } } } });
+  assert.equal(await g.signMessage({ message: "hello" }), "0xmsg");
+  assert.equal(w.log.checks[0].input.chainId, 4217);
+  g.pause();
+  await assert.rejects(g.signMessage({ message: "hello" }), { code: "paused" });
+});
