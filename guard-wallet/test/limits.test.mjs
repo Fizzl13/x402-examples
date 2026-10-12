@@ -247,3 +247,14 @@ test("fileStore keeps spending across restarts", async () => {
     await assert.rejects(again.sendTransaction(transfer(SHOP, usdc(4))), { code: "over_limit" });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("allow list: Algorand addresses are accepted only with a valid checksum", async () => {
+  const { isAlgorandAddress } = await import("../algorand.js");
+  const good = "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4";
+  assert.equal(isAlgorandAddress(good), true);
+  const typo = good.slice(0, 10) + (good[10] === "A" ? "B" : "A") + good.slice(11);
+  assert.equal(isAlgorandAddress(typo), false);
+  assert.doesNotThrow(() => normalizeLimits({ allow: [good] }));
+  assert.throws(() => normalizeLimits({ allow: [typo] }), /Algorand/);
+  assert.throws(() => normalizeLimits({ allow: [good.toLowerCase()] }), /allow/);
+});

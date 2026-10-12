@@ -109,7 +109,7 @@ const wallet = guardWallet(walletClient, {
       // "8453:0x4200…0006": { perDay: "0.01", decimals: 18 },
     },
     unknownTokens: "ask", // a token without a limit: "ask" (default), "stop" or "allow"
-    allow: ["0xShop…", "0xRouter…"], // optional: only these recipients, spenders and contracts
+    allow: ["0xShop…", "0xRouter…"], // optional: only these recipients, spenders and contracts (0x, XRPL r… or Algorand addresses)
     window: "24h",          // the rolling window perDay applies to
   },
   // over a limit: a human decides (true = sign anyway); without it the wallet stops
@@ -255,7 +255,7 @@ client.register("xrpl:*", new ExactXrplScheme(xrpl)); // x402 payments in RLUSD,
 
 ## Algorand (USDC)
 
-`algorandSigner` guards an Algorand signer for x402's AVM client (`@x402/avm`). In an x402 payment group the agent signs one transaction: its USDC transfer to the seller (the seller's facilitator signs and pays the fee transaction). The guarded signer signs only that: an asset transfer of USDC (ASA 31566704 on mainnet, 10458941 on testnet) from the agent's own address, with no close-out, rekey or clawback. It counts toward your `USDC` limit, and pause stops it. Anything else is refused with `unsupported_chain`.
+`algorandSigner` guards an Algorand signer for x402's AVM client (`@x402/avm`). In an x402 payment group the agent signs one transaction: its USDC transfer to the seller (the seller's facilitator signs and pays the fee transaction). The guarded signer signs only that: an asset transfer of USDC (ASA 31566704 on mainnet, 10458941 on testnet) from the agent's own address, with no close-out, rekey or clawback. It counts toward your `USDC` limit, and pause stops it. Anything else is refused with `unsupported_chain`. With an allow list (`limits.allow`), the seller must be on it: Algorand addresses are accepted there (with their checksum), and a receiver that isn't listed goes to `onOverLimit` (`not_allowed`), for x402 payments and for groups signed with `any`.
 
 ```js
 import { toClientAvmSigner } from "@x402/avm";

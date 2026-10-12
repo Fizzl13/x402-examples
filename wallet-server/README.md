@@ -8,7 +8,7 @@ The server **never holds keys or funds**: each agent signs and pays itself with 
 
 ## What it does
 
-- **Price rule and budget:** a max per purchase and a daily budget per token (USDC on six chains, ETH, BNB, POL, or any token by address), an optional allow list. Same format as presign-guard-wallet's `limits`, edited on the dashboard.
+- **Price rule and budget:** a max per purchase and a daily budget per token (USDC on six chains, ETH, BNB, POL, or any token by address), an optional allow list (EVM, XRPL or Algorand addresses). Same format as presign-guard-wallet's `limits`, edited on the dashboard.
 - **One budget for all agents:** checks run one at a time, so two agents can't both fit in the last of a budget.
 - **Approvals:** over a limit, the agent waits (up to 10 minutes) while you approve or deny on the dashboard, from a notification on your phone or with the Telegram buttons. No answer means not signed.
 - **Agents:** each gets its own key (`awk_…`, stored only as a hash); pause or remove one, or pause all.
