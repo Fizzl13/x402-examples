@@ -66,6 +66,15 @@ export function algorandAddress(pub) {
   return out;
 }
 
+// A well-formed Algorand address: 58 base32 characters whose last 4 bytes are the checksum of the public key.
+export function isAlgorandAddress(a) {
+  if (typeof a !== "string" || !/^[A-Z2-7]{58}$/.test(a)) return false;
+  let bits = 0, v = 0;
+  const bytes = [];
+  for (const ch of a) { v = (v << 5) | B32.indexOf(ch); bits += 5; if (bits >= 8) { bytes.push((v >>> (bits - 8)) & 255); bits -= 8; } }
+  return bytes.length === 36 && algorandAddress(Uint8Array.from(bytes.slice(0, 32))) === a;
+}
+
 // An unsigned transaction's fields that matter for spending, as plain values (addresses as strings).
 export function readAlgorandTxn(bytes) {
   const t = msgpackDecode(bytes);

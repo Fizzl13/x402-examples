@@ -152,3 +152,18 @@ test("algorandSigner any: red and an unapproved orange are never signed; a rekey
   await x.signer.signTransactions(group(axfer({ amount: 10_000n })), [1]);
   assert.equal(x.checks.length, 0);
 });
+
+test("allow list with Algorand addresses: a USDC payment to a listed seller is signed, to anyone else it is over the limit", async () => {
+  const other = key();
+  const guard = make({ limits: { tokens: { USDC: { perDay: "5" } }, allow: [shop.address] } });
+  const signer = guard.algorandSigner(toClientAvmSigner(agent.b64));
+  assert.ok((await signer.signTransactions(group(axfer({ to: shop.address })), [1]))[1] instanceof Uint8Array);
+  await assert.rejects(signer.signTransactions(group(axfer({ to: other.address })), [1]), (err) => err.code === "over_limit" && err.reasons.some((r) => r.code === "not_allowed"));
+});
+
+test("allow list with Algorand addresses: in a group (any) every receiver of this account's transactions must be listed", async () => {
+  const other = key();
+  const { signer } = anyGuard({ limits: { tokens: { ALGO: { perDay: "10" } }, allow: [shop.address] } });
+  assert.ok((await signer.signTransactions([algoPay(1_000_000n)]))[0] instanceof Uint8Array, "ALGO to the listed shop");
+  await assert.rejects(signer.signTransactions([algoPay(1_000_000n, { to: other.address })]), (err) => err.code === "over_limit" && err.reasons.some((r) => r.code === "not_allowed"));
+});

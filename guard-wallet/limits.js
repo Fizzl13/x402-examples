@@ -26,7 +26,7 @@
 // Amounts are kept at 18 decimals so one budget can cover the same token with
 // different decimals on different chains (USDC is 18 on BNB Chain, 6 elsewhere).
 import { decodeFunctionData, formatUnits, parseAbi, parseUnits } from "viem";
-import { ALGORAND_USDC } from "./algorand.js";
+import { ALGORAND_USDC, isAlgorandAddress } from "./algorand.js";
 import { SOLANA_USDC } from "./solana.js";
 
 const SCALE = 18;
@@ -62,6 +62,7 @@ const ERC20_ABI = parseAbi([
 ]);
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$|^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
+const allowable = (a) => ADDRESS_RE.test(a) || isAlgorandAddress(a); // EVM, XRPL or Algorand (with its checksum)
 const lower = (a) => (typeof a === "string" ? a.toLowerCase() : a);
 
 export function parseWindow(window) {
@@ -83,7 +84,7 @@ export function normalizeLimits(limits) {
   if (!limits || typeof limits !== "object") throw new TypeError("limits must be an object");
   const { tokens = {}, unknownTokens = "ask", allow, window } = limits;
   if (!["stop", "ask", "allow"].includes(unknownTokens)) throw new TypeError('limits.unknownTokens must be "stop", "ask" or "allow"');
-  if (allow !== undefined && (!Array.isArray(allow) || allow.some((a) => !ADDRESS_RE.test(a)))) throw new TypeError("limits.allow must be a list of 0x (or XRPL r…) addresses");
+  if (allow !== undefined && (!Array.isArray(allow) || allow.some((a) => !allowable(a)))) throw new TypeError("limits.allow must be a list of 0x, XRPL r… or Algorand addresses");
   const budgets = new Map();
   const index = new Map(); // "chainId:token" or "*:token" -> { budget, decimals }
   const put = (k, v) => { if (index.has(k)) throw new TypeError(`limits.tokens: ${k} is covered twice`); index.set(k, v); };
@@ -200,13 +201,14 @@ function algorandSpend(request, out) {
     const digits = (v) => /^\d+$/.test(String(v ?? ""));
     for (const t of request.group) {
       const to = typeof t.receiver === "string" ? t.receiver : null;
-      if (t.rekeyTo || t.closeTo || t.clawbackFrom) { out.unknown = true; out.counterparties.push(t.rekeyTo ?? t.closeTo ?? t.clawbackFrom); continue; }
+      // Counterparties lowercased like the allow list; the receiver as written stays in the items.
+      if (t.rekeyTo || t.closeTo || t.clawbackFrom) { out.unknown = true; out.counterparties.push(lower(t.rekeyTo ?? t.closeTo ?? t.clawbackFrom)); continue; }
       if (t.type === "pay") {
         if (!digits(t.amount)) { out.unknown = true; continue; }
-        if (BigInt(t.amount) > 0n && to !== t.sender) { out.items.push({ chainId: net, token: NATIVE, amount: BigInt(t.amount), to }); out.counterparties.push(to); }
+        if (BigInt(t.amount) > 0n && to !== t.sender) { out.items.push({ chainId: net, token: NATIVE, amount: BigInt(t.amount), to }); out.counterparties.push(lower(to)); }
       } else if (t.type === "axfer") {
         if (!digits(t.amount) || !digits(t.assetId)) { out.unknown = true; continue; }
-        if (BigInt(t.amount) > 0n && to !== t.sender) { out.items.push({ chainId: net, token: String(t.assetId), amount: BigInt(t.amount), to }); out.counterparties.push(to); }
+        if (BigInt(t.amount) > 0n && to !== t.sender) { out.items.push({ chainId: net, token: String(t.assetId), amount: BigInt(t.amount), to }); out.counterparties.push(lower(to)); }
       }
       // App calls, asset config and freeze, key registration: they move nothing out of this account by themselves.
     }

@@ -49,7 +49,7 @@ export interface SpendingLimits {
   tokens?: Record<string, { perTx?: TokenAmount; perDay?: TokenAmount; decimals?: number }>;
   /** Spending of a token without a limit, or a signature whose spending cannot be read. Default "ask" (onOverLimit, else stop). */
   unknownTokens?: "stop" | "ask" | "allow";
-  /** Only these recipients, spenders and contracts; anything else goes to onOverLimit. */
+  /** Only these recipients, spenders and contracts (0x, XRPL r… or Algorand addresses); anything else goes to onOverLimit. */
   allow?: string[];
   /** The rolling window perDay applies to. Default "24h". */
   window?: string | number;
