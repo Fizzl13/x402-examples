@@ -10,7 +10,7 @@ A free endpoint is answered as is. For a paid one (HTTP 402), your agent first p
 | `caution` | `onCaution`: `"stop"` (default, throws), `"pay"`, or your own function (e.g. ask the user) |
 | `no_go` | Throws `SafePayError`; the endpoint is not paid |
 
-The preflight reads the endpoint's 402 challenge and checks, among others, the price against your budget and against what the service advertises, whether the option is payable on your network (USDC, a valid payout address, a Solana payout account that exists, an Algorand payout opted in to USDC), HTTPS, and whether the endpoint is listed in the CDP Bazaar. A verdict is reused while the endpoint's 402 offers the same thing (up to an hour); a changed price, payout address, token or network is checked again right away. Hosts you already trust skip it.
+The preflight reads the endpoint's 402 challenge and checks, among others, the price against your budget and against what the service advertises, whether the option is payable on your network (USDC, a valid payout address, a Solana payout account that exists, an Algorand payout opted in to USDC), whether the payout address is on the OFAC SDN sanctions list (then `no_go`: never paid), HTTPS, and whether the endpoint is listed in the CDP Bazaar. A verdict is reused while the endpoint's 402 offers the same thing (up to an hour); a changed price, payout address, token or network is checked again right away. Hosts you already trust skip it.
 
 ## Install
 
