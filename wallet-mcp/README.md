@@ -101,6 +101,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `AGENT_KEY` | **required** to pay: private key of the agent's own wallet. Without it the server starts in setup mode: it lists its tools and each one answers with how to add the key (nothing can be signed) |
 | `LIMIT_USDC_PER_TX`, `LIMIT_USDC_PER_DAY` | USDC limits (payments and transfers together). Limits or a wallet server are required |
 | `LIMIT_NATIVE_PER_TX`, `LIMIT_NATIVE_PER_DAY` | limits for the native coin; without them, sending it needs approval |
+| `ALLOW_LIST` | optional: only these recipients, spenders and contracts, comma-separated (0x, XRPL `r…` or Algorand addresses, each checked); a payment or signature for anything else needs your approval like an amount over a limit. With a wallet server, set the allow list there instead |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | approvals on Telegram; without them, anything over a limit is refused |
 | `WALLET_SERVER_URL`, `WALLET_SERVER_KEY` | a wallet server instead of the above |
 | `CHAIN` | `base` (default), `ethereum`, `optimism`, `arbitrum`, `polygon` or `bsc` |

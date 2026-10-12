@@ -3,7 +3,7 @@
   "name": "io.github.Fizzl13/presign-guard-wallet",
   "title": "presign-guard wallet",
   "description": "Agent wallet with limits: pays x402/MPP on Base, Solana, Tempo, XRPL and Algorand; phone approval.",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "repository": {
     "url": "https://github.com/Fizzl13/x402-examples",
     "source": "github",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "presign-guard-wallet-mcp",
-      "version": "0.16.1",
+      "version": "0.17.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "AGENT_KEY", "description": "Private key of the agent's own wallet (a separate wallet holding only what the agent may spend)", "isRequired": true, "isSecret": true },
@@ -26,6 +26,7 @@
         { "name": "WALLET_SERVER_KEY", "description": "The agent key (awk_…) from the wallet server's dashboard", "isSecret": true },
         { "name": "CHAIN", "description": "base (default), ethereum, optimism, arbitrum, polygon or bsc" },
         { "name": "MAX_PAYMENT_USD", "description": "Most a single x402 API call may cost, in dollars (default 1)" },
+        { "name": "ALLOW_LIST", "description": "Optional: only pay or sign for these addresses (0x, XRPL r… or Algorand, comma-separated); anything else needs approval. Not with a wallet server" },
         { "name": "PRESIGN_CREDIT_KEY", "description": "Optional presign-guard credit key (pgc_…) to pay the $0.01 checks from prepaid credits", "isSecret": true },
         { "name": "RPC_URL", "description": "Optional RPC URL for the chain" },
         { "name": "TEMPO", "description": "off to never pay MPP charges on Tempo (default on: paid in USDC.e on Tempo from the same address)" },
