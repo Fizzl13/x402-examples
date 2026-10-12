@@ -191,6 +191,10 @@ export function configFromEnv(env = process.env) {
   if (native) tokens[nativeSymbol === "MATIC" ? "POL" : nativeSymbol] = native;
   if (server && Object.keys(tokens).length) throw new Error("with WALLET_SERVER_URL the limits live on the wallet server: leave out the LIMIT_* variables");
   if (!server && !Object.keys(tokens).length) throw new Error("set spending limits (LIMIT_USDC_PER_TX and/or LIMIT_USDC_PER_DAY) or a wallet server (WALLET_SERVER_URL + WALLET_SERVER_KEY): this wallet does not run without a budget");
+  // Optional allow list: only these recipients, spenders and contracts (0x, XRPL r… or Algorand addresses, checked
+  // by presign-guard-wallet when the wallet is made); anything else goes to approval like an amount over a limit.
+  const allow = (env.ALLOW_LIST ?? "").split(/[\s,]+/).filter(Boolean);
+  if (allow.length && server) throw new Error("with WALLET_SERVER_URL the allow list lives on the wallet server: leave out ALLOW_LIST");
 
   const telegram = env.TELEGRAM_BOT_TOKEN || env.TELEGRAM_CHAT_ID ? { token: env.TELEGRAM_BOT_TOKEN, chatId: env.TELEGRAM_CHAT_ID } : undefined;
   if (telegram && (!telegram.token || !telegram.chatId)) throw new Error("Telegram approval needs both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID");
@@ -218,7 +222,7 @@ export function configFromEnv(env = process.env) {
     rpcUrl: env.RPC_URL || undefined,
     creditKey: env.PRESIGN_CREDIT_KEY || undefined,
     server,
-    limits: server ? undefined : { tokens },
+    limits: server ? undefined : { tokens, ...(allow.length ? { allow } : {}) },
     telegram,
     label: env.AGENT_LABEL || "mcp-agent",
     maxPaymentUsd: Number(maxPrice),

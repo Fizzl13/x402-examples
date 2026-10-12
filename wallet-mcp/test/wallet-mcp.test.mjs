@@ -640,3 +640,18 @@ test("without AGENT_KEY the server starts in setup mode: tools listed, each expl
   assert.equal(code, 1);
   assert.match(err, /AGENT_KEY must be/);
 });
+
+test("ALLOW_LIST: only listed sellers are paid without approval; Algorand addresses are accepted; refused with a wallet server", async () => {
+  const ALGO = "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4";
+  const c = configFromEnv({ ...ENV, ALLOW_LIST: `${SHOP}, ${ALGO}` });
+  assert.deepEqual(c.limits.allow, [SHOP, ALGO]);
+  assert.equal(configFromEnv(ENV).limits.allow, undefined);
+  assert.throws(() => configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.fizzl.eu", WALLET_SERVER_KEY: "awk_x", ALLOW_LIST: SHOP }), /leave out ALLOW_LIST/);
+  await assert.rejects(setup({ ALLOW_LIST: `${ALGO.slice(0, 10)}A${ALGO.slice(11)}` }), /allow/, "a mistyped Algorand address is refused when the wallet is made");
+  const listed = await setup({ ALLOW_LIST: `${SHOP} ${ALGO}` });
+  const ok = await listed.call("pay_x402", { url: API });
+  assert.equal(ok.error, false, ok.text);
+  const other = await setup({ ALLOW_LIST: ALGO });
+  const refused = await other.call("pay_x402", { url: API });
+  assert.match(refused.text, /^Not done.*not on the allow list/);
+});
