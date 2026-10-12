@@ -136,7 +136,7 @@ const hourly = async () => {
   try { await accounts.remindRefunds(); } catch (err) { console.warn(`[refunds] ${err.message}`); }
   try { await catalog.refresh(); } catch (err) { console.warn(`[catalog] ${err.message}`); }
   try { const n = await accounts.checkMonitors(); if (n) console.log(`[monitor] checked ${n} endpoint(s)`); } catch (err) { console.warn(`[monitor] ${err.message}`); }
-  try { await accounts.weeklyDigest({ summary: stats.enabled ? await stats.summary(7).catch(() => null) : null }); } catch (err) { console.warn(`[digest] ${err.message}`); }
+  try { await accounts.weeklyDigest({ summary: stats.enabled ? () => stats.summary(7) : null }); } catch (err) { console.warn(`[digest] ${err.message}`); }
 };
 setTimeout(hourly, 60_000).unref();
 setInterval(hourly, 3_600_000).unref();

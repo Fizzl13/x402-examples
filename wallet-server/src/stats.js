@@ -1,7 +1,8 @@
 // The owner's Stats tab: reads the private usage-log repo (events/<service>/<day>.jsonl, written by
 // the wallet, the website counter and the four x402 services) and sums it up per day. Your own wallets
 // and monitors (scripts/known.json in that repo) and your own wallet accounts are left out.
-// Files are cached by their git sha, so a refresh only downloads days that changed (normally today).
+// Files are cached by their git sha, so a refresh only downloads days that changed (normally today); only the
+// latest version of each day file is kept (today's changes every few minutes, and old versions used to pile up).
 const API = "https://api.github.com";
 const SERVICES = ["ichimoku", "presign", "doctor", "plaintext"];
 const NAMES = { ichimoku: "Ichimoku Signal", presign: "presign-guard", doctor: "x402 Doctor", plaintext: "PlainText" };
@@ -23,7 +24,7 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), cacheMs = 5 * 60_000 } = {}) {
   const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "fizzl-wallet-stats" };
-  const files = new Map(); // sha -> slim events
+  const files = new Map(); // "<service>/<day>.jsonl" -> { sha, events }: the latest version of each day file
   const summaries = new Map(); // days -> { at, value }
   let known = { at: 0, own: new Set(), monitor: /bot|crawl|spider|scan|monitor|health|probe/i, probePairs: new Set() };
 
@@ -48,14 +49,17 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
     const out = [];
     for (let i = 0; i < wanted.length; i += 6) {
       await Promise.all(wanted.slice(i, i + 6).map(async (f) => {
-        if (!files.has(f.sha)) {
+        const key = `${service}/${f.name}`;
+        if (files.get(key)?.sha !== f.sha) {
           const text = (await get(`events/${service}/${f.name}`, true)) ?? "";
-          files.set(f.sha, text.split("\n").filter(Boolean).map((l) => { try { return slim(JSON.parse(l)); } catch { return null; } }).filter(Boolean));
-          if (files.size > 1500) files.delete(files.keys().next().value);
+          files.set(key, { sha: f.sha, events: text.split("\n").filter(Boolean).map((l) => { try { return slim(JSON.parse(l)); } catch { return null; } }).filter(Boolean) });
         }
-        out.push(...files.get(f.sha));
+        out.push(...files.get(key).events);
       }));
     }
+    // Days older than any summary reads (30 days and the 30 before) are dropped.
+    const oldest = new Date(now() - 61 * DAY).toISOString().slice(0, 10);
+    for (const key of files.keys()) if (key.startsWith(`${service}/`) && key.slice(service.length + 1, service.length + 11) < oldest) files.delete(key);
     return out;
   }
 
@@ -138,6 +142,8 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
 
   return {
     enabled: Boolean(token),
+    // How many day files are held in memory (one version each).
+    cachedFiles: () => files.size,
     async summary(days = 30) {
       if (!token) throw Object.assign(new Error("Set USAGE_LOG_TOKEN on this server to see the statistics."), { status: 503 });
       const d = [7, 30].includes(Number(days)) ? Number(days) : 30;

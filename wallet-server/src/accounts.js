@@ -976,6 +976,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const { monday, due } = weekOf(now());
       const rec = (await g.getAccount(ADMIN)) ?? { id: ADMIN };
       if (!force && (!due || rec.digestWeek === monday)) return { sent: false, reason: "not due" };
+      // `summary` may be a function, so the usage log is only read when the digest actually goes out.
+      if (typeof summary === "function") summary = await summary().catch(() => null);
       const text = formatDigest({ summary, refunds: await api.withdrawals(), dashboardUrl: /^https:\/\//.test(publicUrl || "") ? publicUrl : null });
       await telegram.send(adminChatId, text);
       if (!force) await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), digestWeek: monday });
