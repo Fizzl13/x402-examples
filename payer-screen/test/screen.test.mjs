@@ -1,4 +1,4 @@
-// x402-payer-screen against real payment payloads (built with the chains' own encoders) and a stand-in list: no
+// presign-guard-payer-screen against real payment payloads (built with the chains' own encoders) and a stand-in list: no
 // network, no money.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -122,7 +122,7 @@ test("the list: downloaded once with its own user agent, refreshed when old, kep
   await Promise.all([screen.ready(), screen.ready()]);
   assert.equal(calls.length, 1, "one download for concurrent callers");
   assert.equal(calls[0].url, LIST_URL);
-  assert.equal(calls[0].ua, `x402-payer-screen/${VERSION}`);
+  assert.equal(calls[0].ua, `presign-guard-payer-screen/${VERSION}`);
   assert.equal(screen.status().addresses, 4);
   t += 7 * 3600 * 1000;
   down = true;

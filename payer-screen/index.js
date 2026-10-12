@@ -1,4 +1,4 @@
-// x402-payer-screen: screen who pays your x402 API against the OFAC SDN list, before the payment settles.
+// presign-guard-payer-screen: screen who pays your x402 API against the OFAC SDN list, before the payment settles.
 //
 // An Express middleware for sellers, placed before the x402 payment middleware: it reads the payer from the payment
 // header (EVM EIP-3009 or Permit2, Solana, Algorand, XRP Ledger), looks the address up in the OFAC SDN list, and
@@ -188,7 +188,7 @@ export function createScreen({ listUrl = LIST_URL, refreshMs = REFRESH_MS, fetch
     lastAttempt = now();
     loading = (async () => {
       try {
-        const res = await fetchImpl(listUrl, { headers: { accept: "application/json", "user-agent": `x402-payer-screen/${VERSION}` }, signal: AbortSignal.timeout(timeoutMs) });
+        const res = await fetchImpl(listUrl, { headers: { accept: "application/json", "user-agent": `presign-guard-payer-screen/${VERSION}` }, signal: AbortSignal.timeout(timeoutMs) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         use(await res.json());
       } catch (err) {
@@ -248,7 +248,7 @@ export function screenPayers({ failClosed = false, onBlocked, ...options } = {})
     try {
       const r = await checkPayment(String(header), screen);
       if (r.unscreened === "list_unavailable") {
-        if (!warned) { warned = true; console.warn(`[x402-payer-screen] OFAC list unavailable (${screen.status().lastError ?? "loading"}); ${failClosed ? "refusing payments" : "payments go through unscreened"}`); }
+        if (!warned) { warned = true; console.warn(`[presign-guard-payer-screen] OFAC list unavailable (${screen.status().lastError ?? "loading"}); ${failClosed ? "refusing payments" : "payments go through unscreened"}`); }
         if (failClosed) {
           res.setHeader("Retry-After", "60");
           return res.status(503).json({ error: "screen_unavailable", message: "Payments can't be screened right now; try again in a minute" });
