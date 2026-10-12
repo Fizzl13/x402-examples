@@ -1559,17 +1559,65 @@ test("weekly summary on Telegram: Monday from 9:00 Amsterdam time, once a week; 
   const { server, tg, accounts, owner } = await boot({ now: () => t, stats });
   try {
     const sent = () => tg.calls.filter((c) => c.method === "sendMessage" && c.body.chat_id === "4242" && /weekly summary/.test(c.body.text));
-    assert.equal((await accounts.weeklyDigest({ summary })).sent, true);
-    assert.equal((await accounts.weeklyDigest({ summary })).sent, false); // once a week
+    // The server passes a function (server.js, hourly): the usage log is only read when the digest goes out.
+    let reads = 0;
+    const lazy = async () => { reads++; return summary; };
+    assert.equal((await accounts.weeklyDigest({ summary: lazy })).sent, true);
+    assert.equal(reads, 1);
+    assert.equal((await accounts.weeklyDigest({ summary: lazy })).sent, false); // once a week
     t += 3 * 86_400_000;
-    assert.equal((await accounts.weeklyDigest({ summary })).sent, false);
+    assert.equal((await accounts.weeklyDigest({ summary: lazy })).sent, false);
+    assert.equal(reads, 1); // not due: nothing read
     t += 5 * 86_400_000; // the next Monday
     assert.equal((await accounts.weeklyDigest({ summary })).sent, true);
     assert.equal(sent().length, 2);
+    assert.match(sent()[0].body.text, /Revenue: \$5\.31/);
     // On demand (Stats tab): owner only, always sends.
     assert.equal((await owner("POST", "/api/admin/digest", {})).status, 200);
     assert.equal(sent().length, 3);
   } finally { server.close(); }
+});
+
+test("Stats keep one version of each day file in memory, and drop days older than any summary reads", async () => {
+  const { createStats } = await import("../src/stats.js");
+  const DAY = 86_400_000;
+  let t = Date.parse("2026-10-12T12:00:00Z");
+  const day = (n) => new Date(t - n * DAY).toISOString().slice(0, 10);
+  // A fake usage-log repo: one file per day for every service; today's file changes on each write.
+  let version = 0, raw = 0;
+  const line = (d) => JSON.stringify({ t: `${d}T10:00:00Z`, service: "doctor", route: "diagnose", status: 200, paid: true, usd: 0.01, payer: "0xabc" });
+  const fetchImpl = async (url, { headers } = {}) => {
+    const path = decodeURIComponent(new URL(url).pathname.split("/contents/")[1]);
+    if (path === "scripts/known.json") return new Response(JSON.stringify({ own_wallets: [] }));
+    const dir = path.match(/^events\/([a-z]+)$/);
+    if (dir) return Response.json(Array.from({ length: 70 }, (_, n) => ({ name: `${day(n)}.jsonl`, sha: n === 0 ? `today-${version}` : `${dir[1]}-${day(n)}` })));
+    raw++;
+    return new Response(line(path.slice(-16, -6)));
+  };
+  const stats = createStats({ token: "t", fetch: fetchImpl, now: () => t, cacheMs: 0 });
+  await stats.summary(30);
+  const held = stats.cachedFiles();
+  assert.equal(held, 6 * 60); // six logs (four services, the wallet and the site), 30 days and the 30 before
+  for (let hour = 0; hour < 24; hour++) { version++; await stats.summary(7); } // today's file changes every hour
+  assert.equal(stats.cachedFiles(), held); // the old versions of today's file are not kept
+  const before = raw;
+  await stats.summary(30);
+  assert.equal(raw - before, 0); // nothing changed: nothing downloaded again
+  for (let d = 0; d < 20; d++) { t += DAY; version++; await stats.summary(30); assert.ok(stats.cachedFiles() <= 6 * 62); } // days go by: the oldest fall out
+});
+
+test("catalog listings are kept slim: only what search, the tiles and alerts read", async () => {
+  const { slimListing } = await import("../src/catalog.js");
+  const big = { resource: "https://api.example.com/v1/x", type: "http", lastUpdated: "2026-10-12", description: "d".repeat(2000), iconUrl: "https://example.com/i.png",
+    accepts: [{ network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "10000", payTo: "0x1", description: "pay", outputSchema: { huge: "x".repeat(5000) } }],
+    extensions: { bazaar: { info: { input: { method: "POST", body: { q: "hi" } }, output: { example: "y".repeat(5000) } }, schema: { z: "z".repeat(5000) } } } };
+  const s = slimListing(big);
+  assert.deepEqual(Object.keys(s).sort(), ["accepts", "description", "extensions", "resource"]);
+  assert.equal(s.description.length, 400);
+  assert.deepEqual(s.accepts, [{ network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "10000", maxAmountRequired: undefined, description: "pay" }]);
+  assert.deepEqual(s.extensions, { bazaar: { info: { input: { method: "POST", body: { q: "hi" } } } } });
+  assert.ok(JSON.stringify(s).length < 700);
+  assert.equal(slimListing({ resource: "https://a.example/x" }).extensions, undefined);
 });
 
 test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {

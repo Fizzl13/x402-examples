@@ -113,6 +113,17 @@ function pricesOf(item) {
   return prices;
 }
 const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
+// Only what search, the category tiles and new-seller alerts read from a listing. The full listings (with their
+// output schemas) took ~77 MB for 10,000 in memory, twice while refreshing, on a 512 MB server; this is ~18 MB.
+export function slimListing(item) {
+  const input = item?.extensions?.bazaar?.info?.input;
+  return {
+    resource: item?.resource,
+    description: typeof item?.description === "string" ? item.description.slice(0, 400) : undefined,
+    accepts: (Array.isArray(item?.accepts) ? item.accepts : []).map((a) => ({ network: a?.network, asset: a?.asset, amount: a?.amount, maxAmountRequired: a?.maxAmountRequired, description: typeof a?.description === "string" ? a.description.slice(0, 400) : undefined })),
+    ...(input ? { extensions: { bazaar: { info: { input } } } } : {}),
+  };
+}
 
 // `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
@@ -128,7 +139,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         const res = await fetchImpl(`${url}?type=http&limit=500&offset=${page * 500}`, { signal: AbortSignal.timeout(15_000) });
         if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
         const batch = (await res.json()).items ?? [];
-        all.push(...batch);
+        for (const item of batch) all.push(slimListing(item));
         if (batch.length < 500) break;
       }
       items = withoutMovedHosts(all); at = now();
