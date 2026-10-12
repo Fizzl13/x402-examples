@@ -481,5 +481,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
+  // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
+  // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.
+  app.use((err, _req, res, next) => {
+    const status = Number(err?.status ?? err?.statusCode);
+    if (!(status >= 400 && status < 500) || res.headersSent) return next(err);
+    res.status(status).json({ error: status === 404 ? "not_found" : "bad_request" });
+  });
   return app;
 }
