@@ -1,0 +1,51 @@
+{
+  "name": "x402-payer-screen",
+  "version": "0.1.0",
+  "description": "Screen who pays your x402 API against the OFAC SDN sanctions list before the payment settles: Express middleware, 451 for a listed payer. EVM, Solana, Algorand, XRP Ledger. No dependencies.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@solana/kit": "^5.5.1",
+    "algosdk": "^3.8.0",
+    "express": "^5.2.1",
+    "ripple-binary-codec": "^2.11.0"
+  },
+  "keywords": [
+    "x402",
+    "ofac",
+    "sanctions",
+    "aml",
+    "compliance",
+    "screening",
+    "express",
+    "middleware",
+    "payments",
+    "agents"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/payer-screen",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fizzl13/x402-examples.git",
+    "directory": "payer-screen"
+  }
+}
