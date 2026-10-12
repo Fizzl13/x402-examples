@@ -1578,6 +1578,22 @@ test("weekly summary on Telegram: Monday from 9:00 Amsterdam time, once a week; 
   } finally { server.close(); }
 });
 
+test("missing files under /icons, /app and /fonts answer 404 without a stack trace in the log", async () => {
+  const { base, server } = await boot();
+  const logged = [];
+  const error = console.error;
+  console.error = (...a) => logged.push(a.join(" "));
+  try {
+    for (const path of ["/app/", "/app/index.html", "/icons/${logo[n]}.svg", "/fonts/nope.woff2"]) {
+      const res = await fetch(`${base}${path.replace("${", "%24%7B").replace("}", "%7D")}`);
+      assert.equal(res.status, 404, path);
+      assert.deepEqual(await res.json(), { error: "not_found" });
+    }
+    assert.equal((await fetch(`${base}/app/icon-192.png`)).status, 200); // real files are still served
+    assert.deepEqual(logged, []);
+  } finally { console.error = error; server.close(); }
+});
+
 test("Stats keep one version of each day file in memory, and drop days older than any summary reads", async () => {
   const { createStats } = await import("../src/stats.js");
   const DAY = 86_400_000;
