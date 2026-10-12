@@ -1,4 +1,4 @@
-# x402-payer-screen
+# presign-guard-payer-screen
 
 Screen who pays your x402 API against the **OFAC SDN sanctions list**, before the payment settles.
 
@@ -11,13 +11,13 @@ One Express middleware, placed before your x402 payment middleware. It reads the
 - **No dependencies.**
 
 ```sh
-npm install x402-payer-screen
+npm install presign-guard-payer-screen
 ```
 
 ```js
 import express from "express";
 import { paymentMiddleware } from "@x402/express";
-import { screenPayers } from "x402-payer-screen";
+import { screenPayers } from "presign-guard-payer-screen";
 
 const app = express();
 app.use(screenPayers({
@@ -57,7 +57,7 @@ A refused payment answers:
 `checkPayment(header, screen)` screens one header and returns `{ blocked, payer, network, kind, entries, published }`. If there is nothing to screen, it returns `{ blocked: false, unscreened }`. Answer 451 yourself in Hono, Next.js or a plain Node server:
 
 ```js
-import { createScreen, checkPayment } from "x402-payer-screen";
+import { createScreen, checkPayment } from "presign-guard-payer-screen";
 const screen = createScreen();
 
 const r = await checkPayment(req.headers.get("payment-signature") ?? req.headers.get("x-payment"), screen);

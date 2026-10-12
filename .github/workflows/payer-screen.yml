@@ -1,4 +1,4 @@
-# x402-payer-screen: offline tests on every change, and an npm publish started
+# presign-guard-payer-screen: offline tests on every change, and an npm publish started
 # by hand. Publishing uses npm trusted publishing (GitHub OIDC, provenance):
 # no token or secret. The very first version is published once by hand
 # (npm publish from a terminal, with 2FA), because trusted publishing can only

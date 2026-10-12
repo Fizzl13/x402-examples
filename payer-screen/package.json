@@ -1,5 +1,5 @@
 {
-  "name": "x402-payer-screen",
+  "name": "presign-guard-payer-screen",
   "version": "0.1.0",
   "description": "Screen who pays your x402 API against the OFAC SDN sanctions list before the payment settles: Express middleware, 451 for a listed payer. EVM, Solana, Algorand, XRP Ledger. No dependencies.",
   "type": "module",
