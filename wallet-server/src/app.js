@@ -33,6 +33,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.use((req, res, next) => {
     res.set("x-content-type-options", "nosniff");
     res.set("referrer-policy", "no-referrer");
+    res.set("strict-transport-security", "max-age=31536000"); // ignored over plain http (local runs)
     next();
   });
 
