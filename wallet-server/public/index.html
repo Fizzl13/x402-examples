@@ -13,6 +13,13 @@
 <meta name="apple-mobile-web-app-title" content="Fizzl wallet">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Agent Wallet | FIZZL</title>
+<meta name="description" content="Spending limits and phone approvals for your AI agents: every payment checked before it is signed and every paid answer after it. Your keys stay with you. Free to start.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://wallet.fizzl.eu/">
+<meta property="og:title" content="Fizzl Agent Wallet">
+<meta property="og:description" content="Checked before every signature, checked after every payment. Your keys stay with you. Free to start.">
+<meta property="og:image" content="https://fizzl.eu/agents/og.jpg?v=2">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 @font-face { font-family: "DM Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "DM Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/dm-sans-latin-500-normal.woff2") format("woff2"); }
@@ -52,6 +59,7 @@ h1 { font-size: clamp(48px, 7vw, 96px); }
 h2 { font-size: clamp(36px, 4.5vw, 60px); margin-bottom: 28px; }
 h1 span, h2 span { color: transparent; -webkit-text-stroke: 1.2px rgba(245,248,247,.88); }
 h3 { font: 600 20px/1.2 var(--display); margin: 0; }
+.login .login-title { font: 600 20px/1.2 var(--display); text-transform: none; letter-spacing: normal; }
 .tag { font: 700 10px/1.4 var(--body); letter-spacing: 2px; text-transform: uppercase; color: var(--mint); }
 .note { color: var(--dim); font-size: 12px; }
 .num { font-variant-numeric: tabular-nums; }
@@ -483,7 +491,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   <section class="login" id="loginView" hidden>
     <div class="card">
       <span class="tag">Fizzl Agent Wallet</span>
-      <h3>Spending limits and phone approvals for your AI agents</h3>
+      <h1 class="login-title">Spending limits and phone approvals for your AI agents</h1>
       <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
       <div id="passkeyLogin" hidden style="display:grid;gap:8px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
