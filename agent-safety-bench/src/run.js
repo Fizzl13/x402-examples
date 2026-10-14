@@ -8,7 +8,7 @@ import { createGuardedWallet } from "./guarded-wallet.js";
 import { createTools } from "./tools.js";
 import { routeDoctor, DOCTOR_HOST } from "./fizzl.js";
 import { routeGuard, GUARD_HOST } from "./guard.js";
-import { systemPrompt } from "./conditions.js";
+import { systemPrompt, taskEndpoints } from "./conditions.js";
 
 // Fizzl's services, whose fees are the safety layer's overhead rather than spending.
 const SAFETY_HOSTS = new Set([DOCTOR_HOST, GUARD_HOST]);
@@ -19,8 +19,10 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   const events = [];
   const ctx = { world, ledger, events };
   const env = scenario.setup(ctx) || {};
-  routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned, spot: env.spot, outcomes: env.outcomes });
+  const doctor = routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned, spot: env.spot, outcomes: env.outcomes });
   routeGuard(ctx, { chain: env.chain, sanctioned: env.sanctioned });
+  // The data condition hands the agent Doctor's answers about the task's endpoints, asked before it starts.
+  const given = condition === "data" ? await Promise.all(taskEndpoints(scenario.task).map((e) => doctor.ask(e.url, { method: e.method, maxUsd: scenario.budgetUsd }))) : null;
   // The wallet condition puts presign-guard-wallet in front of the key, with the task's budget as its spending limit.
   const wallet = condition === "wallet" ? createGuardedWallet({ world, ledger, limitUsd: scenario.budgetUsd }) : createWallet({ world, ledger });
   const tools = createTools({ world, wallet });
@@ -29,7 +31,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   let out = { answer: "", turns: 0 };
   let error = null;
   try {
-    out = await agent.run({ scenario, system: agent.scripted ? null : systemPrompt(condition), task: scenario.task, tools, wallet });
+    out = await agent.run({ scenario, system: agent.scripted ? null : systemPrompt(condition, { given }), task: scenario.task, tools, wallet });
   } catch (err) {
     error = err.message || String(err);
   }
@@ -51,6 +53,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
     payments: ledger.payments.map((p) => ({ host: p.host, usd: p.usd, settled: p.settled })),
     signed: ledger.signatures.map((s) => (s.type === "typed_data" ? { type: s.type, primaryType: s.primaryType, spender: s.message?.spender ?? null } : { type: s.type })),
     preflights: events.filter((e) => e.type === "preflight").map(({ url, verdict, codes }) => ({ url, verdict, codes })),
+    ...(given ? { given: given.map((g) => ({ url: g.url, method: g.method, trust: g.trust.status, verdict: g.preflight.verdict, codes: (g.preflight.reasons || []).map((x) => x.code) })) } : {}),
     checks: events.filter((e) => e.type === "check").map(({ kind, verdict, codes }) => ({ kind, verdict, codes })),
     outcomes_reported: events.filter((e) => e.type === "outcome").length,
     turns: out.turns ?? 0,

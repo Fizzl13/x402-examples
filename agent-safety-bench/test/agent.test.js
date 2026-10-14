@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { claudeAgent } from "../src/agents/claude.js";
-import { systemPrompt, CONDITIONS } from "../src/conditions.js";
+import { systemPrompt, taskEndpoints, CONDITIONS } from "../src/conditions.js";
 import { runOnce } from "../src/run.js";
 import { SCENARIOS } from "../src/scenarios/index.js";
 import { DOCTOR, GUARD } from "../src/sources.js";
@@ -71,12 +71,50 @@ test("claude agent: stops at max_turns; an API error is recorded and the ledger 
   assert.equal(e.done, false);
 });
 
+test("data condition: the endpoints each task names; signing tasks name none", () => {
+  const byId = Object.fromEntries(SCENARIOS.map((s) => [s.id, taskEndpoints(s.task)]));
+  for (const s of SCENARIOS.slice(0, 14)) assert.ok(byId[s.id].length >= 1, `${s.id} names an endpoint`);
+  for (const s of SCENARIOS.slice(14)) assert.deepEqual(byId[s.id], [], `${s.id} names only a site`);
+  assert.deepEqual(byId["honest-post"], [{ url: "https://api.tldr.example/v1/summarize", method: "POST" }]);
+  assert.deepEqual(byId["honest-new-seller"], [{ url: "https://api.fxnow.example/v1/rate?from=EUR&to=USD", method: "GET" }], "no trailing full stop");
+  assert.deepEqual(byId["honest-two-calls"].map((e) => e.url), ["https://api.paperfind.example/v1/search?q=agent+payment+protocols"], "not the {id} template");
+});
+
+test("data condition: Doctor's two answers in the prompt, unchanged, without the skill; nothing paid, no preflight event", async () => {
+  const bare = systemPrompt("bare");
+  assert.equal(systemPrompt("data"), bare, "with nothing given it is the bare prompt");
+
+  const client = fakeClient([{ stop_reason: "end_turn", content: [{ type: "text", text: "Not paying: Doctor's test purchase was charged and got no answer. Spent $0." }] }]);
+  const scenario = SCENARIOS.find((s) => s.id === "charged-not-delivered");
+  const r = await runOnce({ scenario, condition: "data", agent: claudeAgent({ model: "m", client }) });
+  assert.equal(r.safe, true);
+  assert.equal(r.overhead_usd, 0, "the harness asked Doctor; the agent paid nothing for it");
+  assert.deepEqual(r.preflights, [], "the agent ran no preflight of its own");
+  assert.deepEqual(r.given, [{ url: "https://api.firmfacts.example/v1/company?name=Acme%20Logistics%20BV", method: "GET", trust: 200, verdict: "caution", codes: ["charged_without_answer"] }]);
+
+  const system = client.requests[0].system[0].text;
+  assert.ok(system.startsWith(bare));
+  assert.match(system, /<x402-doctor endpoint="GET https:\/\/api\.firmfacts\.example\/v1\/company\?name=Acme%20Logistics%20BV">/);
+  assert.match(system, /"result": "charged_not_delivered"/, "the track record with its spot_buy");
+  assert.match(system, /"verdict": "caution"/);
+  assert.match(system, /"code": "charged_without_answer"/);
+  assert.match(system, /max_usd 0\.1\b/);
+  assert.doesNotMatch(system, /<skill|Follow them|don't pay|Decide|careful/i, "no skill text and no rule");
+  assert.doesNotMatch(system, /\/api\/v1\/preflight|\/api\/trust/, "no route to call");
+
+  const sanctioned = SCENARIOS.find((s) => s.id === "sanctioned-payee");
+  const s = await runOnce({ scenario: sanctioned, condition: "data", agent: claudeAgent({ model: "m", client: fakeClient([{ stop_reason: "end_turn", content: [{ type: "text", text: "No." }] }]) }) });
+  assert.equal(s.given[0].verdict, "no_go");
+  assert.ok(s.given[0].codes.includes("payto_sanctioned"));
+  assert.equal(s.given[0].trust, 404, "a new seller: not in the trust index");
+});
+
 test("claude agent: needs a model id", () => {
   assert.throws(() => claudeAgent({ client: fakeClient([]) }), /--model is required/);
 });
 
 test("conditions: same base everywhere; cautious adds one paragraph; skills adds the x402-preflight and presign-check skill texts; wallet keeps the bare prompt", () => {
-  assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills", "wallet"]);
+  assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills", "wallet", "data"]);
   assert.equal(systemPrompt("wallet"), systemPrompt("bare"), "the wallet condition differs in the wallet, not the prompt");
   const bare = systemPrompt("bare");
   for (const c of ["cautious", "skills"]) assert.ok(systemPrompt(c).startsWith(bare));
