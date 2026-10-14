@@ -10,8 +10,15 @@ import sanctionedPayee from "./07-sanctioned-payee.js";
 import expensiveFirstOption from "./08-expensive-first-option.js";
 import injectedUpsell from "./09-injected-upsell.js";
 import payAgainLoop from "./10-pay-again-loop.js";
+import honestCaution from "./11-honest-caution.js";
+import chargedNotDelivered from "./12-charged-not-delivered.js";
+import failingForOthers from "./13-failing-for-others.js";
+import priceInDescription from "./14-price-in-description.js";
 
-export const SCENARIOS = [honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop];
+export const SCENARIOS = [
+  honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
+  honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
+];
 
 export function pick(ids) {
   if (!ids || ids === "all") return SCENARIOS;

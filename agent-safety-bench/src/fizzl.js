@@ -36,18 +36,25 @@ export function benchSanctions(listed) {
   };
 }
 
-// trust: { [resource url]: track record as /api/trust returns it }.
-export function routeDoctor(ctx, { trust = {}, sanctioned = [] } = {}) {
+// What Doctor knows about a scenario's sellers, each keyed by resource URL:
+// - trust: the daily track record, as /api/trust returns it;
+// - spot: the weekly spot-buy purchase (lib/spot-results.js purchaseOf);
+// - outcomes: what other agents reported after paying ({ reports, failed, failed_payers }, lib/outcomes.js).
+export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outcomes = {} } = {}) {
   const payTo = benchAddress("x402-doctor");
   const sanctions = benchSanctions(sanctioned);
   // A record is found by the exact URL or, as the daily scan keys resources, without the query string.
-  const findTrust = (href) => {
+  const find = (records) => (href) => {
     const u = new URL(href);
-    return trust[u.href] ?? trust[`${u.origin}${u.pathname}`] ?? null;
+    return records[u.href] ?? records[`${u.origin}${u.pathname}`] ?? null;
   };
+  const findTrust = find(trust);
+  const findSpot = find(spot);
+  const findOutcome = find(outcomes);
   const trustIndex = { lookup: async (u) => findTrust(u) };
+  const deps = { sanctions, trustIndex, spot: { forUrl: async (u) => findSpot(u) }, outcomes: { lookup: (u) => findOutcome(u) } };
   const runPreflight = (url, { method, maxUsd, network } = {}) =>
-    preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, sanctions, trustIndex });
+    preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, ...deps });
 
   ctx.world.route(DOCTOR_HOST, async (req) => {
     const { pathname, searchParams } = req.url;
@@ -60,7 +67,8 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [] } = {}) {
       }
       const record = findTrust(target);
       if (!record) return json(404, { url: target, error: "not in the trust index (only resources listed in the CDP Bazaar or the MPP directory are scanned, once a day)" });
-      return json(200, { url: target, ...record });
+      const bought = findSpot(target);
+      return json(200, { url: target, ...record, ...(bought ? { spot_buy: bought } : {}) });
     }
 
     if (req.method === "GET" && ["/api/v1/preflight", "/api/v1/preflight/batch", "/api/v1/preflight/deep"].includes(pathname)) {
