@@ -129,7 +129,7 @@ They mark the floor and a mechanical upper bound. A model with the skill should 
 
 ## Next
 
-1. **Model runs of round three** (scenarios 15–19).
+1. **A sign-in for another site:** a Sign-In with Ethereum message whose domain isn't the site asking. Only presign-guard's check catches it, and in round three the agent with the skill didn't check plain messages.
 2. **Transactions:** a `send_transaction` tool, with an `approve` and a swap with a hidden approval, checked by presign-guard's simulation.
 3. **Wallet limits:** a `limits` condition where the wallet itself enforces a per-payment cap, to compare a hard limit with the model's judgement.
 4. **Other vendors' models,** behind the same agent interface. Three Claude models are compared now (`--model a,b,c`).
