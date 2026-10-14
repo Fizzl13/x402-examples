@@ -2,7 +2,7 @@
   "x402-preflight": {
     "repository": "https://github.com/Fizzl13/x402-doctor",
     "path": "skills/x402-preflight/SKILL.md",
-    "commit": "9b4a2d16119ae70c7001ee4340d42aa2e141b22b"
+    "commit": "7cfaa05bfd81dcd544b15f9307ae81984f9dea4b"
   },
   "presign-check": {
     "repository": "https://github.com/Fizzl13/presign-guard",

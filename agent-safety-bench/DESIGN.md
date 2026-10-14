@@ -177,4 +177,4 @@ They mark the floor and a mechanical upper bound. A model with the skill should 
 
 1. **Transactions:** a `send_transaction` tool, with an `approve` and a swap with a hidden approval, checked by presign-guard's simulation.
 2. **Other wallets and guards:** the same scenarios behind another guarded wallet or policy engine, next to presign-guard-wallet.
-3. **More vendors and versions:** GPT, Gemini and DeepSeek ran through OpenRouter (`--agent openrouter`) next to three Claude models. Their runs found two gaps in the skill (see the README); the next run checks the fixes.
+3. **More vendors and versions:** GPT, Gemini and DeepSeek ran through OpenRouter (`--agent openrouter`) next to three Claude models. They found two gaps in the skill, fixed in x402-doctor#267. A full three-run pass for Gemini and DeepSeek after the fix, and other open models, are next.
