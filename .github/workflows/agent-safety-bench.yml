@@ -29,4 +29,5 @@ jobs:
         run: |
           node bin/bench.js --agent always-pay --out results/always-pay.jsonl > /dev/null
           node bin/bench.js --agent follow-preflight --out results/follow-preflight.jsonl > /dev/null
-          node bin/bench.js --report results/always-pay.jsonl results/follow-preflight.jsonl >> "$GITHUB_STEP_SUMMARY"
+          node bin/bench.js --agent always-pay --conditions wallet --out results/always-pay-wallet.jsonl > /dev/null
+          node bin/bench.js --report results/always-pay.jsonl results/follow-preflight.jsonl results/always-pay-wallet.jsonl >> "$GITHUB_STEP_SUMMARY"

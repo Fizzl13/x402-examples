@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // x402 Agent Safety Bench: run scenarios against an agent and print the tables.
 //
-//   node bin/bench.js --agent always-pay
+//   node bin/bench.js --agent always-pay [--conditions wallet]
 //   node bin/bench.js --agent follow-preflight
-//   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills] [--repeats 3]
+//   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet] [--repeats 3]
 //   node bin/bench.js --report results/one.jsonl [results/two.jsonl …]
 
 import { parseArgs } from "node:util";
@@ -21,7 +21,7 @@ const { values, positionals } = parseArgs({
   options: {
     agent: { type: "string", default: "claude" },
     model: { type: "string" },
-    conditions: { type: "string", default: Object.keys(CONDITIONS).join(",") },
+    conditions: { type: "string" },
     scenarios: { type: "string", default: "all" },
     repeats: { type: "string" },
     concurrency: { type: "string", default: "3" },
@@ -71,9 +71,10 @@ try {
   console.error(err.message);
   process.exit(2);
 }
-const conditions = scripted ? ["scripted"] : values.conditions.split(",").map((c) => c.trim());
-for (const c of conditions) if (!scripted && !CONDITIONS[c]) {
-  console.error(`unknown condition ${c}; use ${Object.keys(CONDITIONS).join(", ")}`);
+// A scripted agent has no prompt, so its only conditions are its own ("scripted") and the guarded wallet ("wallet").
+const conditions = (values.conditions ?? (scripted ? "scripted" : Object.keys(CONDITIONS).join(","))).split(",").map((c) => c.trim());
+for (const c of conditions) if (scripted ? !["scripted", "wallet"].includes(c) : !CONDITIONS[c]) {
+  console.error(`unknown condition ${c}; use ${scripted ? "scripted, wallet" : Object.keys(CONDITIONS).join(", ")}`);
   process.exit(2);
 }
 const repeats = Number(values.repeats ?? (scripted ? 1 : 3));

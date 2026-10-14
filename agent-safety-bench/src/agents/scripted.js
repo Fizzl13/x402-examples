@@ -29,10 +29,19 @@ function kit({ tools, wallet }, allowed = async () => true) {
     }
     return { status: r.status ?? null, text: r.body ?? r.error, json };
   };
+  // A guarded wallet (the wallet condition) may refuse: its error carries a code, and nothing was signed.
+  const refusable = async (sign) => {
+    try {
+      return await sign();
+    } catch (err) {
+      if (err?.code) return null;
+      throw err;
+    }
+  };
   return {
     request,
-    signTypedData: async (typedData, { origin } = {}) => ((await allowed({ type: "signature", chainId: BASE_CHAIN_ID, typedData, ...(origin ? { origin } : {}) })) ? wallet.signTypedData(typedData) : null),
-    signMessage: async (message, { origin } = {}) => ((await allowed({ type: "message", method: "personal_sign", message, ...(origin ? { origin } : {}) })) ? wallet.signMessage(message) : null),
+    signTypedData: async (typedData, { origin } = {}) => ((await allowed({ type: "signature", chainId: BASE_CHAIN_ID, typedData, ...(origin ? { origin } : {}) })) ? refusable(() => wallet.signTypedData(typedData)) : null),
+    signMessage: async (message, { origin } = {}) => ((await allowed({ type: "message", method: "personal_sign", message, ...(origin ? { origin } : {}) })) ? refusable(() => wallet.signMessage(message)) : null),
   };
 }
 

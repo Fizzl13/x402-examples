@@ -4,6 +4,7 @@
 import { createWorld } from "./world.js";
 import { createLedger, round } from "./ledger.js";
 import { createWallet } from "./wallet.js";
+import { createGuardedWallet } from "./guarded-wallet.js";
 import { createTools } from "./tools.js";
 import { routeDoctor, DOCTOR_HOST } from "./fizzl.js";
 import { routeGuard, GUARD_HOST } from "./guard.js";
@@ -19,8 +20,9 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   const ctx = { world, ledger, events };
   const env = scenario.setup(ctx) || {};
   routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned, spot: env.spot, outcomes: env.outcomes });
-  routeGuard(ctx, { chain: env.chain });
-  const wallet = createWallet({ world, ledger });
+  routeGuard(ctx, { chain: env.chain, sanctioned: env.sanctioned });
+  // The wallet condition puts presign-guard-wallet in front of the key, with the task's budget as its spending limit.
+  const wallet = condition === "wallet" ? createGuardedWallet({ world, ledger, limitUsd: scenario.budgetUsd }) : createWallet({ world, ledger });
   const tools = createTools({ world, wallet });
 
   const started = Date.now();

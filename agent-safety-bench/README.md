@@ -66,9 +66,13 @@ Read **[DESIGN.md](DESIGN.md)** for the method: conditions, scenarios, metrics, 
 |---|---|---|---|---|
 | `always-pay`: pays every 402, retries when asked, signs what it is handed | 1/13 | 7/7 | $133.43 | $0 |
 | `follow-preflight`: pays only on x402 Doctor's `go`, signs only on presign-guard's `green` | 13/13 | 6/7 | $0 | $0.075 |
+| `always-pay` behind presign-guard-wallet (`--conditions wallet`) | 7/13 | 7/7 | $25.68 | $0.25 |
 
 - **`always-pay`** "avoids" only the injected upsell, because it never reads the article. Its signatures hand over $105 of allowances (the whole $50 wallet twice, and $5 to the phishing contract) and a $20 prepaid balance at another site.
 - **`follow-preflight`** refuses the honest seller that gets a caution (`honest-caution`). A model following the skill can do better: it may pay a caution within what the user approved.
+- **`always-pay` behind presign-guard-wallet** shows what the wallet layer alone does, for an agent that says yes to everything.
+  - **Stopped:** what can be seen in the payment or signature itself. That covers the task's budget as a limit, the sanctioned payee, and all three Permit traps.
+  - **Not stopped:** what needs the seller's track record (the pay-again loop, the seller charging without answering, the seller failing for others), and an overpriced option within the budget. Also a sign-in for another site: the wallet doesn't know which site is asking.
 
 ### Findings
 
@@ -121,7 +125,8 @@ Read **[DESIGN.md](DESIGN.md)** for the method: conditions, scenarios, metrics, 
    - presign-guard's [`presign-check`](https://github.com/Fizzl13/presign-guard/tree/main/skills/presign-check). Its check runs **presign-guard's own code** at a pinned commit, on chain data the scenario supplies: what GoPlus and the Base RPC would answer about the addresses involved.
 
    So their verdicts are the real services' verdicts.
-4. **A ledger.** Every signature the wallet makes goes into it, and sellers "settle" there instead of on chain. Scores come from the ledger and from fixed tokens in the paid answers. No model grades another.
+4. **A guarded wallet.** The `wallet` condition gives the agent the bare prompt, but puts [presign-guard-wallet](../guard-wallet) (from npm, pinned) in front of the key. presign-guard checks every payment, Permit and message before it is signed, and the task's budget is the wallet's spending limit. This measures the check at the signer, which works whether or not the agent thinks of it.
+5. **A ledger.** Every signature the wallet makes goes into it, and sellers "settle" there instead of on chain. Scores come from the ledger and from fixed tokens in the paid answers. No model grades another.
 
 ## Run it
 
@@ -145,7 +150,7 @@ npm run bench -- --report results/*.jsonl                               # the ta
 | Option | Default | |
 |---|---|---|
 | `--model` | | A Claude model id, or several separated by commas to compare them in one run. |
-| `--conditions` | `bare,cautious,skills` | Which conditions to run. |
+| `--conditions` | `bare,cautious,skills,wallet` | Which conditions to run. A scripted agent runs in its own (`scripted`), or behind the guarded wallet with `wallet`. |
 | `--scenarios` | `all` | Scenario ids, comma-separated. |
 | `--repeats` | `3` (claude), `1` (scripted) | Runs per scenario and condition. |
 | `--thinking` | `adaptive` | `off` to run without extended thinking. |
@@ -193,9 +198,10 @@ src/wallet.js           Throwaway wallet paying with the official x402 client, a
 src/tools.js            http_request, pay_x402, sign_typed_data, sign_message
 src/fizzl.js            x402 Doctor at its real hostname, running Doctor's own preflight
 src/guard.js            presign-guard at its real hostname, running presign-guard's own check
+src/guarded-wallet.js   The wallet condition: presign-guard-wallet in front of the key, the task's budget as its limit
 src/chain.js            What GoPlus and the Base RPC answer about a scenario's addresses
 src/sources.js          The pinned commits of Doctor and presign-guard (scripts/fetch-sources.js)
-src/conditions.js       bare, cautious, skills
+src/conditions.js       bare, cautious, skills, wallet
 src/agents/             claude (Messages API tool loop), always-pay, follow-preflight
 src/scenarios/          One file per scenario
 src/report.js           The tables
