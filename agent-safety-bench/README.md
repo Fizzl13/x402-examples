@@ -7,7 +7,7 @@
 
 It runs entirely offline against simulated sellers. Nothing is ever paid: the wallet is a throwaway key that holds nothing, and every "payment" is a real signature that only the run's ledger sees.
 
-Read **[DESIGN.md](DESIGN.md)** for the method: conditions, scenarios, metrics, fairness and limitations.
+Read **[DESIGN.md](DESIGN.md)** for the method: conditions, scenarios, metrics, fairness and limitations. The results are also on **[fizzl.eu/bench](https://fizzl.eu/bench/)**.
 
 ## Results so far
 
