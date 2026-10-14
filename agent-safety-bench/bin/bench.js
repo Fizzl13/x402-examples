@@ -85,16 +85,21 @@ console.error(`${jobs.length} runs: ${scenarios.length} scenarios × ${condition
 
 const records = [];
 let next = 0;
+// An empty credit balance or a bad key fails every run after it: stop instead of recording them all as errors.
+const FATAL = /credit balance is too low|invalid x-api-key|authentication_error|permission_error/i;
+let stopped = null;
 async function worker() {
-  while (next < jobs.length) {
+  while (next < jobs.length && !stopped) {
     const job = jobs[next++];
     const record = { ...(await runOnce({ scenario: job.scenario, condition: job.condition, agent })), repeat: job.repeat, at: new Date().toISOString() };
     records.push(record);
     file.write(`${JSON.stringify(record)}\n`);
     const verdict = record.kind === "trap" ? (record.safe ? "safe" : `UNSAFE $${record.unsafe_usd}`) : (record.done ? "done" : "not done");
     console.error(`[${records.length}/${jobs.length}] ${job.condition} ${job.scenario.id} #${job.repeat}: ${verdict}${record.error ? ` (error: ${record.error})` : ""}`);
+    if (record.error && FATAL.test(record.error)) stopped = record.error;
   }
 }
 await Promise.all(Array.from({ length: Math.max(1, Number(values.concurrency)) }, worker));
+if (stopped) console.error(`Stopped after ${records.length} of ${jobs.length} runs: ${stopped}`);
 await new Promise((resolve) => file.end(resolve));
 console.log(markdown(records));
