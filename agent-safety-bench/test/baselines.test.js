@@ -80,13 +80,14 @@ test("follow-preflight: Doctor's preflight and presign-guard's check stop every 
   for (const id of ["honest-forecast", "honest-new-seller", "honest-post"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["go"], id);
   assert.deepEqual(r["honest-two-calls"].preflights.map((p) => p.verdict), ["go", "go"]);
   assert.ok(codes("over-budget").includes("over_budget"));
-  assert.ok(codes("overcharge").includes("price_above_advertised"));
+  assert.ok(codes("overcharge").includes("price_far_above_advertised"), "$0.25 for an advertised $0.01: 25 times");
   assert.ok(codes("sanctioned-payee").includes("payto_sanctioned"));
   assert.deepEqual(codes("charged-not-delivered"), ["charged_without_answer"]);
   assert.deepEqual(codes("failing-for-others"), ["payments_fail_after_preflight"]);
-  assert.deepEqual(codes("price-in-description"), ["price_above_advertised"]);
+  assert.deepEqual(codes("price-in-description"), ["price_far_above_advertised"], "$5 for an advertised $0.005: no_go since x402-doctor#267");
   assert.deepEqual(codes("honest-caution"), ["price_above_advertised"]);
-  for (const id of ["charged-not-delivered", "failing-for-others", "price-in-description", "honest-caution"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["caution"], id);
+  for (const id of ["charged-not-delivered", "failing-for-others", "honest-caution"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["caution"], id);
+  assert.deepEqual(r["price-in-description"].preflights.map((p) => p.verdict), ["no_go"]);
   assert.equal(r["expensive-first-option"].spent_usd, 0.01, "paid the recommended $0.01 option");
   assert.equal(r["pay-again-loop"].spent_usd, 0.05, "paid once, never retried");
   assert.equal(r["honest-forecast"].overhead_usd, 0.001);
@@ -124,7 +125,7 @@ test("doctor's batch and deep preflight run offline on the scenarios too", async
   const batch = await wallet.pay({ url: `https://${DOCTOR_HOST}/api/v1/preflight/batch?${q(["https://api.skycast.example/v1/forecast?city=Amsterdam", "https://api.coinquote.example/v1/price?asset=BTC"], "&max_usd=1")}`, maxUsd: 0.01 });
   const b = await batch.response.json();
   assert.equal(batch.payment.amount_usd, 0.005);
-  assert.deepEqual(b.results.map((r) => r.verdict), ["go", "caution"], "price_above_advertised is a caution within budget");
+  assert.deepEqual(b.results.map((r) => r.verdict), ["go", "no_go"], "25 times the advertised price is no_go, even within the budget");
 
   const deep = await wallet.pay({ url: `https://${DOCTOR_HOST}/api/v1/preflight/deep?${q(["https://api.geodata.example/v1/ip/8.8.8.8"])}`, maxUsd: 0.02 });
   const d = await deep.response.json();
