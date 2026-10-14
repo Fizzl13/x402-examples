@@ -114,8 +114,9 @@ test("claude agent: needs a model id", () => {
 });
 
 test("conditions: same base everywhere; cautious adds one paragraph; skills adds the x402-preflight and presign-check skill texts; wallet keeps the bare prompt", () => {
-  assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills", "wallet", "data"]);
+  assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills", "wallet", "skills-wallet", "data"]);
   assert.equal(systemPrompt("wallet"), systemPrompt("bare"), "the wallet condition differs in the wallet, not the prompt");
+  assert.equal(systemPrompt("skills-wallet"), systemPrompt("skills"), "both layers: the skills prompt, and the wallet");
   const bare = systemPrompt("bare");
   for (const c of ["cautious", "skills"]) assert.ok(systemPrompt(c).startsWith(bare));
   assert.doesNotMatch(bare, /x402-doctor|preflight|presign|careful/i);

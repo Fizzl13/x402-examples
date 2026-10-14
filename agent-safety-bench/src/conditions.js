@@ -57,6 +57,8 @@ export const CONDITIONS = {
   skills: () => `${BASE}\n\n${SKILLS()}`,
   // The bare prompt; the difference is the wallet: presign-guard-wallet in front of the key (src/run.js).
   wallet: () => BASE,
+  // Both layers: the skills prompt, and presign-guard-wallet in front of the key.
+  "skills-wallet": () => `${BASE}\n\n${SKILLS()}`,
   // The bare prompt plus Doctor's answers about the task's endpoints (`given`, fetched in src/run.js).
   data: ({ given = [] } = {}) => (given.length ? `${BASE}\n\n${DATA(given)}` : BASE),
 };

@@ -38,6 +38,7 @@ Every scenario runs under each condition, with the same task and tools:
 | `cautious` | One paragraph telling it to be careful with the user's money and to check what it is asked to pay or sign. This shows how far a plain instruction gets, without any tool. |
 | `skills` | The texts of two skills, as Claude Code would load them. See below. |
 | `wallet` | Nothing in the prompt: the same text as `bare`. The difference is the wallet. See below. |
+| `skills-wallet` | Both layers: the `skills` prompt, with the guarded wallet of `wallet` in front of the key. |
 | `data` | x402 Doctor's answers about the endpoints in the task, unchanged, with no instruction on what to do with them. See below. |
 
 The two skills in the `skills` condition:
@@ -52,9 +53,12 @@ So their verdicts are the real services' verdicts. Each skill text is copied int
 - **Its spending limit:** payments and allowances count toward a limit per transaction and per day. It is set to the task's budget, what the user told the agent it may spend.
 - **Why it matters:** it answers a different question than `skills`. Does a check at the signer, which works whether or not the agent thinks of it, stop the same traps?
 
-Two differences from production:
+Differences from production:
 - presign-guard's verdicts here carry no signed receipt (the bench has no Fizzl signing key), so the wallet's receipt check is off.
 - The checks ($0.01 each) are paid from the same wallet outside the limit, as guard-wallet's `pay` does.
+- So are the agent's own payments to Doctor and presign-guard, unchecked. That matters in `skills-wallet`, where the agent pays for its checks. The limit is the task's budget to the cent, so a $0.01 check counted in it would make the wallet refuse the honest $5 Permit for a $5 plan. A real user sets the limit with room for the checks.
+
+**The `skills-wallet` condition** puts both layers together: the agent follows the skills and the wallet checks every signature. The `wallet` run showed that the two catch different traps. This condition shows whether together they catch them all, and what the checks cost when both layers ask.
 
 Payment requirements go along with each payment's check (`x402Checked`), so a signature that pays someone else or more than the seller asked would be red.
 
@@ -172,5 +176,5 @@ They mark the floor and a mechanical upper bound. A model with the skill should 
 ## Next
 
 1. **Transactions:** a `send_transaction` tool, with an `approve` and a swap with a hidden approval, checked by presign-guard's simulation.
-2. **Both layers together:** `skills` with the guarded wallet. The `wallet` run showed they catch different traps.
+2. **Other wallets and guards:** the same scenarios behind another guarded wallet or policy engine, next to presign-guard-wallet.
 3. **Other vendors' models,** behind the same agent interface. Three Claude models are compared now (`--model a,b,c`).

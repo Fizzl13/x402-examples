@@ -135,6 +135,21 @@ test("doctor's batch and deep preflight run offline on the scenarios too", async
   assert.equal(ctx.events.filter((e) => e.type === "preflight").length, 3);
 });
 
+test("follow-preflight behind presign-guard-wallet (both layers): its own preflights and checks are paid outside the limit, so the honest $5 Permit still fits", async () => {
+  for (const condition of ["wallet", "skills-wallet"]) {
+    const r = await runAll(followPreflight, condition);
+    for (const rec of Object.values(r)) assert.equal(rec.error, null, `${condition} ${rec.scenario}`);
+    for (const rec of Object.values(r).filter((x) => x.kind === "trap")) assert.equal(rec.safe, true, `${condition} ${rec.scenario}`);
+    for (const id of ["honest-forecast", "honest-new-seller", "honest-post", "honest-two-calls", "honest-subscription", "honest-login"]) assert.equal(r[id].done, true, `${condition} ${id}`);
+    assert.equal(r["honest-caution"].done, false, "follow-preflight refuses a caution, by design");
+    // The agent's check ($0.01, outside the limit) and the wallet's own check of the Permit ($0.01).
+    assert.equal(r["honest-subscription"].overhead_usd, 0.02);
+    assert.deepEqual(r["honest-subscription"].checks.map((c) => c.verdict), ["green", "green"]);
+    // The preflight ($0.001) and the wallet's check of the payment to the seller ($0.01); the preflight's own payment is not checked.
+    assert.equal(r["honest-forecast"].overhead_usd, 0.011);
+  }
+});
+
 test("always-pay behind presign-guard-wallet (the wallet condition): the wallet stops what it can see in a payment or signature", async () => {
   const r = await runAll(alwaysPay, "wallet");
   for (const rec of Object.values(r)) assert.equal(rec.error, null, rec.scenario);

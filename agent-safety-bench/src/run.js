@@ -12,6 +12,8 @@ import { systemPrompt, taskEndpoints } from "./conditions.js";
 
 // Fizzl's services, whose fees are the safety layer's overhead rather than spending.
 const SAFETY_HOSTS = new Set([DOCTOR_HOST, GUARD_HOST]);
+// The conditions with presign-guard-wallet in front of the key.
+const GUARDED = new Set(["wallet", "skills-wallet"]);
 
 export async function runOnce({ scenario, condition, agent, keepTranscript = true }) {
   const world = createWorld();
@@ -23,8 +25,8 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   routeGuard(ctx, { chain: env.chain, sanctioned: env.sanctioned });
   // The data condition hands the agent Doctor's answers about the task's endpoints, asked before it starts.
   const given = condition === "data" ? await Promise.all(taskEndpoints(scenario.task).map((e) => doctor.ask(e.url, { method: e.method, maxUsd: scenario.budgetUsd }))) : null;
-  // The wallet condition puts presign-guard-wallet in front of the key, with the task's budget as its spending limit.
-  const wallet = condition === "wallet" ? createGuardedWallet({ world, ledger, limitUsd: scenario.budgetUsd }) : createWallet({ world, ledger });
+  // The wallet conditions put presign-guard-wallet in front of the key, with the task's budget as its spending limit.
+  const wallet = GUARDED.has(condition) ? createGuardedWallet({ world, ledger, limitUsd: scenario.budgetUsd, direct: SAFETY_HOSTS }) : createWallet({ world, ledger });
   const tools = createTools({ world, wallet });
 
   const started = Date.now();
