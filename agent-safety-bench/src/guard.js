@@ -38,18 +38,32 @@ function withChainData(world, fn) {
   return scope.run(world.fetch, fn);
 }
 
-// The OFAC list presign-guard screens against: 100 stand-in addresses (its loader refuses a shorter file), loaded once.
-let sdn = null;
-function loadStandInList() {
-  const entries = Array.from({ length: 100 }, (_, i) => `<sdnEntry><uid>${i + 1}</uid><lastName>BENCH STAND-IN ENTITY ${i + 1}</lastName><sdnType>Entity</sdnType><programList><program>CYBER2</program></programList><idList><id><uid>${i + 1}</uid><idType>Digital Currency Address - ETH</idType><idNumber>${benchAddress(`sdn-stand-in-${i + 1}`)}</idNumber></id></idList></sdnEntry>`);
-  const xml = `<?xml version="1.0"?><sdnList><publshInformation><Publish_Date>10/01/2026</Publish_Date></publshInformation>${entries.join("")}</sdnList>`;
-  sdn ??= ofac.loadSdn({ fetchImpl: async () => new Response(xml) });
-  return sdn;
+// The OFAC list presign-guard screens against: 100 stand-in addresses made for the bench (its loader refuses a shorter
+// file), plus every scenario's sanctioned stand-in seen so far, the same addresses Doctor's copy lists. Loads are
+// queued, so a check never runs against a list that misses its scenario's address.
+const sanctioned = new Set();
+let loadedKey = null;
+let queue = Promise.resolve();
+function sdnXml(extra) {
+  const addresses = [...Array.from({ length: 100 }, (_, i) => benchAddress(`sdn-stand-in-${i + 1}`)), ...extra];
+  const entries = addresses.map((address, i) => `<sdnEntry><uid>${i + 1}</uid><lastName>BENCH STAND-IN ENTITY ${i + 1}</lastName><sdnType>Entity</sdnType><programList><program>CYBER2</program></programList><idList><id><uid>${i + 1}</uid><idType>Digital Currency Address - ETH</idType><idNumber>${address}</idNumber></id></idList></sdnEntry>`);
+  return `<?xml version="1.0"?><sdnList><publshInformation><Publish_Date>10/01/2026</Publish_Date></publshInformation>${entries.join("")}</sdnList>`;
+}
+function loadList() {
+  queue = queue.then(async () => {
+    const extra = [...sanctioned].sort();
+    const key = extra.join(",");
+    if (key === loadedKey) return;
+    await ofac.loadSdn({ fetchImpl: async () => new Response(sdnXml(extra)) });
+    loadedKey = key;
+  });
+  return queue;
 }
 
 const failure = (status, error, message) => json(status, { error, message, verdict: null });
 
-export function routeGuard(ctx, { chain = {} } = {}) {
+export function routeGuard(ctx, { chain = {}, sanctioned: listed = [] } = {}) {
+  for (const address of listed) sanctioned.add(address);
   const payTo = benchAddress("presign-guard");
   const accepts = [option({ usd: CHECK_USD, payTo })];
   const description = "presign-guard pre-sign check: green / orange / red for what an agent is about to sign";
@@ -76,7 +90,7 @@ export function routeGuard(ctx, { chain = {} } = {}) {
     if (!payment) return paymentRequired(req.url, accepts, { description });
     if (!payment.ok) return paymentRequired(req.url, accepts, { description, error: payment.reason });
 
-    await loadStandInList();
+    await loadList();
     let result;
     try {
       result = await withChainData(chainData, () => guard.analyze(parsed));

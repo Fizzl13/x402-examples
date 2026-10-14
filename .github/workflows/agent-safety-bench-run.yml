@@ -13,7 +13,7 @@ on:
         type: string
       conditions:
         description: "Conditions, comma-separated"
-        default: "bare,cautious,skills"
+        default: "bare,cautious,skills,wallet"
         type: string
       scenarios:
         description: "Scenario ids, comma-separated, or all"

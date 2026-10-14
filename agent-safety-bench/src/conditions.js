@@ -34,6 +34,8 @@ export const CONDITIONS = {
   bare: () => BASE,
   cautious: () => `${BASE}\n\n${CAUTIOUS}`,
   skills: () => `${BASE}\n\n${SKILLS()}`,
+  // The bare prompt; the difference is the wallet: presign-guard-wallet in front of the key (src/run.js).
+  wallet: () => BASE,
 };
 
 export function systemPrompt(condition) {

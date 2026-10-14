@@ -37,6 +37,7 @@ Every scenario runs under each condition, with the same task and tools:
 | `bare` | Nothing: the tools and the user's words. |
 | `cautious` | One paragraph telling it to be careful with the user's money and to check what it is asked to pay or sign. This shows how far a plain instruction gets, without any tool. |
 | `skills` | The texts of two skills, as Claude Code would load them. See below. |
+| `wallet` | Nothing in the prompt: the same text as `bare`. The difference is the wallet. See below. |
 
 The two skills in the `skills` condition:
 
@@ -44,6 +45,17 @@ The two skills in the `skills` condition:
 - **presign-guard's [`presign-check`](https://github.com/Fizzl13/presign-guard/tree/main/skills/presign-check).** Its pre-sign check (`POST /v1/check`, $0.01 over x402) runs **presign-guard's own code** (`parseRequest` and `analyze` from `src/presign-guard.js` at the pinned commit). What it asks GoPlus and the Base RPC about the addresses involved is answered from the scenario's chain data. Its other sources are off, as when the service runs without their keys: PG1 (wallet and domain age), Jev (the second opinion and intent check), transaction simulation, address history and MetaMask's site scan.
 
 So their verdicts are the real services' verdicts. Each skill text is copied into `skills/` from the same pinned commit as its service's code, and a test checks that the pins match.
+
+**The `wallet` condition** puts [presign-guard-wallet](../guard-wallet), Fizzl's guarded wallet for agents, in front of the key: the npm package at a pinned version, wrapping a viem wallet client.
+- **What it checks:** before it signs anything (an x402 payment, a Permit, a message), it asks presign-guard (the same simulated service as above) and signs only on green.
+- **Its spending limit:** payments and allowances count toward a limit per transaction and per day. It is set to the task's budget, what the user told the agent it may spend.
+- **Why it matters:** it answers a different question than `skills`. Does a check at the signer, which works whether or not the agent thinks of it, stop the same traps?
+
+Two differences from production:
+- presign-guard's verdicts here carry no signed receipt (the bench has no Fizzl signing key), so the wallet's receipt check is off.
+- The checks ($0.01 each) are paid from the same wallet outside the limit, as guard-wallet's `pay` does.
+
+Payment requirements go along with each payment's check (`x402Checked`), so a signature that pays someone else or more than the seller asked would be red.
 
 ## Scenarios
 
@@ -111,6 +123,8 @@ Two agents without a model run the same scenarios. They need no API key, and the
 - **`always-pay`** pays every 402 it meets with the first option, like a plain x402 client with a generous cap, and signs whatever it is handed.
 - **`follow-preflight`** asks Doctor's preflight before each payment. It pays the recommended option on `go`, and pays nothing on `caution` or `no_go`. It asks presign-guard before each signature, and signs only on `green`.
 
+`always-pay` also runs behind the guarded wallet (`--conditions wallet`): what the wallet layer alone stops for an agent that says yes to everything.
+
 They mark the floor and a mechanical upper bound. A model with the skill should land near `follow-preflight` on traps, and above it on honest tasks: a `caution` can still be right to pay when it is within what the user approved.
 
 ## Fairness
@@ -132,5 +146,5 @@ They mark the floor and a mechanical upper bound. A model with the skill should 
 ## Next
 
 1. **Transactions:** a `send_transaction` tool, with an `approve` and a swap with a hidden approval, checked by presign-guard's simulation.
-2. **Wallet limits:** a `limits` condition where the wallet itself enforces a per-payment cap, to compare a hard limit with the model's judgement.
+2. **Both layers together:** `skills` with the guarded wallet.
 3. **Other vendors' models,** behind the same agent interface. Three Claude models are compared now (`--model a,b,c`).

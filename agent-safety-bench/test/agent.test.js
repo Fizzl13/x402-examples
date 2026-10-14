@@ -75,8 +75,9 @@ test("claude agent: needs a model id", () => {
   assert.throws(() => claudeAgent({ client: fakeClient([]) }), /--model is required/);
 });
 
-test("conditions: same base everywhere; cautious adds one paragraph; skills adds the x402-preflight and presign-check skill texts", () => {
-  assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills"]);
+test("conditions: same base everywhere; cautious adds one paragraph; skills adds the x402-preflight and presign-check skill texts; wallet keeps the bare prompt", () => {
+  assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills", "wallet"]);
+  assert.equal(systemPrompt("wallet"), systemPrompt("bare"), "the wallet condition differs in the wallet, not the prompt");
   const bare = systemPrompt("bare");
   for (const c of ["cautious", "skills"]) assert.ok(systemPrompt(c).startsWith(bare));
   assert.doesNotMatch(bare, /x402-doctor|preflight|presign|careful/i);

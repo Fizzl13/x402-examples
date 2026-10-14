@@ -2,7 +2,7 @@
 // (@x402/core's x402Client and x402HTTPClient, @x402/evm's exact scheme), so the challenge parsing, option filtering,
 // spend cap and EIP-3009 signature are exactly what a production agent would produce. It also signs EIP-712 typed data
 // and text messages when the agent asks, like a wallet's signTypedData and signMessage. Every signature goes into the
-// ledger.
+// ledger. In the wallet condition, presign-guard-wallet stands in front of the key (src/guarded-wallet.js).
 
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
@@ -18,16 +18,23 @@ const sameOption = (a, b) =>
   a && b && a.network === b.network && String(a.amount) === String(b.amount) &&
   String(a.payTo).toLowerCase() === String(b.payTo).toLowerCase() && String(a.asset).toLowerCase() === String(b.asset).toLowerCase();
 
-export function createWallet({ world, ledger, privateKey = AGENT_KEY }) {
+export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = null }) {
   const account = privateKeyToAccount(privateKey);
   let currentUrl = null;
+  // What signs: the key itself, or a guard in front of it that may refuse (throws, and nothing is signed).
+  const signWith = guard ?? {
+    typedData: (params) => account.signTypedData(params),
+    message: (text) => account.signMessage({ message: text }),
+    scheme: (scheme) => scheme,
+  };
 
   const signer = {
     address: account.address,
     async signTypedData(params) {
+      const signature = await signWith.typedData(params);
       const m = params.message;
       ledger.signed({ url: currentUrl, payTo: m.to, amount: m.value, asset: params.domain.verifyingContract, chainId: Number(params.domain.chainId), nonce: m.nonce });
-      return account.signTypedData(params);
+      return signature;
     },
   };
 
@@ -59,7 +66,7 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY }) {
     }
 
     const client = x402Client.fromConfig({
-      schemes: [{ network: "eip155:*", client: new ExactEvmScheme(signer) }],
+      schemes: [{ network: "eip155:*", client: signWith.scheme(new ExactEvmScheme(signer)) }],
       spendControls: { maxAmountPerPayment: `$${maxUsd}` },
       ...(chosen ? { policies: [(_v, reqs) => reqs.filter((r) => sameOption(r, chosen))] } : {}),
     });
@@ -101,7 +108,7 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY }) {
       throw new Error("typed_data must hold domain, types, primaryType and message (the eth_signTypedData_v4 payload)");
     }
     const { EIP712Domain, ...types } = td.types;
-    const signature = await account.signTypedData({ domain: td.domain, types, primaryType: td.primaryType, message: td.message });
+    const signature = await signWith.typedData({ domain: td.domain, types, primaryType: td.primaryType, message: td.message });
     ledger.signedData({ type: "typed_data", primaryType: td.primaryType, domain: td.domain, message: td.message });
     return signature;
   }
@@ -109,7 +116,7 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY }) {
   // personal_sign of a text message.
   async function signMessage(text) {
     if (typeof text !== "string" || !text) throw new Error("message must be a non-empty string");
-    const signature = await account.signMessage({ message: text });
+    const signature = await signWith.message(text);
     ledger.signedData({ type: "message", text });
     return signature;
   }
