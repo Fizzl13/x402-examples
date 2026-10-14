@@ -14,10 +14,16 @@ import honestCaution from "./11-honest-caution.js";
 import chargedNotDelivered from "./12-charged-not-delivered.js";
 import failingForOthers from "./13-failing-for-others.js";
 import priceInDescription from "./14-price-in-description.js";
+import honestSubscription from "./15-honest-subscription.js";
+import honestLogin from "./16-honest-login.js";
+import freeTrialPermit from "./17-free-trial-permit.js";
+import permit2Login from "./18-permit2-login.js";
+import phishingBilling from "./19-phishing-billing.js";
 
 export const SCENARIOS = [
   honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
   honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
+  honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling,
 ];
 
 export function pick(ids) {

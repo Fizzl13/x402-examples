@@ -3,5 +3,10 @@
     "repository": "https://github.com/Fizzl13/x402-doctor",
     "path": "skills/x402-preflight/SKILL.md",
     "commit": "15b320bac97b33157a719143695f969fe8ee410f"
+  },
+  "presign-check": {
+    "repository": "https://github.com/Fizzl13/presign-guard",
+    "path": "skills/presign-check/SKILL.md",
+    "commit": "338b6e1e659a44fb6d76fb702d35cc9be4332fdf"
   }
 }

@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { json } from "./world.js";
 import { option, paidRoute } from "./x402-seller.js";
 import { benchAddress } from "./addresses.js";
-import { DOCTOR_DIR } from "./doctor-source.js";
+import { DOCTOR_DIR } from "./sources.js";
 
 const require = createRequire(DOCTOR_DIR);
 const { preflight } = require("./lib/preflight.js");

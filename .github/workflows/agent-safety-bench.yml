@@ -1,4 +1,4 @@
-# agent-safety-bench: offline tests on every change (simulated sellers, x402 Doctor's own preflight code, a stand-in
+# agent-safety-bench: offline tests on every change (simulated sellers, x402 Doctor's preflight and presign-guard's check code, a stand-in
 # for the Messages API; no keys, no network after install).
 name: agent-safety-bench
 

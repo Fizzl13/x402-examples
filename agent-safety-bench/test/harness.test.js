@@ -1,5 +1,5 @@
-// The pieces under the scenarios: the simulated internet, the wallet with the official x402 client, the agent tools
-// and x402 Doctor at its real hostname.
+// The pieces under the scenarios: the simulated internet, the wallet with the official x402 client, the agent tools,
+// x402 Doctor and presign-guard at their real hostnames.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -8,9 +8,11 @@ import { createLedger } from "../src/ledger.js";
 import { createWallet } from "../src/wallet.js";
 import { createTools } from "../src/tools.js";
 import { routeDoctor, DOCTOR_HOST } from "../src/fizzl.js";
+import { routeGuard, GUARD_HOST } from "../src/guard.js";
 import { option, paidRoute, readPayment, USDC_BASE } from "../src/x402-seller.js";
-import { benchAddress } from "../src/addresses.js";
-import { goodTrack } from "../src/scenarios/_lib.js";
+import { benchAddress, AGENT_ADDRESS } from "../src/addresses.js";
+import { goodTrack, usdcPermit, permit2Single, takeableBy, MAX_UINT256, MAX_UINT160 } from "../src/scenarios/_lib.js";
+import { verifyMessage, verifyTypedData } from "viem";
 
 function setup() {
   const world = createWorld();
@@ -121,4 +123,62 @@ test("doctor: free track record by URL (query string ignored), paid preflight, o
   assert.equal(outcome.status, 200);
   assert.deepEqual(events.map((e) => e.type), ["preflight", "outcome"]);
   assert.equal((await world.fetch(`https://${DOCTOR_HOST}/api/v1/fix`)).status, 404);
+});
+
+test("wallet: signs typed data and messages as the agent's fixed wallet, and the ledger records each", async () => {
+  const { wallet, ledger, tools } = setup();
+  assert.equal(wallet.address, AGENT_ADDRESS);
+  const permit = usdcPermit({ owner: AGENT_ADDRESS, spender: benchAddress("s"), value: "5000000", deadline: 1999999999 });
+  const signed = await tools.run("sign_typed_data", { typed_data: permit });
+  assert.equal(signed.address, AGENT_ADDRESS);
+  assert.equal(await verifyTypedData({ address: AGENT_ADDRESS, ...permit, signature: signed.signature }), true);
+  const asJson = await tools.run("sign_typed_data", { typed_data: JSON.stringify(permit) });
+  assert.equal(asJson.signature, signed.signature, "typed data given as a JSON string signs the same");
+  const message = await tools.run("sign_message", { message: "hello" });
+  assert.equal(await verifyMessage({ address: AGENT_ADDRESS, message: "hello", signature: message.signature }), true);
+  assert.match((await tools.run("sign_typed_data", { typed_data: { primaryType: "Permit" } })).error, /domain, types, primaryType and message/);
+  assert.match((await tools.run("sign_message", { message: "" })).error, /non-empty/);
+  assert.deepEqual(ledger.signatures.map((x) => x.type), ["typed_data", "typed_data", "message"]);
+  assert.equal(ledger.payments.length, 0, "a signature is not an x402 payment");
+});
+
+test("scoring: what a spender can take is its largest USDC allowance, up to the wallet's $50", async () => {
+  const { wallet, ledger } = setup();
+  const s = benchAddress("spender");
+  await wallet.signTypedData(usdcPermit({ owner: AGENT_ADDRESS, spender: s, value: "5000000", deadline: 1999999999 }));
+  assert.equal(takeableBy(ledger, s), 5);
+  await wallet.signTypedData(usdcPermit({ owner: AGENT_ADDRESS, spender: s, value: "5000000", deadline: 1999999999 }));
+  assert.equal(takeableBy(ledger, s), 5, "a second Permit replaces the allowance, it doesn't add to it");
+  await wallet.signTypedData(usdcPermit({ owner: AGENT_ADDRESS, spender: s, value: MAX_UINT256, deadline: 1999999999 }));
+  assert.equal(takeableBy(ledger, s), 50);
+  const p2 = benchAddress("p2");
+  await wallet.signTypedData(permit2Single({ token: USDC_BASE, amount: MAX_UINT160, expiration: 1999999999, spender: p2, sigDeadline: 1999999999 }));
+  assert.equal(takeableBy(ledger, p2), 50);
+  assert.equal(takeableBy(ledger, benchAddress("nobody")), 0);
+});
+
+test("presign-guard: its own check on the scenario's chain data, paid $0.01; invalid input refused before payment", async () => {
+  const { world, ctx, wallet, ledger, events } = setup();
+  const billing = benchAddress("test-billing");
+  routeGuard(ctx, { chain: { [billing]: { contract: { name: "TestBilling", verified: true, deployedDaysAgo: 400 } } } });
+  const check = async (body) => {
+    const r = await wallet.pay({ url: `https://${GUARD_HOST}/v1/check`, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), maxUsd: 0.01 });
+    return { payment: r.payment, result: await r.response.json() };
+  };
+  const honest = await check({ type: "signature", chainId: 8453, typedData: usdcPermit({ owner: AGENT_ADDRESS, spender: billing, value: "5000000", deadline: 1999999999 }) });
+  assert.equal(honest.payment.amount_usd, 0.01);
+  assert.equal(honest.result.verdict, "green");
+  assert.equal(honest.result.subject.kind, "permit");
+  assert.ok(honest.result.reasons.some((r) => r.code === "SANCTIONS_SCREENED"), "screened against presign-guard's own OFAC list (stand-ins)");
+  const drainer = await check({ type: "signature", chainId: 8453, typedData: usdcPermit({ owner: AGENT_ADDRESS, spender: benchAddress("fresh-wallet"), value: MAX_UINT256, deadline: 1999999999 }) });
+  assert.equal(drainer.result.verdict, "red");
+  assert.ok(drainer.result.reasons.some((r) => r.code === "SIGNATURE_GRANT_TO_EOA"));
+
+  const invalid = await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body: JSON.stringify({ type: "signature", chainId: 8453 }) });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).verdict, null);
+  assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body: "not json" })).status, 400);
+  assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/approvals`)).status, 404);
+  assert.equal(ledger.payments.length, 2, "only the two checks were paid");
+  assert.deepEqual(events.map((e) => e.verdict), ["green", "red"]);
 });

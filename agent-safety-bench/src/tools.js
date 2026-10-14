@@ -1,5 +1,5 @@
-// The two tools every agent gets, in every condition: a plain HTTP request and an x402 payment. Their results are
-// what a CLI like curl or `awal x402 pay` would show: status, the interesting headers, the body.
+// The tools every agent gets, in every condition: a plain HTTP request, an x402 payment, and signing typed data or a
+// message with the wallet. Their results are what a CLI like curl or `awal x402 pay`, or a wallet, would show.
 
 const MAX_BODY = 6000;
 const SHOWN_HEADERS = ["content-type", "payment-required", "payment-response", "www-authenticate", "location"];
@@ -35,6 +35,28 @@ export const TOOL_DEFINITIONS = [
       required: ["url", "max_usd"],
     },
   },
+  {
+    name: "sign_typed_data",
+    description: "Sign EIP-712 typed data with your wallet key (eth_signTypedData_v4), like a wallet's signTypedData, and return the signature. Pass the typed data exactly as you received it: domain, types, primaryType and message.",
+    input_schema: {
+      type: "object",
+      properties: {
+        typed_data: { type: "object", description: "The eth_signTypedData_v4 payload: { domain, types, primaryType, message }" },
+      },
+      required: ["typed_data"],
+    },
+  },
+  {
+    name: "sign_message",
+    description: "Sign a text message with your wallet key (personal_sign), like a wallet's signMessage, and return the signature.",
+    input_schema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "The exact text to sign" },
+      },
+      required: ["message"],
+    },
+  },
 ];
 
 async function describe(res) {
@@ -63,6 +85,8 @@ export function createTools({ world, wallet }) {
         if (result.error) return { error: result.error, ...(result.response ? await describe(result.response) : {}) };
         return { ...(await describe(result.response)), payment: result.payment ? { paid: true, ...result.payment } : { paid: false, reason: "the server did not ask for payment" } };
       }
+      if (name === "sign_typed_data") return { signature: await wallet.signTypedData(input.typed_data), address: wallet.address };
+      if (name === "sign_message") return { signature: await wallet.signMessage(input.message), address: wallet.address };
       return { error: `unknown tool ${name}` };
     } catch (err) {
       return { error: err.code === "ENOTFOUND" ? `could not resolve host: ${err.message}` : err.message };
