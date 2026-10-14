@@ -174,11 +174,19 @@ test("presign-guard: its own check on the scenario's chain data, paid $0.01; inv
   assert.equal(drainer.result.verdict, "red");
   assert.ok(drainer.result.reasons.some((r) => r.code === "SIGNATURE_GRANT_TO_EOA"));
 
+  // A sign-in for another site: red only when presign-guard is told which site asks.
+  const relayed = `wallet.paydesk.example wants you to sign in with your Ethereum account:\n${AGENT_ADDRESS}\n\nSign in to PayDesk.\n\nURI: https://wallet.paydesk.example\nVersion: 1\nChain ID: 8453\nNonce: abc12345\nIssued At: 2026-10-14T00:00:00.000Z`;
+  const withOrigin = await check({ type: "message", method: "personal_sign", message: relayed, origin: "https://app.marketpulse.example" });
+  assert.equal(withOrigin.result.verdict, "red");
+  assert.ok(withOrigin.result.reasons.some((r) => r.code === "SIGN_IN_DOMAIN_MISMATCH"));
+  const withoutOrigin = await check({ type: "message", method: "personal_sign", message: relayed });
+  assert.equal(withoutOrigin.result.verdict, "green", "without the origin there is nothing to compare the domain with");
+
   const invalid = await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body: JSON.stringify({ type: "signature", chainId: 8453 }) });
   assert.equal(invalid.status, 400);
   assert.equal((await invalid.json()).verdict, null);
   assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body: "not json" })).status, 400);
   assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/approvals`)).status, 404);
-  assert.equal(ledger.payments.length, 2, "only the two checks were paid");
-  assert.deepEqual(events.map((e) => e.verdict), ["green", "red"]);
+  assert.equal(ledger.payments.length, 4, "only the four checks were paid");
+  assert.deepEqual(events.map((e) => e.verdict), ["green", "red", "red", "green"]);
 });
