@@ -1,0 +1,56 @@
+# agent-safety-bench: a run with a Claude model, started by hand (Actions → agent-safety-bench-run → Run workflow).
+# It uses the ANTHROPIC_API_KEY repository secret and costs model usage, nothing else: the sellers are simulated and
+# the wallet is a throwaway key that holds nothing. The table lands in the run summary, every run record (with the
+# full transcript) in the results artifact.
+name: agent-safety-bench-run
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Claude model id"
+        required: true
+        type: string
+      conditions:
+        description: "Conditions, comma-separated"
+        default: "bare,cautious,skills"
+        type: string
+      scenarios:
+        description: "Scenario ids, comma-separated, or all"
+        default: "all"
+        type: string
+      repeats:
+        description: "Runs per scenario and condition"
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: agent-safety-bench
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - name: Run
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ inputs.model }}
+          CONDITIONS: ${{ inputs.conditions }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          REPEATS: ${{ inputs.repeats }}
+        run: |
+          node bin/bench.js --agent claude --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --repeats "$REPEATS" --out results/claude.jsonl >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-safety-bench-results
+          path: agent-safety-bench/results/
+          if-no-files-found: ignore

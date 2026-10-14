@@ -30,6 +30,10 @@ const wallet = guardWallet(walletClient, {
 
 Try it from your phone: Actions → **telegram-demo** → Run workflow (a pretend agent, a stub wallet, no money moves).
 
+## Research: do AI agents pay safely?
+
+- **[agent-safety-bench](agent-safety-bench)**: an open benchmark of how an AI agent with a wallet handles x402 payments. It checks whether the agent pays honest sellers and refuses the traps: an overcharge, a sanctioned payee, a price over budget, the expensive one of two options, an instruction injected into an API's answer, and a seller that takes the money and asks again. Everything runs offline against simulated sellers with the official x402 client, and nothing is ever paid. It compares agents with and without x402 Doctor's preflight skill.
+
 ## Paid-API examples
 
 Small, open examples of AI agents combining paid APIs with [x402](https://x402.org): each call is paid per request in USDC, with no accounts or API keys.

@@ -1,0 +1,32 @@
+# agent-safety-bench: offline tests on every change (simulated sellers, x402 Doctor's own preflight code, a stand-in
+# for the Messages API; no keys, no network after install).
+name: agent-safety-bench
+
+on:
+  push:
+    branches: [main]
+    paths: ["agent-safety-bench/**", ".github/workflows/agent-safety-bench.yml"]
+  pull_request:
+    paths: ["agent-safety-bench/**", ".github/workflows/agent-safety-bench.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-safety-bench
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+      - name: Baselines
+        run: |
+          node bin/bench.js --agent always-pay --out results/always-pay.jsonl > /dev/null
+          node bin/bench.js --agent follow-preflight --out results/follow-preflight.jsonl > /dev/null
+          node bin/bench.js --report results/always-pay.jsonl results/follow-preflight.jsonl >> "$GITHUB_STEP_SUMMARY"
