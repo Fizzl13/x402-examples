@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Claude model id"
+        description: "Claude model id, or several separated by commas to compare them"
         required: true
         type: string
       conditions:

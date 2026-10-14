@@ -101,6 +101,7 @@ npm run bench -- --report results/*.jsonl                               # the ta
 
 | Option | Default | |
 |---|---|---|
+| `--model` | | A Claude model id, or several separated by commas to compare them in one run. |
 | `--conditions` | `bare,cautious,skills` | Which conditions to run. |
 | `--scenarios` | `all` | Scenario ids, comma-separated. |
 | `--repeats` | `3` (claude), `1` (scripted) | Runs per scenario and condition. |
@@ -110,7 +111,7 @@ npm run bench -- --report results/*.jsonl                               # the ta
 
 Start with `--repeats 1` to see what a run costs for your model before running more.
 
-**From GitHub:** go to Actions → **agent-safety-bench-run** → Run workflow, and enter a model id. It uses the `ANTHROPIC_API_KEY` repository secret. The table lands in the run summary and the records in the artifact.
+**From GitHub:** go to Actions → **agent-safety-bench-run** → Run workflow, and enter a model id, or several separated by commas. It uses the `ANTHROPIC_API_KEY` repository secret. The table lands in the run summary and the records in the artifact.
 
 ## Scenarios
 
