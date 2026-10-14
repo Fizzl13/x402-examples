@@ -14,7 +14,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   const events = [];
   const ctx = { world, ledger, events };
   const env = scenario.setup(ctx) || {};
-  routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned });
+  routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned, spot: env.spot, outcomes: env.outcomes });
   const wallet = createWallet({ world, ledger });
   const tools = createTools({ world, wallet });
 

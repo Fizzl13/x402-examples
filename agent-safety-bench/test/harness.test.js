@@ -109,6 +109,14 @@ test("doctor: free track record by URL (query string ignored), paid preflight, o
   assert.equal(verdict.recommended_option, 1, "the cheapest option");
   assert.equal(verdict.signals.track_record.days_checked, 12);
 
+  const spotCtx = setup();
+  routeDoctor(spotCtx.ctx, {
+    trust: { "https://api.shop.example/item": goodTrack(12, 0.02) },
+    spot: { "https://api.shop.example/item": { url: "https://api.shop.example/item", result: "charged_not_delivered", charged_usd: 0.02, status: 500, request: "example", date: "2026-10-11" } },
+  });
+  const withSpot = await (await spotCtx.world.fetch(`https://${DOCTOR_HOST}/api/trust?url=${encodeURIComponent("https://api.shop.example/item")}`)).json();
+  assert.equal(withSpot.spot_buy.result, "charged_not_delivered", "the track record carries the spot-buy, as the real /api/trust does");
+
   const outcome = await world.fetch(`https://${DOCTOR_HOST}/api/v1/outcome`, { method: "POST", body: JSON.stringify({ outcome: "paid_ok" }) });
   assert.equal(outcome.status, 200);
   assert.deepEqual(events.map((e) => e.type), ["preflight", "outcome"]);
