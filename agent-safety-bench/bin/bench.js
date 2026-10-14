@@ -3,7 +3,7 @@
 //
 //   node bin/bench.js --agent always-pay [--conditions wallet]
 //   node bin/bench.js --agent follow-preflight
-//   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet,data] [--repeats 3]
+//   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet,skills-wallet,data] [--repeats 3]
 //   node bin/bench.js --report results/one.jsonl [results/two.jsonl …]
 
 import { parseArgs } from "node:util";

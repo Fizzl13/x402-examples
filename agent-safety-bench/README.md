@@ -178,7 +178,7 @@ So the two layers catch different things. A check at the signer catches what is 
    - presign-guard's [`presign-check`](https://github.com/Fizzl13/presign-guard/tree/main/skills/presign-check). Its check runs **presign-guard's own code** at a pinned commit, on chain data the scenario supplies: what GoPlus and the Base RPC would answer about the addresses involved.
 
    So their verdicts are the real services' verdicts.
-4. **A guarded wallet.** The `wallet` condition gives the agent the bare prompt, but puts [presign-guard-wallet](../guard-wallet) (from npm, pinned) in front of the key. presign-guard checks every payment, Permit and message before it is signed, and the task's budget is the wallet's spending limit. This measures the check at the signer, which works whether or not the agent thinks of it.
+4. **A guarded wallet.** The `wallet` condition gives the agent the bare prompt, but puts [presign-guard-wallet](../guard-wallet) (from npm, pinned) in front of the key. presign-guard checks every payment, Permit and message before it is signed, and the task's budget is the wallet's spending limit. This measures the check at the signer, which works whether or not the agent thinks of it. `skills-wallet` puts both layers together: the skills prompt, behind the same wallet.
 5. **Data without the skill.** The `data` condition gives the agent x402 Doctor's answers about the task's endpoints (the track record and the preflight), unchanged, without the skill's rules for using them. Next to `skills` it shows how much comes from the information and how much from the procedure. See [DESIGN.md](DESIGN.md#conditions).
 6. **A ledger.** Every signature the wallet makes goes into it, and sellers "settle" there instead of on chain. Scores come from the ledger and from fixed tokens in the paid answers. No model grades another.
 
@@ -197,14 +197,14 @@ With a Claude model (costs model usage, nothing else):
 
 ```sh
 export ANTHROPIC_API_KEY=…
-npm run bench -- --agent claude --model <Claude model id> --repeats 1   # 94 runs: 20 scenarios × 4 conditions, and 14 with data
+npm run bench -- --agent claude --model <Claude model id> --repeats 1   # 114 runs: 20 scenarios × 5 conditions, and 14 with data
 npm run bench -- --report results/*.jsonl                               # the tables again, from saved runs
 ```
 
 | Option | Default | |
 |---|---|---|
 | `--model` | | A Claude model id, or several separated by commas to compare them in one run. |
-| `--conditions` | `bare,cautious,skills,wallet,data` | Which conditions to run. `data` runs only the scenarios whose task names an endpoint (1–14). A scripted agent runs in its own (`scripted`), or behind the guarded wallet with `wallet`. |
+| `--conditions` | `bare,cautious,skills,wallet,skills-wallet,data` | Which conditions to run. `data` runs only the scenarios whose task names an endpoint (1–14). A scripted agent runs in its own (`scripted`), or behind the guarded wallet with `wallet`. |
 | `--scenarios` | `all` | Scenario ids, comma-separated. |
 | `--repeats` | `3` (claude), `1` (scripted) | Runs per scenario and condition. |
 | `--thinking` | `adaptive` | `off` to run without extended thinking. |
@@ -252,10 +252,10 @@ src/wallet.js           Throwaway wallet paying with the official x402 client, a
 src/tools.js            http_request, pay_x402, sign_typed_data, sign_message
 src/fizzl.js            x402 Doctor at its real hostname, running Doctor's own preflight
 src/guard.js            presign-guard at its real hostname, running presign-guard's own check
-src/guarded-wallet.js   The wallet condition: presign-guard-wallet in front of the key, the task's budget as its limit
+src/guarded-wallet.js   The wallet conditions: presign-guard-wallet in front of the key, the task's budget as its limit
 src/chain.js            What GoPlus and the Base RPC answer about a scenario's addresses
 src/sources.js          The pinned commits of Doctor and presign-guard (scripts/fetch-sources.js)
-src/conditions.js       bare, cautious, skills, wallet, data
+src/conditions.js       bare, cautious, skills, wallet, skills-wallet, data
 src/agents/             claude (Messages API tool loop), always-pay, follow-preflight
 src/scenarios/          One file per scenario
 src/report.js           The tables
