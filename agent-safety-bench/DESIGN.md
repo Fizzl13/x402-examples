@@ -146,5 +146,5 @@ They mark the floor and a mechanical upper bound. A model with the skill should 
 ## Next
 
 1. **Transactions:** a `send_transaction` tool, with an `approve` and a swap with a hidden approval, checked by presign-guard's simulation.
-2. **Both layers together:** `skills` with the guarded wallet.
+2. **Both layers together:** `skills` with the guarded wallet. The `wallet` run showed they catch different traps.
 3. **Other vendors' models,** behind the same agent interface. Three Claude models are compared now (`--model a,b,c`).
