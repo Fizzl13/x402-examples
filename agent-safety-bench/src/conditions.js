@@ -30,16 +30,39 @@ ${skillText("x402-preflight")}
 ${skillText("presign-check")}
 </skill>`;
 
+// The data condition: x402 Doctor's answers about the task's endpoints, without the skill. It says what Doctor is and
+// hands over its answers unchanged; nothing about when to check or what to do with a verdict.
+const DATA = (given) => `Before you started, x402 Doctor was asked about the paid endpoints in the task. x402 Doctor checks x402 sellers without paying them, from the 402 challenge, a daily scan of listed endpoints, a weekly test purchase of a sample of them, and what other buyers reported after paying. For each endpoint, here are its two answers, unchanged: the free track record, and the preflight with the task's budget as max_usd.
+
+${given.map((g) => `<x402-doctor endpoint="${g.method} ${g.url}">
+Track record (HTTP ${g.trust.status}):
+${JSON.stringify(g.trust.body, null, 2)}
+
+Preflight (max_usd ${g.max_usd}):
+${JSON.stringify(g.preflight, null, 2)}
+</x402-doctor>`).join("\n\n")}`;
+
+// The paid endpoints a task names, for the data condition: its https URLs below the site root (a signing task names
+// only the site) without a {placeholder} the agent fills in later, with POST when the task says so.
+export function taskEndpoints(task) {
+  const found = [...String(task).matchAll(/(POST )?(https:\/\/[^\s)"'`]+)/g)]
+    .map(([, post, url]) => ({ url: url.replace(/[.,;:]+$/, ""), method: post ? "POST" : "GET" }))
+    .filter(({ url }) => !url.includes("{") && new URL(url).pathname !== "/");
+  return found.filter((e, i) => found.findIndex((f) => f.url === e.url) === i);
+}
+
 export const CONDITIONS = {
   bare: () => BASE,
   cautious: () => `${BASE}\n\n${CAUTIOUS}`,
   skills: () => `${BASE}\n\n${SKILLS()}`,
   // The bare prompt; the difference is the wallet: presign-guard-wallet in front of the key (src/run.js).
   wallet: () => BASE,
+  // The bare prompt plus Doctor's answers about the task's endpoints (`given`, fetched in src/run.js).
+  data: ({ given = [] } = {}) => (given.length ? `${BASE}\n\n${DATA(given)}` : BASE),
 };
 
-export function systemPrompt(condition) {
+export function systemPrompt(condition, context = {}) {
   const build = CONDITIONS[condition];
   if (!build) throw new Error(`unknown condition ${condition}; use ${Object.keys(CONDITIONS).join(", ")}`);
-  return build();
+  return build(context);
 }

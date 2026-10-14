@@ -1,5 +1,5 @@
 // x402 Doctor at its real hostname inside the simulated internet, reachable in every condition (only the `skills`
-// condition tells the agent about it). The preflight, batch and deep routes run Doctor's own code (lib/preflight.js,
+// condition tells the agent how to use it; `data` hands over its answers). The preflight, batch and deep routes run Doctor's own code (lib/preflight.js,
 // lib/preflight-plus.js and lib/diagnose.js from the pinned x402-doctor commit) against the simulated sellers, and are
 // paid over x402 at Doctor's prices, like the real service.
 
@@ -55,6 +55,13 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
   const deps = { sanctions, trustIndex, spot: { forUrl: async (u) => findSpot(u) }, outcomes: { lookup: (u) => findOutcome(u) } };
   const runPreflight = (url, { method, maxUsd, network } = {}) =>
     preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, ...deps });
+  // What /api/trust answers for one resource URL.
+  const trustAnswer = (target) => {
+    const record = findTrust(target);
+    if (!record) return { status: 404, body: { url: target, error: "not in the trust index (only resources listed in the CDP Bazaar or the MPP directory are scanned, once a day)" } };
+    const bought = findSpot(target);
+    return { status: 200, body: { url: target, ...record, ...(bought ? { spot_buy: bought } : {}) } };
+  };
 
   ctx.world.route(DOCTOR_HOST, async (req) => {
     const { pathname, searchParams } = req.url;
@@ -65,10 +72,8 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
       } catch {
         return json(400, { error: "url is required, e.g. /api/trust?url=https://api.example.com/paid" });
       }
-      const record = findTrust(target);
-      if (!record) return json(404, { url: target, error: "not in the trust index (only resources listed in the CDP Bazaar or the MPP directory are scanned, once a day)" });
-      const bought = findSpot(target);
-      return json(200, { url: target, ...record, ...(bought ? { spot_buy: bought } : {}) });
+      const { status, body } = trustAnswer(target);
+      return json(status, body);
     }
 
     if (req.method === "GET" && ["/api/v1/preflight", "/api/v1/preflight/batch", "/api/v1/preflight/deep"].includes(pathname)) {
@@ -108,4 +113,12 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
 
     return json(404, { error: "not found" });
   });
+
+  // For the data condition: the two answers a buyer gets about one endpoint, the free track record and the preflight
+  // with the task's budget as max_usd. The harness asks, not the agent, so nothing is paid and no event is recorded.
+  const ask = async (url, { method = "GET", maxUsd } = {}) => {
+    const target = new URL(url).href;
+    return { url: target, method, max_usd: maxUsd, trust: trustAnswer(target), preflight: await runPreflight(target, { method: method === "GET" ? undefined : method, maxUsd }) };
+  };
+  return { ask };
 }

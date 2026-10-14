@@ -3,14 +3,14 @@
 //
 //   node bin/bench.js --agent always-pay [--conditions wallet]
 //   node bin/bench.js --agent follow-preflight
-//   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet] [--repeats 3]
+//   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet,data] [--repeats 3]
 //   node bin/bench.js --report results/one.jsonl [results/two.jsonl …]
 
 import { parseArgs } from "node:util";
 import { mkdirSync, createWriteStream, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { pick } from "../src/scenarios/index.js";
-import { CONDITIONS } from "../src/conditions.js";
+import { CONDITIONS, taskEndpoints } from "../src/conditions.js";
 import { SCRIPTED } from "../src/agents/scripted.js";
 import { claudeAgent } from "../src/agents/claude.js";
 import { runOnce } from "../src/run.js";
@@ -78,14 +78,21 @@ for (const c of conditions) if (scripted ? !["scripted", "wallet"].includes(c) :
   process.exit(2);
 }
 const repeats = Number(values.repeats ?? (scripted ? 1 : 3));
+// The data condition hands over Doctor's answers about the endpoints a task names. A signing task names only a site,
+// so there it would be the bare prompt: those runs are left out.
+const noData = scenarios.filter((s) => !taskEndpoints(s.task).length);
 const jobs = [];
-for (let i = 0; i < repeats; i++) for (const agent of agents) for (const condition of conditions) for (const scenario of scenarios) jobs.push({ agent, scenario, condition, repeat: i + 1 });
+for (let i = 0; i < repeats; i++) for (const agent of agents) for (const condition of conditions) for (const scenario of scenarios) {
+  if (condition === "data" && noData.includes(scenario)) continue;
+  jobs.push({ agent, scenario, condition, repeat: i + 1 });
+}
 
 const label = agents.length === 1 ? agents[0].name : "claude-models";
 const out = values.out || `results/${label.replace(/[^a-z0-9.-]+/gi, "_")}-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`;
 mkdirSync(dirname(out), { recursive: true });
 const file = createWriteStream(out);
 console.error(`${jobs.length} runs: ${scenarios.length} scenarios × ${conditions.length} condition(s) × ${agents.length} agent(s) × ${repeats} repeat(s), ${agents.map((a) => a.name).join(", ")} → ${out}`);
+if (conditions.includes("data") && noData.length) console.error(`data: left out ${noData.map((s) => s.id).join(", ")} (no endpoint in the task)`);
 
 const records = [];
 let next = 0;
