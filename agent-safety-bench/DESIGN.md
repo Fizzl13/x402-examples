@@ -177,4 +177,4 @@ They mark the floor and a mechanical upper bound. A model with the skill should 
 
 1. **Transactions:** a `send_transaction` tool, with an `approve` and a swap with a hidden approval, checked by presign-guard's simulation.
 2. **Other wallets and guards:** the same scenarios behind another guarded wallet or policy engine, next to presign-guard-wallet.
-3. **Other vendors' models,** behind the same agent interface. Three Claude models are compared now (`--model a,b,c`).
+3. **Other vendors' models:** the agent for OpenAI's Chat Completions format runs them through OpenRouter or OpenAI (`--agent openrouter`). Three Claude models are compared so far; other vendors' runs come next.

@@ -210,19 +210,28 @@ npm run bench -- --agent claude --model <Claude model id> --repeats 1   # 114 ru
 npm run bench -- --report results/*.jsonl                               # the tables again, from saved runs
 ```
 
+With other vendors' models, through [OpenRouter](https://openrouter.ai) (one key for GPT, Gemini, Llama and others) or OpenAI. The agent is the same plain tool-use loop over OpenAI's Chat Completions format, with the same tools and prompts:
+
+```sh
+export OPENROUTER_API_KEY=…
+npm run bench -- --agent openrouter --model <vendor/model>[,<vendor/model>…] --repeats 1
+# or: OPENAI_API_KEY=… npm run bench -- --agent openai --model <OpenAI model id>
+```
+
 | Option | Default | |
 |---|---|---|
-| `--model` | | A Claude model id, or several separated by commas to compare them in one run. |
+| `--agent` | `claude` | `claude`, `openrouter` or `openai` for a model; `always-pay` or `follow-preflight` for a scripted baseline. |
+| `--model` | | A model id as that API names it, or several separated by commas to compare them in one run. |
 | `--conditions` | `bare,cautious,skills,wallet,skills-wallet,data` | Which conditions to run. `data` runs only the scenarios whose task names an endpoint (1–14). A scripted agent runs in its own (`scripted`), or behind the guarded wallet with `wallet`. |
 | `--scenarios` | `all` | Scenario ids, comma-separated. |
-| `--repeats` | `3` (claude), `1` (scripted) | Runs per scenario and condition. |
-| `--thinking` | `adaptive` | `off` to run without extended thinking. |
+| `--repeats` | `3` (a model), `1` (scripted) | Runs per scenario and condition. |
+| `--thinking` | `adaptive` | Claude only: `off` to run without extended thinking. |
 | `--concurrency` | `3` | Runs in parallel. |
 | `--out` | `results/<agent>-<time>.jsonl` | One JSON line per run, with the agent's answer, every payment and the full transcript. |
 
 Start with `--repeats 1` to see what a run costs for your model before running more.
 
-**From GitHub:** go to Actions → **agent-safety-bench-run** → Run workflow, and enter a model id, or several separated by commas. It uses the `ANTHROPIC_API_KEY` repository secret. The table lands in the run summary and the records in the artifact.
+**From GitHub:** go to Actions → **agent-safety-bench-run** → Run workflow, pick the API and enter a model id, or several separated by commas. It uses the repository secret for that API: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` or `OPENAI_API_KEY`. The table lands in the run summary and the records in the artifact.
 
 ## Scenarios
 
@@ -265,7 +274,7 @@ src/guarded-wallet.js   The wallet conditions: presign-guard-wallet in front of 
 src/chain.js            What GoPlus and the Base RPC answer about a scenario's addresses
 src/sources.js          The pinned commits of Doctor and presign-guard (scripts/fetch-sources.js)
 src/conditions.js       bare, cautious, skills, wallet, skills-wallet, data
-src/agents/             claude (Messages API tool loop), always-pay, follow-preflight
+src/agents/             claude (Messages API tool loop), openai (Chat Completions, for OpenRouter and OpenAI), always-pay, follow-preflight
 src/scenarios/          One file per scenario
 src/report.js           The tables
 skills/                 The skill texts the skills condition uses, with their source commits

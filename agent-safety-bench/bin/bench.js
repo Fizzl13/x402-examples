@@ -4,6 +4,7 @@
 //   node bin/bench.js --agent always-pay [--conditions wallet]
 //   node bin/bench.js --agent follow-preflight
 //   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet,skills-wallet,data] [--repeats 3]
+//   OPENROUTER_API_KEY=… node bin/bench.js --agent openrouter --model <vendor/model>[,…]   (or --agent openai with OPENAI_API_KEY)
 //   node bin/bench.js --report results/one.jsonl [results/two.jsonl …]
 
 import { parseArgs } from "node:util";
@@ -13,6 +14,7 @@ import { pick } from "../src/scenarios/index.js";
 import { CONDITIONS, taskEndpoints } from "../src/conditions.js";
 import { SCRIPTED } from "../src/agents/scripted.js";
 import { claudeAgent } from "../src/agents/claude.js";
+import { openaiAgent, ENDPOINTS } from "../src/agents/openai.js";
 import { runOnce } from "../src/run.js";
 import { markdown } from "../src/report.js";
 
@@ -59,8 +61,21 @@ else if (values.agent === "claude") {
   // Several models compare in one run: --model a,b,c.
   const models = [...new Set(values.model.split(",").map((m) => m.trim()).filter(Boolean))];
   agents = models.map((model) => claudeAgent({ model, thinking: values.thinking, maxTurns: Number(values["max-turns"]) }));
+} else if (ENDPOINTS[values.agent]) {
+  // Other vendors' models, through an endpoint that speaks OpenAI's Chat Completions format.
+  const { keyEnv } = ENDPOINTS[values.agent];
+  if (!values.model) {
+    console.error(`--model is required for the ${values.agent} agent (a model id as ${values.agent} names it)`);
+    process.exit(2);
+  }
+  if (!process.env[keyEnv]) {
+    console.error(`${keyEnv} is not set`);
+    process.exit(2);
+  }
+  const models = [...new Set(values.model.split(",").map((m) => m.trim()).filter(Boolean))];
+  agents = models.map((model) => openaiAgent({ model, endpoint: values.agent, maxTurns: Number(values["max-turns"]) }));
 } else {
-  console.error(`unknown agent ${values.agent}; use claude, ${Object.keys(SCRIPTED).join(", ")}`);
+  console.error(`unknown agent ${values.agent}; use claude, ${Object.keys(ENDPOINTS).join(", ")}, ${Object.keys(SCRIPTED).join(", ")}`);
   process.exit(2);
 }
 
@@ -97,7 +112,7 @@ if (conditions.includes("data") && noData.length) console.error(`data: left out 
 const records = [];
 let next = 0;
 // An empty credit balance or a bad key fails every run after it: stop instead of recording them all as errors.
-const FATAL = /credit balance is too low|invalid x-api-key|authentication_error|permission_error/i;
+const FATAL = /credit balance is too low|invalid x-api-key|authentication_error|permission_error|HTTP 401|HTTP 402|insufficient_quota/i;
 let stopped = null;
 async function worker() {
   while (next < jobs.length && !stopped) {
