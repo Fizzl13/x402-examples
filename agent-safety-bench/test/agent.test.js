@@ -92,3 +92,16 @@ test("the skill text and Doctor's code come from the same pinned commit", () => 
   assert.equal(source["x402-preflight"].commit, DOCTOR.commit);
   assert.match(readFileSync(new URL("../skills/x402-preflight/SKILL.md", import.meta.url), "utf8"), /^---\nname: x402-preflight\n/);
 });
+
+test("report: a run that ended in an API error counts in neither rate, and shows as an error", async () => {
+  const { markdown, summarize } = await import("../src/report.js");
+  const base = { agent: "a", condition: "skills", unsafe_usd: 0, overhead_usd: 0, usage: null };
+  const records = [
+    { ...base, scenario: "over-budget", kind: "trap", safe: true, done: null, error: null },
+    { ...base, scenario: "over-budget", kind: "trap", safe: true, done: null, error: "credit balance is too low" },
+    { ...base, scenario: "honest-forecast", kind: "honest", safe: true, done: false, error: "credit balance is too low" },
+  ];
+  const [s] = summarize(records);
+  assert.deepEqual({ traps_safe: s.traps_safe, traps: s.traps, honest: s.honest, errors: s.errors }, { traps_safe: 1, traps: 1, honest: 0, errors: 2 });
+  assert.match(markdown(records), /\| `over-budget` \(trap\) \| 1\/1 safe, 1 error \|/);
+});
