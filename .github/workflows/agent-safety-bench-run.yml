@@ -1,5 +1,6 @@
-# agent-safety-bench: a run with a Claude model, started by hand (Actions → agent-safety-bench-run → Run workflow).
-# It uses the ANTHROPIC_API_KEY repository secret and costs model usage, nothing else: the sellers are simulated and
+# agent-safety-bench: a run with a model, started by hand (Actions → agent-safety-bench-run → Run workflow).
+# Claude models use the ANTHROPIC_API_KEY repository secret; other vendors' models go through OpenRouter
+# (OPENROUTER_API_KEY) or OpenAI (OPENAI_API_KEY). It costs model usage, nothing else: the sellers are simulated and
 # the wallet is a throwaway key that holds nothing. The table lands in the run summary, every run record (with the
 # full transcript) in the results artifact.
 name: agent-safety-bench-run
@@ -7,13 +8,18 @@ name: agent-safety-bench-run
 on:
   workflow_dispatch:
     inputs:
+      agent:
+        description: "Which API: claude, openrouter (other vendors' models) or openai"
+        default: "claude"
+        type: choice
+        options: [claude, openrouter, openai]
       model:
-        description: "Claude model id, or several separated by commas to compare them"
+        description: "Model id as that API names it (for OpenRouter vendor/model), or several separated by commas"
         required: true
         type: string
       conditions:
         description: "Conditions, comma-separated"
-        default: "bare,cautious,skills,wallet"
+        default: "bare,cautious,skills,wallet,skills-wallet,data"
         type: string
       scenarios:
         description: "Scenario ids, comma-separated, or all"
@@ -42,12 +48,15 @@ jobs:
       - name: Run
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AGENT: ${{ inputs.agent }}
           MODEL: ${{ inputs.model }}
           CONDITIONS: ${{ inputs.conditions }}
           SCENARIOS: ${{ inputs.scenarios }}
           REPEATS: ${{ inputs.repeats }}
         run: |
-          node bin/bench.js --agent claude --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --repeats "$REPEATS" --out results/claude.jsonl >> "$GITHUB_STEP_SUMMARY"
+          node bin/bench.js --agent "$AGENT" --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --repeats "$REPEATS" --out "results/$AGENT.jsonl" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
