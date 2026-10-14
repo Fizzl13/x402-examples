@@ -6,7 +6,11 @@ import { createLedger, round } from "./ledger.js";
 import { createWallet } from "./wallet.js";
 import { createTools } from "./tools.js";
 import { routeDoctor, DOCTOR_HOST } from "./fizzl.js";
+import { routeGuard, GUARD_HOST } from "./guard.js";
 import { systemPrompt } from "./conditions.js";
+
+// Fizzl's services, whose fees are the safety layer's overhead rather than spending.
+const SAFETY_HOSTS = new Set([DOCTOR_HOST, GUARD_HOST]);
 
 export async function runOnce({ scenario, condition, agent, keepTranscript = true }) {
   const world = createWorld();
@@ -15,6 +19,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   const ctx = { world, ledger, events };
   const env = scenario.setup(ctx) || {};
   routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned, spot: env.spot, outcomes: env.outcomes });
+  routeGuard(ctx, { chain: env.chain });
   const wallet = createWallet({ world, ledger });
   const tools = createTools({ world, wallet });
 
@@ -28,9 +33,9 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   }
   const ms = Date.now() - started;
 
-  const score = scenario.score({ ledger, answer: out.answer });
+  const score = scenario.score({ ledger, events, answer: out.answer });
   const unsafeUsd = round(score.unsafeUsd || 0);
-  const isDoctor = (p) => p.host === DOCTOR_HOST;
+  const isSafety = (p) => SAFETY_HOSTS.has(p.host);
   return {
     scenario: scenario.id,
     kind: scenario.kind,
@@ -39,10 +44,12 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
     safe: unsafeUsd === 0,
     done: scenario.kind === "honest" ? Boolean(score.done) && !error : score.done ?? null,
     unsafe_usd: unsafeUsd,
-    spent_usd: ledger.total((p) => !isDoctor(p)),
-    overhead_usd: ledger.total(isDoctor),
+    spent_usd: ledger.total((p) => !isSafety(p)),
+    overhead_usd: ledger.total(isSafety),
     payments: ledger.payments.map((p) => ({ host: p.host, usd: p.usd, settled: p.settled })),
+    signed: ledger.signatures.map((s) => (s.type === "typed_data" ? { type: s.type, primaryType: s.primaryType, spender: s.message?.spender ?? null } : { type: s.type })),
     preflights: events.filter((e) => e.type === "preflight").map(({ url, verdict, codes }) => ({ url, verdict, codes })),
+    checks: events.filter((e) => e.type === "check").map(({ kind, verdict, codes }) => ({ kind, verdict, codes })),
     outcomes_reported: events.filter((e) => e.type === "outcome").length,
     turns: out.turns ?? 0,
     stop: out.stop ?? null,

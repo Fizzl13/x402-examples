@@ -7,7 +7,8 @@ import { claudeAgent } from "../src/agents/claude.js";
 import { systemPrompt, CONDITIONS } from "../src/conditions.js";
 import { runOnce } from "../src/run.js";
 import { SCENARIOS } from "../src/scenarios/index.js";
-import { DOCTOR } from "../src/doctor-source.js";
+import { DOCTOR, GUARD } from "../src/sources.js";
+import { AGENT_ADDRESS } from "../src/addresses.js";
 
 // Answers with the queued responses in order and keeps every request.
 function fakeClient(responses) {
@@ -46,7 +47,7 @@ test("claude agent: runs the tools the model asks for, returns their results, en
   const [first, second, third] = client.requests;
   assert.equal(first.model, "test-model");
   assert.deepEqual(first.thinking, { type: "adaptive" });
-  assert.deepEqual(first.tools.map((t) => t.name), ["http_request", "pay_x402"]);
+  assert.deepEqual(first.tools.map((t) => t.name), ["http_request", "pay_x402", "sign_typed_data", "sign_message"]);
   assert.deepEqual(first.system, [{ type: "text", text: systemPrompt("skills"), cache_control: { type: "ephemeral" } }]);
   assert.deepEqual(first.cache_control, { type: "ephemeral" }, "automatic caching for the conversation");
   assert.equal(first.messages[0].content, forecast.task);
@@ -74,23 +75,28 @@ test("claude agent: needs a model id", () => {
   assert.throws(() => claudeAgent({ client: fakeClient([]) }), /--model is required/);
 });
 
-test("conditions: same base everywhere; cautious adds one paragraph; skills adds the x402-preflight skill text", () => {
+test("conditions: same base everywhere; cautious adds one paragraph; skills adds the x402-preflight and presign-check skill texts", () => {
   assert.deepEqual(Object.keys(CONDITIONS), ["bare", "cautious", "skills"]);
   const bare = systemPrompt("bare");
   for (const c of ["cautious", "skills"]) assert.ok(systemPrompt(c).startsWith(bare));
-  assert.doesNotMatch(bare, /x402-doctor|preflight|careful/i);
+  assert.doesNotMatch(bare, /x402-doctor|preflight|presign|careful/i);
+  assert.ok(bare.includes(AGENT_ADDRESS) && bare.includes("50 USDC"), "the agent knows its wallet's address and balance");
   assert.match(systemPrompt("cautious"), /careful/);
   const skills = systemPrompt("skills");
   assert.match(skills, /<skill name="x402-preflight">/);
   assert.match(skills, /x402-doctor\.fizzl\.eu\/api\/v1\/preflight/);
-  assert.doesNotMatch(skills, /^name: x402-preflight/m, "frontmatter stripped");
+  assert.match(skills, /<skill name="presign-check">/);
+  assert.match(skills, /presign-guard\.fizzl\.eu\/v1\/check/);
+  assert.doesNotMatch(skills, /^name: (x402-preflight|presign-check)/m, "frontmatter stripped");
   assert.throws(() => systemPrompt("nope"), /unknown condition/);
 });
 
-test("the skill text and Doctor's code come from the same pinned commit", () => {
+test("each skill text comes from the same pinned commit as the code the bench runs", () => {
   const source = JSON.parse(readFileSync(new URL("../skills/SOURCE.json", import.meta.url), "utf8"));
   assert.equal(source["x402-preflight"].commit, DOCTOR.commit);
+  assert.equal(source["presign-check"].commit, GUARD.commit);
   assert.match(readFileSync(new URL("../skills/x402-preflight/SKILL.md", import.meta.url), "utf8"), /^---\nname: x402-preflight\n/);
+  assert.match(readFileSync(new URL("../skills/presign-check/SKILL.md", import.meta.url), "utf8"), /^---\nname: presign-check\n/);
 });
 
 test("report: a run that ended in an API error counts in neither rate, and shows as an error", async () => {
