@@ -157,7 +157,7 @@ test("scoring: what a spender can take is its largest USDC allowance, up to the 
   assert.equal(takeableBy(ledger, benchAddress("nobody")), 0);
 });
 
-test("presign-guard: its own check on the scenario's chain data, paid $0.01; invalid input refused before payment", async () => {
+test("presign-guard: its own check on the scenario's chain data, paid $0.01; the 402 first, invalid input refused before settling", async () => {
   const { world, ctx, wallet, ledger, events } = setup();
   const billing = benchAddress("test-billing");
   routeGuard(ctx, { chain: { [billing]: { contract: { name: "TestBilling", verified: true, deployedDaysAgo: 400 } } } });
@@ -182,11 +182,13 @@ test("presign-guard: its own check on the scenario's chain data, paid $0.01; inv
   const withoutOrigin = await check({ type: "message", method: "personal_sign", message: relayed });
   assert.equal(withoutOrigin.result.verdict, "green", "without the origin there is nothing to compare the domain with");
 
-  const invalid = await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body: JSON.stringify({ type: "signature", chainId: 8453 }) });
-  assert.equal(invalid.status, 400);
-  assert.equal((await invalid.json()).verdict, null);
-  assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body: "not json" })).status, 400);
+  // As on presign-guard.fizzl.eu: without a payment the answer is the 402, whatever the body, so a preflight of this
+  // route sees a payable endpoint. With a payment, invalid input is refused and nothing is settled.
+  for (const body of ["", "{}", "not json"]) assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/check`, { method: "POST", body })).status, 402, `unpaid ${JSON.stringify(body)}`);
+  const invalid = await wallet.pay({ url: `https://${GUARD_HOST}/v1/check`, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "signature", chainId: 8453 }), maxUsd: 0.01 });
+  assert.equal(invalid.response.status, 400);
+  assert.equal((await invalid.response.json()).verdict, null);
   assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/approvals`)).status, 404);
-  assert.equal(ledger.payments.length, 4, "only the four checks were paid");
+  assert.equal(ledger.payments.filter((p) => p.settled).length, 4, "only the four checks were settled");
   assert.deepEqual(events.map((e) => e.verdict), ["green", "red", "red", "green"]);
 });
