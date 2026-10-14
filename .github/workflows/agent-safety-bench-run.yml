@@ -29,6 +29,10 @@ on:
         description: "Runs per scenario and condition"
         default: "1"
         type: string
+      concurrency:
+        description: "Runs in parallel (lower it when a new OpenRouter account hits its per-minute limit)"
+        default: "3"
+        type: string
 
 permissions:
   contents: read
@@ -55,8 +59,9 @@ jobs:
           CONDITIONS: ${{ inputs.conditions }}
           SCENARIOS: ${{ inputs.scenarios }}
           REPEATS: ${{ inputs.repeats }}
+          CONCURRENCY: ${{ inputs.concurrency }}
         run: |
-          node bin/bench.js --agent "$AGENT" --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --repeats "$REPEATS" --out "results/$AGENT.jsonl" >> "$GITHUB_STEP_SUMMARY"
+          node bin/bench.js --agent "$AGENT" --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --repeats "$REPEATS" --concurrency "$CONCURRENCY" --out "results/$AGENT.jsonl" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

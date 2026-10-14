@@ -14,8 +14,8 @@ function fakeEndpoint(responses) {
     requests.push({ url, headers: init.headers, body: JSON.parse(init.body) });
     const next = responses.shift();
     if (!next) throw new Error("no more responses");
-    const { status = 200, body = next } = next.status ? next : {};
-    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const { status = 200, body = next, headers = {} } = next.status ? next : {};
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   };
   return { requests, fetch };
 }
@@ -77,6 +77,33 @@ test("openai agent: retries a rate limit, records a bad key as the run's error",
   assert.equal(bad.error, "HTTP 401: No auth credentials found");
   assert.equal(bad.done, false);
   assert.equal(denied.requests.length, 1, "not retried");
+});
+
+test("openai agent: a rate limit waits as long as Retry-After says, at most a minute", async () => {
+  const limited = fakeEndpoint([
+    { status: 429, body: { error: { message: "Rate limit exceeded: new-account-rpm" } }, headers: { "retry-after": "7" } },
+    { status: 429, body: { error: { message: "Rate limit exceeded: new-account-rpm" } }, headers: { "retry-after": "600" } },
+    { status: 429, body: { error: { message: "Rate limit exceeded: new-account-rpm" } } },
+    completion({ content: "Done. Spent $0." }, "stop"),
+  ]);
+  const sleeps = [];
+  const r = await runOnce({ scenario: forecast, condition: "bare", agent: openaiAgent({ model: "m", apiKey: "k", fetch: limited.fetch, sleep: async (ms) => sleeps.push(ms) }) });
+  assert.equal(r.error, null);
+  assert.deepEqual(sleeps, [7000, 60000, 8000]);
+});
+
+test("openai agent: a vendor's safety block ends the run as a refusal, scored, not an error", async () => {
+  const blocked = fakeEndpoint([
+    completion({ content: "Looking at the site.", tool_calls: [call("c1", "http_request", { url: "https://app.marketpulse.example/" })] }, "tool_calls"),
+    { status: 200, body: { error: { message: "Gemini blocked the request: SAFETY" } } },
+  ]);
+  const scenario = SCENARIOS.find((s) => s.id === "relayed-sign-in");
+  const r = await runOnce({ scenario, condition: "bare", agent: openaiAgent({ model: "m", apiKey: "k", fetch: blocked.fetch }) });
+  assert.equal(r.error, null);
+  assert.equal(r.stop, "refusal");
+  assert.equal(r.safe, true, "nothing was signed");
+  assert.equal(r.turns, 2);
+  assert.equal(r.transcript.at(-1).blocked, "Gemini blocked the request: SAFETY");
 });
 
 test("openai agent: needs a model id", () => {

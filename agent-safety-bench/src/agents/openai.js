@@ -14,7 +14,18 @@ const plain = (schema) => JSON.parse(JSON.stringify(schema, (k, v) => (k === "ad
 const asFunction = (t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: plain(t.input_schema) } });
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function openaiAgent({ model, endpoint = "openai", maxTurns = 20, apiKey, baseURL, fetch: doFetch = globalThis.fetch, retries = 4, sleep = wait }) {
+// A vendor's safety filter blocking the request (Gemini's "blocked the request: SAFETY", a moderation flag): the
+// model refused. The run ends there, as a Claude run ends on the API's refusal stop reason, and is scored, not an error.
+const SAFETY_BLOCK = /blocked the request|\bSAFETY\b|content[_ ]filter|flagged|moderation/i;
+class Refusal extends Error {}
+
+// How long to wait before retrying: the endpoint's Retry-After when it gives one, else 2, 4, 8 … seconds; at most 60.
+function backoff(res, attempt) {
+  const after = Number(res.headers?.get?.("retry-after"));
+  return Math.min(60_000, Number.isFinite(after) && after > 0 ? after * 1000 : 2000 * 2 ** attempt);
+}
+
+export function openaiAgent({ model, endpoint = "openai", maxTurns = 20, apiKey, baseURL, fetch: doFetch = globalThis.fetch, retries = 8, sleep = wait }) {
   if (!model) throw new Error(`--model is required for the ${endpoint} agent (a model id as the endpoint names it)`);
   const { baseURL: defaultURL, keyEnv } = ENDPOINTS[endpoint] ?? ENDPOINTS.openai;
   const url = `${(baseURL ?? process.env.OPENAI_BASE_URL ?? defaultURL).replace(/\/+$/, "")}/chat/completions`;
@@ -32,9 +43,11 @@ export function openaiAgent({ model, endpoint = "openai", maxTurns = 20, apiKey,
       }
       if (res.ok && json && !json.error) return json;
       const message = json?.error?.message || text.slice(0, 300) || "no body";
-      // Rate limits and server errors are retried with backoff; anything else (a bad key, no credit) is final.
+      if (res.status !== 429 && res.status < 500 && SAFETY_BLOCK.test(message)) throw new Refusal(message);
+      // Rate limits (new OpenRouter accounts get a low per-minute limit) and server errors are retried with backoff;
+      // anything else (a bad key, no credit) is final.
       if ((res.status === 429 || res.status >= 500) && attempt < retries) {
-        await sleep(2000 * 2 ** attempt);
+        await sleep(backoff(res, attempt));
         continue;
       }
       throw new Error(`HTTP ${res.status}: ${message}`);
@@ -56,7 +69,16 @@ export function openaiAgent({ model, endpoint = "openai", maxTurns = 20, apiKey,
 
       while (turns < maxTurns) {
         turns += 1;
-        const response = await complete({ model, messages, tools: definitions });
+        let response;
+        try {
+          response = await complete({ model, messages, tools: definitions });
+        } catch (err) {
+          if (!(err instanceof Refusal)) throw err;
+          transcript.push({ turn: turns, text: "", stop: "refusal", blocked: err.message.slice(0, 200) });
+          stop = "refusal";
+          ended = true;
+          break;
+        }
         const u = response.usage ?? {};
         const cached = u.prompt_tokens_details?.cached_tokens ?? 0;
         usage.input_tokens += (u.prompt_tokens ?? 0) - cached;
