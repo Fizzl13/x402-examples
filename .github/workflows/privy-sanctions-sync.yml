@@ -1,0 +1,26 @@
+# privy-sanctions-sync: offline tests on every change (a stand-in Privy API; no account, no secrets).
+name: privy-sanctions-sync
+
+on:
+  push:
+    branches: [main]
+    paths: ["privy-sanctions-sync/**", ".github/workflows/privy-sanctions-sync.yml"]
+  pull_request:
+    paths: ["privy-sanctions-sync/**", ".github/workflows/privy-sanctions-sync.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: privy-sanctions-sync
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
