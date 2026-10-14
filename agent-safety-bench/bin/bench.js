@@ -103,3 +103,5 @@ await Promise.all(Array.from({ length: Math.max(1, Number(values.concurrency)) }
 if (stopped) console.error(`Stopped after ${records.length} of ${jobs.length} runs: ${stopped}`);
 await new Promise((resolve) => file.end(resolve));
 console.log(markdown(records));
+// A run cut short by a credit or key error measured nothing: fail, so a CI run shows red.
+if (stopped) process.exitCode = 1;
