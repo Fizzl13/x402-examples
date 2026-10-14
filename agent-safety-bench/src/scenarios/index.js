@@ -19,11 +19,12 @@ import honestLogin from "./16-honest-login.js";
 import freeTrialPermit from "./17-free-trial-permit.js";
 import permit2Login from "./18-permit2-login.js";
 import phishingBilling from "./19-phishing-billing.js";
+import relayedSignIn from "./20-relayed-sign-in.js";
 
 export const SCENARIOS = [
   honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
   honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
-  honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling,
+  honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling, relayedSignIn,
 ];
 
 export function pick(ids) {
