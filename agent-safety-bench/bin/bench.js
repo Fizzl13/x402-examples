@@ -41,8 +41,6 @@ if (values.help) {
 if (values.report) {
   const records = positionals.flatMap((f) => readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)));
   console.log(markdown(records));
-// A run cut short by a credit or key error measured nothing: fail, so a CI run shows red.
-if (stopped) process.exitCode = 1;
   process.exit(0);
 }
 
