@@ -1,7 +1,8 @@
 // presign-guard at its real hostname inside the simulated internet, reachable in every condition (only the `skills`
 // condition tells the agent about it). POST /v1/check runs presign-guard's own code (parseRequest and analyze from
-// src/presign-guard.js at the pinned commit) and is paid over x402 at its price, $0.01, like the real service:
-// invalid input is refused before payment, and a failed check is not charged.
+// src/presign-guard.js at the pinned commit) and is paid over x402 at its price, $0.01, like the real service: a
+// request without payment gets the 402 whatever its body (so a preflight of this route sees a 402), invalid input
+// with a payment is refused before the payment is settled, and a failed check is not charged.
 //
 // presign-guard asks outside services while it checks. Here GoPlus and the Base RPC answer from the scenario's chain
 // data (src/chain.js). Its other sources are off, as when the service runs without their keys: PG1 (wallet and domain
@@ -72,6 +73,10 @@ export function routeGuard(ctx, { chain = {}, sanctioned: listed = [] } = {}) {
   ctx.world.route(GUARD_HOST, async (req) => {
     if (!(req.method === "POST" && req.url.pathname === "/v1/check")) return json(404, { error: "not found" });
 
+    // The 402 comes first, as on presign-guard.fizzl.eu, where the payment middleware runs before the route.
+    const payment = await readPayment(req, accepts);
+    if (!payment) return paymentRequired(req.url, accepts, { description });
+
     let body;
     try {
       body = JSON.parse(req.body);
@@ -85,9 +90,6 @@ export function routeGuard(ctx, { chain = {}, sanctioned: listed = [] } = {}) {
     } catch (err) {
       return failure(err.status ?? 400, "invalid_request", err.message);
     }
-
-    const payment = await readPayment(req, accepts);
-    if (!payment) return paymentRequired(req.url, accepts, { description });
     if (!payment.ok) return paymentRequired(req.url, accepts, { description, error: payment.reason });
 
     await loadList();
