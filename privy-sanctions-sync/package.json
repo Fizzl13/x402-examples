@@ -1,8 +1,8 @@
 {
   "name": "privy-sanctions-sync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Keep Privy condition sets in step with the OFAC SDN list (EVM addresses, Solana addresses and their USDC/USDT token accounts), for Privy's x402 sanctions-screening policy.",
+  "description": "Keep Privy condition sets in step with the OFAC SDN list (EVM addresses, Solana addresses and their USDC/USDT token accounts, XRP Ledger addresses), for Privy's x402 sanctions-screening policy.",
   "type": "module",
   "bin": {
     "privy-sanctions-sync": "./sync.mjs"

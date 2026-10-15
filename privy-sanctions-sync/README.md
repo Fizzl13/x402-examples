@@ -10,9 +10,10 @@ Keeps your **Privy condition sets** in step with the **OFAC SDN sanctions list**
   - A Solana token transfer names the recipient's token account, not the recipient.
   - The recipe's `TransferChecked.destination` rule only matches those accounts.
   - The recipe asks you to derive them yourself; the list already carries them.
-- **Tron, Bitcoin, XRP Ledger and other addresses** are left out: Privy policies can't use them.
+- **XRP Ledger set:** every listed classic r-address, for a `Payment.Destination` rule in [Privy's XRPL policies](https://docs.privy.io/controls/policies/example-policies/xrpl) (October 2026). Addresses are recognised by format and checksum, not by their label. The policy itself is [below](#x402-on-the-xrp-ledger).
+- **Tron, Bitcoin and other addresses** are left out: Privy policies can't use them.
 
-On the 14 October 2026 list that comes to 248 EVM values (124 addresses) and 12 Solana values (4 owners and 8 token accounts).
+On the 14 October 2026 list that comes to 248 EVM values (124 addresses), 12 Solana values (4 owners and 8 token accounts) and 1 XRPL address.
 
 ## Safe on a schedule
 
@@ -52,7 +53,7 @@ On the 14 October 2026 list that comes to 248 EVM values (124 addresses) and 12 
 | --- | --- |
 | `PRIVY_APP_ID`, `PRIVY_APP_SECRET` | Your Privy app. |
 | `PRIVY_AUTHORIZATION_KEY` | The private key of the condition sets' owner: base64 PKCS8, with or without the `wallet-auth:` prefix. Not needed for `--print` or `DRY_RUN=1`. |
-| `PRIVY_EVM_SET_ID`, `PRIVY_SOLANA_SET_ID` | The condition sets to keep in step. Leave one out to sync only the other. |
+| `PRIVY_EVM_SET_ID`, `PRIVY_SOLANA_SET_ID`, `PRIVY_XRPL_SET_ID` | The condition sets to keep in step. Set only the ones you use. |
 | `EVM_CASING` | `both` (default), `lower` or `checksum`. |
 | `MAX_AGE_HOURS`, `MAX_REMOVE_SHARE`, `FORCE=1` | The safety limits above. `FORCE=1` allows a large removal once. |
 | `SANCTIONS_URL` | Another list in the same format, for example your own mirror. |
@@ -86,9 +87,65 @@ jobs:
           PRIVY_AUTHORIZATION_KEY: ${{ secrets.PRIVY_AUTHORIZATION_KEY }}
           PRIVY_EVM_SET_ID: ${{ vars.PRIVY_EVM_SET_ID }}
           PRIVY_SOLANA_SET_ID: ${{ vars.PRIVY_SOLANA_SET_ID }}
+          PRIVY_XRPL_SET_ID: ${{ vars.PRIVY_XRPL_SET_ID }}
 ```
 
 A failed run means a set was left as it was: the list was stale, unusually small, or the change was unusually large. GitHub e-mails you about it.
+
+## x402 on the XRP Ledger
+
+Privy signs XRPL transactions with `xrpl_signTransaction`, and its policies can read the payment's fields. For an agent that pays x402 sellers in RLUSD, this policy:
+- never pays a listed address;
+- pays only RLUSD from Ripple's issuer, at most 1 RLUSD a payment;
+- allows a trust line to that issuer only;
+- refuses everything else.
+
+```json
+{
+  "version": "1.0",
+  "name": "x402 on the XRP Ledger: RLUSD only, capped, never to a sanctioned address",
+  "chain_type": "xrpl",
+  "rules": [
+    {
+      "name": "Never pay a sanctioned address",
+      "method": "xrpl_signTransaction",
+      "conditions": [
+        { "field_source": "xrpl_transaction", "field": "Payment.Destination", "operator": "in_condition_set", "value": "<PRIVY_XRPL_SET_ID>" }
+      ],
+      "action": "DENY"
+    },
+    {
+      "name": "RLUSD from Ripple's issuer, at most 1 per payment",
+      "method": "xrpl_signTransaction",
+      "conditions": [
+        { "field_source": "xrpl_transaction", "field": "TransactionType", "operator": "eq", "value": "Payment" },
+        { "field_source": "xrpl_transaction", "field": "Payment.Amount.currency", "operator": "eq", "value": "524C555344000000000000000000000000000000" },
+        { "field_source": "xrpl_transaction", "field": "Payment.Amount.issuer", "operator": "eq", "value": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De" },
+        { "field_source": "xrpl_transaction", "field": "Payment.Amount.value", "operator": "lte", "value": "1" }
+      ],
+      "action": "ALLOW"
+    },
+    {
+      "name": "Hold RLUSD: a trust line to Ripple's issuer only",
+      "method": "xrpl_signTransaction",
+      "conditions": [
+        { "field_source": "xrpl_transaction", "field": "TransactionType", "operator": "eq", "value": "TrustSet" },
+        { "field_source": "xrpl_transaction", "field": "TrustSet.LimitAmount.currency", "operator": "eq", "value": "524C555344000000000000000000000000000000" },
+        { "field_source": "xrpl_transaction", "field": "TrustSet.LimitAmount.issuer", "operator": "eq", "value": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De" }
+      ],
+      "action": "ALLOW"
+    }
+  ]
+}
+```
+
+- **The currency code:** on the ledger, RLUSD is the 40-character hex code `524C5553…`, not the letters "RLUSD", because codes longer than three letters are written in hex. x402 offers for RLUSD on `xrpl:0` carry the same code as their `asset`.
+- **Refused by default:** Privy's policy engine refuses what no rule allows, as Privy's own XRPL example relies on. That covers XRP payments, offers, other tokens and `raw_sign`.
+- **Keep `raw_sign` refused:** a `raw_sign` request has no decoded transaction, so rules for it can only use system conditions.
+- **Deny next to allow:** the DENY rule sits next to the ALLOW rule, the same way Privy's own XRPL denylist example does it.
+- **What the set can't do:** it holds classic r-addresses only, and can't match destination tags.
+- **The cap:** set `Payment.Amount.value` to what one call may cost your agent.
+- **Before paying:** [x402 Doctor's preflight](https://x402-doctor.fizzl.eu) also checks the seller's XRPL side. It sees whether the payout account exists, has the RLUSD trust line and accepts the payment (DepositAuth, RequireDestTag).
 
 ## Limitations
 

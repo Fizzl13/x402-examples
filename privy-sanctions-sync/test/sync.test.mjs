@@ -86,13 +86,17 @@ test("EIP-55 checksums (the EIP's own test vectors)", () => {
   assert.equal(checksumAddress("0xFB6916095CA1DF60BB79CE92CE3EA74C37C5D359"), "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359");
 });
 
-test("values per set: EVM in both casings; Solana owners with their token accounts; Tron, Bitcoin and XRPL left out", () => {
+test("values per set: EVM in both casings; Solana owners with their token accounts; XRPL r-addresses; Tron and Bitcoin left out", () => {
   const list = sanctionsList({ size: 6 });
   const both = setValues(list);
   assert.deepEqual(both.solana, [SOL, SOL_USDC, SOL_USDT].sort());
   assert.ok(both.evm.includes(ETH) && both.evm.includes(checksumAddress(ETH)));
   assert.equal(both.evm.length, 2 * 2, "two EVM addresses, each twice");
-  assert.ok(![TRON, BTC, XRP].some((a) => both.evm.includes(a) || both.solana.includes(a)));
+  assert.deepEqual(both.xrpl, [XRP]);
+  assert.ok(![TRON, BTC].some((a) => both.evm.includes(a) || both.solana.includes(a) || both.xrpl.includes(a)));
+  // By format and checksum, not by label: a mistyped r-address is left out, an XRP-labelled Tron address too.
+  const odd = setValues({ addresses: [{ address: XRP.slice(0, -1) + "7", entries: [{ currency: "XRP" }] }, { address: TRON, entries: [{ currency: "XRP" }] }] });
+  assert.deepEqual(odd.xrpl, []);
   assert.deepEqual(setValues(list, { evmCasing: "lower" }).evm, [ETH, "0x000001" + "c".repeat(34)].sort());
   assert.deepEqual(setValues({ addresses: [{ address: "0x" + "1".repeat(40) }] }).evm, ["0x" + "1".repeat(40)], "no letters: one form");
 });
@@ -140,10 +144,10 @@ test("a wrong authorization key is refused by the API and stops the run", async 
 });
 
 test("run: fetches the list, syncs both sets, prints one audit line; DRY_RUN writes nothing", async () => {
-  const fake = fakePrivy({ sets: { evmset: [], solset: [] } });
+  const fake = fakePrivy({ sets: { evmset: [], solset: [], xrplset: [] } });
   const list = sanctionsList({ size: 110 });
   const fetchImpl = (url, init) => (String(url).startsWith("https://lists.test") ? Promise.resolve(Response.json(list)) : fake.fetchImpl(url, init));
-  const env = { SANCTIONS_URL: "https://lists.test/v1/sanctions", PRIVY_APP_ID: APP_ID, PRIVY_APP_SECRET: "secret", PRIVY_AUTHORIZATION_KEY: AUTH_KEY, PRIVY_API_URL: "https://privy.test", PRIVY_EVM_SET_ID: "evmset", PRIVY_SOLANA_SET_ID: "solset" };
+  const env = { SANCTIONS_URL: "https://lists.test/v1/sanctions", PRIVY_APP_ID: APP_ID, PRIVY_APP_SECRET: "secret", PRIVY_AUTHORIZATION_KEY: AUTH_KEY, PRIVY_API_URL: "https://privy.test", PRIVY_EVM_SET_ID: "evmset", PRIVY_SOLANA_SET_ID: "solset", PRIVY_XRPL_SET_ID: "xrplset" };
   const lines = [];
 
   const dry = await run({ ...env, DRY_RUN: "1" }, { fetchImpl, log: (l) => lines.push(l) });
@@ -152,6 +156,8 @@ test("run: fetches the list, syncs both sets, prints one audit line; DRY_RUN wri
 
   const record = await run(env, { fetchImpl, log: (l) => lines.push(l) });
   assert.deepEqual(record.sets.solana, { set: "solset", before: 0, added: 3, removed: 0, after: 3 });
+  assert.deepEqual(record.sets.xrpl, { set: "xrplset", before: 0, added: 1, removed: 0, after: 1 });
+  assert.deepEqual(fake.values("xrplset"), [XRP]);
   assert.equal(record.published, "2026-10-13");
   assert.match(record.sha256, /^[0-9a-f]{64}$/);
   assert.deepEqual(JSON.parse(lines.at(-1)), record);
@@ -169,5 +175,6 @@ test("--print: the values per set without Privy credentials, and nothing sent to
   });
   assert.deepEqual(asked, ["https://lists.test/v1/sanctions"]);
   assert.deepEqual(out.solana, [SOL, SOL_USDC, SOL_USDT].sort());
+  assert.deepEqual(out.xrpl, [XRP]);
   assert.equal(out.evm.length, 212);
 });
