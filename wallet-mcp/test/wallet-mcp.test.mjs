@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -191,6 +192,14 @@ test("the MCP client sees six tools", async () => {
   const { client } = await setup();
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), ["find_services", "pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
+});
+
+test("the server names the version npm installed (package.json), not a copy that can lag behind", async () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const { client } = await setup();
+  assert.equal(client.getServerVersion().version, pkg.version);
+  const registry = JSON.parse(readFileSync(new URL("../server.json", import.meta.url), "utf8"));
+  assert.deepEqual([registry.version, ...registry.packages.map((p) => p.version)], [pkg.version, ...registry.packages.map(() => pkg.version)], "server.json names the same version");
 });
 
 test("wallet_status: address, balances, limits and what is left", async () => {
