@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Keeps two Privy condition sets, one for EVM and one for Solana, in step with the OFAC SDN list.
+// Keeps Privy condition sets for EVM, Solana and the XRP Ledger in step with the OFAC SDN list.
 // They are the denylists behind the policy in Privy's recipe "Sanctions screening for x402 payments"
 // (https://docs.privy.io/recipes/agent-integrations/x402-sanctions-screening).
 //
 // The list is presign-guard's free open copy of the US Treasury's SDN digital currency addresses
 // (GET https://presign-guard.fizzl.eu/v1/sanctions, re-checked every 6 hours). Each Solana address
 // also carries its USDC and USDT token accounts: a Solana token transfer names that account, not the
-// owner, so the recipe's TransferChecked.destination rule only matches those.
+// owner, so the recipe's TransferChecked.destination rule only matches those. XRPL addresses go in a
+// third set for a Payment.Destination rule (Privy's XRPL policies, October 2026).
 //
 // Safe to run on a schedule:
 // - Adds first, removes after. The set is never without an address that is still listed.
@@ -18,7 +19,7 @@ import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { generateAuthorizationSignature } from "@privy-io/node";
 import { keccak_256 } from "@noble/hashes/sha3";
-import { base58 } from "@scure/base";
+import { base58, base58xrp } from "@scure/base";
 
 export const DEFAULT_SOURCE = "https://presign-guard.fizzl.eu/v1/sanctions";
 const PRIVY_API = "https://api.privy.io";
@@ -39,11 +40,23 @@ function isSolanaAddress(address) {
   try { return base58.decode(address).length === 32; } catch { return false; }
 }
 
+// A classic XRPL r-address: base58 with Ripple's alphabet, version 0, a 20-byte account id and a
+// double-SHA-256 checksum. Privy's condition sets hold these, not X-addresses.
+function isXrplAddress(address) {
+  if (typeof address !== "string" || !address.startsWith("r")) return false;
+  let bytes;
+  try { bytes = base58xrp.decode(address); } catch { return false; }
+  if (bytes.length !== 25 || bytes[0] !== 0) return false;
+  const sha = (b) => createHash("sha256").update(b).digest();
+  return sha(sha(bytes.subarray(0, 21))).subarray(0, 4).equals(Buffer.from(bytes.subarray(21)));
+}
+
 // The open list → the values for each condition set, sorted and without duplicates.
 // evmCasing: "both" (default), "lower" or "checksum".
 export function setValues(list, { evmCasing = "both" } = {}) {
   const evm = new Set();
   const solana = new Set();
+  const xrpl = new Set();
   for (const { address, tokenAccounts } of list.addresses) {
     if (EVM.test(address)) {
       if (evmCasing !== "checksum") evm.add(address.toLowerCase());
@@ -51,9 +64,11 @@ export function setValues(list, { evmCasing = "both" } = {}) {
     } else if (isSolanaAddress(address)) {
       solana.add(address);
       for (const account of Object.values(tokenAccounts ?? {})) solana.add(account);
+    } else if (isXrplAddress(address)) {
+      xrpl.add(address);
     }
   }
-  return { evm: [...evm].sort(), solana: [...solana].sort() };
+  return { evm: [...evm].sort(), solana: [...solana].sort(), xrpl: [...xrpl].sort() };
 }
 
 // Refuses a list that is stale or suspiciously short; the sets then keep their last good contents.
@@ -134,7 +149,7 @@ export async function run(env = process.env, { fetchImpl = fetch, log = console.
     }
   }
   const source = env.SANCTIONS_URL || DEFAULT_SOURCE;
-  const res = await fetchImpl(source, { headers: { accept: "application/json", "user-agent": "privy-sanctions-sync/0.1" } });
+  const res = await fetchImpl(source, { headers: { accept: "application/json", "user-agent": "privy-sanctions-sync/0.2" } });
   if (!res.ok) throw new Error(`${source}: HTTP ${res.status}`);
   const list = await res.json();
   checkList(list, { now, maxAgeHours: Number(env.MAX_AGE_HOURS) || 72 });
@@ -145,8 +160,8 @@ export async function run(env = process.env, { fetchImpl = fetch, log = console.
     return out;
   }
   const options = { dryRun, force: env.FORCE === "1", maxRemoveShare: Number(env.MAX_REMOVE_SHARE) || 0.1 };
-  const targets = [["evm", env.PRIVY_EVM_SET_ID], ["solana", env.PRIVY_SOLANA_SET_ID]].filter(([, id]) => id);
-  if (!targets.length) throw new Error("set PRIVY_EVM_SET_ID and/or PRIVY_SOLANA_SET_ID");
+  const targets = [["evm", env.PRIVY_EVM_SET_ID], ["solana", env.PRIVY_SOLANA_SET_ID], ["xrpl", env.PRIVY_XRPL_SET_ID]].filter(([, id]) => id);
+  if (!targets.length) throw new Error("set PRIVY_EVM_SET_ID, PRIVY_SOLANA_SET_ID and/or PRIVY_XRPL_SET_ID");
   const client = privyClient({ appId: env.PRIVY_APP_ID, appSecret: env.PRIVY_APP_SECRET, authorizationKey: env.PRIVY_AUTHORIZATION_KEY, baseUrl: env.PRIVY_API_URL || PRIVY_API, fetchImpl });
   const sets = {};
   for (const [family, setId] of targets) sets[family] = await syncSet(client, setId, values[family], options);
