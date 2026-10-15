@@ -58,3 +58,7 @@ Each example has a `--dry-run` that shows the prices without paying. Use a dedic
 Check your own x402 endpoint for free with [x402 Doctor](https://x402-doctor.fizzl.eu).
 
 These are examples of combining services, not trade advice.
+
+## License
+
+MIT (see [LICENSE](LICENSE)), except [`wallet-server/`](wallet-server/), which is AGPL-3.0-only (see [wallet-server/LICENSE](wallet-server/LICENSE)). The packages you install in your own agent (guard-wallet, wallet-mcp, safe-fetch, the framework guards and the rest) are MIT.

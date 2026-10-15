@@ -113,3 +113,7 @@ Per agent, the owner can set a spending mandate on the dashboard ([x402 `authori
 | `GET /v1/mandate?address=0x…` | the agent's signed spending mandate (`{ mandate, alg, sig, terms }`), or 404 without one |
 
 MIT licensed.
+
+## License
+
+Copyright (C) 2026 Frits Zwager. The wallet server is licensed under the GNU Affero General Public License v3.0 only (AGPL-3.0-only); see [LICENSE](LICENSE). If you run a modified version as a network service, you must offer its source code to the users of that service. The rest of this repository (the client packages and examples) stays MIT.
