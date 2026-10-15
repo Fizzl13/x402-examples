@@ -1532,6 +1532,34 @@ test("website counter, sign-up source and the owner's Stats tab: from website vi
   } finally { server.close(); }
 });
 
+test("website counter: the site whose link brought a visitor, by name only, in the Stats tab", async () => {
+  const { createUsage } = await import("../src/usage.js");
+  const { createStats } = await import("../src/stats.js");
+  const files = new Map([["scripts/known.json", JSON.stringify({ own_wallets: [], monitor_agents: "bot|monitor", probe_pairs: [] })]]);
+  const gh = fakeGithub(files);
+  const usage = createUsage({ token: "t", salt: "s", fetch: gh.fetchImpl, batchMs: 0 });
+  const stats = createStats({ token: "t", fetch: gh.fetchImpl, cacheMs: 0 });
+  const { base, server, owner } = await boot({ usage, stats });
+  try {
+    const view = (from) => fetch(`${base}/api/public/usage/site`, { method: "POST", headers: { origin: "https://atlas.fizzl.eu", "content-type": "text/plain", "user-agent": "Mozilla/5.0 Chrome/120 Safari/537" }, body: JSON.stringify({ kind: "view", path: "/", from }) });
+    await view("t.co"); // a link on X goes through t.co: counted as x.com
+    await view("twitter.com");
+    await view("www.reddit.com");
+    await view("www.linkedin.com");
+    await view("https://evil.example/<script>"); // not a site name: no source
+    await view("lab.fizzl.eu"); // our own sites are not a source
+    await view(undefined); // typed in, an app, or a browser that sends no referrer
+    await new Promise((r) => setTimeout(r, 30));
+    await usage.flush();
+    const day = new Date().toISOString().slice(0, 10);
+    const lines = files.get(`events/site/${day}.jsonl`).trim().split("\n").map((l) => JSON.parse(l));
+    assert.deepEqual(lines.map((e) => e.input.from ?? null), ["x.com", "x.com", "reddit.com", "linkedin.com", null, null, null]);
+    assert.ok(lines.every((e) => e.input.site === "atlas.fizzl.eu"));
+    const s = (await owner("GET", "/api/admin/stats?days=7")).body;
+    assert.deepEqual(s.tables.from, [["direct or unknown", 3], ["x.com", 2], ["reddit.com", 1], ["linkedin.com", 1]]);
+  } finally { server.close(); }
+});
+
 test("weekly summary on Telegram: Monday from 9:00 Amsterdam time, once a week; on demand from the Stats tab", async () => {
   const { weekOf, formatDigest } = await import("../src/digest.js");
   // 5 Oct 2026 is a Monday; 08:30 in Amsterdam (UTC+2) is too early, 09:30 is due.

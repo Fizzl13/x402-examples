@@ -135,6 +135,14 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // The visitor counter on fizzl.eu and its subdomains (public/s.js): a page view, or a click to the
   // wallet or a service. No cookies, no IP address, nothing about the visitor; Do Not Track is respected.
   const siteOrigin = (o) => { try { const u = new URL(o); return u.protocol === "https:" && fizzlSite(u.hostname) ? u.hostname : null; } catch { return null; } };
+  // The site whose link brought a visitor (its name only, as the browser's referrer gives it), so a post on X or
+  // Reddit shows up as x.com or reddit.com; link shorteners and www./m./out. prefixes fold into the site itself.
+  const FROM_ALIAS = { "t.co": "x.com", "twitter.com": "x.com", "lnkd.in": "linkedin.com", "redd.it": "reddit.com", "youtu.be": "youtube.com" };
+  const referrerSite = (v) => {
+    if (typeof v !== "string" || !/^[a-z0-9.-]{1,120}$/i.test(v) || !v.includes(".")) return undefined;
+    const h = v.toLowerCase().replace(/^(www|m|l|lm|out|old|mobile)\./, "");
+    return fizzlSite(h) ? undefined : FROM_ALIAS[h] ?? h;
+  };
   app.options("/api/public/usage/site", (req, res) => {
     const site = siteOrigin(req.get("origin"));
     if (site) res.set({ "access-control-allow-origin": `https://${site}`, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type", "access-control-max-age": "86400", vary: "origin" });
@@ -147,7 +155,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     try { b = typeof req.body === "string" ? JSON.parse(req.body) : req.body ?? {}; } catch {}
     const path = typeof b.path === "string" && /^\/[\w\-./%~]*$/.test(b.path) ? b.path.slice(0, 120) : "/";
     const to = typeof b.to === "string" && /^[a-z0-9.-]{1,120}$/i.test(b.to) ? b.to.toLowerCase() : undefined;
-    if (site && (b.kind === "view" || (b.kind === "out" && to))) usage.record(b.kind, { service: "site", via: site, agent: agentOf(req.get("user-agent")), input: { site, path, to } });
+    const from = b.kind === "view" ? referrerSite(b.from) : undefined;
+    if (site && (b.kind === "view" || (b.kind === "out" && to))) usage.record(b.kind, { service: "site", via: site, agent: agentOf(req.get("user-agent")), input: { site, path, to, from } });
     res.status(204).end();
   });
   // Likes on fizzl.eu and its subdomains (the heart button): one count per site. A visitor counts once a
