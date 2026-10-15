@@ -1,5 +1,7 @@
 # presign-guard-wallet-mcp
 
+[![presign-guard-wallet-mcp MCP server on Glama](https://glama.ai/mcp/servers/Fizzl13/x402-examples/badges/score.svg)](https://glama.ai/mcp/servers/Fizzl13/x402-examples)
+
 A wallet with spending limits for AI agents, as an [MCP](https://modelcontextprotocol.io) server. Add it to Claude Desktop, Claude Code, Cursor or any other MCP client, and your agent can:
 - pay for x402 APIs, and MPP APIs: method `evm` (USDC on the wallet's chain) and method `tempo` (USDC.e on Tempo, what nearly every MPP API asks for);
 - with its own accounts there, also pay x402 offers in RLUSD on the XRP Ledger (`XRPL_SEED`) and in USDC on Solana (`SOLANA_PRIVATE_KEY`) and Algorand (`ALGORAND_MNEMONIC`), and MPP sessions on Tempo (`MPP_SESSION_DEPOSIT`);
