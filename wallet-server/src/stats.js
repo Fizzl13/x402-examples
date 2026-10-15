@@ -130,6 +130,7 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
       tables: {
         pages: count(cur.views, (e) => `${e.input?.site ?? e.via ?? ""}${e.input?.path ?? ""}`).slice(0, 12),
         sites: count(cur.views, (e) => e.input?.site ?? e.via).slice(0, 8),
+        from: count(cur.views, (e) => e.input?.from ?? "direct or unknown").slice(0, 10),
         out: count(cur.outs, (e) => e.input?.to).slice(0, 10),
         hosts: count(cur.ok, (e) => e.input?.host).slice(0, 10),
         searches: count(searches, (e) => e.input?.q || (e.input?.cat ? `[${e.input.cat}]` : null)).slice(0, 12),

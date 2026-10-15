@@ -1,5 +1,6 @@
-/* Fizzl visitor counter (fizzl.eu and its subdomains). Counts a page view and clicks to the Agent
-   Wallet or a Fizzl service: no cookies, no storage, no IP address, nothing about you. Respects Do Not
+/* Fizzl visitor counter (fizzl.eu and its subdomains). Counts a page view (with the name of the site whose
+   link brought you, e.g. x.com) and clicks to the Agent Wallet or a Fizzl service: no cookies, no storage,
+   no IP address, nothing about you. Respects Do Not
    Track and Global Privacy Control. Details: https://wallet.fizzl.eu/privacy */
 (function () {
   try {
@@ -10,7 +11,9 @@
       var body = JSON.stringify(o);
       if (!(navigator.sendBeacon && navigator.sendBeacon(END, body))) fetch(END, { method: "POST", body: body, keepalive: true, mode: "cors" }).catch(function () {});
     };
-    send({ kind: "view", path: location.pathname });
+    // The site whose link brought you here, by name only (e.g. x.com), never the page you were on.
+    var from; try { from = document.referrer ? new URL(document.referrer).hostname : ""; } catch (x) { from = ""; }
+    send(from && !/(^|\.)fizzl\.eu$/.test(from) ? { kind: "view", path: location.pathname, from: from } : { kind: "view", path: location.pathname });
     var mark = function (e) {
       var a = e.target && e.target.closest && e.target.closest("a[href]");
       if (!a) return;
