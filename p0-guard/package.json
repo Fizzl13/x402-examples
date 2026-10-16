@@ -1,0 +1,20 @@
+{
+  "name": "p0-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Project 0 builds an unsigned Solana transaction, presign-guard checks it ($0.01, USDC on Solana via x402), and only on green does the agent's wallet sign.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dry-run": "node p0-guard.mjs deposit bank=2s37akK2eyBbp8DZgCm7RtsaEz8eJP3Nxd4urLHQv7yB amount=1 --authority 5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9 --dry-run",
+    "test": "node --test p0-guard.test.mjs"
+  },
+  "dependencies": {
+    "@solana/kit": "^5.5.1",
+    "@x402/fetch": "^2.27.0",
+    "@x402/svm": "^2.27.0"
+  },
+  "license": "MIT"
+}
