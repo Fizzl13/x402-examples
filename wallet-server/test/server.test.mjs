@@ -2204,6 +2204,19 @@ test("e-mail: a welcome e-mail with the first steps after the first sign-in, onl
   } finally { server.close(); }
 });
 
+test("who called: browsers, also an in-app browser on iPhone (LinkedIn, X), a bot's name, or the first product token", async () => {
+  const { agentOf } = await import("../src/usage.js");
+  assert.equal(agentOf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"), "browser");
+  assert.equal(agentOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1"), "browser");
+  // A link tapped in the LinkedIn or X app on iPhone: no Safari token, so this used to count as "Mozilla/5.0".
+  assert.equal(agentOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [LinkedInApp]/9.31.1680"), "browser");
+  assert.equal(agentOf("Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Twitter for iPhone/11.12"), "browser");
+  assert.equal(agentOf("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 (compatible; Googlebot/2.1)"), "Googlebot/2.1", "a bot stays a bot");
+  assert.equal(agentOf("Mozilla/5.0"), "Mozilla/5.0", "a bare user agent is not a browser");
+  assert.equal(agentOf("presign-guard-wallet/0.6.0 node"), "presign-guard-wallet/0.6.0");
+  assert.equal(agentOf(""), "none");
+});
+
 test("sign-up source: fizzl.eu sites and a few fixed sources (a README link), nothing else", async () => {
   const { fizzlSite } = await import("../src/usage.js");
   assert.equal(fizzlSite("fizzl.eu"), "fizzl.eu");
