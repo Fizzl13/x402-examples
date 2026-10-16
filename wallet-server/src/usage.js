@@ -22,6 +22,8 @@ export function agentOf(userAgent) {
   const bot = /([A-Za-z0-9._-]*(?:bot|crawler|spider|scan|monitor)[A-Za-z0-9._-]*)(?:\/[\w.-]+)?/i.exec(ua);
   if (bot) return bot[0].slice(0, 60);
   if (/^Mozilla\//.test(ua) && /(Chrome|Safari|Firefox|Edg)\//.test(ua)) return "browser";
+  // An in-app browser on iPhone or iPad (a link tapped in the LinkedIn, X or Instagram app): WebKit without a Safari token.
+  if (/^Mozilla\/5\.0 \((iPhone|iPad|iPod);[^)]*\) AppleWebKit\//.test(ua)) return "browser";
   return (ua.split(/[\s;(]/)[0] || ua).slice(0, 60);
 }
 // The host a purchase went to (from the URL the agent named), or null.
