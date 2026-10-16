@@ -1,0 +1,50 @@
+# P0 guard: the tests on every change, and a dry run by hand (Project 0 builds the transactions,
+# the price of a check is read from presign-guard's 402). Nothing is ever paid, signed or sent here.
+name: P0 guard
+
+on:
+  push:
+    branches: [main]
+    paths: ["p0-guard/**", ".github/workflows/p0-guard.yml"]
+  pull_request:
+    paths: ["p0-guard/**", ".github/workflows/p0-guard.yml"]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Project 0 action"
+        type: choice
+        options: [deposit, withdraw, borrow, repay, loop, close-position, create-account]
+        default: deposit
+      params:
+        description: "P0's parameters as name=value, separated by spaces"
+        type: string
+        default: "bank=2s37akK2eyBbp8DZgCm7RtsaEz8eJP3Nxd4urLHQv7yB amount=1"
+      authority:
+        description: "The wallet P0 builds for (a public address; no key is used)"
+        type: string
+        default: 5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: p0-guard
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test
+      - name: Dry run (nothing paid, signed or sent)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ACTION: ${{ inputs.action }}
+          PARAMS: ${{ inputs.params }}
+          AUTHORITY: ${{ inputs.authority }}
+        run: |
+          set -f
+          node p0-guard.mjs "$ACTION" $PARAMS --authority "$AUTHORITY" --dry-run
