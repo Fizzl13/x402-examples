@@ -70,3 +70,22 @@ test("delivered thresholds: yes from 0.55, Claude in between, no at 0.2 or below
   assert.equal(await at(0.4), "unsure");
   assert.equal(await at(0.15), "no");
 });
+
+test("Claude: Haiku 5.5 with thinking off and effort low; another model gets the plain request", async () => {
+  const sent = [];
+  const fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (url.startsWith("https://api.anthropic.com/")) {
+      sent.push(body);
+      return Response.json({ content: [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: '{"delivered": true}' }] });
+    }
+    return Response.json({ answers: { delivered: { type: "noul", noul: 0.4 }, injection: { type: "noul", noul: 0.02 } } });
+  };
+  const r = await createAnswerChecker({ apiKey: "k", anthropicKey: "an", fetch }).check({ httpStatus: 200, body: '{"pm2_5": 8.7}' });
+  assert.equal(r.delivered.decidedBy, "jev+claude");
+  assert.equal(sent[0].model, "claude-haiku-5-5");
+  assert.deepEqual([sent[0].thinking, sent[0].output_config], [{ type: "disabled" }, { effort: "low" }]);
+  await createAnswerChecker({ apiKey: "k", anthropicKey: "an", claudeModel: "claude-haiku-4-5-20251001", fetch }).check({ httpStatus: 200, body: '{"pm2_5": 8.7}' });
+  assert.equal(sent[1].thinking, undefined);
+  assert.equal(sent[1].output_config, undefined, "effort would be a 400 on Haiku 4.5");
+});
