@@ -759,6 +759,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
             <button class="button small" type="submit">Save draft</button>
           </form>
         </details>
+        <details style="margin-top:10px"><summary>Import drafts</summary>
+          <form id="outreachImport" style="display:grid;gap:8px;margin-top:8px">
+            <p class="note" style="margin:0">Paste a list of drafts (JSON: <code>[{"to", "subject", "body", "url"}, …]</code>, at most 20). Each becomes a draft here and on Telegram; nothing is sent until you press Send.</p>
+            <textarea id="owImport" rows="6" placeholder='[{"to": "contact@seller.com", "subject": "…", "body": "…", "url": "https://…"}]' aria-label="Drafts to import" maxlength="200000" required></textarea>
+            <button class="button small" type="submit">Import</button>
+          </form>
+        </details>
         <form id="outreachStop" class="paste" style="margin-top:10px"><input id="owStop" type="email" placeholder="Someone replied stop: their address" aria-label="Never mail this address" maxlength="254"><button class="button small" type="submit">Never mail</button></form>
         <div class="msg" id="outreachMsg" role="status"></div>
       </details>
@@ -2130,6 +2137,31 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (r.skipped) owSay(r.message, true); else { owSay("Draft saved (also on Telegram)."); e.target.reset(); }
       loadOutreach();
     } catch (err) { if (err.message !== "login") owSay(err.message, true); }
+  });
+  // Many drafts at once (Claude prepares the list; the owner pastes it): the same rules as one by one.
+  $("#outreachImport").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    let list;
+    try {
+      const parsed = JSON.parse($("#owImport").value);
+      list = Array.isArray(parsed) ? parsed : parsed?.drafts;
+      if (!Array.isArray(list) || !list.length) throw new Error();
+    } catch { owSay("That isn't a JSON list of drafts.", true); return; }
+    if (list.length > 20) { owSay("At most 20 drafts per import.", true); return; }
+    let saved = 0;
+    const skipped = [];
+    for (const d of list) {
+      try {
+        const r = await api("POST", "/api/admin/outreach", { to: d?.to, url: d?.url || null, subject: d?.subject, body: d?.body });
+        if (r.skipped) skipped.push(`${d?.to}: ${r.message}`); else saved++;
+      } catch (err) {
+        if (err.message === "login") return;
+        skipped.push(`${d?.to}: ${err.message}`);
+      }
+    }
+    owSay(`${saved} draft${saved === 1 ? "" : "s"} saved (also on Telegram)${skipped.length ? `; skipped: ${skipped.join("; ")}` : "."}`, skipped.length > 0 && saved === 0);
+    if (saved) e.target.reset();
+    loadOutreach();
   });
   $("#outreachStop").addEventListener("submit", async (e) => {
     e.preventDefault();
