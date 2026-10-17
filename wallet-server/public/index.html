@@ -472,6 +472,53 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 @media (max-width: 600px) { .asked { grid-template-columns: 1fr; } .asked .btns { justify-content: flex-start; } }
 @media (prefers-reduced-motion: reduce) { .bar b { transition: none; } }
 </style>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "WebApplication",
+ "@id": "https://wallet.fizzl.eu/#app",
+ "name": "Fizzl Agent Wallet",
+ "url": "https://wallet.fizzl.eu/",
+ "description": "Spending limits and phone approvals for AI agents that pay: every payment checked before it is signed and every paid answer after it, with a receipt per purchase. Keys stay with the owner. Pays x402 in USDC on Base, Solana, Algorand and the XRP Ledger, and MPP on Tempo.",
+ "applicationCategory": "FinanceApplication",
+ "operatingSystem": "Any",
+ "offers": [
+  {
+   "@type": "Offer",
+   "name": "Free",
+   "price": "0",
+   "priceCurrency": "USD"
+  },
+  {
+   "@type": "Offer",
+   "name": "Pro: unlimited agents",
+   "price": "5",
+   "priceCurrency": "USD",
+   "priceSpecification": {
+    "@type": "UnitPriceSpecification",
+    "price": "5",
+    "priceCurrency": "USD",
+    "billingDuration": "P1M"
+   }
+  }
+ ],
+ "provider": {
+  "@type": "Organization",
+  "@id": "https://fizzl.eu/#fizzl",
+  "name": "Fizzl",
+  "url": "https://fizzl.eu/"
+ },
+ "author": {
+  "@type": "Person",
+  "@id": "https://fizzl.eu/#frits",
+  "name": "Frits Zwager",
+  "url": "https://cv.fizzl.eu/"
+ },
+ "sameAs": [
+  "https://github.com/Fizzl13/x402-examples/tree/main/wallet-server"
+ ]
+}
+</script>
 </head>
 <body>
 <div class="overlay"></div><div class="grid-bg"></div>

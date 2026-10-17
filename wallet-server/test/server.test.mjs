@@ -2393,7 +2393,7 @@ test("sign in with Defly: a signed 0 ALGO, fee 0 self-payment the server built; 
   } finally { server.close(); }
 });
 
-test("robots.txt, the sitemap, llms.txt and the IndexNow key are served for search engines and AI tools", async () => {
+test("robots.txt, the sitemap, llms.txt, the IndexNow key and the homepage JSON-LD are served for search engines and AI tools", async () => {
   const { base, server } = await boot();
   try {
     const robots = await (await fetch(`${base}/robots.txt`)).text();
@@ -2407,6 +2407,10 @@ test("robots.txt, the sitemap, llms.txt and the IndexNow key are served for sear
     assert.match(await llms.text(), /^# Fizzl Agent Wallet\n\n> /);
     const { default: indexNow } = await import("../src/indexnow.cjs");
     assert.equal(await (await fetch(`${base}/${indexNow.INDEXNOW_KEY}.txt`)).text(), indexNow.INDEXNOW_KEY);
+    const home = await (await fetch(`${base}/`, { headers: { accept: "text/html" } })).text();
+    const ld = JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
+    assert.equal(ld["@type"], "WebApplication");
+    assert.deepEqual(ld.offers.map((o) => o.price), ["0", "5"]);
   } finally {
     server.close();
   }
