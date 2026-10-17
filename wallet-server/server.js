@@ -53,7 +53,8 @@
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
 import { createHash } from "node:crypto";
-import { createApp } from "./src/app.js";
+import { createApp, SITEMAP_PATHS } from "./src/app.js";
+import indexNow from "./src/indexnow.cjs";
 import { createAuth } from "./src/auth.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
@@ -127,7 +128,11 @@ const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null
 const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png` });
 const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
-app.listen(port, () => console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`));
+app.listen(port, () => {
+  console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);
+  // Tell Bing (and so ChatGPT search and Copilot) about the public pages; on Render only (src/indexnow.cjs).
+  indexNow.scheduleIndexNow({ host: "wallet.fizzl.eu", urls: SITEMAP_PATHS.map((p) => `https://wallet.fizzl.eu${p}`) });
+});
 
 // Every hour: take automatic payments that are due, send Pro reminders (and refund reminders to you) on Telegram, look for new sellers in the catalog, check the sellers' watched x402 endpoints, and on Monday morning send you the weekly summary.
 const hourly = async () => {

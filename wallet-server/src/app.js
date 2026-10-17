@@ -9,10 +9,14 @@ import { readFileSync } from "node:fs";
 import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import indexNow from "./indexnow.cjs";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
+const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
+// The public pages, for the sitemap and IndexNow (server.js).
+export const SITEMAP_PATHS = ["/", "/skill.md", "/llms.txt", "/privacy", "/terms"];
 const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const AGENTKEY = fileURLToPath(new URL("../public/agentkey.js", import.meta.url)); // makes an agent wallet in the browser
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
@@ -480,6 +484,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const origin = `${req.protocol === "http" && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "https" : req.protocol}://${host}`;
     res.set("cache-control", "public, max-age=300").type("text/markdown; charset=utf-8").send(skill.replaceAll("{{ORIGIN}}", origin));
   });
+  // For search engines and AI tools: robots.txt, a sitemap, llms.txt (llmstxt.org), and IndexNow's key check
+  // (src/indexnow.cjs). The pages are the public ones; the API and the agent routes stay out of the sitemap.
+  app.get("/robots.txt", (_req, res) => res.set("cache-control", "public, max-age=3600").type("text/plain; charset=utf-8").send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /v1/\n\nSitemap: https://wallet.fizzl.eu/sitemap.xml\n`));
+  app.get("/sitemap.xml", (_req, res) => res.set("cache-control", "public, max-age=3600").type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${SITEMAP_PATHS.map((p) => `<url><loc>https://wallet.fizzl.eu${p}</loc></url>`).join("")}</urlset>\n`));
+  app.get("/llms.txt", (_req, res) => res.set("cache-control", "public, max-age=300").type("text/plain; charset=utf-8").sendFile(LLMS));
+  app.get(`/${indexNow.INDEXNOW_KEY}.txt`, (_req, res) => res.type("text/plain").send(indexNow.INDEXNOW_KEY));
   app.get(Object.keys(LEGAL), (req, res) => {
     if (!legal.has(req.path)) legal.set(req.path, readFileSync(LEGAL[req.path], "utf8"));
     const missing = (what) => `<mark>[${what}: set in Render]</mark>`;
