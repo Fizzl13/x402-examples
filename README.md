@@ -17,6 +17,8 @@ Give your agents a wallet without giving them a blank cheque:
 
 **[See the dashboard live (demo, example data) →](https://wallet.fizzl.eu/demo)**
 
+Agent skills that teach Claude Code, Codex, Cursor and other agents to use the wallet and the Fizzl checks: [Fizzl13/fizzl-skills](https://github.com/Fizzl13/fizzl-skills).
+
 ```js
 import { guardWallet } from "presign-guard-wallet";
 
