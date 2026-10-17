@@ -2392,3 +2392,22 @@ test("sign in with Defly: a signed 0 ALGO, fee 0 self-payment the server built; 
     assert.equal((await post("/api/signin", { nonce: m.nonce, signature: peraStyle })).status, 401);
   } finally { server.close(); }
 });
+
+test("robots.txt, the sitemap, llms.txt and the IndexNow key are served for search engines and AI tools", async () => {
+  const { base, server } = await boot();
+  try {
+    const robots = await (await fetch(`${base}/robots.txt`)).text();
+    assert.match(robots, /Disallow: \/api\//);
+    assert.match(robots, /Sitemap: https:\/\/wallet\.fizzl\.eu\/sitemap\.xml/);
+    const sitemap = await (await fetch(`${base}/sitemap.xml`)).text();
+    assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/<\/loc>/);
+    assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/llms\.txt<\/loc>/);
+    const llms = await fetch(`${base}/llms.txt`);
+    assert.equal(llms.status, 200);
+    assert.match(await llms.text(), /^# Fizzl Agent Wallet\n\n> /);
+    const { default: indexNow } = await import("../src/indexnow.cjs");
+    assert.equal(await (await fetch(`${base}/${indexNow.INDEXNOW_KEY}.txt`)).text(), indexNow.INDEXNOW_KEY);
+  } finally {
+    server.close();
+  }
+});

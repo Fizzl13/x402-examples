@@ -1,0 +1,17 @@
+# Fizzl Agent Wallet
+
+> A wallet for AI agents that pay: the agent pays for x402 APIs and sends USDC within spending limits its owner sets, and asks the owner for approval on their phone (Telegram) or the dashboard above them. Every signature is checked by presign-guard first, every purchase gets a receipt (what was bought, from whom, for how much, and whether it was delivered), and per-agent mandates cap what each agent may buy. Pays x402 in USDC on Base, and with the MCP server also on Algorand, the XRP Ledger (RLUSD) and Tempo. Free to start; Pro is $5 a month for unlimited agents.
+
+The agent connects by reading the setup instructions in skill.md; the owner signs in with a wallet (MetaMask, Coinbase Wallet, Phantom, Xaman, Pera, Defly) or a passkey. Includes a catalog of paid x402 services and a free endpoint monitor for sellers.
+
+## For agents
+- [Setup and usage instructions (skill.md)](https://wallet.fizzl.eu/skill.md): walk the owner through setup, then pay with `pay_x402`
+- MCP server: [presign-guard-wallet-mcp](https://www.npmjs.com/package/presign-guard-wallet-mcp) on npm, for Claude, Cursor and other MCP clients
+- Library: [presign-guard-wallet](https://www.npmjs.com/package/presign-guard-wallet) on npm, with integrations for Coinbase AgentKit, the AI SDK, LangChain and the Solana Agent Kit
+
+## For owners
+- [Dashboard](https://wallet.fizzl.eu/): limits, approvals, receipts, agents and mandates
+- [Privacy](https://wallet.fizzl.eu/privacy) and [terms](https://wallet.fizzl.eu/terms)
+
+## Optional
+- [Fizzl](https://fizzl.eu/llms.txt): the other Fizzl services (x402 Doctor, pre-sign checks, trading signals)
