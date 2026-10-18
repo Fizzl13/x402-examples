@@ -547,6 +547,14 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   },
   {
    "@type": "Question",
+   "name": "Can I approve with a signature from my own wallet instead of a tap?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, when you run the wallet yourself: with the npm package presign-guard-wallet (0.20 or later) or the MCP server with your own limits and AC2_OWNER, approvals above your limit are signed in AC2 Wallet on your phone over AC2, the Algorand Foundation's protocol for agents to ask their owner. The agent checks that the signature comes from your account, and the signed approval is kept with the payment as proof. The hosted wallet here asks in the app, on Telegram or on this dashboard."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "Which payments can the agent make?",
    "acceptedAnswer": {
     "@type": "Answer",
@@ -668,6 +676,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <h3>Questions <span>agent owners ask.</span></h3>
       <details><summary>How do I give an AI agent a wallet with spending limits?</summary><p>Sign in at https://wallet.fizzl.eu with your wallet (MetaMask, Coinbase Wallet, Phantom, Xaman, Pera or Defly) or a passkey, add an agent, and install the MCP server presign-guard-wallet-mcp in Claude, Cursor or another MCP client. The agent pays on its own up to your limit per purchase and per day, and asks you on your phone (the app or Telegram) above it. No answer means no payment.</p></details>
       <details><summary>Does Fizzl hold my keys or my money?</summary><p>No. The agent signs with its own key, which stays in your MCP configuration, and the wallet server only says yes or no. Use a separate wallet for the agent with only what it may spend.</p></details>
+      <details><summary>Can I approve with a signature from my own wallet instead of a tap?</summary><p>Yes, when you run the wallet yourself: with the npm package presign-guard-wallet (0.20 or later) or the MCP server with your own limits and AC2_OWNER, approvals above your limit are signed in AC2 Wallet on your phone over AC2, the Algorand Foundation's protocol for agents to ask their owner. The agent checks that the signature comes from your account, and the signed approval is kept with the payment as proof. The hosted wallet here asks in the app, on Telegram or on this dashboard.</p></details>
       <details><summary>Which payments can the agent make?</summary><p>x402 APIs in USDC on Base, and with the MCP server also on Solana, Algorand and the XRP Ledger (RLUSD), MPP APIs on Tempo, and USDC transfers. presign-guard checks every signature first, so known drainers and sanctioned addresses are never signed.</p></details>
       <details><summary>What does it cost?</summary><p>Free for one agent. Pro is $5 a month for unlimited agents, paid in stablecoins on Base, Algorand or the XRP Ledger.</p></details>
       <details><summary>Can I see what my agent bought?</summary><p>Yes. Every purchase gets a receipt: what was bought, from whom, for how much, why, and whether the answer was delivered. Per-agent mandates cap what each agent may buy.</p></details>
