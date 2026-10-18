@@ -14,12 +14,15 @@
 // transactions over "TX" + the transaction, so a signed approval can't be used as a payment.
 //
 // Needs the AC2 service (ac2-cli) running on this machine and paired with your wallet (`ac2 pair`). This module
-// talks to it over its local socket (~/.ac2/ac2d.sock, or AC2_DAEMON_SOCKET) and needs no extra packages. If the
-// service isn't running or no wallet is paired, the wallet stops (limit_unavailable) rather than signing.
+// talks to it over its local socket (~/.ac2/ac2d.sock, or AC2_DAEMON_SOCKET) and needs no extra packages. Each
+// request registers as an agent first (agent.hello): after a restart or a dropped link the service only waits
+// for the wallet again once an agent is there, and then this module waits (default 1 minute) for the wallet to
+// come back, so keep AC2 Wallet open. If the service isn't running or the wallet doesn't come back, the wallet
+// stops (limit_unavailable) rather than signing.
 
 import { connect as netConnect } from "node:net";
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 
 const PREFIX = "fizzl-approval-v1";
@@ -66,16 +69,20 @@ export function verifyApproval(owner, payload, signature) {
   }
 }
 
-// One request to the AC2 service: newline-delimited JSON, answered on the same connection.
-function controlRequest(path, method, params, { timeoutMs, connect }) {
-  return new Promise((resolve, reject) => {
+// A connection to the AC2 service: newline-delimited JSON requests, answered by id on the same connection.
+// Kept open for one approval, so the agent stays registered while it waits for the wallet.
+function openSession(path, connect) {
+  return new Promise((resolveOpen, rejectOpen) => {
     const sock = connect(path);
-    let buf = "";
-    const done = (fn, arg) => { clearTimeout(timer); sock.destroy(); fn(arg); };
-    const timer = setTimeout(() => done(reject, Object.assign(new Error(`the AC2 service did not answer ${method} in time`), { code: "timeout" })), timeoutMs);
+    const pending = new Map();
+    let buf = "", seq = 0, open = false;
+    const failAll = (err) => { for (const p of pending.values()) { clearTimeout(p.timer); p.reject(err); } pending.clear(); };
     sock.setEncoding("utf8");
-    sock.on("error", (err) => done(reject, Object.assign(new Error(`can't reach the AC2 service at ${path} (${err.code ?? err.message}): start it and pair your wallet with \`ac2 pair\``), { code: "unreachable" })));
-    sock.on("connect", () => sock.write(`${JSON.stringify({ id: 1, method, params })}\n`));
+    sock.on("error", (err) => {
+      const e = Object.assign(new Error(`can't reach the AC2 service at ${path} (${err.code ?? err.message}): start it (\`ac2 service start\`) and pair your wallet with \`ac2 pair\``), { code: "unreachable" });
+      if (!open) rejectOpen(e); else failAll(e);
+    });
+    sock.on("close", () => failAll(Object.assign(new Error("the AC2 service closed the connection"), { code: "unreachable" })));
     sock.on("data", (chunk) => {
       buf += chunk;
       for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
@@ -83,10 +90,25 @@ function controlRequest(path, method, params, { timeoutMs, connect }) {
         buf = buf.slice(nl + 1);
         let frame;
         try { frame = JSON.parse(line); } catch { continue; }
-        if (frame.id !== 1) continue; // events and other replies
-        if (frame.error) return done(reject, Object.assign(new Error(`AC2 service: ${frame.error.message ?? frame.error.code}`), { code: frame.error.code }));
-        return done(resolve, frame.result);
+        const p = frame.id !== undefined && pending.get(frame.id);
+        if (!p) continue; // events
+        pending.delete(frame.id);
+        clearTimeout(p.timer);
+        if (frame.error) p.reject(Object.assign(new Error(`AC2 service: ${frame.error.message ?? frame.error.code}`), { code: frame.error.code }));
+        else p.resolve(frame.result);
       }
+    });
+    sock.on("connect", () => {
+      open = true;
+      resolveOpen({
+        request: (method, params, timeoutMs = 10_000) => new Promise((resolve, reject) => {
+          const id = ++seq;
+          const timer = setTimeout(() => { pending.delete(id); reject(Object.assign(new Error(`the AC2 service did not answer ${method} in time`), { code: "timeout" })); }, timeoutMs);
+          pending.set(id, { resolve, reject, timer });
+          sock.write(`${JSON.stringify({ id, method, params })}\n`);
+        }),
+        close: () => sock.destroy(),
+      });
     });
   });
 }
@@ -113,54 +135,75 @@ export function approvalText(info, { label, id, expiresAt }) {
  * @param {string} [o.owner]  your Algorand address; only its signature approves. Default: the wallet the AC2 service is paired with, fixed at the first request.
  * @param {string} [o.socket]  the AC2 service's socket (default ~/.ac2/ac2d.sock or AC2_DAEMON_SOCKET)
  * @param {number} [o.timeoutMs]  how long the agent waits for you (default 10 minutes); no answer = deny
+ * @param {number} [o.connectTimeoutMs]  how long to wait for the wallet to (re)connect to the service (default 1 minute)
  * @param {string} [o.label]  name of the agent in the request (default "Your agent")
  */
-export function ac2Approver({ owner, socket = defaultSocketPath(), timeoutMs = 600_000, label = "Your agent", connect = netConnect, now = () => Date.now() } = {}) {
+export function ac2Approver({ owner, socket = defaultSocketPath(), timeoutMs = 600_000, connectTimeoutMs = 60_000, label = "Your agent", connect = netConnect, now = () => Date.now(), pollMs = 1000 } = {}) {
   if (owner !== undefined && !algorandPublicKey(owner)) throw new TypeError("owner must be an Algorand address (58 characters, with a valid checksum)");
   if (!(timeoutMs > 0)) throw new TypeError("timeoutMs must be a positive number of milliseconds");
   let pinned = owner ?? null;
-  const ask = (method, params, ms = 10_000) => controlRequest(socket, method, params, { timeoutMs: ms, connect });
+
+  // Register as an agent (the service then waits for the wallet if it wasn't), and wait until the wallet is there.
+  async function walletReady(session) {
+    try {
+      await session.request("agent.hello", { agent: `presign-guard-wallet-${process.pid}`, host: hostname() });
+    } catch (err) {
+      if (err.code !== "agent_taken") throw err; // another request of this process holds the name: it is registered
+    }
+    const until = now() + connectTimeoutMs;
+    for (;;) {
+      const status = await session.request("daemon.status", {});
+      const c = status?.connection ?? {};
+      if (c.state === "connected" && !c.locked) return c;
+      if (now() >= until) throw Object.assign(new Error(`your wallet is not connected to the AC2 service (${c.state ?? "no connection"}${c.locked ? ", locked" : ""}): open AC2 Wallet on your phone, or pair it with \`ac2 pair\``), { code: "not_connected" });
+      await new Promise((ok) => setTimeout(ok, pollMs));
+    }
+  }
 
   return async function onOverLimit(info) {
-    if (!pinned) {
-      const status = await ask("daemon.status", {});
-      const address = status?.connection?.walletAddress;
-      if (status?.connection?.state !== "connected" || !algorandPublicKey(address)) throw Object.assign(new Error("no wallet is paired with the AC2 service: run `ac2 pair` and scan the code with your wallet"), { code: "not_connected" });
-      pinned = address;
-    }
-    const id = randomBytes(8).toString("hex");
-    const expiresAt = now() + timeoutMs;
-    const text = approvalText(info, { label, id, expiresAt });
-    const where = info.purchase?.url ? (() => { try { return ` for ${new URL(info.purchase.url).host}`; } catch { return ""; } })() : "";
-    let result;
+    const session = await openSession(socket, connect);
     try {
-      result = await ask("agent.request", {
-        type: "ac2/SigningRequest",
-        body: {
-          description: `${label}: over your limit${where}. ${info.summary ?? ""}`.slice(0, 300),
-          encoding: "base64",
-          payload: Buffer.from(text).toString("base64"),
-          schema: SCHEMA,
-          display_hint: "text",
-          sig_hint: "raw-ed25519",
-          key_type: "account",
-        },
-        responseTypes: ["ac2/SigningResponse", "ac2/SigningRejected"],
-        expires_in_seconds: Math.ceil(timeoutMs / 1000),
-        timeoutMs,
-      }, timeoutMs + 15_000);
-    } catch (err) {
-      if (err.code === "timeout" || /timed? ?out/i.test(err.message)) return false; // no answer in time
-      throw err;
+      const connection = await walletReady(session);
+      if (!pinned) {
+        if (!algorandPublicKey(connection.walletAddress)) throw Object.assign(new Error("the AC2 service doesn't report your wallet's Algorand address: set owner to your address"), { code: "not_connected" });
+        pinned = connection.walletAddress;
+      }
+      const id = randomBytes(8).toString("hex");
+      const expiresAt = now() + timeoutMs;
+      const text = approvalText(info, { label, id, expiresAt });
+      const where = info.purchase?.url ? (() => { try { return ` for ${new URL(info.purchase.url).host}`; } catch { return ""; } })() : "";
+      let result;
+      try {
+        result = await session.request("agent.request", {
+          type: "ac2/SigningRequest",
+          body: {
+            description: `${label}: over your limit${where}. ${info.summary ?? ""}`.slice(0, 300),
+            encoding: "base64",
+            payload: Buffer.from(text).toString("base64"),
+            schema: SCHEMA,
+            display_hint: "text",
+            sig_hint: "raw-ed25519",
+            key_type: "account",
+          },
+          responseTypes: ["ac2/SigningResponse", "ac2/SigningRejected"],
+          expires_in_seconds: Math.ceil(timeoutMs / 1000),
+          timeoutMs,
+        }, timeoutMs + Math.min(15_000, timeoutMs)); // a little longer than the service waits, so it answers first
+      } catch (err) {
+        if (err.code === "timeout" || /timed? ?out/i.test(err.message)) return false; // no answer in time
+        throw err;
+      }
+      if (result?.status === "unavailable") throw Object.assign(new Error(`the AC2 service can't ask your wallet (${result.reason})`), { code: result.reason });
+      const msg = result?.message;
+      if (result?.status !== "response" || msg?.type !== "ac2/SigningResponse") return false; // declined
+      if (now() > expiresAt) return false;
+      if (!verifyApproval(pinned, text, msg.body?.signature)) {
+        console.warn("[presign-guard-wallet] AC2 approval refused: the signature is not from the owner's account");
+        return false;
+      }
+      return { approved: true, proof: { via: "ac2", owner: pinned, id, payload: text, signature: msg.body.signature, signedAt: new Date(now()).toISOString() } };
+    } finally {
+      session.close();
     }
-    if (result?.status === "unavailable") throw Object.assign(new Error(`the AC2 service can't ask your wallet (${result.reason})`), { code: result.reason });
-    const msg = result?.message;
-    if (result?.status !== "response" || msg?.type !== "ac2/SigningResponse") return false; // declined
-    if (now() > expiresAt) return false;
-    if (!verifyApproval(pinned, text, msg.body?.signature)) {
-      console.warn("[presign-guard-wallet] AC2 approval refused: the signature is not from the owner's account");
-      return false;
-    }
-    return { approved: true, proof: { via: "ac2", owner: pinned, id, payload: text, signature: msg.body.signature, signedAt: new Date(now()).toISOString() } };
   };
 }
