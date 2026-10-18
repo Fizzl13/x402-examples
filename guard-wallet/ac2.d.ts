@@ -7,6 +7,8 @@ export interface Ac2ApproverOptions {
   socket?: string;
   /** How long the agent waits for your approval. Default 10 minutes; no answer counts as Deny. */
   timeoutMs?: number;
+  /** How long to wait for your wallet to (re)connect to the AC2 service before asking. Default 1 minute. */
+  connectTimeoutMs?: number;
   /** Name of the agent in the request. Default "Your agent". */
   label?: string;
 }

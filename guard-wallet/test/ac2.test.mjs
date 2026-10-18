@@ -25,11 +25,14 @@ function algorandKey() {
   return { address: out, sign: (payload) => sign(null, Buffer.from(payload), privateKey).toString("base64") };
 }
 
-// A fake AC2 service: answers daemon.status and agent.request the way ac2-cli does, as told by answer().
-async function fakeService({ walletAddress = null, answer }) {
+// A fake AC2 service: answers agent.hello, daemon.status and agent.request the way ac2-cli does. wallet: when the
+// wallet is connected ("always", "afterHello" = once an agent registered and after two more status polls, "never").
+async function fakeService({ walletAddress = null, wallet = "always", answer }) {
   const dir = mkdtempSync(join(tmpdir(), "ac2-"));
   const path = join(dir, "ac2d.sock");
   const requests = [];
+  let hello = false, polls = 0;
+  const state = () => wallet === "always" || (wallet === "afterHello" && hello && ++polls > 2) ? "connected" : "reconnecting";
   const server = createServer((sock) => {
     let buf = "";
     sock.setEncoding("utf8");
@@ -40,8 +43,9 @@ async function fakeService({ walletAddress = null, answer }) {
         buf = buf.slice(nl + 1);
         requests.push(frame);
         sock.write(`${JSON.stringify({ event: "connection.presence", data: { present: true } })}\n`); // events are skipped
+        if (frame.method === "agent.hello") { hello = true; sock.write(`${JSON.stringify({ id: frame.id, result: { protocolVersion: 1 } })}\n`); continue; }
         if (frame.method === "daemon.status") {
-          sock.write(`${JSON.stringify({ id: frame.id, result: { protocolVersion: 1, connection: walletAddress ? { state: "connected", walletAddress } : { state: "idle" } } })}\n`);
+          sock.write(`${JSON.stringify({ id: frame.id, result: { protocolVersion: 1, connection: { state: state(), walletAddress, locked: false } } })}\n`);
           continue;
         }
         const reply = await answer(frame.params);
@@ -121,15 +125,20 @@ test("declined, signed by another key, or out of time: no", async () => {
   } finally { svc.close(); }
 });
 
-test("no service, no paired wallet, or a locked session: an error, so nothing is signed", async () => {
+test("no service, no wallet coming back, or a locked session: an error, so nothing is signed", async () => {
   const owner = algorandKey();
   await assert.rejects(ac2Approver({ owner: owner.address, socket: join(tmpdir(), "no-such-ac2.sock") })(info), /can't reach the AC2 service.*ac2 pair/);
+  const gone = await fakeService({ wallet: "never", answer: approve(owner) });
+  try {
+    await assert.rejects(ac2Approver({ owner: owner.address, socket: gone.path, connectTimeoutMs: 30, pollMs: 5 })(info), /not connected to the AC2 service \(reconnecting\): open AC2 Wallet/);
+    assert.equal(gone.requests.filter((r) => r.method === "agent.request").length, 0, "nothing was asked");
+  } finally { gone.close(); }
   let svc = await fakeService({ answer: async () => ({ error: { code: "not_connected", message: "no connected wallet to send an AC2 request to" } }) });
   try { await assert.rejects(ac2Approver({ owner: owner.address, socket: svc.path })(info), /no connected wallet/); } finally { svc.close(); }
   svc = await fakeService({ answer: async () => ({ result: { status: "unavailable", reason: "locked" } }) });
   try { await assert.rejects(ac2Approver({ owner: owner.address, socket: svc.path })(info), /can't ask your wallet \(locked\)/); } finally { svc.close(); }
-  svc = await fakeService({ answer: approve(owner) }); // no owner given and no wallet paired
-  try { await assert.rejects(ac2Approver({ socket: svc.path })(info), /no wallet is paired/); } finally { svc.close(); }
+  svc = await fakeService({ answer: approve(owner) }); // no owner given, and the service reports no address
+  try { await assert.rejects(ac2Approver({ socket: svc.path })(info), /set owner/); } finally { svc.close(); }
 });
 
 test("without owner: the paired wallet's address is used, and fixed after the first request", async () => {
@@ -139,7 +148,21 @@ test("without owner: the paired wallet's address is used, and fixed after the fi
     const onOverLimit = ac2Approver({ socket: svc.path });
     assert.equal((await onOverLimit(info)).proof.owner, owner.address);
     await onOverLimit(info);
-    assert.equal(svc.requests.filter((r) => r.method === "daemon.status").length, 1);
+    assert.equal(svc.requests.filter((r) => r.method === "agent.request").length, 2);
+  } finally { svc.close(); }
+});
+
+test("after a restart: registers as an agent, waits for the wallet to come back, then asks", async () => {
+  const owner = algorandKey();
+  const svc = await fakeService({ wallet: "afterHello", answer: approve(owner) });
+  try {
+    const answer = await ac2Approver({ owner: owner.address, socket: svc.path, pollMs: 5 })(info);
+    assert.equal(answer.approved, true);
+    const methods = svc.requests.map((r) => r.method);
+    assert.equal(methods[0], "agent.hello");
+    assert.match(svc.requests[0].params.agent, /^presign-guard-wallet-\d+$/);
+    assert.ok(methods.filter((m) => m === "daemon.status").length >= 3, "polled until connected");
+    assert.equal(methods.at(-1), "agent.request");
   } finally { svc.close(); }
 });
 
