@@ -120,6 +120,8 @@ export interface SpendEntry {
   verdict: PresignVerdict | null;
   receiptId: string | null;
   purchase: Purchase | null;
+  /** Proof of an over-limit approval, from an approver that gives one (ac2Approver), else null. */
+  approval?: { via: string; [key: string]: unknown } | null;
 }
 
 /** Where spending is kept. amount is a decimal string at 18 decimals. */
@@ -190,8 +192,8 @@ export interface GuardOptions {
   authority?: string | null;
   /** Spending limits per token, checked after presign-guard's verdict and before signing. */
   limits?: SpendingLimits;
-  /** Asked when a limit would be crossed (e.g. ask the user on their phone). true = sign anyway. Without it, the wallet stops. */
-  onOverLimit?: (info: OverLimitInfo) => boolean | Promise<boolean>;
+  /** Asked when a limit would be crossed (e.g. ask the user on their phone). true, or { approved: true, proof }, = sign anyway; the proof goes to onSpend. Without it, the wallet stops. */
+  onOverLimit?: (info: OverLimitInfo) => boolean | { approved: true; proof?: object } | Promise<boolean | { approved: true; proof?: object }>;
   /** Called after each signed spend, e.g. for a log. */
   onSpend?: (entry: SpendEntry) => void;
   /** Where spending is kept. Default in memory (gone on a restart); fileStore from "presign-guard-wallet/file-store" for a file. */

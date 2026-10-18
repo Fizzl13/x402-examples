@@ -70,7 +70,7 @@ try {
 | `signers` | presign-guard's published signer | Accepted signer addresses |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `signers` |
 | `limits` | | Spending limits per token, see [Spending limits](#spending-limits) |
-| `onOverLimit` | | `async (info) => boolean`: asked when a limit would be crossed; `true` signs anyway. Without it the wallet stops. Ready-made: [`telegramApprover`](#approve-from-your-phone-telegram) |
+| `onOverLimit` | | `async (info) => boolean`: asked when a limit would be crossed; `true` signs anyway. Without it the wallet stops. Ready-made: [`telegramApprover`](#approve-from-your-phone-telegram), [`ac2Approver`](#approve-in-your-own-wallet-ac2) |
 | `onSpend` | | `(entry) => void` after each signed spend, e.g. for a log |
 | `store` | in memory | Where spending is kept; `fileStore(path)` from `presign-guard-wallet/file-store`, or your own |
 
@@ -163,6 +163,31 @@ These limits live in your agent's software: they stop a confused or manipulated 
    ```
 
 Only the chat you name (or the `allowedUserIds` you list) can answer; anyone else's tap is refused. No server is needed: the wallet asks Telegram for your tap itself (long polling), so the bot must not have a webhook, and one bot serves one agent process at a time (a second process polling the same bot makes Telegram refuse both; the request then fails and nothing is signed). If Telegram cannot be reached, the wallet stops (`limit_unavailable`) rather than signing.
+
+### Approve in your own wallet (AC2)
+
+`onOverLimit` can also ask you in your own wallet app over [AC2](https://github.com/algorandfoundation/ac2), the Algorand Foundation's protocol for agents to ask their owner for a signature. When a signature would cross a limit, your AC2 wallet shows what the agent wants to sign, why it is over the limit and presign-guard's verdict. You approve with your passkey (Face ID, a fingerprint), and the wallet **signs** the approval with your Algorand account key. The agent checks that the signature is your account's before it goes on, and the signed approval comes with the spend in `onSpend` (`approval`), as proof of who approved what.
+
+1. Install and start the AC2 service on the machine where the agent runs, and pair your wallet (AC2 Wallet on your phone): see [ac2-cli](https://github.com/algorandfoundation/ac2/tree/master/packages/ac2-cli), then `ac2 pair` and scan the code.
+2. Use it:
+   ```js
+   import { ac2Approver } from "presign-guard-wallet/ac2";
+
+   const wallet = guardWallet(walletClient, {
+     pay,
+     limits: { tokens: { USDC: { perTx: "5", perDay: "20" } } },
+     onOverLimit: ac2Approver({
+       owner: process.env.OWNER_ALGORAND_ADDRESS, // only this account's signature approves
+       label: "research-agent",
+       timeoutMs: 10 * 60_000, // no answer in 10 minutes = Deny
+     }),
+     onSpend: (entry) => console.log(entry.amount, entry.approval?.signature ?? "within the limit"),
+   });
+   ```
+
+What you sign is a text that starts with `fizzl-approval-v1` and names the agent, the amount, the network, the recipient, the URL, presign-guard's verdict, an id and an expiry time. It is never a transaction (Algorand signs transactions over `TX` + the transaction), so a signed approval can't be used as a payment. A decline, no answer in time, or a signature from another key counts as Deny. Without `owner`, the account the AC2 service is paired with is used, fixed at the first request. If the AC2 service isn't running or no wallet is paired, the wallet stops (`limit_unavailable`) rather than signing. The agent still signs and pays with its own key, on any network; only the approval comes from your wallet. This module talks to the AC2 service over its local socket (`~/.ac2/ac2d.sock`, or `AC2_DAEMON_SOCKET`) and adds no packages.
+
+`verifyApproval(owner, payload, signature)` checks a stored approval again later.
 
 ### Say what is being bought
 

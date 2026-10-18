@@ -333,21 +333,24 @@ export function createLimiter(limits, { store = memoryStore(), onOverLimit, onSp
       const spend = spendFor(info.request, info.verdict);
       const used = await usedNow();
       const result = evaluate(policy, spend, used);
+      let approval = null;
       if (result.reasons.length) {
         const summary = result.reasons.map((r) => r.message).join("; ");
         if (result.hardStop || !onOverLimit) return { ok: false, ...result, summary };
-        const approved = (await onOverLimit({ method: info.method, request: info.request, verdict: info.verdict, reasons: result.reasons, summary, spending: await summarize(used), purchase: info.purchase ?? null })) === true;
-        if (!approved) return { ok: false, ...result, summary, asked: true };
+        // true, or { approved: true, proof } from an approver that can prove the approval (ac2Approver).
+        const answer = await onOverLimit({ method: info.method, request: info.request, verdict: info.verdict, reasons: result.reasons, summary, spending: await summarize(used), purchase: info.purchase ?? null });
+        if (answer !== true && answer?.approved !== true) return { ok: false, ...result, summary, asked: true };
+        approval = answer === true ? null : answer.proof ?? null;
       }
       const entries = result.charges.filter((c) => c.amount > 0n).map((c) => ({ id: newId(), at: now(), budget: c.budget, amount: c.amount.toString(), method: info.method, chainId: info.request.chainId, to: spend.items[0]?.to ?? info.request.to ?? null }));
       for (const e of entries) await store.add(e);
-      return { ok: true, entries };
+      return { ok: true, entries, ...(approval ? { approval } : {}) };
     }),
     release: async (entries) => { for (const e of entries) await store.remove(e.id); },
     spent(entries, result, info) {
       if (!onSpend) return;
       for (const e of entries) {
-        try { onSpend({ ...e, amount: formatUnits(BigInt(e.amount), SCALE), result, verdict: info.verdict ?? null, receiptId: info.verdict?.receipt?.request_id ?? null, purchase: info.purchase ?? null }); } catch (err) { console.warn(`[presign-guard-wallet] onSpend threw: ${err.message}`); }
+        try { onSpend({ ...e, amount: formatUnits(BigInt(e.amount), SCALE), result, verdict: info.verdict ?? null, receiptId: info.verdict?.receipt?.request_id ?? null, purchase: info.purchase ?? null, approval: info.approval ?? null }); } catch (err) { console.warn(`[presign-guard-wallet] onSpend threw: ${err.message}`); }
       }
     },
     spending: async () => summarize(await usedNow()),

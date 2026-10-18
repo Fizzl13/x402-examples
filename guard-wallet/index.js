@@ -219,7 +219,7 @@ function cleanPurchase(info) {
  * @param {string[]} [options.signers]
  * @param {string|null} [options.authority]
  * @param {object} [options.limits]  spending limits: { tokens: { USDC: { perTx, perDay }, … }, unknownTokens, allow, window }
- * @param {(info: object) => boolean|Promise<boolean>} [options.onOverLimit]  asked when a limit would be crossed; true = sign anyway
+ * @param {(info: object) => boolean|{approved: true, proof?: object}|Promise<boolean|{approved: true, proof?: object}>} [options.onOverLimit]  asked when a limit would be crossed; true (or { approved: true, proof }) = sign anyway
  * @param {(entry: object) => void} [options.onSpend]  after each signed spend
  * @param {{url: string, key: string}} [options.server]  a wallet server (fizzl wallet-server) keeps the limits, budget and approvals for all your agents
  * @param {object} [options.store]  where spending is kept (default in memory; fileStore from presign-guard-wallet/file-store)
@@ -342,7 +342,7 @@ export function guardWallet(wallet, {
       await limiter.release(booked.entries, { purchaseId: booked.purchaseId, error: err.message }).catch((e) => console.warn(`[presign-guard-wallet] could not give back spending: ${e.message}`));
       throw err;
     }
-    limiter.spent(booked.entries, result, { verdict, purchase, purchaseId: booked.purchaseId });
+    limiter.spent(booked.entries, result, { verdict, purchase, purchaseId: booked.purchaseId, approval: booked.approval ?? null });
     return result;
   }
 
