@@ -73,6 +73,8 @@ To check that everything works without paying anything, ask your owner to click 
 
 On the dashboard, under **Your account** (at the bottom), your owner clicks **Connect Telegram** to get approval requests with Approve / Deny buttons.
 
+Without the wallet server (the MCP server with your owner's own `LIMIT_*` settings), your owner can have approvals signed in their own wallet instead: set `AC2_OWNER` to their Algorand address. It needs the AC2 service (`ac2-cli`) running on the same machine and paired with AC2 Wallet on their phone (`ac2 pair`).
+
 ## Using it
 
 | Tool | When |
