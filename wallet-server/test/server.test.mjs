@@ -2411,6 +2411,11 @@ test("robots.txt, the sitemap, llms.txt, the IndexNow key and the homepage JSON-
     const ld = JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
     assert.equal(ld["@type"], "WebApplication");
     assert.deepEqual(ld.offers.map((o) => o.price), ["0", "5"]);
+    const faq = [...home.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1])).find((b) => b["@type"] === "FAQPage");
+    const unescape = (t) => t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    const shown = [...home.matchAll(/<details><summary>([^<]*)<\/summary><p>([^<]*)<\/p><\/details>/g)].map((m) => [unescape(m[1]), unescape(m[2])]);
+    assert.ok(faq.mainEntity.length >= 5);
+    assert.deepEqual(shown, faq.mainEntity.map((q) => [q.name, q.acceptedAnswer.text]));
   } finally {
     server.close();
   }
