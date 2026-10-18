@@ -1,0 +1,66 @@
+name: agent-safety-bench-archive
+
+# Copies the results of every agent-safety-bench-run into the bench-data branch (results/<run id>.jsonl, one row per
+# run of a scenario, tagged with run_id), so the raw runs outlive GitHub's 90-day artifact retention and can be
+# published as an open dataset. Runs after each bench run, when this file changes on main, and by hand. Reads only
+# this repository's own artifacts; nothing is run, paid or sent anywhere else.
+on:
+  workflow_run:
+    workflows: [agent-safety-bench-run]
+    types: [completed]
+  push:
+    branches: [main]
+    paths: [.github/workflows/agent-safety-bench-archive.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: agent-safety-bench-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Archive result artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir bench-data && cd bench-data
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth 1 origin bench-data 2>/dev/null; then git checkout -q -B bench-data FETCH_HEAD; else git checkout -q -b bench-data; fi
+          mkdir -p results
+          added=0
+          gh api --paginate "repos/$REPO/actions/artifacts?per_page=100&name=agent-safety-bench-results" \
+            --jq '.artifacts[] | select(.expired | not) | "\(.id) \(.workflow_run.id) \(.created_at)"' > artifacts.txt
+          while read -r id run at; do
+            [ -s "results/$run.jsonl" ] && continue
+            rm -rf a a.zip && mkdir a
+            gh api "repos/$REPO/actions/artifacts/$id/zip" > a.zip && unzip -q a.zip -d a
+            if ls a/*.jsonl >/dev/null 2>&1; then
+              cat a/*.jsonl | jq -cR --arg run "$run" 'fromjson? | . + {run_id: $run}' > "results/$run.jsonl"
+              echo "- run $run ($at): $(wc -l < "results/$run.jsonl") rows" >> "$GITHUB_STEP_SUMMARY"
+              added=$((added + 1))
+            fi
+          done < artifacts.txt
+          rm -rf a a.zip artifacts.txt
+          echo "added=$added" >> "$GITHUB_ENV"
+          cat > README.md <<'MD'
+          # x402 Agent Safety Bench: raw results
+
+          Written by `.github/workflows/agent-safety-bench-archive.yml` on `main`: the results of every
+          `agent-safety-bench-run`, one file per workflow run (`results/<run id>.jsonl`), one row per run of a scenario
+          (scenario, kind, condition, agent and model, safe, done, unsafe_usd, spent_usd, overhead_usd, payments, signed,
+          preflights, checks, turns, usage, answer, repeat, at, run_id). The method is in
+          `agent-safety-bench/DESIGN.md`; the results are summarised on https://fizzl.eu/bench/
+          MD
+          git add -A
+          if git diff --cached --quiet; then echo "Nothing new to archive." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Bench results: $added new run(s)"
+          git push -q origin HEAD:bench-data
