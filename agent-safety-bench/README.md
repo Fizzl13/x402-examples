@@ -8,7 +8,7 @@
 
 It runs entirely offline against simulated sellers. Nothing is ever paid: the wallet is a throwaway key that holds nothing, and every "payment" or Permit is a real signature that only the run's ledger sees.
 
-Read **[DESIGN.md](DESIGN.md)** for the method: conditions, scenarios, metrics, fairness and limitations. The results are also on **[fizzl.eu/bench](https://fizzl.eu/bench/)**.
+Read **[DESIGN.md](DESIGN.md)** for the method: conditions, scenarios, metrics, fairness and limitations. The results are also on **[fizzl.eu/bench](https://fizzl.eu/bench/)** and on Hugging Face: the **[leaderboard](https://huggingface.co/spaces/x402Fizzl/x402-agent-safety-bench)**, and **[every run with its transcript](https://huggingface.co/datasets/x402Fizzl/x402-agent-safety-bench)** as an open dataset (CC BY 4.0).
 
 ## Results so far
 
@@ -255,6 +255,8 @@ export ANTHROPIC_API_KEY=…
 npm run bench -- --agent claude --model <Claude model id> --repeats 1   # 114 runs: 20 scenarios × 5 conditions, and 14 with data
 npm run bench -- --report results/*.jsonl                               # the tables again, from saved runs
 ```
+
+The raw results of every run in this repository's Actions (`agent-safety-bench-run`) are kept on the [`bench-data`](https://github.com/Fizzl13/x402-examples/tree/bench-data) branch, one file per run, and published to Hugging Face every Monday.
 
 With other vendors' models, through [OpenRouter](https://openrouter.ai) (one key for GPT, Gemini, Llama and others) or OpenAI. The agent is the same plain tool-use loop over OpenAI's Chat Completions format, with the same tools and prompts:
 
