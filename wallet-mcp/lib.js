@@ -21,6 +21,7 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 import { Wallet as XrplWallet } from "xrpl";
 import { guardWallet, PresignBlockedError, mandatePayer, mandateDigest, x402Checked } from "presign-guard-wallet";
 import { telegramApprover } from "presign-guard-wallet/telegram";
+import { ac2Approver, algorandPublicKey } from "presign-guard-wallet/ac2";
 import { sessionManager, createJsonChannelStore } from "mppx/client";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -201,6 +202,13 @@ export function configFromEnv(env = process.env) {
   if (telegram && (!telegram.token || !telegram.chatId)) throw new Error("Telegram approval needs both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID");
   if (telegram && server) throw new Error("with WALLET_SERVER_URL, approvals go through the wallet server (its own Telegram): leave out TELEGRAM_*");
 
+  // Approvals in the owner's own wallet over AC2: AC2_OWNER = the owner's Algorand address (only its signature
+  // approves), or AC2_APPROVALS=on to use the wallet the local AC2 service is paired with.
+  const ac2 = env.AC2_OWNER || /^(on|1|true)$/i.test(env.AC2_APPROVALS ?? "") ? { owner: env.AC2_OWNER || undefined } : undefined;
+  if (ac2?.owner && !algorandPublicKey(ac2.owner)) throw new Error("AC2_OWNER must be your Algorand address (58 characters)");
+  if (ac2 && telegram) throw new Error("approvals go to one place: set AC2_OWNER (or AC2_APPROVALS) or TELEGRAM_*, not both");
+  if (ac2 && server) throw new Error("with WALLET_SERVER_URL, approvals go through the wallet server: leave out AC2_OWNER and AC2_APPROVALS");
+
   // Optional spending mandate (x402 `authority` extension draft): MANDATE = the principal's signed
   // grant as JSON { mandate, alg, sig }, or MANDATE_FILE = a path to that JSON.
   let mandate;
@@ -225,6 +233,7 @@ export function configFromEnv(env = process.env) {
     server,
     limits: server ? undefined : { tokens, ...(allow.length ? { allow } : {}) },
     telegram,
+    ac2,
     label: env.AGENT_LABEL || "mcp-agent",
     maxPaymentUsd: Number(maxPrice),
     // MPP on Tempo: on by default (mainnet), TEMPO_CHAIN=42431 for the testnet, TEMPO=off to leave it out.
@@ -325,7 +334,8 @@ export function createWallet(config, overrides = {}) {
   checkPayer.register("eip155:8453", new ExactEvmScheme(account));
   const pay = wrapFetchWithPayment(plainFetch, checkPayer);
 
-  const onOverLimit = config.telegram ? telegramApprover({ ...config.telegram, label: config.label, fetch: plainFetch }) : undefined;
+  const onOverLimit = config.ac2 ? ac2Approver({ ...config.ac2, label: config.label })
+    : config.telegram ? telegramApprover({ ...config.telegram, label: config.label, fetch: plainFetch }) : undefined;
   const guarded = guardWallet(walletClient, {
     pay,
     creditKey: config.creditKey,
@@ -639,7 +649,7 @@ export function createWallet(config, overrides = {}) {
         ...(xrplSigner && { xrpl: { address: xrplSigner.classicAddress, network: `${config.xrpl.net} (${xrplNet.network})`, pays: "x402 in RLUSD (Ripple's issuer), counted toward the USDC limits; the account needs an RLUSD trust line, RLUSD and a little XRP for fees" } }),
         limits: config.server ? `kept by the wallet server ${config.server.url}` : config.limits.tokens,
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
-        approvals: config.server ? "wallet server (dashboard / Telegram)" : config.telegram ? "Telegram" : "none: anything over a limit is refused",
+        approvals: config.server ? "wallet server (dashboard / Telegram)" : config.ac2 ? `signed in the owner's own wallet over AC2${config.ac2.owner ? ` (${config.ac2.owner})` : " (the paired wallet)"}` : config.telegram ? "Telegram" : "none: anything over a limit is refused",
         maxPaymentUsd: config.maxPaymentUsd,
         ...(mandateNow && { mandate: {
           digest: mandateDigest(mandateNow.mandate),

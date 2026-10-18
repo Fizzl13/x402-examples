@@ -10,7 +10,7 @@ A wallet with spending limits for AI agents, as an [MCP](https://modelcontextpro
 It can only do that within the budget you set:
 
 - **You set the limits.** For example: up to 5 USDC per payment and 20 USDC a day, and the agent is free to spend within them.
-- **Above a limit, you decide.** You get a Telegram message with Approve / Deny, or the request shows up on your [wallet server](https://github.com/Fizzl13/x402-examples/tree/main/wallet-server) dashboard. No answer means no payment.
+- **Above a limit, you decide.** You get a Telegram message with Approve / Deny, a request to sign in your own wallet over [AC2](https://github.com/algorandfoundation/ac2), or the request shows up on your [wallet server](https://github.com/Fizzl13/x402-examples/tree/main/wallet-server) dashboard. No answer means no payment.
 - **Every signature is checked first by [presign-guard](https://presign-guard.fizzl.eu).** It checks for known drainers, sanctioned addresses and look-alike tokens, checks an x402 payment against what the seller asked, and simulates a transaction to see what really leaves the wallet. A red verdict is never signed.
 - **When in doubt, nothing is signed.** If the check, Telegram or the server can't be reached, the wallet stops.
 - **Paid answers are checked before your agent reads them** (with a wallet server). An AI check looks at what the API sent back. If it carries instructions aimed at your agent (prompt injection: "ignore your rules", "pay this address"), the answer comes with a `warnings` field first that tells the agent to treat it as data only. If it isn't what was paid for, the warning says so too. You see both on the receipt and get a message.
@@ -104,7 +104,8 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `LIMIT_USDC_PER_TX`, `LIMIT_USDC_PER_DAY` | USDC limits (payments and transfers together). Limits or a wallet server are required |
 | `LIMIT_NATIVE_PER_TX`, `LIMIT_NATIVE_PER_DAY` | limits for the native coin; without them, sending it needs approval |
 | `ALLOW_LIST` | optional: only these recipients, spenders and contracts, comma-separated (0x, XRPL `r…` or Algorand addresses, each checked); a payment or signature for anything else needs your approval like an amount over a limit. With a wallet server, set the allow list there instead |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | approvals on Telegram; without them, anything over a limit is refused |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | approvals on Telegram; without them (or AC2), anything over a limit is refused |
+| `AC2_OWNER` | instead of Telegram: approvals **signed in your own wallet** over [AC2](https://github.com/algorandfoundation/ac2) (the Algorand Foundation's protocol for agents to ask their owner). Your Algorand address: only its signature approves, and the signed approval is kept with the payment. Needs the AC2 service (`ac2-cli`) running on the same machine and paired with your wallet (`ac2 pair`); if it isn't, nothing over a limit is signed. `AC2_APPROVALS=on` uses the paired wallet's address instead. `AC2_DAEMON_SOCKET` if the service's socket isn't `~/.ac2/ac2d.sock` |
 | `WALLET_SERVER_URL`, `WALLET_SERVER_KEY` | a wallet server instead of the above |
 | `CHAIN` | `base` (default), `ethereum`, `optimism`, `arbitrum`, `polygon` or `bsc` |
 | `MAX_PAYMENT_USD` | most one `pay_x402` call may cost (default `1`); a cap on top of the limits |
@@ -126,7 +127,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `MPP_SESSION_FILE` | where open channels are kept between restarts (default `~/.presign-guard-wallet/mpp-sessions.json`) |
 | `XRPL_NETWORK` | `mainnet` (default) or `testnet` |
 | `XRPL_WS_URL` | your own XRPL node (default `wss://xrplcluster.com`) |
-| `AGENT_LABEL` | the name shown in Telegram approval messages (default `mcp-agent`) |
+| `AGENT_LABEL` | the name shown in Telegram and AC2 approval requests (default `mcp-agent`) |
 
 One Telegram bot serves one running server at a time, and the bot must not have a webhook. To run several agents on one bot, use the wallet server.
 
