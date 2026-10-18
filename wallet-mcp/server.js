@@ -20,5 +20,5 @@ if (!process.env.AGENT_KEY?.trim()) {
   }
   const wallet = createWallet(config);
   await createServer(wallet).connect(new StdioServerTransport());
-  console.error(`[presign-guard-wallet-mcp ${VERSION}] wallet ${wallet.address} on ${config.chainName}, ${config.server ? `limits on ${config.server.url}` : `limits ${JSON.stringify(config.limits.tokens)}`}${config.telegram ? ", approvals on Telegram" : ""}`);
+  console.error(`[presign-guard-wallet-mcp ${VERSION}] wallet ${wallet.address} on ${config.chainName}, ${config.server ? `limits on ${config.server.url}` : `limits ${JSON.stringify(config.limits.tokens)}`}${config.ac2 ? ", approvals signed in your wallet over AC2" : config.telegram ? ", approvals on Telegram" : ""}`);
 }

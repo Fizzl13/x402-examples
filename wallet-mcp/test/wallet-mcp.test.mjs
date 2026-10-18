@@ -180,6 +180,13 @@ test("configuration: a budget is required and conflicting setups are refused", (
   assert.throws(() => configFromEnv({ ...ENV, LIMIT_USDC_PER_TX: "five" }), /amounts/);
   assert.throws(() => configFromEnv({ ...ENV, WALLET_SERVER_URL: "https://wallet.fizzl.eu", WALLET_SERVER_KEY: "awk_x" }), /leave out the LIMIT_/);
   assert.throws(() => configFromEnv({ ...ENV, TELEGRAM_BOT_TOKEN: "123:abc" }), /TELEGRAM_CHAT_ID/);
+  const OWNER = "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4";
+  assert.deepEqual(configFromEnv({ ...ENV, AC2_OWNER: OWNER }).ac2, { owner: OWNER });
+  assert.deepEqual(configFromEnv({ ...ENV, AC2_APPROVALS: "on" }).ac2, { owner: undefined });
+  assert.equal(configFromEnv(ENV).ac2, undefined);
+  assert.throws(() => configFromEnv({ ...ENV, AC2_OWNER: OWNER.slice(0, -1) + "A" }), /AC2_OWNER/);
+  assert.throws(() => configFromEnv({ ...ENV, AC2_OWNER: OWNER, TELEGRAM_BOT_TOKEN: "123:abc", TELEGRAM_CHAT_ID: "1" }), /not both/);
+  assert.throws(() => configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.fizzl.eu", WALLET_SERVER_KEY: "awk_x", AC2_APPROVALS: "on" }), /AC2_OWNER and AC2_APPROVALS/);
   const c = configFromEnv({ ...ENV, CHAIN: "Arbitrum", LIMIT_NATIVE_PER_TX: "0.01" });
   assert.equal(c.chainName, "arbitrum");
   assert.deepEqual(c.limits.tokens, { USDC: { perTx: "5", perDay: "20" }, ETH: { perTx: "0.01" } });

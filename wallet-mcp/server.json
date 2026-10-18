@@ -3,7 +3,7 @@
   "name": "io.github.Fizzl13/presign-guard-wallet",
   "title": "presign-guard wallet",
   "description": "Agent wallet with limits: pays x402/MPP on Base, Solana, Tempo, XRPL and Algorand; phone approval.",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "repository": {
     "url": "https://github.com/Fizzl13/x402-examples",
     "source": "github",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "presign-guard-wallet-mcp",
-      "version": "0.17.1",
+      "version": "0.18.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "AGENT_KEY", "description": "Private key of the agent's own wallet (a separate wallet holding only what the agent may spend)", "isRequired": true, "isSecret": true },
@@ -22,6 +22,7 @@
         { "name": "LIMIT_USDC_PER_DAY", "description": "Daily USDC budget, e.g. 20" },
         { "name": "TELEGRAM_BOT_TOKEN", "description": "Telegram bot that asks you to approve anything over a limit", "isSecret": true },
         { "name": "TELEGRAM_CHAT_ID", "description": "Your Telegram chat id (approvals go only there)" },
+        { "name": "AC2_OWNER", "description": "Instead of Telegram: your Algorand address; approvals are signed in your own wallet over AC2 (needs the AC2 service, ac2-cli, paired with your wallet)" },
         { "name": "WALLET_SERVER_URL", "description": "Instead of LIMIT_* and TELEGRAM_*: a wallet server keeping one budget for all your agents" },
         { "name": "WALLET_SERVER_KEY", "description": "The agent key (awk_…) from the wallet server's dashboard", "isSecret": true },
         { "name": "CHAIN", "description": "base (default), ethereum, optimism, arbitrum, polygon or bsc" },
