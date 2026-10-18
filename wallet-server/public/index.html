@@ -450,7 +450,8 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .compare tbody th { color: var(--muted); font-weight: 600; width: 22%; }
 .compare td { color: var(--muted); }
 .compare .adds { margin: 0; color: var(--soft); font-size: 14px; }
-.compare .note a { text-decoration: underline; }
+.compare .note a, .faq .note a { text-decoration: underline; }
+.faq .note { margin: 14px 0 0; font-size: 13px; }
 .login input { min-height: 46px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); }
 .err { color: var(--rose); font-size: 13px; min-height: 1.2em; }
 .login .err:empty { display: none; } /* no empty error lines taking room on the sign-in card */
@@ -681,6 +682,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <details><summary>What does it cost?</summary><p>Free for one agent. Pro is $5 a month for unlimited agents, paid in stablecoins on Base, Algorand or the XRP Ledger.</p></details>
       <details><summary>Can I see what my agent bought?</summary><p>Yes. Every purchase gets a receipt: what was bought, from whom, for how much, why, and whether the answer was delivered. Per-agent mandates cap what each agent may buy.</p></details>
       <details><summary>How does the agent find paid APIs?</summary><p>The tool find_services searches a catalog of paid x402 services, with prices per network and x402 Doctor's payable record for each seller. The same search is open without a key at https://wallet.fizzl.eu/api/public/services/search?q=bitcoin%20signal.</p></details>
+      <p class="note">Guides: <a href="https://fizzl.eu/guides/ac2-agent-approvals/">approve agent payments in your own wallet with AC2</a> · <a href="https://fizzl.eu/guides/x402-endpoint-checkers/">tools to check an x402 endpoint before your agent pays</a>.</p>
     </div>
   </section>
 
