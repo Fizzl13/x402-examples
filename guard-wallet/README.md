@@ -2,7 +2,7 @@
 
 A [viem](https://viem.sh) wallet for AI agents that asks [presign-guard](https://presign-guard.fizzl.eu) before it signs. Solana signers too: see [Solana](#solana-usdc).
 
-Before every `sendTransaction`, `writeContract` and `signTypedData`, the wallet pays **$0.01** (x402, USDC on Base) for a verdict on exactly what is about to be signed, and acts on it:
+Before every `sendTransaction`, `writeContract`, `signTypedData` and `signAuthorization` (EIP-7702), the wallet pays **$0.01** (x402, USDC on Base) for a verdict on exactly what is about to be signed, and acts on it:
 
 | Verdict | What the wallet does |
 |---|---|
@@ -61,8 +61,8 @@ try {
 | `pay` | required (optional with `creditKey`) | A fetch that pays x402 (`wrapFetchWithPayment`); cap it with spend controls |
 | `creditKey` | | A presign-guard credit key (`pgc_…`): checks are paid from prepaid credits first, then with `pay`. See [Prepaid credits](#prepaid-credits) |
 | `fetch` | `globalThis.fetch` | Plain fetch used for credit-paid checks |
-| `onOrange` | `"stop"` | `"stop"`, `"allow"` or `async (verdict, { method, request }) => boolean` |
-| `onError` | `"stop"` | When the check cannot be done (outage, a chain presign-guard does not cover): `"stop"` or `"allow"` |
+| `onOrange` | `"stop"` | `"stop"`, `"allow"` or `async (verdict, { method, request }) => boolean`. `"allow"` does not cover [EIP-7702 authorizations](#eip-7702-authorizations) |
+| `onError` | `"stop"` | When the check cannot be done (outage, a chain presign-guard does not cover): `"stop"` or `"allow"`. An EIP-7702 authorization always stops |
 | `origin` | | The site asking for the signature: its domain age and phishing lists are checked too |
 | `onVerdict` | | `(verdict, { method, request, paidWith, creditsLeft }) => void`, e.g. for logging; `paidWith` is `"credits"` or `"x402"` |
 | `verifyReceipts` | `"require"` | Check presign-guard's signed receipt on every verdict; `"off"` skips it |
@@ -232,6 +232,29 @@ const wallet = guardWallet(walletClient, {
 
 If the server can't be reached the wallet stops (`limit_unavailable`); paused on the dashboard means `paused`.
 
+## EIP-7702 authorizations
+
+An EIP-7702 authorization makes the wallet run a contract's code. That contract can then move everything the wallet holds, on every later call, without asking for another signature: this is how "sweeper" drainers empty wallets. So the wallet checks every authorization before it is signed (`signAuthorization`, type `authorization` in presign-guard), and is stricter about it than about anything else:
+
+| Verdict | What the wallet does |
+|---|---|
+| 🟢 green | Signs: revoking a delegation (`0x000…000`), or a contract on GoPlus's trust list |
+| 🟠 orange | Signs only when your `onOrange` **function** returns `true` (`"allow"` does not cover it): any other contract (`EIP7702_AUTHORIZATION`), one valid on every chain (`chainId: 0`), one deployed recently |
+| 🔴 red | Never signs: no contract at the address, a contract that is itself a delegated wallet, an unverified, flagged or sanctioned contract |
+
+A failed check stops too, also with `onError: "allow"`. The wallet signs exactly the chain id it checked, and an authorization counts toward no spending limit (it moves nothing by itself).
+
+```js
+const wallet = guardWallet(walletClient, {
+  pay,
+  onOrange: async (verdict, { method, request }) => method === "signAuthorization" ? askUser(request.address, verdict.reasons) : false,
+});
+const authorization = await wallet.signAuthorization({ contractAddress: smartAccount }); // the contract you chose to delegate to
+await wallet.sendTransaction({ to: account.address, data, authorizationList: [authorization] });
+```
+
+Authorizations in a transaction's `authorizationList` are checked as well: one signed with `signAuthorization` was checked then and is not charged again, one the sending account signed some other way is checked now, and one signed by another account (or for another chain) puts nothing of this wallet at risk and is left alone. On Tempo the wallet signs and sends no authorizations.
+
 ## Checking x402 payments against what the seller asked
 
 Wrap the x402 payment scheme with `x402Checked` and the payment requirements it pays (the `accepts` entry it chose) go along with the presign-guard check of its EIP-3009 signature. presign-guard then makes a signature that pays more than asked, someone else, another token or another chain red (`X402_AMOUNT_ABOVE_REQUIRED`, `X402_RECIPIENT_MISMATCH`, `X402_ASSET_MISMATCH`, `X402_NETWORK_MISMATCH`), and one that stays valid far longer than the seller's timeout orange (`X402_VALIDITY_TOO_LONG`), before anything is signed. It catches a hostile server or a broken client library.
@@ -350,7 +373,7 @@ presign-guard signs every paid verdict (EIP-191 over canonical JSON, with a hash
 
 ## Costs and coverage
 
-- $0.01 per checked signature, paid with your `pay` fetch, or $0.008 / $0.007 with [prepaid credits](#prepaid-credits). Calls presign-guard does not cover (contract deployments) are not checked and cost nothing; `signMessage` is checked unless `checkMessages: false`.
+- $0.01 per checked signature (an EIP-7702 authorization is one), paid with your `pay` fetch, or $0.008 / $0.007 with [prepaid credits](#prepaid-credits). Calls presign-guard does not cover (contract deployments) are not checked and cost nothing; `signMessage` is checked unless `checkMessages: false`.
 - presign-guard reads public data (GoPlus, RugCheck, DexScreener, OFAC via PG1, phishing lists). A green verdict means no known problem was found, not a guarantee.
 - The requests carry `user-agent: presign-guard-wallet/<version>` so the service can count how often the package is used.
 

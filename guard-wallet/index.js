@@ -8,6 +8,10 @@
 //   orange → onOrange: "stop" (default, throws), "allow", or your own async
 //            function that decides (e.g. ask the user)
 //   red    → throws PresignBlockedError; nothing is signed
+// EIP-7702 authorizations (signAuthorization, and the authorizationList of a
+// transaction) are checked too, and stricter: a delegation hands the contract
+// the whole wallet, so an orange one is signed only when your onOrange function
+// says yes ("allow" does not cover it), and a failed check always stops.
 // Every verdict must carry presign-guard's signed receipt for exactly this
 // request, checked against its pinned signer (or a key certified by the Fizzl
 // payout wallet): a missing, changed or forged verdict is never a signature.
@@ -51,6 +55,7 @@
 // @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD.
 
 import { bytesToHex, decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
+import { recoverAuthorizationAddress } from "viem/utils";
 import { verifyReceipt, AUTHORITY } from "x402-safe-fetch";
 import { createLimiter, memoryStore } from "./limits.js";
 import { createRemoteLimiter } from "./remote.js";
@@ -81,7 +86,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.18.0";
+export const VERSION = "0.21.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -151,6 +156,20 @@ export function checkRequestFor(method, args, { chainId, origin, x402, from } = 
     if (message === null) return null;
     return { type: "message", method: "personal_sign", message, ...(chainId ? { chainId } : {}), ...(origin ? { origin } : {}), ...sender };
   }
+  if (method === "signAuthorization") {
+    // EIP-7702: viem takes the contract as contractAddress (before address) and fills in the client's chain id
+    // when none is given. The chain id inside the authorization may be 0: valid on every chain.
+    const address = args?.contractAddress ?? args?.address;
+    if (typeof address !== "string") return null;
+    const signedChain = args?.chainId ?? chainId;
+    const nonce = args?.nonce;
+    return {
+      type: "authorization", chainId: Number(signedChain) || chainId, address,
+      ...(signedChain !== undefined && { authorizationChainId: Number(signedChain) }),
+      ...(nonce !== undefined && nonce !== null && { nonce: String(nonce) }),
+      ...(origin ? { origin } : {}), ...sender,
+    };
+  }
   if (method === "signTypedData") {
     const { domain, types, primaryType, message } = args;
     // A payment made by mandatePayer() (mandate.js) is checked against its mandate too.
@@ -188,7 +207,10 @@ export function sessionDeposit(tx, chainId, address) {
   return { token: descriptor.token.toLowerCase(), payee: descriptor.payee, deposit };
 }
 
-const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData"]);
+const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData", "signAuthorization"]);
+
+// A signed EIP-7702 authorization, by its signature.
+const authorizationKey = (a) => (typeof a?.r === "string" && typeof a?.s === "string" ? `${a.r}:${a.s}`.toLowerCase() : null);
 
 // What the agent says it is buying, for the signatures made inside withPurchase().
 const purchases = new AsyncLocalStorage();
@@ -294,8 +316,10 @@ export function guardWallet(wallet, {
 
   // The verdict for a request, or null when the check could not be done and onError is "allow".
   async function verdictFor(method, request, chainId) {
+    // An EIP-7702 authorization is never signed unchecked: onError "allow" does not cover it.
+    const mayAllow = onError === "allow" && request.type !== "authorization";
     if (request.type !== "message" && request.type !== "solana" && request.type !== "algorand" && !SUPPORTED_CHAINS.includes(chainId) && !XRPL_NETWORKS.includes(chainId)) {
-      if (onError === "allow") return null;
+      if (mayAllow) return null;
       throw new PresignBlockedError(`chain ${chainId} is not covered by presign-guard; nothing was signed`, { code: "unsupported_chain", request });
     }
     let verdict;
@@ -303,7 +327,7 @@ export function guardWallet(wallet, {
       verdict = await check(request);
     } catch (err) {
       if (err instanceof PresignBlockedError && err.code === "bad_receipt") throw err;
-      if (onError === "allow") return null;
+      if (mayAllow) return null;
       if (err instanceof PresignBlockedError) throw err;
       throw new PresignBlockedError(`presign check failed (${err.message}); nothing was signed`, { code: "check_failed", request });
     }
@@ -311,8 +335,11 @@ export function guardWallet(wallet, {
     const why = (verdict.reasons || []).filter((r) => r.severity !== "info").map((r) => r.code).join(", ") || verdict.verdict;
     if (verdict.verdict === "red") throw new PresignBlockedError(`not signed: red (${why})`, { code: "red", verdict, request });
     if (verdict.verdict === "orange") {
-      const ok = onOrange === "allow" || (typeof onOrange === "function" && (await onOrange(verdict, { method, request })) === true);
-      if (!ok) throw new PresignBlockedError(`not signed: orange (${why})`, { code: "orange", verdict, request });
+      // onOrange "allow" does not cover an EIP-7702 authorization: only your function's yes does.
+      const authorization = request.type === "authorization";
+      const ok = (onOrange === "allow" && !authorization) || (typeof onOrange === "function" && (await onOrange(verdict, { method, request })) === true);
+      const hint = authorization && onOrange === "allow" ? '; an EIP-7702 authorization is signed on orange only when your onOrange function says yes' : "";
+      if (!ok) throw new PresignBlockedError(`not signed: orange (${why})${hint}`, { code: "orange", verdict, request });
     } else if (verdict.verdict !== "green") {
       throw new PresignBlockedError(`not signed: unknown verdict ${verdict.verdict}`, { code: "check_failed", verdict, request });
     }
@@ -357,10 +384,54 @@ export function guardWallet(wallet, {
     return request;
   }
 
+  // EIP-7702 authorizations this wallet signed after a check, so the transaction that carries them is not
+  // charged for a second check.
+  const checkedAuthorizations = new Set();
+
+  // An EIP-7702 authorization moves nothing by itself but hands the contract the whole wallet: checked (stricter
+  // on orange and on errors, see verdictFor), counted toward no limit, signed for exactly the chain id checked.
+  async function signAuthorizationGuarded(target, original, args, rest, chainId) {
+    const request = checkRequestFor("signAuthorization", args, { chainId, origin, from: senderOf(args, target) });
+    if (!request) throw new PresignBlockedError("an EIP-7702 authorization needs the contract's address; nothing was signed", { code: "check_failed" });
+    await verdictFor("signAuthorization", request, request.chainId);
+    // Signed exactly as checked: this contract, this chain id.
+    const { contractAddress: _ignored, ...fields } = args;
+    const signed = await original({ ...fields, address: request.address, chainId: request.authorizationChainId }, ...rest);
+    const key = authorizationKey(signed);
+    if (key) checkedAuthorizations.add(key);
+    return signed;
+  }
+
+  // The signed EIP-7702 authorizations a transaction carries (authorizationList). Those this wallet signed with
+  // signAuthorization were checked then; any other one signed by the sending account is checked now, the same way.
+  // Authorizations signed by other accounts put nothing of this wallet at risk, and those for another chain do
+  // nothing on this one.
+  async function checkAuthorizationList(list, chainId, from) {
+    for (const a of list) {
+      const key = authorizationKey(a);
+      if (key && checkedAuthorizations.has(key)) continue;
+      const on = Number(a?.chainId);
+      if (on !== 0 && on !== chainId) continue;
+      let signer = null;
+      try { signer = await recoverAuthorizationAddress({ authorization: a }); } catch { signer = null; }
+      if (signer && from && signer.toLowerCase() !== from.toLowerCase()) continue;
+      // viem sends a signed authorization's `address` as the contract.
+      const request = checkRequestFor("signAuthorization", { address: a?.address, chainId: a?.chainId, nonce: a?.nonce }, { chainId, origin, from });
+      if (!request) throw new PresignBlockedError("an EIP-7702 authorization in authorizationList has no contract address; nothing was signed", { code: "check_failed" });
+      await verdictFor("signAuthorization", request, request.chainId);
+    }
+  }
+
   async function guarded(target, method, original, args, rest) {
     if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
     const chainId = args?.chain?.id ?? target.chain?.id;
     const run = () => original(args, ...rest);
+    if (method === "signAuthorization") {
+      if (TEMPO_TOKENS[chainId]) throw new PresignBlockedError(`on Tempo (chain ${chainId}) this wallet signs no EIP-7702 authorization; nothing was signed`, { code: "unsupported_chain" });
+      return signAuthorizationGuarded(target, original, args, rest, chainId);
+    }
+    const authorizations = Array.isArray(args?.authorizationList) ? args.authorizationList : [];
+    if (authorizations.length && TEMPO_TOKENS[chainId]) throw new PresignBlockedError(`on Tempo (chain ${chainId}) this wallet sends no EIP-7702 authorizations; nothing was signed`, { code: "unsupported_chain" });
     // A plain message moves nothing by itself, so it is checked but not counted toward the limits.
     if (method === "signMessage") {
       const request = checkRequestFor(method, args, { chainId, origin, from: senderOf(args, target) });
@@ -371,6 +442,7 @@ export function guardWallet(wallet, {
       const request = tempoRequest(method, args, chainId);
       return limiter ? withinLimits(method, request, null, run) : run();
     }
+    if (authorizations.length) await checkAuthorizationList(authorizations, chainId, senderOf(args, target));
     const request = checkRequestFor(method, args, { chainId, origin, x402: x402Paying.getStore(), from: senderOf(args, target) });
     if (!request) {
       // A contract deployment is not checked, but the value it sends still counts.
