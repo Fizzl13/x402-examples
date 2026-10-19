@@ -2,7 +2,7 @@
 
 Safety checks for Python AI agents that pay: LangChain, LangGraph, the OpenAI Agents SDK, CrewAI or your own loop.
 
-An [official LangChain integration](https://docs.langchain.com/oss/python/integrations/tools): listed in the LangChain docs under tools.
+An [official LangChain integration](https://docs.langchain.com/oss/python/integrations/tools#security): listed in the LangChain docs among the security tools.
 
 For LangChain.js and LangGraph.js: [`fizzl-langchain`](https://www.npmjs.com/package/fizzl-langchain) on npm.
 
