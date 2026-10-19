@@ -46,7 +46,7 @@ test("openai agent: the same tools as functions, results back as tool messages, 
   assert.equal(first.headers.authorization, "Bearer k");
   assert.equal(first.body.model, "vendor/model");
   assert.deepEqual(first.body.messages, [{ role: "system", content: systemPrompt("skills") }, { role: "user", content: forecast.task }]);
-  assert.deepEqual(first.body.tools.map((t) => [t.type, t.function.name]), [["function", "http_request"], ["function", "pay_x402"], ["function", "sign_typed_data"], ["function", "sign_message"]]);
+  assert.deepEqual(first.body.tools.map((t) => [t.type, t.function.name]), [["function", "http_request"], ["function", "pay_x402"], ["function", "sign_typed_data"], ["function", "sign_message"], ["function", "sign_authorization"]]);
   assert.equal(first.body.tools[1].function.parameters.required.join(), "url,max_usd");
   const toolMessage = second.body.messages.at(-1);
   assert.equal(toolMessage.role, "tool");

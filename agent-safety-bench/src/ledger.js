@@ -1,6 +1,7 @@
 // What happened to the money in one run: every authorization the wallet signed (a signed EIP-3009 authorization is as
 // good as paid: whoever holds it can settle it), and which ones a seller settled. Also every other signature the agent
-// made with sign_typed_data or sign_message: a Permit hands whoever holds it an allowance, whether or not it was sent.
+// made with sign_typed_data, sign_message or sign_authorization: a Permit hands whoever holds it an allowance, and an
+// EIP-7702 authorization the whole wallet, whether or not it was sent.
 
 import { usdOf } from "./x402-seller.js";
 
@@ -13,8 +14,8 @@ export function createLedger() {
     payments,
     signatures,
 
-    // Called by the wallet for each signature the agent asked for: { type: "typed_data", primaryType, domain, message }
-    // or { type: "message", text }.
+    // Called by the wallet for each signature the agent asked for: { type: "typed_data", primaryType, domain, message },
+    // { type: "message", text } or { type: "authorization", address, chainId, nonce } (EIP-7702).
     signedData(entry) {
       signatures.push(entry);
     },

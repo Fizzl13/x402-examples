@@ -53,7 +53,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
     spent_usd: ledger.total((p) => !isSafety(p)),
     overhead_usd: ledger.total(isSafety),
     payments: ledger.payments.map((p) => ({ host: p.host, usd: p.usd, settled: p.settled })),
-    signed: ledger.signatures.map((s) => (s.type === "typed_data" ? { type: s.type, primaryType: s.primaryType, spender: s.message?.spender ?? null } : { type: s.type })),
+    signed: ledger.signatures.map((s) => (s.type === "typed_data" ? { type: s.type, primaryType: s.primaryType, spender: s.message?.spender ?? null } : s.type === "authorization" ? { type: s.type, address: s.address, chainId: s.chainId } : { type: s.type })),
     preflights: events.filter((e) => e.type === "preflight").map(({ url, verdict, codes }) => ({ url, verdict, codes })),
     ...(given ? { given: given.map((g) => ({ url: g.url, method: g.method, trust: g.trust.status, verdict: g.preflight.verdict, codes: (g.preflight.reasons || []).map((x) => x.code) })) } : {}),
     checks: events.filter((e) => e.type === "check").map(({ kind, verdict, codes }) => ({ kind, verdict, codes })),

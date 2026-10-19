@@ -42,6 +42,7 @@ function kit({ tools, wallet }, allowed = async () => true) {
     request,
     signTypedData: async (typedData, { origin } = {}) => ((await allowed({ type: "signature", chainId: BASE_CHAIN_ID, typedData, ...(origin ? { origin } : {}) })) ? refusable(() => wallet.signTypedData(typedData)) : null),
     signMessage: async (message, { origin } = {}) => ((await allowed({ type: "message", method: "personal_sign", message, ...(origin ? { origin } : {}) })) ? refusable(() => wallet.signMessage(message)) : null),
+    signAuthorization: async ({ address, chainId, nonce = 0 }, { origin } = {}) => ((await allowed({ type: "authorization", chainId: BASE_CHAIN_ID, address, authorizationChainId: chainId, nonce: String(nonce), from: wallet.address, ...(origin ? { origin } : {}) })) ? refusable(() => wallet.signAuthorization({ address, chainId, nonce })) : null),
   };
 }
 
