@@ -500,3 +500,71 @@ test("authorizationList: authorizations signed here are not checked twice; other
   assert.equal(red.log.checks[0].input.authorizationChainId, 0);
   assert.equal(red.log.signed.length, 0);
 });
+
+// viem's other ways to sign or send: the fake wallet records what each signs.
+function moreWorld(options) {
+  const w = world(options);
+  for (const m of ["sendTransactionSync", "writeContractSync", "signTransaction", "deployContract", "sendCalls", "sendCallsSync"]) {
+    w.wallet[m] = async (args) => { w.log.signed.push([m, args]); return `0x${m}`; };
+  }
+  return w;
+}
+const ERC20 = parseAbi(["function transfer(address to, uint256 amount)", "function approve(address spender, uint256 amount)"]);
+const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+
+test("sendTransactionSync, writeContractSync and signTransaction are checked like sendTransaction and writeContract; red signs nothing", async () => {
+  const w = moreWorld();
+  const g = make(w);
+  assert.equal(await g.sendTransactionSync({ to: SPENDER, data: "0x", value: 5n }), "0xsendTransactionSync");
+  assert.equal(await g.signTransaction({ to: SPENDER, data: "0x12", value: 1n }), "0xsignTransaction");
+  assert.equal(await g.writeContractSync({ address: BASE_USDC, abi: ERC20, functionName: "transfer", args: [SPENDER, 1n] }), "0xwriteContractSync");
+  assert.deepEqual(w.log.checks.map((c) => [c.input.type, c.input.to, c.input.value]), [["transaction", SPENDER, "5"], ["transaction", SPENDER, "1"], ["transaction", BASE_USDC, "0"]]);
+  assert.match(w.log.checks[2].input.data, /^0xa9059cbb/, "the transfer is encoded as writeContract would");
+  assert.deepEqual(checkRequestFor("writeContractSync", { address: BASE_USDC, abi: ERC20, functionName: "transfer", args: [SPENDER, 1n] }, { chainId: 8453 }), checkRequestFor("writeContract", { address: BASE_USDC, abi: ERC20, functionName: "transfer", args: [SPENDER, 1n] }, { chainId: 8453 }));
+
+  const red = moreWorld({ verdict: "red", reasons: [{ code: "KNOWN_DRAINER", severity: "red" }] });
+  const r = make(red);
+  for (const call of [() => r.sendTransactionSync({ to: SPENDER }), () => r.signTransaction({ to: SPENDER }), () => r.writeContractSync({ address: BASE_USDC, abi: ERC20, functionName: "approve", args: [SPENDER, 1n] })]) {
+    await assert.rejects(call(), { code: "red" });
+  }
+  assert.equal(red.log.signed.length, 0);
+});
+
+test("deployContract: not checked by presign-guard, but the value it sends counts toward the limits", async () => {
+  const w = moreWorld();
+  const g = make(w, { limits: { tokens: { ETH: { perTx: "0.001" } } } });
+  assert.equal(await g.deployContract({ abi: [], bytecode: "0x6000", value: 0n }), "0xdeployContract");
+  await assert.rejects(g.deployContract({ abi: [], bytecode: "0x6000", value: 10n ** 16n }), { code: "over_limit" });
+  assert.equal(w.log.checks.length, 0);
+  assert.equal(w.log.signed.length, 1);
+});
+
+test("sendCalls and sendCallsSync: every call is checked; one red call stops the batch; all of it counts toward the limits or none", async () => {
+  const w = moreWorld();
+  const g = make(w, { limits: { tokens: { USDC: { perTx: "5", perDay: "5" } } } });
+  const transfer = (usd) => ({ to: BASE_USDC, abi: ERC20, functionName: "transfer", args: [SPENDER, BigInt(usd * 1e6)] });
+  assert.equal(await g.sendCalls({ calls: [transfer(2), { to: SPENDER, data: "0x", value: 0n }] }), "0xsendCalls");
+  assert.deepEqual(w.log.checks.map((c) => [c.input.type, c.input.to, c.input.from]), [["transaction", BASE_USDC, "0x2222222222222222222222222222222222222222"], ["transaction", SPENDER, "0x2222222222222222222222222222222222222222"]]);
+  assert.equal((await g.spending())[0].used, "2");
+  // 2 + 2 fits each call's perTx of 5, but not the day's 5 with the 2 already spent: nothing of the batch is booked.
+  await assert.rejects(g.sendCallsSync({ calls: [transfer(2), transfer(2)] }), { code: "over_limit" });
+  assert.equal((await g.spending())[0].used, "2", "the first call of the refused batch was given back");
+  assert.equal(w.log.signed.length, 1);
+  await assert.rejects(g.sendCalls({ calls: [] }), { code: "check_failed" });
+
+  const red = moreWorld({ verdict: "red", reasons: [{ code: "UNLIMITED_APPROVAL_TO_EOA", severity: "red" }] });
+  await assert.rejects(make(red).sendCalls({ calls: [{ to: BASE_USDC, abi: ERC20, functionName: "approve", args: [SPENDER, 2n ** 255n] }] }), { code: "red" });
+  assert.equal(red.log.signed.length, 0);
+});
+
+test("Tempo: writeContractSync of USDC.e is signed like writeContract; batches and signed transactions are refused", async () => {
+  const w = world();
+  const t = tempoWallet();
+  for (const m of ["writeContractSync", "sendCalls", "signTransaction"]) t.wallet[m] = async (a) => { t.signed.push([m, a]); return "0xtempo"; };
+  const tempo = make(w).wrap(t.wallet);
+  assert.equal(await tempo.writeContractSync({ address: TEMPO_USDC, abi: TIP20, functionName: "transfer", args: [SPENDER, 1n] }), "0xtempo");
+  await assert.rejects(tempo.sendCalls({ calls: [{ to: TEMPO_USDC, data: "0x" }] }), { code: "unsupported_chain" });
+  await assert.rejects(tempo.signTransaction({ to: TEMPO_USDC, data: "0x" }), { code: "unsupported_chain" });
+  assert.equal(t.signed.length, 1);
+  assert.equal(w.log.checks.length, 0);
+});
