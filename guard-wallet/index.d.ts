@@ -27,7 +27,8 @@ export interface PresignVerdict {
 export type CheckRequest =
   | { type: "transaction"; chainId: number; to: string; data: string; value: string; origin?: string; from?: string }
   | { type: "signature"; chainId: number; typedData: unknown; origin?: string }
-  | { type: "message"; method: "personal_sign"; message: string; chainId?: number; origin?: string; from?: string };
+  | { type: "message"; method: "personal_sign"; message: string; chainId?: number; origin?: string; from?: string }
+  | { type: "authorization"; chainId: number; address: string; authorizationChainId?: number; nonce?: string; origin?: string; from?: string };
 
 export declare class PresignBlockedError extends Error {
   code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain" | "over_limit" | "paused" | "limit_unavailable";
@@ -174,9 +175,9 @@ export interface GuardOptions {
   creditKey?: string;
   /** Plain fetch used for credit-paid checks. Default globalThis.fetch. */
   fetch?: typeof globalThis.fetch;
-  /** What to do on an orange verdict. Default "stop". */
+  /** What to do on an orange verdict. Default "stop". "allow" does not cover EIP-7702 authorizations: an orange one is signed only when your function returns true. */
   onOrange?: "stop" | "allow" | ((verdict: PresignVerdict, info: { method: string; request: CheckRequest }) => boolean | Promise<boolean>);
-  /** When the check cannot be done (outage, unsupported chain). Default "stop". A forged or changed verdict always stops. */
+  /** When the check cannot be done (outage, unsupported chain). Default "stop". A forged or changed verdict, and an EIP-7702 authorization, always stop. */
   onError?: "stop" | "allow";
   /** The site asking for the signature, if any: domain age and phishing lists are checked. */
   origin?: string;
@@ -202,7 +203,7 @@ export interface GuardOptions {
   server?: { url: string; key: string; fetch?: typeof globalThis.fetch; requestTimeoutMs?: number };
 }
 
-/** The same wallet client; sendTransaction, writeContract and signTypedData are checked first. */
+/** The same wallet client; sendTransaction, writeContract, signTypedData, signAuthorization (EIP-7702) and signMessage are checked first. */
 export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
 export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string; x402?: Record<string, unknown>; from?: string }): CheckRequest | null;
 /**

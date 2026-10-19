@@ -43,6 +43,8 @@ Prefer to run everything yourself? See [Set up](#set-up) below.
 | `send_native` | Send ETH / POL / BNB to an address |
 | `pause_spending` | The agent stops itself when something looks wrong; nothing is signed until you restart or resume |
 
+The wallet signs only what these tools need: payment signatures and transfers. It signs no EIP-7702 authorization (handing the wallet's code to a contract, which is how "sweeper" drainers empty a wallet), whatever a seller, a web page or a prompt asks.
+
 ## Set up
 
 1. **Make a separate wallet for the agent.** Put only what it may spend in it: a few dollars of USDC on Base, plus a little ETH for gas if it will send transfers. Never use your main wallet.

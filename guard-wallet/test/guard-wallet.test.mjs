@@ -410,3 +410,93 @@ test("signMessage: checked on any chain (a message has no chain), stopped while 
   g.pause();
   await assert.rejects(g.signMessage({ message: "hello" }), { code: "paused" });
 });
+
+const DELEGATE = "0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B";
+// A wallet that signs EIP-7702 authorizations (a fake signature: the fields signed, plus r and s).
+function authWorld(options) {
+  const w = world(options);
+  let n = 0;
+  w.wallet.signAuthorization = async (args) => {
+    w.log.signed.push(["signAuthorization", args]);
+    n += 1;
+    return { address: args.address ?? args.contractAddress, chainId: args.chainId, nonce: args.nonce ?? 7, r: `0x${String(n).padStart(64, "a")}`, s: `0x${String(n).padStart(64, "b")}`, yParity: 0 };
+  };
+  return w;
+}
+
+test("signAuthorization: an EIP-7702 delegation is checked (type authorization, with from) and signed for exactly the chain id checked", async () => {
+  const w = authWorld();
+  const seen = [];
+  const signed = await make(w, { onVerdict: (v, info) => seen.push(info.method) }).signAuthorization({ contractAddress: DELEGATE });
+  assert.deepEqual(w.log.checks[0].input, { type: "authorization", chainId: 8453, address: DELEGATE, authorizationChainId: 8453, from: "0x2222222222222222222222222222222222222222" });
+  assert.equal(w.log.signed[0][1].chainId, 8453, "viem gets the chain id that was checked");
+  assert.equal(signed.address, DELEGATE);
+  assert.deepEqual(seen, ["signAuthorization"]);
+
+  // chainId 0 (every chain) is checked on the client's chain, and signed as 0; a nonce goes along.
+  await make(w).signAuthorization({ address: DELEGATE, chainId: 0, nonce: 3 });
+  assert.deepEqual(w.log.checks[1].input, { type: "authorization", chainId: 8453, address: DELEGATE, authorizationChainId: 0, nonce: "3", from: "0x2222222222222222222222222222222222222222" });
+  assert.equal(w.log.signed[1][1].chainId, 0);
+  assert.equal(checkRequestFor("signAuthorization", {}), null);
+
+  // viem signs contractAddress before address: that is the one checked, and the only one passed on.
+  await make(w).signAuthorization({ contractAddress: DELEGATE, address: SPENDER });
+  assert.equal(w.log.checks[2].input.address, DELEGATE);
+  assert.equal(w.log.signed[2][1].address, DELEGATE);
+  assert.equal("contractAddress" in w.log.signed[2][1], false);
+});
+
+test("signAuthorization: red is never signed; orange needs your onOrange function's yes (\"allow\" does not cover it); a failed check always stops", async () => {
+  const red = authWorld({ verdict: "red", reasons: [{ code: "AUTHORIZATION_TO_UNVERIFIED_CONTRACT", severity: "red" }] });
+  await assert.rejects(make(red, { onOrange: "allow" }).signAuthorization({ address: DELEGATE }), { code: "red" });
+  assert.equal(red.log.signed.length, 0);
+
+  const orange = authWorld({ verdict: "orange", reasons: [{ code: "EIP7702_AUTHORIZATION", severity: "orange" }] });
+  await assert.rejects(make(orange, { onOrange: "allow" }).signAuthorization({ address: DELEGATE }), (err) => {
+    assert.equal(err.code, "orange");
+    assert.match(err.message, /EIP7702_AUTHORIZATION.*only when your onOrange function says yes/);
+    return true;
+  });
+  assert.equal(orange.log.signed.length, 0);
+  const asked = [];
+  await make(orange, { onOrange: async (v, info) => { asked.push([info.method, info.request.address]); return true; } }).signAuthorization({ address: DELEGATE });
+  assert.deepEqual(asked, [["signAuthorization", DELEGATE]]);
+  assert.equal(orange.log.signed.length, 1);
+  // "allow" still covers everything else.
+  await make(orange, { onOrange: "allow" }).sendTransaction({ to: SPENDER });
+
+  const down = authWorld({ status: 503 });
+  await assert.rejects(make(down, { onError: "allow" }).signAuthorization({ address: DELEGATE }), { code: "check_failed" });
+  const elsewhere = authWorld();
+  elsewhere.wallet.chain = { id: 999 };
+  await assert.rejects(make(elsewhere, { onError: "allow" }).signAuthorization({ address: DELEGATE }), { code: "unsupported_chain" });
+  const tempo = authWorld();
+  tempo.wallet.chain = { id: 4217 };
+  await assert.rejects(make(tempo).signAuthorization({ address: DELEGATE }), { code: "unsupported_chain" });
+  assert.equal(down.log.signed.length + elsewhere.log.signed.length + tempo.log.signed.length, 0);
+});
+
+test("authorizationList: authorizations signed here are not checked twice; others by this account are; other accounts' and other chains' are left alone", async () => {
+  const me = privateKeyToAccount(generatePrivateKey());
+  const someone = privateKeyToAccount(generatePrivateKey());
+  const w = authWorld();
+  w.wallet.account = { address: me.address };
+  const g = make(w);
+  const mine = await g.signAuthorization({ address: DELEGATE });
+  await g.sendTransaction({ to: me.address, data: "0x", authorizationList: [mine] });
+  assert.deepEqual(w.log.checks.map((c) => c.input.type), ["authorization", "transaction"]);
+
+  const outside = await me.signAuthorization({ address: DELEGATE, chainId: 8453, nonce: 1 }); // signed with the raw key
+  const theirs = await someone.signAuthorization({ address: DELEGATE, chainId: 8453, nonce: 0 });
+  const otherChain = await me.signAuthorization({ address: DELEGATE, chainId: 1, nonce: 2 });
+  await g.sendTransaction({ to: me.address, data: "0x", authorizationList: [outside, theirs, otherChain] });
+  assert.deepEqual(w.log.checks.slice(2).map((c) => [c.input.type, c.input.from]), [["authorization", me.address], ["transaction", me.address]]);
+  assert.equal(w.log.checks[2].input.nonce, "1");
+
+  const red = authWorld({ verdict: "red", reasons: [{ code: "AUTHORIZATION_TO_FLAGGED_CONTRACT", severity: "red" }] });
+  red.wallet.account = { address: me.address };
+  const sweeper = await me.signAuthorization({ address: DELEGATE, chainId: 0, nonce: 4 });
+  await assert.rejects(make(red, { onOrange: "allow" }).writeContract({ address: TOKEN, abi: parseAbi(["function transfer(address to, uint256 amount)"]), functionName: "transfer", args: [SPENDER, 1n], authorizationList: [sweeper] }), { code: "red" });
+  assert.equal(red.log.checks[0].input.authorizationChainId, 0);
+  assert.equal(red.log.signed.length, 0);
+});
