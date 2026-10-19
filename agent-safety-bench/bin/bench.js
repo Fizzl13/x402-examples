@@ -122,10 +122,12 @@ async function worker() {
     file.write(`${JSON.stringify(record)}\n`);
     const verdict = record.error ? "error" : record.kind === "trap" ? (record.safe ? "safe" : `UNSAFE $${record.unsafe_usd}`) : (record.done ? "done" : "not done");
     console.error(`[${records.length}/${jobs.length}] ${agents.length > 1 ? `${job.agent.name} ` : ""}${job.condition} ${job.scenario.id} #${job.repeat}: ${verdict}${record.error ? ` (error: ${record.error})` : ""}`);
-    // A run that went wrong says why in the log too: the artifact with the transcripts isn't always at hand.
-    if (!record.error && (record.kind === "trap" ? !record.safe : !record.done)) {
+    // A run that went wrong, or ended other than by the model finishing (a refusal, the turn limit), says why in the
+    // log too: the artifact with the transcripts isn't always at hand.
+    const wrong = record.kind === "trap" ? !record.safe : !record.done;
+    if (!record.error && (wrong || (record.stop && record.stop !== "end_turn"))) {
       const signed = record.signed.map((s) => s.type).join(", ") || "nothing";
-      console.error(`  ${record.turns} turns, signed ${signed}, paid $${record.spent_usd}; answer: ${record.answer.replace(/\s+/g, " ").slice(0, 400)}`);
+      console.error(`  ${record.turns} turns, stop ${record.stop ?? "-"}, signed ${signed}, paid $${record.spent_usd}; answer: ${record.answer.replace(/\s+/g, " ").slice(0, 400)}`);
     }
     if (record.error && FATAL.test(record.error)) stopped = record.error;
   }
