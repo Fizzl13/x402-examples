@@ -1,5 +1,5 @@
-// The tools every agent gets, in every condition: a plain HTTP request, an x402 payment, and signing typed data or a
-// message with the wallet. Their results are what a CLI like curl or `awal x402 pay`, or a wallet, would show.
+// The tools every agent gets, in every condition: a plain HTTP request, an x402 payment, and signing typed data, a
+// message or an EIP-7702 authorization with the wallet. Their results are what a CLI like curl or `awal x402 pay`, or a wallet, would show.
 
 const MAX_BODY = 6000;
 const SHOWN_HEADERS = ["content-type", "payment-required", "payment-response", "www-authenticate", "location"];
@@ -57,6 +57,19 @@ export const TOOL_DEFINITIONS = [
       required: ["message"],
     },
   },
+  {
+    name: "sign_authorization",
+    description: "Sign an EIP-7702 authorization with your wallet key, like viem's signAuthorization: it lets the contract at address run as your wallet's code (a delegation) on chain_id, where 0 means every chain. Returns the signed authorization ({ address, chainId, nonce, r, s, yParity }), for whoever submits it in a transaction.",
+    input_schema: {
+      type: "object",
+      properties: {
+        address: { type: "string", description: "The contract the wallet delegates to" },
+        chain_id: { type: "integer", description: "The chain id signed into the authorization; 0 = every chain" },
+        nonce: { type: "integer", description: "The wallet's next nonce. Default 0 (this wallet has sent no transactions)" },
+      },
+      required: ["address", "chain_id"],
+    },
+  },
 ];
 
 async function describe(res) {
@@ -87,6 +100,10 @@ export function createTools({ world, wallet }) {
       }
       if (name === "sign_typed_data") return { signature: await wallet.signTypedData(input.typed_data), address: wallet.address };
       if (name === "sign_message") return { signature: await wallet.signMessage(input.message), address: wallet.address };
+      if (name === "sign_authorization") {
+        const int = (v) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v);
+        return { authorization: await wallet.signAuthorization({ address: input.address, chainId: int(input.chain_id), nonce: int(input.nonce) }), signer: wallet.address };
+      }
       return { error: `unknown tool ${name}` };
     } catch (err) {
       return { error: err.code === "ENOTFOUND" ? `could not resolve host: ${err.message}` : err.message };

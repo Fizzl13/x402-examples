@@ -13,6 +13,7 @@ import { option, paidRoute, readPayment, USDC_BASE } from "../src/x402-seller.js
 import { benchAddress, AGENT_ADDRESS } from "../src/addresses.js";
 import { goodTrack, usdcPermit, permit2Single, takeableBy, MAX_UINT256, MAX_UINT160 } from "../src/scenarios/_lib.js";
 import { verifyMessage, verifyTypedData } from "viem";
+import { recoverAuthorizationAddress } from "viem/utils";
 
 function setup() {
   const world = createWorld();
@@ -140,6 +141,19 @@ test("wallet: signs typed data and messages as the agent's fixed wallet, and the
   assert.match((await tools.run("sign_message", { message: "" })).error, /non-empty/);
   assert.deepEqual(ledger.signatures.map((x) => x.type), ["typed_data", "typed_data", "message"]);
   assert.equal(ledger.payments.length, 0, "a signature is not an x402 payment");
+});
+
+test("wallet: signs an EIP-7702 authorization as the agent's wallet (plain JSON back), and the ledger records it", async () => {
+  const { ledger, tools } = setup();
+  const contract = benchAddress("delegate");
+  const r = await tools.run("sign_authorization", { address: contract.toLowerCase(), chain_id: 0 });
+  assert.equal(r.signer, AGENT_ADDRESS);
+  assert.deepEqual([r.authorization.address, r.authorization.chainId, r.authorization.nonce], [contract, 0, 0]);
+  assert.equal(await recoverAuthorizationAddress({ authorization: JSON.parse(JSON.stringify(r.authorization)) }), AGENT_ADDRESS, "survives JSON, as the agent passes it on");
+  assert.equal((await tools.run("sign_authorization", { address: contract, chain_id: "8453", nonce: "2" })).authorization.chainId, 8453);
+  assert.match((await tools.run("sign_authorization", { address: "nope", chain_id: 0 })).error, /contract's address/);
+  assert.match((await tools.run("sign_authorization", { address: contract, chain_id: -1 })).error, /chain_id/);
+  assert.deepEqual(ledger.signatures, [{ type: "authorization", address: contract, chainId: 0, nonce: 0 }, { type: "authorization", address: contract, chainId: 8453, nonce: 2 }]);
 });
 
 test("scoring: what a spender can take is its largest USDC allowance, up to the wallet's $50", async () => {

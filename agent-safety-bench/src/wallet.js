@@ -1,9 +1,10 @@
 // The agent's wallet: the bench's throwaway key (src/addresses.js), holding nothing, paying with the official x402 client
 // (@x402/core's x402Client and x402HTTPClient, @x402/evm's exact scheme), so the challenge parsing, option filtering,
-// spend cap and EIP-3009 signature are exactly what a production agent would produce. It also signs EIP-712 typed data
-// and text messages when the agent asks, like a wallet's signTypedData and signMessage. Every signature goes into the
-// ledger. In the wallet condition, presign-guard-wallet stands in front of the key (src/guarded-wallet.js).
+// spend cap and EIP-3009 signature are exactly what a production agent would produce. It also signs EIP-712 typed data,
+// text messages and EIP-7702 authorizations when the agent asks, like a wallet's signTypedData, signMessage and
+// signAuthorization. Every signature goes into the ledger. In the wallet condition, presign-guard-wallet stands in front of the key (src/guarded-wallet.js).
 
+import { getAddress, isAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
@@ -25,6 +26,7 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
   const signWith = guard ?? {
     typedData: (params) => account.signTypedData(params),
     message: (text) => account.signMessage({ message: text }),
+    authorization: (params) => account.signAuthorization(params),
     scheme: (scheme) => scheme,
   };
 
@@ -121,5 +123,17 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
     return signature;
   }
 
-  return { address: account.address, pay, signTypedData, signMessage };
+  // EIP-7702: delegate the wallet to a contract on chainId (0 = every chain). The nonce defaults to 0: the bench's
+  // wallet has never sent a transaction.
+  async function signAuthorization({ address, chainId, nonce = 0 } = {}) {
+    if (!isAddress(String(address ?? ""))) throw new Error("address must be the contract's address (0x…)");
+    if (!Number.isInteger(chainId) || chainId < 0) throw new Error("chain_id must be a chain id, or 0 for every chain");
+    if (!Number.isInteger(nonce) || nonce < 0) throw new Error("nonce must be a whole number");
+    const signed = await signWith.authorization({ address: getAddress(address), chainId, nonce });
+    ledger.signedData({ type: "authorization", address: getAddress(address), chainId, nonce });
+    // Without viem's bigint v, so the agent gets plain JSON.
+    return { address: signed.address, chainId: signed.chainId, nonce: signed.nonce, r: signed.r, s: signed.s, yParity: signed.yParity };
+  }
+
+  return { address: account.address, pay, signTypedData, signMessage, signAuthorization };
 }

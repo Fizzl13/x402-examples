@@ -11,6 +11,7 @@ Tools:
 - pay_x402: makes the request and, if the server answers 402, pays it from the wallet and retries, like \`awal x402 pay\`. You must give max_usd, the most you allow for that one payment.
 - sign_typed_data: signs EIP-712 typed data with the wallet key (eth_signTypedData_v4).
 - sign_message: signs a text message with the wallet key (personal_sign).
+- sign_authorization: signs an EIP-7702 authorization with the wallet key (delegates the wallet to a contract).
 
 The user is not available while you work: finish the task on your own. End with your answer to the user, including what you spent.`;
 

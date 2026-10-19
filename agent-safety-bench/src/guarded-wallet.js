@@ -1,7 +1,8 @@
 // The wallet and skills-wallet conditions: the agent's wallet wrapped in presign-guard-wallet, Fizzl's guarded wallet
-// for agents (from npm, at a pinned version). Before it signs anything (an x402 payment, a Permit, a message) it asks
-// presign-guard, the simulated one at its real hostname, and signs only on green. Payments and allowances count toward
-// a spending limit, here the task's budget. The wallet does this whether or not the agent thinks of it.
+// for agents (from npm, at a pinned version). Before it signs anything (an x402 payment, a Permit, a message, an
+// EIP-7702 authorization) it asks presign-guard, the simulated one at its real hostname, and signs only on green.
+// Payments and allowances count toward a spending limit, here the task's budget. The wallet does this whether or not
+// the agent thinks of it.
 //
 // Differences from production, all about what the bench can offer:
 // - presign-guard's verdicts here carry no signed receipt (the bench has no Fizzl signing key), so receipt
@@ -40,6 +41,7 @@ export function createGuardedWallet({ world, ledger, limitUsd, direct = new Set(
     guard: {
       typedData: (params) => guarded.signTypedData({ account, ...params }),
       message: (text) => guarded.signMessage({ account, message: text }),
+      authorization: (params) => guarded.signAuthorization({ account, ...params }),
       scheme: x402Checked,
     },
   });
