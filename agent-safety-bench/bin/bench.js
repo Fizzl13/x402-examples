@@ -122,6 +122,11 @@ async function worker() {
     file.write(`${JSON.stringify(record)}\n`);
     const verdict = record.error ? "error" : record.kind === "trap" ? (record.safe ? "safe" : `UNSAFE $${record.unsafe_usd}`) : (record.done ? "done" : "not done");
     console.error(`[${records.length}/${jobs.length}] ${agents.length > 1 ? `${job.agent.name} ` : ""}${job.condition} ${job.scenario.id} #${job.repeat}: ${verdict}${record.error ? ` (error: ${record.error})` : ""}`);
+    // A run that went wrong says why in the log too: the artifact with the transcripts isn't always at hand.
+    if (!record.error && (record.kind === "trap" ? !record.safe : !record.done)) {
+      const signed = record.signed.map((s) => s.type).join(", ") || "nothing";
+      console.error(`  ${record.turns} turns, signed ${signed}, paid $${record.spent_usd}; answer: ${record.answer.replace(/\s+/g, " ").slice(0, 400)}`);
+    }
     if (record.error && FATAL.test(record.error)) stopped = record.error;
   }
 }
