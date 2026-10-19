@@ -1,7 +1,9 @@
 // presign-guard-wallet: a viem wallet for AI agents that asks presign-guard
 // before it signs.
 //
-// Before every sendTransaction, writeContract and signTypedData, the wallet
+// Before every sendTransaction, writeContract and signTypedData (and viem's
+// other ways to sign or send: signTransaction, sendTransactionSync,
+// writeContractSync, sendCalls, sendCallsSync, deployContract), the wallet
 // pays $0.01 (x402, USDC) for a presign-guard verdict on exactly what is about
 // to be signed, and acts on it:
 //   green  → signs
@@ -86,7 +88,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.21.0";
+export const VERSION = "0.22.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -139,6 +141,7 @@ function senderOf(args, client) {
 // What presign-guard should check for a wallet call, or null for calls it does not cover. With `from` (the
 // sending wallet) presign-guard simulates a transaction and reports what really leaves the wallet.
 export function checkRequestFor(method, args, { chainId, origin, x402, from } = {}) {
+  method = SAME_AS[method] ?? method;
   const base = { chainId, ...(origin ? { origin } : {}) };
   const sender = from ? { from } : {};
   if (method === "sendTransaction") {
@@ -207,7 +210,13 @@ export function sessionDeposit(tx, chainId, address) {
   return { token: descriptor.token.toLowerCase(), payee: descriptor.payee, deposit };
 }
 
-const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData", "signAuthorization"]);
+// viem's other ways to sign or send, each checked like the call it stands for. A signed transaction is as good as
+// sent (anyone can broadcast it), and a deployment is checked like a transaction without a recipient: not by
+// presign-guard, but the value it sends counts.
+const SAME_AS = { sendTransactionSync: "sendTransaction", signTransaction: "sendTransaction", deployContract: "sendTransaction", writeContractSync: "writeContract" };
+// EIP-5792 batches: every call in them is checked.
+const BATCHES = new Set(["sendCalls", "sendCallsSync"]);
+const GUARDED = new Set(["sendTransaction", "writeContract", "signTypedData", "signAuthorization", ...Object.keys(SAME_AS), ...BATCHES]);
 
 // A signed EIP-7702 authorization, by its signature.
 const authorizationKey = (a) => (typeof a?.r === "string" && typeof a?.s === "string" ? `${a.r}:${a.s}`.toLowerCase() : null);
@@ -373,10 +382,45 @@ export function guardWallet(wallet, {
     return result;
   }
 
+  // Several spends signed at once (a batch): every one booked before anything is signed, so each counts toward the
+  // window (perTx applies to each call on its own); all given back when one doesn't fit or signing fails.
+  async function withinLimitsAll(method, items, run) {
+    const ctx = purchases.getStore();
+    const purchase = ctx?.info ?? null;
+    const booked = [];
+    const giveBack = (error) => Promise.all(booked.map((b) => limiter.release(b.entries, { purchaseId: b.purchaseId, error }).catch((e) => console.warn(`[presign-guard-wallet] could not give back spending: ${e.message}`))));
+    for (const { request, verdict } of items) {
+      let b;
+      try {
+        b = await limiter.reserve({ method, request, verdict, purchase });
+      } catch (err) {
+        await giveBack(err.message);
+        throw new PresignBlockedError(`spending limits could not be checked (${err.message}); nothing was signed`, { code: "limit_unavailable", verdict, request });
+      }
+      if (!b.ok) {
+        await giveBack(b.summary);
+        const err = new PresignBlockedError(`not signed: ${b.summary}`, { code: b.paused ? "paused" : "over_limit", verdict, request });
+        err.reasons = b.reasons;
+        throw err;
+      }
+      booked.push({ ...b, verdict });
+      if (b.purchaseId) ctx?.purchaseIds.push(b.purchaseId);
+    }
+    let result;
+    try {
+      result = await run();
+    } catch (err) {
+      await giveBack(err.message);
+      throw err;
+    }
+    for (const b of booked) limiter.spent(b.entries, result, { verdict: b.verdict, purchase, purchaseId: b.purchaseId, approval: b.approval ?? null });
+    return result;
+  }
+
   // Tempo: only a plain stablecoin transfer, checked here instead of by presign-guard.
   function tempoRequest(method, args, chainId) {
     const tokens = TEMPO_TOKENS[chainId];
-    const ok = method === "writeContract" && tokens.includes(String(args?.address ?? "").toLowerCase())
+    const ok = (SAME_AS[method] ?? method) === "writeContract" && tokens.includes(String(args?.address ?? "").toLowerCase())
       && TEMPO_TRANSFERS.has(args?.functionName) && !(BigInt(args?.value ?? 0n) > 0n);
     let request = null;
     try { request = ok ? checkRequestFor(method, args, { chainId, origin }) : null; } catch { request = null; }
@@ -422,10 +466,32 @@ export function guardWallet(wallet, {
     }
   }
 
+  // EIP-5792 batches (sendCalls, sendCallsSync): every call is checked like a transaction from the same wallet and
+  // counts toward the limits; one red or stopped call stops the whole batch, before anything is signed.
+  async function sendCallsGuarded(target, method, original, args, rest, chainId) {
+    if (TEMPO_TOKENS[chainId]) throw new PresignBlockedError(`on Tempo (chain ${chainId}) this wallet sends no batches; nothing was signed`, { code: "unsupported_chain" });
+    const calls = Array.isArray(args?.calls) ? args.calls : [];
+    if (!calls.length) throw new PresignBlockedError("a batch without calls; nothing was signed", { code: "check_failed" });
+    const from = senderOf(args, target);
+    const checked = [];
+    for (const call of calls) {
+      // A call is { to, data, value } or { to, abi, functionName, args, value }, as viem takes them.
+      const request = call?.abi
+        ? checkRequestFor("writeContract", { address: call.to, abi: call.abi, functionName: call.functionName, args: call.args, value: call.value }, { chainId, origin, from })
+        : checkRequestFor("sendTransaction", call, { chainId, origin, from });
+      // A deployment in the batch: not checked, but the value it sends counts.
+      if (!request) checked.push({ request: { type: "transaction", chainId, to: null, data: call?.data ?? "0x", value: String(call?.value ?? 0n) }, verdict: null });
+      else checked.push({ request, verdict: await verdictFor(method, request, chainId) });
+    }
+    const run = () => original(args, ...rest);
+    return limiter ? withinLimitsAll(method, checked, run) : run();
+  }
+
   async function guarded(target, method, original, args, rest) {
     if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
     const chainId = args?.chain?.id ?? target.chain?.id;
     const run = () => original(args, ...rest);
+    if (BATCHES.has(method)) return sendCallsGuarded(target, method, original, args, rest, chainId);
     if (method === "signAuthorization") {
       if (TEMPO_TOKENS[chainId]) throw new PresignBlockedError(`on Tempo (chain ${chainId}) this wallet signs no EIP-7702 authorization; nothing was signed`, { code: "unsupported_chain" });
       return signAuthorizationGuarded(target, original, args, rest, chainId);
@@ -446,7 +512,7 @@ export function guardWallet(wallet, {
     const request = checkRequestFor(method, args, { chainId, origin, x402: x402Paying.getStore(), from: senderOf(args, target) });
     if (!request) {
       // A contract deployment is not checked, but the value it sends still counts.
-      if (limiter && method === "sendTransaction") {
+      if (limiter && (SAME_AS[method] ?? method) === "sendTransaction") {
         return withinLimits(method, { type: "transaction", chainId, to: null, data: args?.data ?? "0x", value: String(args?.value ?? 0n) }, null, run);
       }
       return run();

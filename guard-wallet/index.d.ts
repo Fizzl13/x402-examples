@@ -203,7 +203,11 @@ export interface GuardOptions {
   server?: { url: string; key: string; fetch?: typeof globalThis.fetch; requestTimeoutMs?: number };
 }
 
-/** The same wallet client; sendTransaction, writeContract, signTypedData, signAuthorization (EIP-7702) and signMessage are checked first. */
+/**
+ * The same wallet client. Checked first: sendTransaction, writeContract, signTypedData, signAuthorization (EIP-7702),
+ * signMessage, and viem's other ways to sign or send: signTransaction, sendTransactionSync, writeContractSync,
+ * sendCalls and sendCallsSync (every call), deployContract (its value counts toward the limits).
+ */
 export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
 export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string; x402?: Record<string, unknown>; from?: string }): CheckRequest | null;
 /**

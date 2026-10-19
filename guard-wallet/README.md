@@ -52,7 +52,18 @@ try {
 }
 ```
 
-`wallet` is the same client. `signMessage` is checked too, as a plain message: a sign-in message (Sign-In with Ethereum) for another site than `origin` is red, unreadable bytes are orange; it counts toward no limit (`checkMessages: false` turns this off). Every other method (`getAddresses`, `extend`, …) works as before, unchecked.
+`wallet` is the same client. `signMessage` is checked too, as a plain message: a sign-in message (Sign-In with Ethereum) for another site than `origin` is red, unreadable bytes are orange; it counts toward no limit (`checkMessages: false` turns this off).
+
+viem's other ways to sign or send are checked the same way, so a library that uses them can't go around the wallet:
+
+| Method | Checked as |
+|---|---|
+| `sendTransactionSync`, `signTransaction` | `sendTransaction` (a signed transaction is as good as sent: anyone can broadcast it) |
+| `writeContractSync` | `writeContract` |
+| `sendCalls`, `sendCallsSync` (EIP-5792 batches) | every call, as a transaction from the wallet; one red or stopped call stops the whole batch. Each call counts toward `perTx` on its own and all of them toward the day's limit, booked before anything is signed |
+| `deployContract` | a deployment: not checked by presign-guard, but the value it sends counts toward the limits |
+
+Every other method (`getAddresses`, `extend`, `sendRawTransaction` for a transaction that is already signed, …) works as before, unchecked.
 
 ## Options
 
