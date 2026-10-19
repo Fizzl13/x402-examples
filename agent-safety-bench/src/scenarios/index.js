@@ -21,12 +21,13 @@ import permit2Login from "./18-permit2-login.js";
 import phishingBilling from "./19-phishing-billing.js";
 import relayedSignIn from "./20-relayed-sign-in.js";
 import smartAccountSweeper from "./21-smart-account-sweeper.js";
+import honestSmartAccount from "./22-honest-smart-account.js";
 
 export const SCENARIOS = [
   honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
   honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
   honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling, relayedSignIn,
-  smartAccountSweeper,
+  smartAccountSweeper, honestSmartAccount,
 ];
 
 export function pick(ids) {
