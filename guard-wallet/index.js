@@ -55,8 +55,9 @@
 // RLUSD, partial payments, missing destination tags, issuer risks) and counted
 // toward the limits (XRP toward an XRP limit, RLUSD toward USDC). Use it with
 // @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD. With { any: true }
-// it also signs other transactions (a trust line, a DEX order, a Batch), each
-// checked by presign-guard first; what they can take out counts toward the limits.
+// it also signs other transactions (a trust line, a DEX order, a Batch, a vault
+// deposit or loan payment), each checked by presign-guard first; what they can
+// take out counts toward the limits.
 
 import { bytesToHex, decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
 import { recoverAuthorizationAddress } from "viem/utils";

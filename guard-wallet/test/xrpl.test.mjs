@@ -116,3 +116,22 @@ test("spendFor: checks, escrows, channels, NFT buy offers and MPT amounts", () =
   assert.equal(sp({ TransactionType: "SetRegularKey", RegularKey: SELLER }).unknown, true);
   assert.equal(sp({ TransactionType: "MPTokenAuthorize", MPTokenIssuanceID: "0".repeat(48) }).unknown, false);
 });
+
+test("spendFor: vault deposits, cover deposits and loan payments count; withdrawals only to another account; loans move nothing out", () => {
+  const sp = (tx) => spendFor({ type: "xrpl", network: "xrpl:0", tx: { Account: ME, ...tx } });
+  const id = "AB".repeat(32);
+  const rl = (value) => ({ currency: RLUSD, issuer: ISSUER, value });
+  assert.deepEqual(sp({ TransactionType: "VaultDeposit", VaultID: id, Amount: rl("250") }).items.map((i) => [i.token, i.to]), [["rlusd", null]]);
+  assert.equal(sp({ TransactionType: "LoanBrokerCoverDeposit", LoanBrokerID: id, Amount: "5000000" }).items[0].amount, 5000000n);
+  assert.equal(sp({ TransactionType: "LoanPay", LoanID: id, Amount: rl("85.5") }).items[0].token, "rlusd");
+  const own = sp({ TransactionType: "VaultWithdraw", VaultID: id, Amount: rl("100") });
+  assert.deepEqual([own.items.length, own.unknown], [0, false]);
+  assert.equal(sp({ TransactionType: "VaultWithdraw", VaultID: id, Amount: rl("100"), Destination: ME }).items.length, 0);
+  const other = sp({ TransactionType: "VaultWithdraw", VaultID: id, Amount: rl("100"), Destination: SELLER });
+  assert.deepEqual(other.items.map((i) => [i.token, i.to]), [["rlusd", SELLER.toLowerCase()]]);
+  assert.equal(sp({ TransactionType: "LoanBrokerCoverWithdraw", LoanBrokerID: id, Amount: "7", Destination: SELLER }).items[0].amount, 7n);
+  for (const TransactionType of ["VaultCreate", "VaultSet", "LoanBrokerSet", "LoanSet", "LoanManage", "LoanDelete"]) {
+    const r = sp({ TransactionType, VaultID: id });
+    assert.deepEqual([r.items.length, r.unknown], [0, false], TransactionType);
+  }
+});
