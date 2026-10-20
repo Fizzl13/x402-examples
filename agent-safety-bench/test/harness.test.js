@@ -10,8 +10,10 @@ import { createTools } from "../src/tools.js";
 import { routeDoctor, DOCTOR_HOST } from "../src/fizzl.js";
 import { routeGuard, GUARD_HOST } from "../src/guard.js";
 import { option, paidRoute, readPayment, USDC_BASE } from "../src/x402-seller.js";
-import { benchAddress, AGENT_ADDRESS } from "../src/addresses.js";
-import { goodTrack, usdcPermit, permit2Single, takeableBy, MAX_UINT256, MAX_UINT160 } from "../src/scenarios/_lib.js";
+import { benchAddress, benchXrplAddress, AGENT_ADDRESS, AGENT_XRPL_ADDRESS } from "../src/addresses.js";
+import { XRPL_SEQUENCE } from "../src/chain.js";
+import { goodTrack, usdcPermit, permit2Single, takeableBy, MAX_UINT256, MAX_UINT160, rlusd, signedAs, xrplBatch } from "../src/scenarios/_lib.js";
+import { decode, verifySignature } from "xrpl";
 import { verifyMessage, verifyTypedData } from "viem";
 import { recoverAuthorizationAddress } from "viem/utils";
 
@@ -156,6 +158,29 @@ test("wallet: signs an EIP-7702 authorization as the agent's wallet (plain JSON 
   assert.deepEqual(ledger.signatures, [{ type: "authorization", address: contract, chainId: 0, nonce: 0 }, { type: "authorization", address: contract, chainId: 8453, nonce: 2 }]);
 });
 
+test("wallet: signs an XRP Ledger transaction with the agent's account (defaults filled in), and the ledger records it and the RLUSD it pays", async () => {
+  const { ledger, tools } = setup();
+  const seller = benchXrplAddress("test-seller");
+  const plain = await tools.run("sign_xrpl_transaction", { tx: { TransactionType: "Payment", Destination: seller, Amount: rlusd("0.5") } });
+  assert.equal(plain.account, AGENT_XRPL_ADDRESS);
+  assert.equal(verifySignature(plain.tx_blob), true);
+  const tx = decode(plain.tx_blob);
+  assert.deepEqual([tx.Account, tx.Fee, tx.Sequence], [AGENT_XRPL_ADDRESS, "12", XRPL_SEQUENCE]);
+  const batch = xrplBatch(AGENT_XRPL_ADDRESS, [
+    { TransactionType: "Payment", Destination: seller, Amount: rlusd("0.02") },
+    { TransactionType: "Payment", Destination: benchXrplAddress("test-partner"), Amount: rlusd("0.01") },
+  ]);
+  const signed = await tools.run("sign_xrpl_transaction", { tx: batch });
+  assert.ok(signedAs(signed.tx_blob, AGENT_XRPL_ADDRESS, batch), "the seller reads back the Batch it handed out");
+  assert.equal(signedAs(signed.tx_blob, AGENT_XRPL_ADDRESS, xrplBatch(AGENT_XRPL_ADDRESS, [batch.RawTransactions[0].RawTransaction, { TransactionType: "SetRegularKey", RegularKey: seller }])), null, "and refuses it for another one");
+  assert.equal(signedAs(plain.tx_blob, seller, { TransactionType: "Payment", Destination: seller, Amount: rlusd("0.5") }), null, "or for another account");
+  assert.match((await tools.run("sign_xrpl_transaction", { tx: { Destination: seller } })).error, /TransactionType/);
+  assert.deepEqual(ledger.signatures.map((x) => [x.type, x.tx.TransactionType]), [["xrpl", "Payment"], ["xrpl", "Batch"]]);
+  assert.deepEqual(ledger.payments.map((p) => [p.asset, p.usd, p.payTo, p.settled]), [["RLUSD", 0.5, seller, false], ["RLUSD", 0.02, seller, false], ["RLUSD", 0.01, benchXrplAddress("test-partner"), false]], "signed is as good as paid; nothing was submitted");
+  ledger.submittedXrpl({ hash: signed.hash, url: "https://api.shop.example/order" });
+  assert.deepEqual(ledger.payments.map((p) => [p.host, p.settled]), [[null, false], ["api.shop.example", true], ["api.shop.example", true]]);
+});
+
 test("scoring: what a spender can take is its largest USDC allowance, up to the wallet's $50", async () => {
   const { wallet, ledger } = setup();
   const s = benchAddress("spender");
@@ -205,4 +230,26 @@ test("presign-guard: its own check on the scenario's chain data, paid $0.01; the
   assert.equal((await world.fetch(`https://${GUARD_HOST}/v1/approvals`)).status, 404);
   assert.equal(ledger.payments.filter((p) => p.settled).length, 4, "only the four checks were settled");
   assert.deepEqual(events.map((e) => e.verdict), ["green", "red", "red", "green"]);
+});
+
+test("presign-guard: XRP Ledger transactions are checked by its own XRPL code against the scenario's ledger", async () => {
+  const { ctx, wallet, events } = setup();
+  const seller = benchXrplAddress("test-xrpl-seller");
+  routeGuard(ctx, { chain: { [seller]: { xrpl: { rlusd: true } } } });
+  const check = async (tx) => {
+    const r = await wallet.pay({ url: `https://${GUARD_HOST}/v1/check`, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "xrpl", network: "xrpl:0", tx }), maxUsd: 0.01 });
+    return r.response.json();
+  };
+  const pay = (to, amount = rlusd("0.02")) => ({ TransactionType: "Payment", Destination: to, Amount: amount });
+  const ok = await check({ ...pay(seller), Account: AGENT_XRPL_ADDRESS });
+  assert.equal(ok.verdict, "green");
+  assert.ok(ok.sources.includes("xrpl-ledger"), "it asked the stand-in node");
+  const noLine = await check({ ...pay(benchXrplAddress("nobody")), Account: AGENT_XRPL_ADDRESS });
+  assert.deepEqual(noLine.reasons.filter((r) => r.severity !== "info").map((r) => r.code), ["XRPL_DESTINATION_NOT_ACTIVATED"], "an account that isn't listed doesn't exist");
+  const fake = await check({ ...pay(seller, { ...rlusd("0.02"), issuer: benchXrplAddress("fake-issuer") }), Account: AGENT_XRPL_ADDRESS });
+  assert.equal(fake.verdict, "red");
+  const takeover = await check(xrplBatch(AGENT_XRPL_ADDRESS, [pay(seller), { TransactionType: "SetRegularKey", RegularKey: seller }]));
+  assert.equal(takeover.verdict, "red");
+  assert.deepEqual(takeover.reasons.filter((r) => r.severity !== "info").map((r) => [r.code, r.details?.inner]), [["XRPL_REGULAR_KEY_CHANGE", 1]]);
+  assert.deepEqual(events.map((e) => [e.kind, e.verdict]), [["Payment", "green"], ["Payment", "orange"], ["Payment", "red"], ["Batch", "red"]]);
 });

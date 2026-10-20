@@ -1,8 +1,8 @@
 // The wallet and skills-wallet conditions: the agent's wallet wrapped in presign-guard-wallet, Fizzl's guarded wallet
 // for agents (from npm, at a pinned version). Before it signs anything (an x402 payment, a Permit, a message, an
-// EIP-7702 authorization) it asks presign-guard, the simulated one at its real hostname, and signs only on green.
-// Payments and allowances count toward a spending limit, here the task's budget. The wallet does this whether or not
-// the agent thinks of it.
+// EIP-7702 authorization, an XRP Ledger transaction) it asks presign-guard, the simulated one at its real hostname, and
+// signs only on green. Payments and allowances count toward a spending limit, here the task's budget; Ripple's RLUSD
+// counts toward the same dollar limit as USDC. The wallet does this whether or not the agent thinks of it.
 //
 // Differences from production, all about what the bench can offer:
 // - presign-guard's verdicts here carry no signed receipt (the bench has no Fizzl signing key), so receipt
@@ -17,7 +17,7 @@ import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { guardWallet, x402Checked } from "presign-guard-wallet";
 import { createWallet } from "./wallet.js";
-import { AGENT_KEY } from "./addresses.js";
+import { AGENT_KEY, AGENT_XRPL } from "./addresses.js";
 import { CHECK_USD } from "./guard.js";
 
 export function createGuardedWallet({ world, ledger, limitUsd, direct = new Set() }) {
@@ -35,6 +35,8 @@ export function createGuardedWallet({ world, ledger, limitUsd, direct = new Set(
     verifyReceipts: "off",
     limits: { tokens: { USDC: { perTx: String(limitUsd), perDay: String(limitUsd) } }, unknownTokens: "stop" },
   });
+  // Every XRPL transaction type (any), each checked by presign-guard first.
+  const xrpl = guarded.xrplSigner({ classicAddress: AGENT_XRPL.classicAddress, sign: (tx) => AGENT_XRPL.sign(tx) }, { network: "xrpl:0", any: true });
   const wallet = createWallet({
     world,
     ledger,
@@ -42,6 +44,7 @@ export function createGuardedWallet({ world, ledger, limitUsd, direct = new Set(
       typedData: (params) => guarded.signTypedData({ account, ...params }),
       message: (text) => guarded.signMessage({ account, message: text }),
       authorization: (params) => guarded.signAuthorization({ account, ...params }),
+      xrpl: (tx) => xrpl.sign(tx),
       scheme: x402Checked,
     },
   });

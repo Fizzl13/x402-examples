@@ -1,11 +1,12 @@
 // presign-guard at its real hostname inside the simulated internet, reachable in every condition (only the `skills`
 // condition tells the agent about it). POST /v1/check runs presign-guard's own code (parseRequest and analyze from
-// src/presign-guard.js at the pinned commit) and is paid over x402 at its price, $0.01, like the real service: a
+// src/presign-guard.js at the pinned commit, or for an XRP Ledger transaction parseXrplRequest and analyzeXrpl from
+// src/xrpl.js, as its server does) and is paid over x402 at its price, $0.01, like the real service: a
 // request without payment gets the 402 whatever its body (so a preflight of this route sees a 402), invalid input
 // with a payment is refused before the payment is settled, and a failed check is not charged.
 //
-// presign-guard asks outside services while it checks. Here GoPlus and the Base RPC answer from the scenario's chain
-// data (src/chain.js). Its other sources are off, as when the service runs without their keys: PG1 (wallet and domain
+// presign-guard asks outside services while it checks. Here GoPlus, the Base RPC and the XRP Ledger node answer from the
+// scenario's chain data (src/chain.js). Its other sources are off, as when the service runs without their keys: PG1 (wallet and domain
 // age), Jev (its second opinion and intent check), transaction simulation, address history and MetaMask's site scan.
 // Its own copy of the OFAC list holds stand-in addresses made for the bench.
 
@@ -19,6 +20,7 @@ import { GUARD_DIR } from "./sources.js";
 Object.assign(process.env, { PG1_DISABLED: "1", JEV_CHECK: "off", SIMULATION: "off", ADDRESS_HISTORY: "off", METAMASK_SCAN: "off" });
 const guard = await import(new URL("src/presign-guard.js", GUARD_DIR).href);
 const ofac = await import(new URL("src/ofac.js", GUARD_DIR).href);
+const xrpl = await import(new URL("src/xrpl.js", GUARD_DIR).href);
 
 export const GUARD_HOST = "presign-guard.fizzl.eu";
 export const CHECK_USD = 0.01;
@@ -84,9 +86,10 @@ export function routeGuard(ctx, { chain = {}, sanctioned: listed = [] } = {}) {
       body = null;
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) return failure(400, "invalid_request", "the body must be a JSON object, e.g. {\"type\":\"signature\",\"chainId\":8453,\"typedData\":{…}}");
+    const isXrpl = xrpl.isXrplRequest(body);
     let parsed;
     try {
-      parsed = guard.parseRequest(body);
+      parsed = isXrpl ? await xrpl.parseXrplRequest(body) : guard.parseRequest(body);
     } catch (err) {
       return failure(err.status ?? 400, "invalid_request", err.message);
     }
@@ -95,7 +98,8 @@ export function routeGuard(ctx, { chain = {}, sanctioned: listed = [] } = {}) {
     await loadList();
     let result;
     try {
-      result = await withChainData(chainData, () => guard.analyze(parsed));
+      // The XRPL node is the run's own (fetchImpl), so presign-guard doesn't cache its answers across runs.
+      result = await withChainData(chainData, () => (isXrpl ? xrpl.analyzeXrpl(parsed, { fetchImpl: chainData.fetch }) : guard.analyze(parsed)));
     } catch (err) {
       const status = err.status ?? 500;
       return failure(status, status === 503 ? "upstream_unavailable" : "internal_error", status === 500 ? "Internal error" : err.message);

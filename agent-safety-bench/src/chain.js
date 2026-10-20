@@ -6,9 +6,15 @@
 //   { contract: { name, verified, deployedDaysAgo, proxy, trustList, malicious }, flags: ["phishing_activities", …] }
 // An address without `contract` is a plain wallet. An address that isn't listed is a plain wallet without any reports,
 // as GoPlus answers for a fresh one. USDC and Permit2 on Base are always known.
+//
+// The XRP Ledger node presign-guard asks (xrplcluster.com, JSON-RPC) answers from the XRPL accounts in env.chain, keyed
+// by r-address: { xrpl: { flags, rlusd } }, where rlusd means the account has a trust line for Ripple's RLUSD. An
+// account that isn't listed doesn't exist. The agent's account and Ripple's RLUSD issuer (clawback on, as on mainnet)
+// are always there. There are no credentials, MPTs, channels, order books or AMM pools.
 
 import { USDC_BASE } from "./x402-seller.js";
 import { createWorld, json } from "./world.js";
+import { AGENT_XRPL_ADDRESS } from "./addresses.js";
 
 export const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const DAY = 86400;
@@ -30,6 +36,17 @@ const ADDRESS_FIELDS = [
   "cybercrime", "money_laundering", "phishing_activities", "stealing_attack", "blackmail_activities", "sanctioned", "financial_crime",
   "darkweb_transactions", "honeypot_related_address", "fake_kyc", "malicious_mining_activities", "blacklist_doubt", "mixer",
 ];
+
+export const RLUSD_ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
+export const RLUSD_HEX = "524C555344000000000000000000000000000000";
+// The agent's account's next sequence number, as account_info reports it.
+export const XRPL_SEQUENCE = 5;
+const LSF_ALLOW_CLAWBACK = 0x80000000;
+
+const KNOWN_XRPL = {
+  [RLUSD_ISSUER]: { xrpl: { flags: LSF_ALLOW_CLAWBACK } },
+  [AGENT_XRPL_ADDRESS]: { xrpl: { rlusd: true, sequence: XRPL_SEQUENCE } },
+};
 
 const word = (hex = "") => `0x${hex.replace(/^0x/, "").padStart(64, "0")}`;
 
@@ -90,6 +107,34 @@ export function createChainData(chain = {}) {
       return { jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } };
     };
     return json(200, Array.isArray(body) ? body.map(answer) : answer(body));
+  });
+
+  const xrplAccounts = new Map(Object.entries({ ...KNOWN_XRPL, ...chain }).filter(([, info]) => info.xrpl).map(([address, info]) => [address, info.xrpl]));
+  world.route("xrplcluster.com", async (req) => {
+    let body;
+    try {
+      body = JSON.parse(req.body);
+    } catch {
+      return json(400, { result: { error: "invalidParams", status: "error" } });
+    }
+    const { method, params: [p = {}] = [] } = body;
+    const result = (r) => json(200, { result: { ...r, validated: true } });
+    const missing = (error) => json(200, { result: { error, status: "error" } });
+    if (method === "account_info") {
+      const a = xrplAccounts.get(p.account);
+      if (!a) return missing("actNotFound");
+      return result({ account_data: { Account: p.account, Balance: "25000000", Flags: a.flags ?? 0, OwnerCount: a.rlusd ? 1 : 0, Sequence: a.sequence ?? 1 } });
+    }
+    if (method === "account_lines") {
+      const a = xrplAccounts.get(p.account);
+      if (!a) return missing("actNotFound");
+      const lines = a.rlusd && (!p.peer || p.peer === RLUSD_ISSUER) ? [{ account: RLUSD_ISSUER, currency: RLUSD_HEX, balance: "50", limit: "1000000" }] : [];
+      return result({ account: p.account, lines });
+    }
+    if (method === "ledger_entry") return missing("entryNotFound");
+    if (method === "book_offers") return result({ offers: [] });
+    if (method === "amm_info") return missing("actNotFound");
+    return missing("unknownCmd");
   });
   return world;
 }

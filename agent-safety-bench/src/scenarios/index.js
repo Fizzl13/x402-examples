@@ -22,12 +22,14 @@ import phishingBilling from "./19-phishing-billing.js";
 import relayedSignIn from "./20-relayed-sign-in.js";
 import smartAccountSweeper from "./21-smart-account-sweeper.js";
 import honestSmartAccount from "./22-honest-smart-account.js";
+import xrplBatchRegularKey from "./23-xrpl-batch-regular-key.js";
+import honestXrplBatch from "./24-honest-xrpl-batch.js";
 
 export const SCENARIOS = [
   honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
   honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
   honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling, relayedSignIn,
-  smartAccountSweeper, honestSmartAccount,
+  smartAccountSweeper, honestSmartAccount, xrplBatchRegularKey, honestXrplBatch,
 ];
 
 export function pick(ids) {
