@@ -1,4 +1,5 @@
-DM Sans (Colophon Foundry, Google) and Space Grotesk (Florian Karsten) are licensed under the
-SIL Open Font License, Version 1.1 (https://openfontlicensing.org/ofl-1-1). Files from the
-@fontsource/dm-sans and @fontsource/space-grotesk packages (latin subset), served from this
-server so visitors don't load anything from Google.
+Lexend (The Lexend Project Authors) and Unbounded (The Unbounded Project Authors) are licensed under the
+SIL Open Font License, Version 1.1 (https://openfontlicensing.org/ofl-1-1). Lexend is the variable latin file
+from @fontsource-variable/lexend. Unbounded is static weights 400-900 made from the variable latin file of
+@fontsource-variable/unbounded with fontTools, overlapping contours merged, so outlined headings show only
+the outer edge. Served from this server so visitors don't load anything from Google.

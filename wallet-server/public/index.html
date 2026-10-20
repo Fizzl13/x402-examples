@@ -20,19 +20,18 @@
 <meta property="og:image" content="https://fizzl.eu/agents/og.jpg?v=2">
 <meta name="twitter:card" content="summary_large_image">
 <style>
-@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/dm-sans-latin-500-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/dm-sans-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "DM Sans"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/dm-sans-latin-700-normal.woff2") format("woff2"); }
-@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/space-grotesk-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/space-grotesk-latin-500-normal.woff2") format("woff2"); }
-@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/space-grotesk-latin-600-normal.woff2") format("woff2"); }
-@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/space-grotesk-latin-700-normal.woff2") format("woff2"); }
-/* lab.fizzl.eu language: mint on near-black, Space Grotesk uppercase headings with an outlined second line, glass cards. */
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/lexend-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/unbounded-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/unbounded-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/unbounded-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/unbounded-latin-900-normal.woff2") format("woff2"); }
+/* lab.fizzl.eu language: mint on near-black, Unbounded uppercase headings with an outlined second line, glass cards. */
 :root {
   --bg: #020708; --mint: #61f5c3; --amber: #f5c361; --violet: #a78bfa; --cyan: #5ad1ff; --rose: #ff7a90;
   --text: #f4f8f7; --soft: #d1dbd9; --muted: #a8b5b2; --dim: #82918f; --line: rgba(97,245,195,.28);
-  --display: "Space Grotesk", "DM Sans", Arial, sans-serif; --body: "DM Sans", Arial, sans-serif;
+  --display: "Unbounded", "Lexend", Arial, sans-serif; --body: "Lexend", Arial, sans-serif;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -46,14 +45,14 @@ button, input, textarea { font: inherit; color: inherit; }
 .wrap { width: min(1180px, calc(100% - 32px)); margin-inline: auto; }
 .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; border-bottom: 1px solid var(--line); background: rgba(2,7,8,.75); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
 .topbar .wrap { height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.brand { font: 700 24px/1 var(--display); letter-spacing: -1.5px; }
+.brand { font: 700 24px/1 var(--display); letter-spacing: -1px; }
 .brand span { color: var(--mint); }
 .live { color: var(--mint); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
 .live i, .eyebrow i, .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 12px currentColor; }
 .live.off { color: var(--rose); }
 .eyebrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--mint); letter-spacing: 4px; font-size: 11px; text-transform: uppercase; margin-bottom: 18px; }
 .eyebrow i { color: var(--mint); }
-h1, h2 { font-family: var(--display); text-transform: uppercase; line-height: .9; letter-spacing: -3px; margin: 0; text-wrap: balance; }
+h1, h2 { font-family: var(--display); text-transform: uppercase; line-height: .9; letter-spacing: -1.5px; margin: 0; text-wrap: balance; }
 h1 { font-size: clamp(48px, 7vw, 96px); }
 h2 { font-size: clamp(36px, 4.5vw, 60px); margin-bottom: 28px; }
 h1 span, h2 span { color: transparent; -webkit-text-stroke: 1.2px rgba(245,248,247,.88); }
@@ -164,13 +163,13 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .budget { display: grid; gap: 6px; }
 .budget .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #c8d2d0; }
 .budget .row em { font-style: normal; font-family: var(--display); color: #fff; }
-.big { font: 700 44px/1 var(--display); letter-spacing: -2px; text-shadow: 0 0 22px rgba(97,245,195,.4); }
+.big { font: 700 44px/1 var(--display); letter-spacing: -1px; text-shadow: 0 0 22px rgba(97,245,195,.4); }
 .bar { position: relative; height: 8px; border-radius: 99px; background: rgba(97,245,195,.08); overflow: hidden; }
 .bar b { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--mint); box-shadow: 0 0 12px rgba(97,245,195,.6); transition: width .5s; }
 .bar b.hot { background: var(--amber); box-shadow: 0 0 12px rgba(245,195,97,.6); }
 .rule { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
 .rule .card { padding: 22px; }
-.price { font: 700 clamp(52px, 7vw, 88px)/1 var(--display); letter-spacing: -3px; background: linear-gradient(90deg, #fff, var(--mint) 60%, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; margin: 14px 0 4px; font-variant-numeric: tabular-nums; }
+.price { font: 700 clamp(52px, 7vw, 88px)/1 var(--display); letter-spacing: -1.5px; background: linear-gradient(90deg, #fff, var(--mint) 60%, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; margin: 14px 0 4px; font-variant-numeric: tabular-nums; }
 .slider { display: grid; gap: 8px; margin-top: 18px; }
 .slider label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
 input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; background: transparent; cursor: pointer; }
@@ -353,7 +352,7 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .receipt .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .receipt .close { border: 1px solid rgba(244,248,247,.25); border-radius: 999px; background: transparent; color: var(--soft); min-height: 32px; padding: 0 12px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; cursor: pointer; }
 .receipt h3 { overflow-wrap: anywhere; }
-.receipt .amt { font: 700 40px/1 var(--display); letter-spacing: -2px; text-shadow: 0 0 22px rgba(97,245,195,.35); }
+.receipt .amt { font: 700 40px/1 var(--display); letter-spacing: -1px; text-shadow: 0 0 22px rgba(97,245,195,.35); }
 .receipt dl { margin: 0; padding: 14px 22px 22px; display: grid; grid-template-columns: minmax(0, 120px) minmax(0, 1fr); gap: 10px 14px; font-size: 13px; }
 .receipt dt { color: var(--dim); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; padding-top: 2px; }
 .receipt dd { margin: 0; color: var(--soft); overflow-wrap: anywhere; }
