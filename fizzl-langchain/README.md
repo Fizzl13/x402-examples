@@ -1,6 +1,6 @@
 # fizzl-langchain
 
-Safety checks for [LangChain.js](https://js.langchain.com) and [LangGraph.js](https://langchain-ai.github.io/langgraphjs/) agents that pay. The JavaScript twin of the [official LangChain integration](https://docs.langchain.com/oss/python/integrations/tools) `fizzl` for Python.
+Safety checks for [LangChain.js](https://js.langchain.com) and [LangGraph.js](https://langchain-ai.github.io/langgraphjs/) agents that pay. An official LangChain integration, [listed in LangChain's JavaScript integrations](https://docs.langchain.com/oss/javascript/integrations/providers/all_providers), and the JavaScript twin of `fizzl` for Python, which is in [LangChain's Security tools](https://docs.langchain.com/oss/python/integrations/tools#security).
 
 Docs: [fizzl.eu/agents/langchain-js](https://fizzl.eu/agents/langchain-js/)
 
