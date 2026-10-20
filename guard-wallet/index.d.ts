@@ -153,6 +153,13 @@ export interface GuardControls {
    */
   tempoSessionAccount<A extends LocalAccount>(account: A, opts?: { chainId?: 4217 | 42431 }): A;
   /**
+   * A guarded XRP Ledger signer for @x402/xrpl (ExactXrplScheme): signs only Payment transactions from this account,
+   * each checked by presign-guard (type xrpl) and counted toward the limits (RLUSD toward USDC, drops toward XRP);
+   * anything else is refused, unless `any`: then every transaction (trust lines, DEX orders, a Batch, whose inner
+   * transactions presign-guard judges one by one) is checked first and what it can take out counts toward the limits.
+   */
+  xrplSigner<S extends { classicAddress: string; sign(tx: Record<string, unknown>): unknown }>(signer: S, opts?: { network?: "xrpl:0" | "xrpl:1"; any?: boolean }): S;
+  /**
    * A guarded Algorand signer for @x402/avm (ExactAvmScheme): signs only the agent's own USDC transfer in a
    * payment group (no close-out, rekey or clawback), counted toward the USDC limits; anything else is refused.
    */
