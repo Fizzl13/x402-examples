@@ -3,7 +3,7 @@
 // commits (skills/SOURCE.json).
 
 export const DOCTOR = { repository: "Fizzl13/x402-doctor", commit: "7cfaa05bfd81dcd544b15f9307ae81984f9dea4b", paths: ["lib"] };
-export const GUARD = { repository: "Fizzl13/presign-guard", commit: "6fc19e16f506ab0b785310ec240eb1a63f8907f7", paths: ["src"] };
+export const GUARD = { repository: "Fizzl13/presign-guard", commit: "362e571fa2878b509f83de8446bc5eb66c843b4d", paths: ["src"] };
 export const SOURCES = [DOCTOR, GUARD];
 
 export const dirOf = (source) => new URL(`../vendor/${source.repository.split("/")[1]}-${source.commit.slice(0, 12)}/`, import.meta.url);
