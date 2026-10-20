@@ -8,7 +8,9 @@
 //   - at most `dailyLimit` e-mails per UTC day;
 //   - one open draft per address and per host (a second report on the same seller is dropped);
 //   - every mail ends with a line saying why they got it and that "stop" ends it;
-//   - drafts are kept in the server's store (Redis), never in git or the usage log.
+//   - drafts are kept in the server's store (Redis), never in git or the usage log;
+//   - a draft about Doctor's findings is checked again right before it is mailed (recheck): when everything in it
+//     has been fixed since, it isn't sent; when part of it has, the owner hears which part first.
 import { randomBytes } from "node:crypto";
 
 const EMAIL_RE = /^[^\s@<>"',;]{1,64}@[^\s@<>"',;]{1,190}\.[a-z]{2,24}$/i;
@@ -65,7 +67,8 @@ export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl
   };
 }
 
-export function createOutreach({ store, mailer, telegram = null, adminChatId = null, from = null, replyTo = null, dailyLimit = 10, dashboardUrl = null, logoUrl = null, now = () => Date.now() } = {}) {
+// recheck(url, ids) -> { still: [ids], fixed: [ids] }: asks x402 Doctor which findings are still there (doctorRecheck).
+export function createOutreach({ store, mailer, telegram = null, adminChatId = null, from = null, replyTo = null, dailyLimit = 10, dashboardUrl = null, logoUrl = null, recheck = null, now = () => Date.now() } = {}) {
   const g = store.global;
   const day = () => new Date(now()).toISOString().slice(0, 10);
   const footer = (host) => `\n\n--\nYou got this one-off note because ${host ? `${host} lists` : "your site lists"} this address as its contact. Reply "stop" and you won't hear from us again.`;
@@ -93,7 +96,7 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
     await telegram.appendToMessage(d.telegram.chatId, d.telegram.messageId, line).catch(() => {});
   }
 
-  async function add({ to, subject, body, host = null, url = null, source = "manual" }) {
+  async function add({ to, subject, body, host = null, url = null, source = "manual", findings = null }) {
     const email = clean(to, 254).toLowerCase();
     if (!EMAIL_RE.test(email)) throw err(400, "That doesn't look like an e-mail address.");
     subject = clean(subject, 200); body = clean(body, 8000);
@@ -107,7 +110,8 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
     }
     const pending = await open();
     if (pending.some((d) => d.to === email || (host && d.host === host))) return { skipped: "pending", message: "There is already an open draft for this address or site." };
-    const d = { id: `ow_${randomBytes(9).toString("base64url")}`, status: "draft", to: email, subject, body, host, url: url ? clean(url, 500) : null, source, createdAt: now() };
+    const ids = Array.isArray(findings) ? [...new Set(findings.map((f) => clean(f, 60)).filter(Boolean))].slice(0, 12) : [];
+    const d = { id: `ow_${randomBytes(9).toString("base64url")}`, status: "draft", to: email, subject, body, host, url: url ? clean(url, 500) : null, source, ...(ids.length ? { findings: ids } : {}), createdAt: now() };
     await g.putOutreach(d);
     await notify(d);
     return { draft: d };
@@ -124,7 +128,7 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
       if (!fails.length) throw err(400, "No findings to write about.");
       const report = typeof reportUrl === "string" && /^https:\/\//.test(reportUrl) ? reportUrl : `https://x402-doctor.fizzl.eu/?url=${encodeURIComponent(url)}`;
       const scan = via === "scan";
-      return add({ to, host, url, source: scan ? "scan" : "doctor", ...composeFromFindings({ host, url, findings: fails, reportUrl: report, via: scan ? "scan" : "check" }) });
+      return add({ to, host, url, source: scan ? "scan" : "doctor", findings: fails.map((f) => f.id), ...composeFromFindings({ host, url, findings: fails, reportUrl: report, via: scan ? "scan" : "check" }) });
     },
     async list() {
       const all = (await g.listOutreach()).sort((a, b) => b.createdAt - a.createdAt);
@@ -153,6 +157,29 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
       if (!mailer || !from) throw err(503, "Outreach mail is off: set RESEND_API_KEY and OUTREACH_FROM on the wallet server.");
       if (await g.isStopped(d.to)) throw err(409, `${d.to} asked not to be mailed.`);
       if ((await g.countSent(day())) >= dailyLimit) throw err(429, `Today's limit of ${dailyLimit} e-mails is reached. Try again tomorrow.`);
+      // Doctor's findings can be days old by now: ask again. When Doctor can't be asked, the draft goes as written.
+      if (recheck && d.url && d.findings?.length) {
+        let r = null;
+        try { r = await recheck(d.url, d.findings); } catch (e) { console.warn(`[outreach] recheck of ${d.host} failed (${e.message}); sending as drafted`); }
+        if (r && Array.isArray(r.still) && !r.still.length) {
+          const next = { ...d, status: "fixed", decidedAt: now(), decidedBy: by };
+          await g.putOutreach(next);
+          await done(next, `<b>Niet verstuurd: alles uit dit concept is inmiddels opgelost (${escapeHtml(d.findings.join(", "))}).</b>`);
+          throw err(409, "Not sent: everything in this draft has been fixed since it was made, so the draft is gone.");
+        }
+        if (r && Array.isArray(r.fixed) && r.fixed.length) {
+          // Part of it is fixed: the owner decides. Pressing Send again sends it as it stands (the rest is still there).
+          const next = { ...d, findings: d.findings.filter((id) => !r.fixed.includes(id)), recheck: { at: now(), fixed: r.fixed } };
+          await g.putOutreach(next);
+          const line = `<b>Niet verstuurd: ${r.fixed.length} van de ${d.findings.length} punten is inmiddels opgelost (${escapeHtml(r.fixed.join(", "))}).</b> Pas de tekst aan op het dashboard, of verstuur hem zo.`;
+          if (telegram && d.telegram) {
+            await telegram.appendToMessage(d.telegram.chatId, d.telegram.messageId, line).catch(() => {});
+            const messageId = await telegram.sendButtons(d.telegram.chatId, `<b>${escapeHtml(d.subject)}</b> aan ${escapeHtml(d.to)}`, [[{ text: "Versturen", data: `ow:${d.id}:s` }, { text: "Weggooien", data: `ow:${d.id}:d` }]]).catch(() => null);
+            if (messageId) await g.putOutreach({ ...next, telegram: { chatId: d.telegram.chatId, messageId } });
+          }
+          throw err(409, `Not sent: ${r.fixed.length} of the ${d.findings.length} findings in this draft are fixed since (${r.fixed.join(", ")}). Edit the text, or send it again to send it as it stands.`);
+        }
+      }
       if (!(await g.markContacted(d.to))) throw err(409, `${d.to} was already mailed once.`);
       await g.countSent(day(), 1);
       try {
@@ -183,5 +210,23 @@ export function createOutreach({ store, mailer, telegram = null, adminChatId = n
       if (!adminChatId || String(from?.id) !== String(adminChatId)) return { refused: true };
       return action === "s" ? this.send(id, "Telegram") : this.discard(id, "Telegram");
     },
+  };
+}
+
+// Asks x402 Doctor (POST /api/outreach/recheck, with the same OUTREACH_KEY Doctor uses to hand in drafts) which of a
+// draft's findings it still sees at the URL. Throws when Doctor can't be asked; the caller then sends as drafted.
+export function doctorRecheck({ baseUrl = "https://x402-doctor.fizzl.eu", key, fetchImpl = globalThis.fetch, timeoutMs = 45_000 } = {}) {
+  if (!key) return null;
+  return async (url, ids) => {
+    const res = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/api/outreach/recheck`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({ url, ids }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`Doctor answered ${res.status}`);
+    const j = await res.json();
+    if (!Array.isArray(j.still) || !Array.isArray(j.fixed)) throw new Error("Doctor's answer has no still/fixed lists");
+    return { still: j.still, fixed: j.fixed };
   };
 }
