@@ -2,10 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { memoryStore } from "../src/store.js";
-import { createOutreach, composeFromFindings, toHtml } from "../src/outreach.js";
+import { createOutreach, composeFromFindings, toHtml, doctorRecheck } from "../src/outreach.js";
 import { createApp } from "../src/app.js";
 
-function setup({ dailyLimit = 10, failMail = false } = {}) {
+function setup({ dailyLimit = 10, failMail = false, recheck = null } = {}) {
   const store = memoryStore();
   const mails = [], tg = [];
   const mailer = { async send(to, subject, text, opts) { if (failMail) throw new Error("rejected"); mails.push({ to, subject, text, opts }); } };
@@ -13,7 +13,7 @@ function setup({ dailyLimit = 10, failMail = false } = {}) {
     async sendButtons(chatId, html, rows) { tg.push({ chatId, html, rows }); return tg.length; },
     async appendToMessage(chatId, messageId, html) { tg.push({ chatId, messageId, html }); },
   };
-  const outreach = createOutreach({ store, mailer, telegram, adminChatId: "42", from: "Frits from Fizzl <frits@fizzl.eu>", replyTo: "me@example.com", dailyLimit, logoUrl: "https://wallet.fizzl.eu/icons/fizzl.png" });
+  const outreach = createOutreach({ store, mailer, telegram, adminChatId: "42", from: "Frits from Fizzl <frits@fizzl.eu>", replyTo: "me@example.com", dailyLimit, logoUrl: "https://wallet.fizzl.eu/icons/fizzl.png", recheck });
   return { store, mails, tg, outreach };
 }
 const findings = [{ id: "solana-payout-account", message: "payTo has no USDC token account on Solana.", hint: "Send 0.01 USDC once." }, { id: "bazaar", message: "Bazaar declaration is invalid." }];
@@ -144,4 +144,53 @@ test("the message hook needs DRAFT_KEY (not OUTREACH_KEY), makes a draft with Cl
   const off = createApp({ accounts, auth: { middleware: () => (_q, _s, n) => n() }, outreach: s.outreach, outreachKey: "doctor-key" });
   const sv2 = await new Promise((r) => { const sv = off.listen(0, () => r(sv)); });
   try { assert.equal((await fetch(`http://127.0.0.1:${sv2.address().port}/hooks/outreach-message`, { method: "POST", headers: { authorization: "Bearer x" } })).status, 404); } finally { sv2.close(); }
+});
+
+test("recheck before sending: all fixed = not sent (and not a discard); part fixed = asked first; Doctor down = sent as drafted", async () => {
+  const asked = [];
+  let answer = { still: [], fixed: ["solana-payout-account", "bazaar"] };
+  const s = setup({ recheck: async (url, ids) => { asked.push({ url, ids }); if (answer === "down") throw new Error("timeout"); return answer; } });
+  const a = await s.outreach.fromDoctor({ url: "https://api.seller.test/x", to: "ops@seller.test", findings, via: "scan" });
+  assert.deepEqual(a.draft.findings, ["solana-payout-account", "bazaar"]);
+  await assert.rejects(s.outreach.send(a.draft.id, "Telegram"), (e) => e.status === 409 && /fixed since/.test(e.message));
+  assert.deepEqual(asked[0], { url: "https://api.seller.test/x", ids: ["solana-payout-account", "bazaar"] });
+  assert.equal(s.mails.length, 0);
+  assert.equal((await s.store.global.getOutreach(a.draft.id)).status, "fixed");
+  assert.match(s.tg.at(-1).html, /Niet verstuurd: alles uit dit concept is inmiddels opgelost/);
+  assert.equal(await s.store.global.isContacted("ops@seller.test"), false, "nothing went out, so the address may be mailed later");
+
+  // A fixed draft is no discard: when the seller breaks again, Doctor may draft again.
+  answer = { still: ["bazaar"], fixed: ["solana-payout-account"] };
+  const b = await s.outreach.fromDoctor({ url: "https://api.seller.test/x", to: "ops@seller.test", findings });
+  assert.ok(b.draft, JSON.stringify(b));
+  await assert.rejects(s.outreach.send(b.draft.id, "Telegram"), (e) => e.status === 409 && /1 of the 2 findings/.test(e.message));
+  const half = await s.store.global.getOutreach(b.draft.id);
+  assert.deepEqual([half.status, half.findings, half.recheck.fixed], ["draft", ["bazaar"], ["solana-payout-account"]]);
+  assert.deepEqual(s.tg.at(-1).rows[0].map((x) => x.text), ["Versturen", "Weggooien"], "new buttons for the second press");
+  answer = { still: ["bazaar"], fixed: [] };
+  const sent = await s.outreach.send(b.draft.id, "Telegram");
+  assert.equal(sent.status, "sent");
+  assert.deepEqual(asked.at(-1).ids, ["bazaar"]);
+  assert.equal(s.mails.length, 1);
+
+  // Doctor can't be asked: the draft goes as written. A draft without findings (manual, Claude) isn't rechecked.
+  answer = "down";
+  const c = await s.outreach.fromDoctor({ url: "https://api.other.test/y", to: "hi@other.test", findings });
+  assert.equal((await s.outreach.send(c.draft.id)).status, "sent");
+  const n = asked.length;
+  const m = await s.outreach.add({ to: "x@third.test", subject: "Hi", body: "Text\n\nBest,\nFrits", url: "https://third.test" });
+  assert.equal((await s.outreach.send(m.draft.id)).status, "sent");
+  assert.equal(asked.length, n);
+});
+
+test("doctorRecheck: asks Doctor with the outreach key; no key, no recheck", async () => {
+  assert.equal(doctorRecheck({ key: null }), null);
+  const calls = [];
+  const r = doctorRecheck({ baseUrl: "https://doctor.test/", key: "k1", fetchImpl: async (u, init) => { calls.push({ u, init }); return Response.json({ url: "https://a.test", still: ["x"], fixed: ["y"] }); } });
+  assert.deepEqual(await r("https://a.test", ["x", "y"]), { still: ["x"], fixed: ["y"] });
+  assert.equal(calls[0].u, "https://doctor.test/api/outreach/recheck");
+  assert.equal(calls[0].init.headers.authorization, "Bearer k1");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { url: "https://a.test", ids: ["x", "y"] });
+  const bad = doctorRecheck({ key: "k1", fetchImpl: async () => new Response("no", { status: 401 }) });
+  await assert.rejects(bad("https://a.test", ["x"]), /401/);
 });

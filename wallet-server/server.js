@@ -42,6 +42,8 @@
 //   OUTREACH_FROM       optional: sender for outreach mail to sellers, e.g. "Frits from Fizzl <frits@fizzl.eu>" (a fizzl.eu address: the domain verified at Resend)
 //   OUTREACH_REPLY_TO   optional: where replies to outreach mail go (your own inbox)
 //   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
+//                       and is the key the server uses to ask Doctor again right before it mails a draft about its findings
+//   DOCTOR_URL          optional: x402 Doctor's base URL for that recheck (default https://x402-doctor.fizzl.eu)
 //   DRAFT_KEY           optional: long random string, the same as the GitHub secret of the outreach-draft workflow;
 //                       lets Claude hand in written messages as drafts (never sends)
 //   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
@@ -59,7 +61,7 @@ import { createAuth } from "./src/auth.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
-import { createOutreach } from "./src/outreach.js";
+import { createOutreach, doctorRecheck } from "./src/outreach.js";
 import { createPush } from "./src/push.js";
 import { createMailer } from "./src/mail.js";
 import { createCatalog, createSkillChecker } from "./src/catalog.js";
@@ -125,7 +127,7 @@ const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, ranker
 const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined });
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).
 const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null });
-const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png` });
+const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png`, recheck: doctorRecheck({ baseUrl: env.DOCTOR_URL?.trim() || undefined, key: env.OUTREACH_KEY?.trim() || null }) });
 const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
