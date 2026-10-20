@@ -171,25 +171,64 @@ export function spendFor(request, verdict) {
   return out;
 }
 
-// An XRP Ledger Payment: what can leave the account (SendMax if set, else Amount) and who receives it.
+// XRP Ledger: what can leave the account and who receives it. A Payment: SendMax if set, else Amount. With any
+// (xrplSigner { any: true }), also a check (SendMax), escrow or payment channel (Amount), DEX order (TakerGets), AMM
+// deposit, NFT buy offer and bridge commit, and the account's own transactions inside a Batch (the others are their
+// accounts' money). Types that move nothing out by themselves add nothing; anything else is unknown.
+const XRPL_MOVES_NOTHING = new Set(["TrustSet", "AccountSet", "OfferCancel", "EscrowFinish", "EscrowCancel", "CheckCash", "CheckCancel", "TicketCreate", "NFTokenMint", "NFTokenBurn", "NFTokenCancelOffer", "NFTokenModify", "AMMWithdraw", "AMMVote", "AMMDelete", "AMMClawback", "Clawback", "CredentialCreate", "CredentialAccept", "CredentialDelete", "PermissionedDomainSet", "PermissionedDomainDelete", "DepositPreauth", "DIDSet", "DIDDelete", "OracleSet", "OracleDelete", "MPTokenAuthorize", "MPTokenIssuanceCreate", "MPTokenIssuanceSet", "MPTokenIssuanceDestroy"]);
+const TF_SELL_NFTOKEN = 0x00000001;
+
 function xrplSpend(request, out) {
   const net = request.network ?? "xrpl:0";
   const tx = request.tx ?? {};
-  const to = typeof tx.Destination === "string" && XRPL_ADDRESS_RE.test(tx.Destination) ? lower(tx.Destination) : null;
-  out.counterparties.push(to);
-  if (tx.TransactionType !== "Payment") { out.unknown = true; return out; }
-  const amt = tx.SendMax ?? tx.Amount;
-  if (typeof amt === "string" && /^\d+$/.test(amt)) {
-    out.items.push({ chainId: net, token: NATIVE, amount: BigInt(amt), to });
-  } else if (amt && typeof amt === "object" && /^\d+(\.\d+)?$/.test(String(amt.value ?? ""))) {
-    const currency = String(amt.currency ?? "").toUpperCase();
-    const rlusd = (currency === "RLUSD" || currency === RLUSD_HEX) && amt.issuer === XRPL_RLUSD_ISSUERS[net];
-    const value = String(amt.value).replace(/^(\d+\.\d{18})\d+$/, "$1"); // RLUSD has at most 15 significant digits; keep 18 decimals
-    out.items.push({ chainId: net, token: rlusd ? "rlusd" : `${currency}.${amt.issuer}`, amount: parseUnits(value, SCALE), to });
-  } else {
-    out.unknown = true;
-  }
+  if (tx.TransactionType === "Batch") {
+    const inner = Array.isArray(tx.RawTransactions) ? tx.RawTransactions.map((r) => r?.RawTransaction ?? {}) : [];
+    if (!inner.length) out.unknown = true;
+    for (const t of inner) if (!t.Account || t.Account === tx.Account) xrplTxSpend(t, net, out);
+  } else xrplTxSpend(tx, net, out);
   return out;
+}
+
+function xrplTxSpend(tx, net, out) {
+  const to = typeof tx.Destination === "string" && XRPL_ADDRESS_RE.test(tx.Destination) ? lower(tx.Destination) : null;
+  const take = (amt, receiver) => {
+    if (typeof amt === "string" && /^\d+$/.test(amt)) {
+      out.items.push({ chainId: net, token: NATIVE, amount: BigInt(amt), to: receiver });
+    } else if (amt && typeof amt === "object" && typeof amt.mpt_issuance_id === "string" && /^\d+$/.test(String(amt.value ?? ""))) {
+      out.items.push({ chainId: net, token: `mpt.${amt.mpt_issuance_id}`, amount: BigInt(amt.value), to: receiver });
+    } else if (amt && typeof amt === "object" && /^\d+(\.\d+)?$/.test(String(amt.value ?? ""))) {
+      const currency = String(amt.currency ?? "").toUpperCase();
+      const rlusd = (currency === "RLUSD" || currency === RLUSD_HEX) && amt.issuer === XRPL_RLUSD_ISSUERS[net];
+      const value = String(amt.value).replace(/^(\d+\.\d{18})\d+$/, "$1"); // RLUSD has at most 15 significant digits; keep 18 decimals
+      out.items.push({ chainId: net, token: rlusd ? "rlusd" : `${currency}.${amt.issuer}`, amount: parseUnits(value, SCALE), to: receiver });
+    } else {
+      out.unknown = true;
+    }
+  };
+  switch (tx.TransactionType) {
+    case "Payment": out.counterparties.push(to); take(tx.SendMax ?? tx.Amount, to); break;
+    case "CheckCreate": out.counterparties.push(to); take(tx.SendMax, to); break;
+    case "EscrowCreate":
+    case "PaymentChannelCreate": out.counterparties.push(to); take(tx.Amount, to); break;
+    case "PaymentChannelFund":
+    case "XChainCommit": out.counterparties.push(null); take(tx.Amount, null); break;
+    case "OfferCreate": out.counterparties.push(null); take(tx.TakerGets, null); break;
+    case "AMMCreate":
+    case "AMMDeposit":
+      out.counterparties.push(null);
+      if (tx.Amount === undefined && tx.Amount2 === undefined) out.unknown = true;
+      for (const a of [tx.Amount, tx.Amount2]) if (a !== undefined) take(a, null);
+      break;
+    case "NFTokenCreateOffer":
+      // A buy offer pays Amount to the owner; a sell offer gives the NFT, which no limit counts.
+      if (Number(tx.Flags) & TF_SELL_NFTOKEN) out.counterparties.push(to);
+      else { const owner = typeof tx.Owner === "string" ? lower(tx.Owner) : null; out.counterparties.push(owner); take(tx.Amount, owner); }
+      break;
+    default:
+      if (XRPL_MOVES_NOTHING.has(tx.TransactionType)) break;
+      out.counterparties.push(to);
+      out.unknown = true;
+  }
 }
 
 // An Algorand asset transfer (read from the unsigned transaction by algorandSigner): the asset, amount and receiver.

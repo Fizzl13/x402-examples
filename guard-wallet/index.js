@@ -54,7 +54,9 @@
 // Payment transactions, each checked by presign-guard first (type "xrpl": fake
 // RLUSD, partial payments, missing destination tags, issuer risks) and counted
 // toward the limits (XRP toward an XRP limit, RLUSD toward USDC). Use it with
-// @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD.
+// @x402/xrpl's ExactXrplScheme to pay x402 services in RLUSD. With { any: true }
+// it also signs other transactions (a trust line, a DEX order, a Batch), each
+// checked by presign-guard first; what they can take out counts toward the limits.
 
 import { bytesToHex, decodeFunctionData, encodeFunctionData, parseAbi } from "viem";
 import { recoverAuthorizationAddress } from "viem/utils";
@@ -88,7 +90,7 @@ const ESCROW_ABI = parseAbi([
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
-export const VERSION = "0.22.0";
+export const VERSION = "0.23.0";
 export const CREDIT_HEADER = "x-credit-key";
 const ROUTE = "POST /v1/check";
 
@@ -521,19 +523,21 @@ export function guardWallet(wallet, {
     return limiter ? withinLimits(method, request, verdict, run) : run();
   }
 
-  // XRP Ledger: sign a Payment only after presign-guard's check and within the limits.
-  async function xrplSign(signer, network, tx) {
+  // XRP Ledger: sign a Payment (with any, any transaction) only after presign-guard's check and within the limits.
+  // presign-guard judges every transaction inside a Batch, so a new key can't hide in one; red is never signed.
+  async function xrplSign(signer, network, tx, any) {
     if (paused) throw new PresignBlockedError(`wallet is paused; nothing was signed`, { code: "paused" });
-    if (!tx || typeof tx !== "object" || tx.TransactionType !== "Payment") {
-      throw new PresignBlockedError(`on the XRP Ledger this wallet only signs Payment transactions (got ${tx?.TransactionType ?? "nothing"}); nothing was signed`, { code: "unsupported_chain" });
+    if (!tx || typeof tx !== "object" || typeof tx.TransactionType !== "string" || (tx.TransactionType !== "Payment" && !any)) {
+      throw new PresignBlockedError(`on the XRP Ledger this wallet only signs Payment transactions (got ${tx?.TransactionType ?? "nothing"}; xrplSigner with { any: true } signs others after presign-guard's check); nothing was signed`, { code: "unsupported_chain" });
     }
     if (tx.Account && signer.classicAddress && tx.Account !== signer.classicAddress) {
       throw new PresignBlockedError(`the transaction's Account ${tx.Account} is not this signer (${signer.classicAddress}); nothing was signed`, { code: "unsupported_chain" });
     }
     const request = { type: "xrpl", network, tx: JSON.parse(JSON.stringify(tx)), ...(origin ? { origin } : {}) };
-    const verdict = await verdictFor("signXrplPayment", request, network);
+    const method = tx.TransactionType === "Payment" ? "signXrplPayment" : "signXrplTransaction";
+    const verdict = await verdictFor(method, request, network);
     const run = () => signer.sign(tx);
-    return limiter ? withinLimits("signXrplPayment", request, verdict, run) : run();
+    return limiter ? withinLimits(method, request, verdict, run) : run();
   }
 
   // Algorand: sign only a USDC transfer from this address, within the limits (checked here, no presign-guard
@@ -624,12 +628,13 @@ export function guardWallet(wallet, {
     /**
      * The same guard on an XRP Ledger signer ({ classicAddress, sign(tx) }, e.g. createXrplWalletSigner
      * from @x402/xrpl): only Payment transactions, each checked by presign-guard and counted toward the
-     * limits (RLUSD toward USDC, XRP toward an XRP limit). network: "xrpl:0" (default) or "xrpl:1".
+     * limits (RLUSD toward USDC, XRP toward an XRP limit). network: "xrpl:0" (default) or "xrpl:1". any: also
+     * sign other transactions (trust lines, DEX orders, a Batch), each checked by presign-guard first.
      */
-    xrplSigner: (signer, { network = "xrpl:0" } = {}) => {
+    xrplSigner: (signer, { network = "xrpl:0", any = false } = {}) => {
       if (!signer || typeof signer.sign !== "function") throw new TypeError("xrplSigner(signer): signer needs a sign(tx) function (e.g. createXrplWalletSigner from @x402/xrpl)");
       if (!XRPL_NETWORKS.includes(network)) throw new TypeError(`xrplSigner: network must be one of ${XRPL_NETWORKS.join(", ")}`);
-      return { classicAddress: signer.classicAddress, sign: (tx) => xrplSign(signer, network, tx) };
+      return { classicAddress: signer.classicAddress, sign: (tx) => xrplSign(signer, network, tx, any === true) };
     },
     /**
      * A guarded viem account for MPP sessions on Tempo (e.g. mppx's sessionManager): it signs only
