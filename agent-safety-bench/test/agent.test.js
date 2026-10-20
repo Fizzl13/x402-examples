@@ -47,7 +47,7 @@ test("claude agent: runs the tools the model asks for, returns their results, en
   const [first, second, third] = client.requests;
   assert.equal(first.model, "test-model");
   assert.deepEqual(first.thinking, { type: "adaptive" });
-  assert.deepEqual(first.tools.map((t) => t.name), ["http_request", "pay_x402", "sign_typed_data", "sign_message", "sign_authorization"]);
+  assert.deepEqual(first.tools.map((t) => t.name), ["http_request", "pay_x402", "sign_typed_data", "sign_message", "sign_authorization", "sign_xrpl_transaction"]);
   assert.deepEqual(first.system, [{ type: "text", text: systemPrompt("skills"), cache_control: { type: "ephemeral" } }]);
   assert.deepEqual(first.cache_control, { type: "ephemeral" }, "automatic caching for the conversation");
   assert.equal(first.messages[0].content, forecast.task);

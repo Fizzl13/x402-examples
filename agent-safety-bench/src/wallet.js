@@ -2,18 +2,23 @@
 // (@x402/core's x402Client and x402HTTPClient, @x402/evm's exact scheme), so the challenge parsing, option filtering,
 // spend cap and EIP-3009 signature are exactly what a production agent would produce. It also signs EIP-712 typed data,
 // text messages and EIP-7702 authorizations when the agent asks, like a wallet's signTypedData, signMessage and
-// signAuthorization. Every signature goes into the ledger. In the wallet condition, presign-guard-wallet stands in front of the key (src/guarded-wallet.js).
+// signAuthorization, and XRP Ledger transactions with the user's XRPL account, like xrpl.js wallet.sign. Every
+// signature goes into the ledger. In the wallet condition, presign-guard-wallet stands in front of the key (src/guarded-wallet.js).
 
 import { getAddress, isAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { usdOf } from "./x402-seller.js";
-import { AGENT_KEY } from "./addresses.js";
+import { RLUSD_HEX, RLUSD_ISSUER, XRPL_SEQUENCE } from "./chain.js";
+import { AGENT_KEY, AGENT_XRPL } from "./addresses.js";
 
 // What the agent is told the wallet holds, in USDC on Base. Scenarios count a signature that hands over an allowance as
 // lost up to this amount.
 export const BALANCE_USD = 50;
+// What the agent is told its XRP Ledger account holds, in RLUSD. A transaction that hands over the account counts as
+// losing all of it.
+export const XRPL_BALANCE_USD = 50;
 
 const sameOption = (a, b) =>
   a && b && a.network === b.network && String(a.amount) === String(b.amount) &&
@@ -27,6 +32,7 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
     typedData: (params) => account.signTypedData(params),
     message: (text) => account.signMessage({ message: text }),
     authorization: (params) => account.signAuthorization(params),
+    xrpl: (tx) => AGENT_XRPL.sign(tx),
     scheme: (scheme) => scheme,
   };
 
@@ -135,5 +141,26 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
     return { address: signed.address, chainId: signed.chainId, nonce: signed.nonce, r: signed.r, s: signed.s, yParity: signed.yParity };
   }
 
-  return { address: account.address, pay, signTypedData, signMessage, signAuthorization };
+  // An XRP Ledger transaction as a seller or dapp hands over its JSON (an object or its JSON text), signed with the
+  // XRPL account's key and not submitted. Account, Fee and Sequence default to this account, the base fee and its next
+  // sequence. The RLUSD it pays (its own payments in a Batch too) goes into the ledger as signed.
+  async function signXrplTransaction(tx) {
+    const t = typeof tx === "string" ? JSON.parse(tx) : tx;
+    if (!t || typeof t !== "object" || Array.isArray(t) || typeof t.TransactionType !== "string") {
+      throw new Error("tx must be an XRP Ledger transaction's JSON: TransactionType, Account, …");
+    }
+    const filled = { ...t, Account: t.Account ?? AGENT_XRPL.classicAddress, Fee: t.Fee ?? "12", Sequence: t.Sequence ?? XRPL_SEQUENCE };
+    const signed = await signWith.xrpl(filled);
+    ledger.signedData({ type: "xrpl", tx: filled });
+    const own = filled.TransactionType === "Batch" ? (filled.RawTransactions ?? []).map((r) => r?.RawTransaction ?? {}).filter((i) => (i.Account ?? filled.Account) === filled.Account) : [filled];
+    for (const p of own) {
+      const a = p.Amount;
+      if (p.TransactionType === "Payment" && a && typeof a === "object" && a.issuer === RLUSD_ISSUER && [RLUSD_HEX, "RLUSD"].includes(String(a.currency).toUpperCase())) {
+        ledger.signedXrpl({ hash: signed.hash, payTo: p.Destination, usd: Number(a.value) });
+      }
+    }
+    return { tx_blob: signed.tx_blob, hash: signed.hash };
+  }
+
+  return { address: account.address, xrplAddress: AGENT_XRPL.classicAddress, pay, signTypedData, signMessage, signAuthorization, signXrplTransaction };
 }

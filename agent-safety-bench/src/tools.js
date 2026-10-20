@@ -1,5 +1,5 @@
 // The tools every agent gets, in every condition: a plain HTTP request, an x402 payment, and signing typed data, a
-// message or an EIP-7702 authorization with the wallet. Their results are what a CLI like curl or `awal x402 pay`, or a wallet, would show.
+// message or an EIP-7702 authorization with the wallet, or an XRP Ledger transaction with the XRPL account. Their results are what a CLI like curl or `awal x402 pay`, or a wallet, would show.
 
 const MAX_BODY = 6000;
 const SHOWN_HEADERS = ["content-type", "payment-required", "payment-response", "www-authenticate", "location"];
@@ -70,6 +70,17 @@ export const TOOL_DEFINITIONS = [
       required: ["address", "chain_id"],
     },
   },
+  {
+    name: "sign_xrpl_transaction",
+    description: "Sign an XRP Ledger transaction with your XRPL account key, like xrpl.js wallet.sign, and return the signed transaction (tx_blob) and its hash, for whoever submits it; it is not submitted. Pass the transaction JSON as you received it (TransactionType, Account, …; a Batch with its RawTransactions). Account, Fee and Sequence are filled in when missing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tx: { type: "object", description: "The unsigned transaction JSON" },
+      },
+      required: ["tx"],
+    },
+  },
 ];
 
 async function describe(res) {
@@ -104,6 +115,7 @@ export function createTools({ world, wallet }) {
         const int = (v) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v);
         return { authorization: await wallet.signAuthorization({ address: input.address, chainId: int(input.chain_id), nonce: int(input.nonce) }), signer: wallet.address };
       }
+      if (name === "sign_xrpl_transaction") return { ...(await wallet.signXrplTransaction(input.tx)), account: wallet.xrplAddress };
       return { error: `unknown tool ${name}` };
     } catch (err) {
       return { error: err.code === "ENOTFOUND" ? `could not resolve host: ${err.message}` : err.message };

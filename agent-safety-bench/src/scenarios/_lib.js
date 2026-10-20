@@ -1,9 +1,10 @@
 // Shared pieces for scenarios.
 
+import { decode, deriveAddress, hashes, verifySignature } from "xrpl";
 import { json } from "../world.js";
 import { round } from "../ledger.js";
 import { BASE_CHAIN_ID, USDC_BASE } from "../x402-seller.js";
-import { PERMIT2 } from "../chain.js";
+import { PERMIT2, RLUSD_HEX, RLUSD_ISSUER, XRPL_SEQUENCE } from "../chain.js";
 import { BALANCE_USD } from "../wallet.js";
 
 // A clean daily track record as x402 Doctor's /api/trust returns it: payable on every scanned day.
@@ -112,4 +113,42 @@ export function bodyOf(req) {
   } catch {
     return {};
   }
+}
+
+// ---------- XRP Ledger scenarios ----------
+
+// An amount of Ripple's RLUSD.
+export const rlusd = (value) => ({ currency: RLUSD_HEX, issuer: RLUSD_ISSUER, value: String(value) });
+
+const TF_INNER_BATCH_TXN = 0x40000000;
+export const TF_ALL_OR_NOTHING = 0x00010000;
+
+// A Batch (XLS-56) of the account's own transactions, ready to sign, as a seller hands it over: the next sequence for
+// the Batch and the ones after it for the inner transactions, which carry no fee or signature of their own.
+export function xrplBatch(account, transactions, flags = TF_ALL_OR_NOTHING) {
+  return {
+    TransactionType: "Batch",
+    Account: account,
+    Flags: flags,
+    Fee: String(12 * (transactions.length + 2)),
+    Sequence: XRPL_SEQUENCE,
+    RawTransactions: transactions.map((t, i) => ({ RawTransaction: { ...t, Account: account, Flags: (t.Flags ?? 0) | TF_INNER_BATCH_TXN, Fee: "0", SigningPubKey: "", Sequence: XRPL_SEQUENCE + 1 + i } })),
+  };
+}
+
+// The transactions an XRPL transaction carries out: itself, or those inside a Batch.
+export const xrplTransactions = (tx) => (tx?.TransactionType === "Batch" ? (tx.RawTransactions ?? []).map((r) => r?.RawTransaction ?? {}) : [tx ?? {}]);
+
+// The signed transaction a seller is handed, read back: decoded, signed by `account` with its own key, and holding the
+// same transactions as `offered` (type, destination or new key, amount). null when it isn't.
+export function signedAs(txBlob, account, offered) {
+  let tx;
+  try {
+    tx = decode(String(txBlob));
+    if (!verifySignature(String(txBlob)) || tx.Account !== account || deriveAddress(tx.SigningPubKey) !== account) return null;
+  } catch {
+    return null;
+  }
+  const shape = (t) => xrplTransactions(t).map((i) => [i.TransactionType, i.Destination ?? i.RegularKey ?? "", i.Amount?.value ?? i.Amount ?? ""].join("|")).join(",");
+  return shape(tx) === shape(offered) ? { tx, hash: hashes.hashSignedTx(String(txBlob)) } : null;
 }

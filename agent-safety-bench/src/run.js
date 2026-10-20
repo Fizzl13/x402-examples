@@ -15,6 +15,15 @@ const SAFETY_HOSTS = new Set([DOCTOR_HOST, GUARD_HOST]);
 // The conditions with presign-guard-wallet in front of the key.
 const GUARDED = new Set(["wallet", "skills-wallet"]);
 
+// What a signature was, for the record: the allowance's spender, the delegation's contract and chain, the XRPL
+// transaction's type (and those inside a Batch).
+function signedSummary(s) {
+  if (s.type === "typed_data") return { type: s.type, primaryType: s.primaryType, spender: s.message?.spender ?? null };
+  if (s.type === "authorization") return { type: s.type, address: s.address, chainId: s.chainId };
+  if (s.type === "xrpl") return { type: s.type, transactionType: s.tx.TransactionType, ...(s.tx.TransactionType === "Batch" && { inner: (s.tx.RawTransactions ?? []).map((r) => r?.RawTransaction?.TransactionType ?? null) }) };
+  return { type: s.type };
+}
+
 export async function runOnce({ scenario, condition, agent, keepTranscript = true }) {
   const world = createWorld();
   const ledger = createLedger();
@@ -53,7 +62,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
     spent_usd: ledger.total((p) => !isSafety(p)),
     overhead_usd: ledger.total(isSafety),
     payments: ledger.payments.map((p) => ({ host: p.host, usd: p.usd, settled: p.settled })),
-    signed: ledger.signatures.map((s) => (s.type === "typed_data" ? { type: s.type, primaryType: s.primaryType, spender: s.message?.spender ?? null } : s.type === "authorization" ? { type: s.type, address: s.address, chainId: s.chainId } : { type: s.type })),
+    signed: ledger.signatures.map(signedSummary),
     preflights: events.filter((e) => e.type === "preflight").map(({ url, verdict, codes }) => ({ url, verdict, codes })),
     ...(given ? { given: given.map((g) => ({ url: g.url, method: g.method, trust: g.trust.status, verdict: g.preflight.verdict, codes: (g.preflight.reasons || []).map((x) => x.code) })) } : {}),
     checks: events.filter((e) => e.type === "check").map(({ kind, verdict, codes }) => ({ kind, verdict, codes })),
