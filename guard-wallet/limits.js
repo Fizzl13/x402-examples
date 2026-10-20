@@ -173,9 +173,11 @@ export function spendFor(request, verdict) {
 
 // XRP Ledger: what can leave the account and who receives it. A Payment: SendMax if set, else Amount. With any
 // (xrplSigner { any: true }), also a check (SendMax), escrow or payment channel (Amount), DEX order (TakerGets), AMM
-// deposit, NFT buy offer and bridge commit, and the account's own transactions inside a Batch (the others are their
-// accounts' money). Types that move nothing out by themselves add nothing; anything else is unknown.
-const XRPL_MOVES_NOTHING = new Set(["TrustSet", "AccountSet", "OfferCancel", "EscrowFinish", "EscrowCancel", "CheckCash", "CheckCancel", "TicketCreate", "NFTokenMint", "NFTokenBurn", "NFTokenCancelOffer", "NFTokenModify", "AMMWithdraw", "AMMVote", "AMMDelete", "AMMClawback", "Clawback", "CredentialCreate", "CredentialAccept", "CredentialDelete", "PermissionedDomainSet", "PermissionedDomainDelete", "DepositPreauth", "DIDSet", "DIDDelete", "OracleSet", "OracleDelete", "MPTokenAuthorize", "MPTokenIssuanceCreate", "MPTokenIssuanceSet", "MPTokenIssuanceDestroy"]);
+// deposit, NFT buy offer and bridge commit, a vault deposit, first-loss cover deposit or loan payment (Amount), a vault
+// or cover withdrawal to another account (Amount, to that account), and the account's own transactions inside a Batch
+// (the others are their accounts' money). Types that move nothing out by themselves add nothing (a loan is paid out by
+// the vault, and its payments count when they are made); anything else is unknown.
+const XRPL_MOVES_NOTHING = new Set(["TrustSet", "AccountSet", "OfferCancel", "EscrowFinish", "EscrowCancel", "CheckCash", "CheckCancel", "TicketCreate", "NFTokenMint", "NFTokenBurn", "NFTokenCancelOffer", "NFTokenModify", "AMMWithdraw", "AMMVote", "AMMDelete", "AMMClawback", "Clawback", "CredentialCreate", "CredentialAccept", "CredentialDelete", "PermissionedDomainSet", "PermissionedDomainDelete", "DepositPreauth", "DIDSet", "DIDDelete", "OracleSet", "OracleDelete", "MPTokenAuthorize", "MPTokenIssuanceCreate", "MPTokenIssuanceSet", "MPTokenIssuanceDestroy", "VaultCreate", "VaultSet", "VaultDelete", "VaultClawback", "LoanBrokerSet", "LoanBrokerDelete", "LoanBrokerCoverClawback", "LoanSet", "LoanDelete", "LoanManage"]);
 const TF_SELL_NFTOKEN = 0x00000001;
 
 function xrplSpend(request, out) {
@@ -213,6 +215,14 @@ function xrplTxSpend(tx, net, out) {
     case "PaymentChannelFund":
     case "XChainCommit": out.counterparties.push(null); take(tx.Amount, null); break;
     case "OfferCreate": out.counterparties.push(null); take(tx.TakerGets, null); break;
+    case "VaultDeposit":
+    case "LoanBrokerCoverDeposit":
+    case "LoanPay": out.counterparties.push(null); take(tx.Amount, null); break;
+    case "VaultWithdraw":
+    case "LoanBrokerCoverWithdraw":
+      // Into the account itself nothing leaves it; to another Destination, what is withdrawn goes to that account.
+      if (to && to !== lower(tx.Account)) { out.counterparties.push(to); take(tx.Amount, to); }
+      break;
     case "AMMCreate":
     case "AMMDeposit":
       out.counterparties.push(null);
