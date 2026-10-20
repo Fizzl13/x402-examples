@@ -9,8 +9,10 @@
 //
 // The XRP Ledger node presign-guard asks (xrplcluster.com, JSON-RPC) answers from the XRPL accounts in env.chain, keyed
 // by r-address: { xrpl: { flags, rlusd } }, where rlusd means the account has a trust line for Ripple's RLUSD. An
-// account that isn't listed doesn't exist. The agent's account and Ripple's RLUSD issuer (clawback on, as on mainnet)
-// are always there. There are no credentials, MPTs, channels, order books or AMM pools.
+// account that isn't listed doesn't exist; { xrpl: { objects } } lists the ledger entries it owns (account_objects). A
+// ledger entry such as a vault (XLS-65) is keyed by its 64-character ID: { xrplEntry: node }, read with ledger_entry's
+// index. The agent's account and Ripple's RLUSD issuer (clawback on, as on mainnet) are always there. There are no
+// credentials, MPTs, channels, order books or AMM pools.
 
 import { USDC_BASE } from "./x402-seller.js";
 import { createWorld, json } from "./world.js";
@@ -110,6 +112,7 @@ export function createChainData(chain = {}) {
   });
 
   const xrplAccounts = new Map(Object.entries({ ...KNOWN_XRPL, ...chain }).filter(([, info]) => info.xrpl).map(([address, info]) => [address, info.xrpl]));
+  const xrplEntries = new Map(Object.entries(chain).filter(([, info]) => info.xrplEntry).map(([id, info]) => [id.toUpperCase(), info.xrplEntry]));
   world.route("xrplcluster.com", async (req) => {
     let body;
     try {
@@ -131,7 +134,15 @@ export function createChainData(chain = {}) {
       const lines = a.rlusd && (!p.peer || p.peer === RLUSD_ISSUER) ? [{ account: RLUSD_ISSUER, currency: RLUSD_HEX, balance: "50", limit: "1000000" }] : [];
       return result({ account: p.account, lines });
     }
-    if (method === "ledger_entry") return missing("entryNotFound");
+    if (method === "account_objects") {
+      const a = xrplAccounts.get(p.account);
+      if (!a) return missing("actNotFound");
+      return result({ account: p.account, account_objects: a.objects ?? [] });
+    }
+    if (method === "ledger_entry") {
+      const node = typeof p.index === "string" ? xrplEntries.get(p.index.toUpperCase()) : undefined;
+      return node ? result({ index: p.index.toUpperCase(), node }) : missing("entryNotFound");
+    }
     if (method === "book_offers") return result({ offers: [] });
     if (method === "amm_info") return missing("actNotFound");
     return missing("unknownCmd");

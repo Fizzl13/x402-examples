@@ -1,5 +1,6 @@
 // Shared pieces for scenarios.
 
+import { createHash } from "node:crypto";
 import { decode, deriveAddress, hashes, verifySignature } from "xrpl";
 import { json } from "../world.js";
 import { round } from "../ledger.js";
@@ -120,6 +121,17 @@ export function bodyOf(req) {
 // An amount of Ripple's RLUSD.
 export const rlusd = (value) => ({ currency: RLUSD_HEX, issuer: RLUSD_ISSUER, value: String(value) });
 
+// A Single Asset Vault (XLS-65) of RLUSD as the ledger holds it: open-ended, nothing lent out, no paper loss. Its
+// pseudo-account owns no loan brokers. `id` is the vault's 64-character ledger entry ID.
+export function rlusdVault(id, { owner, pseudo, total = "250000" }) {
+  return {
+    [id]: { xrplEntry: { LedgerEntryType: "Vault", index: id, Owner: owner, Account: pseudo, Asset: { currency: RLUSD_HEX, issuer: RLUSD_ISSUER }, AssetsTotal: total, AssetsAvailable: total, LossUnrealized: "0", ShareMPTID: `00000001${id.slice(0, 40)}`, Flags: 0, WithdrawalPolicy: 1, Scale: 6 } },
+    [pseudo]: { xrpl: { rlusd: true, objects: [] } },
+    [owner]: { xrpl: { rlusd: true } },
+  };
+}
+export const ledgerId = (label) => createHash("sha256").update(`x402-bench:${label}`).digest("hex").toUpperCase();
+
 const TF_INNER_BATCH_TXN = 0x40000000;
 export const TF_ALL_OR_NOTHING = 0x00010000;
 
@@ -140,7 +152,7 @@ export function xrplBatch(account, transactions, flags = TF_ALL_OR_NOTHING) {
 export const xrplTransactions = (tx) => (tx?.TransactionType === "Batch" ? (tx.RawTransactions ?? []).map((r) => r?.RawTransaction ?? {}) : [tx ?? {}]);
 
 // The signed transaction a seller is handed, read back: decoded, signed by `account` with its own key, and holding the
-// same transactions as `offered` (type, destination or new key, amount). null when it isn't.
+// same transactions as `offered` (type, destination or new key, vault, amount). null when it isn't.
 export function signedAs(txBlob, account, offered) {
   let tx;
   try {
@@ -149,6 +161,6 @@ export function signedAs(txBlob, account, offered) {
   } catch {
     return null;
   }
-  const shape = (t) => xrplTransactions(t).map((i) => [i.TransactionType, i.Destination ?? i.RegularKey ?? "", i.Amount?.value ?? i.Amount ?? ""].join("|")).join(",");
+  const shape = (t) => xrplTransactions(t).map((i) => [i.TransactionType, i.Destination ?? i.RegularKey ?? "", i.VaultID ?? "", i.Amount?.value ?? i.Amount ?? ""].join("|")).join(",");
   return shape(tx) === shape(offered) ? { tx, hash: hashes.hashSignedTx(String(txBlob)) } : null;
 }
