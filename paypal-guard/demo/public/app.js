@@ -71,9 +71,10 @@ function render() { renderInbox(); renderConv(); renderPhone(); renderLedger(); 
 function renderStatus() {
   const live = S.meta.live && !S.done;
   $("#runBtn").disabled = live;
-  const what = config ? `PayPal ${config.paypal === "sandbox" ? "sandbox (test money)" : "simulated in memory"}` : "";
+  const pp = S.meta.paypal ?? config?.paypal; // a run says where it ran; a recorded one may come from another server
+  const what = pp ? `PayPal ${pp === "sandbox" ? "sandbox (test money)" : "simulated in memory"}` : "";
   const who = S.meta.mode === "careful" ? "Claude agent" : "fooled agent";
-  $("#status").textContent = S.error ? `Stopped: ${S.error}` : live ? `Running · ${who} · ${what}` : S.done ? `Done · ${who} · ${what}. Pick an email to see what happened.` : S.meta.at ? `Showing the last run (${who}). ${what}.` : `${what}.`;
+  $("#status").textContent = S.error ? `Stopped: ${S.error}` : live ? `Running · ${who} · ${what}` : S.meta.at ? `${S.meta.recorded ? `A recorded run (${new Date(S.meta.at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })})` : "The last run"} · ${who} · ${what}. Pick an email to see what happened, or run the inbox yourself.` : S.done ? `Done · ${who} · ${what}. Pick an email to see what happened.` : `${what}.`;
 }
 
 function on(e) {
@@ -81,7 +82,7 @@ function on(e) {
   if (!S) S = fresh({});
   const per = (i) => (S.per[i] ??= { steps: [], guard: [], reply: null });
   switch (e.type) {
-    case "orders": S.ledger = e.ledger; break;
+    case "orders": S.ledger = e.ledger; if (e.paypal) S.meta.paypal = e.paypal; break;
     case "ledger": case "done": S.ledger = e.ledger; if (e.type === "done") S.done = true; break;
     case "inbox": S.mails = e.mails; break;
     case "mail": per(e.mail); if (S.meta.live && !pinned) view = e.mail; break;
