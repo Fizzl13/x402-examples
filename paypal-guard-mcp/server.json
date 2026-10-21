@@ -1,0 +1,82 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Fizzl13/paypal-guard",
+  "title": "PayPal, guarded",
+  "description": "PayPal's Agent Toolkit with limits on refunds and the owner's Approve/Deny above them.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/Fizzl13/x402-examples",
+    "source": "github",
+    "subfolder": "paypal-guard-mcp"
+  },
+  "websiteUrl": "https://fizzl-paypal-demo.onrender.com",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "fizzl-paypal-guard-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "PAYPAL_CLIENT_ID",
+          "description": "Client ID of your PayPal REST app (developer.paypal.com)",
+          "isRequired": true
+        },
+        {
+          "name": "PAYPAL_CLIENT_SECRET",
+          "description": "Secret of your PayPal REST app",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "PAYPAL_ENVIRONMENT",
+          "description": "SANDBOX (default) or PRODUCTION"
+        },
+        {
+          "name": "LIMIT_REFUND",
+          "description": "Most per refund without asking you (default 25.00)"
+        },
+        {
+          "name": "LIMIT_REFUND_PER_DAY",
+          "description": "Refunds a day in total (default 100.00)"
+        },
+        {
+          "name": "LIMIT_REFUNDS_PER_DAY",
+          "description": "Number of refunds a day (default 10)"
+        },
+        {
+          "name": "LIMIT_CURRENCY",
+          "description": "Currency of the limits (default USD)"
+        },
+        {
+          "name": "GUARD_POLICY",
+          "description": "Other rules as JSON, e.g. {\"dispute\":\"deny\",\"stop\":\"ask\"}"
+        },
+        {
+          "name": "FIZZL_AGENT_KEY",
+          "description": "Approvals in the Fizzl Agent Wallet (Telegram + dashboard): an agent key awk_… from wallet.fizzl.eu",
+          "isSecret": true
+        },
+        {
+          "name": "TELEGRAM_BOT_TOKEN",
+          "description": "Approvals through your own Telegram bot",
+          "isSecret": true
+        },
+        {
+          "name": "TELEGRAM_CHAT_ID",
+          "description": "Your Telegram chat id (approvals go only there)"
+        },
+        {
+          "name": "APPROVAL_IN_CHAT",
+          "description": "off to never ask in the chat app (MCP elicitation)"
+        },
+        {
+          "name": "APPROVAL_MINUTES",
+          "description": "How long you have to answer (default 10)"
+        }
+      ]
+    }
+  ]
+}

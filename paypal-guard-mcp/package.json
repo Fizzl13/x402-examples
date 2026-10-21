@@ -1,0 +1,30 @@
+{
+  "name": "fizzl-paypal-guard-mcp",
+  "version": "0.1.0",
+  "description": "PayPal's Agent Toolkit as an MCP server for Claude, Cursor and any MCP client, guarded by fizzl-paypal-guard: never more than is left of a payment, the owner's limits, and Approve/Deny on the owner's phone (Telegram, Fizzl wallet) or in the chat app above them.",
+  "mcpName": "io.github.Fizzl13/paypal-guard",
+  "type": "module",
+  "bin": {
+    "fizzl-paypal-guard-mcp": "./server.js"
+  },
+  "main": "./lib.js",
+  "exports": {
+    ".": "./lib.js"
+  },
+  "files": ["server.js", "lib.js", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@paypal/agent-toolkit": "1.11.0",
+    "fizzl-paypal-guard": "^0.1.0",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "zod": "^3.25.76"
+  },
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "paypal", "agent-toolkit", "claude", "cursor", "ai-agents", "guardrails", "refunds", "approval", "human-in-the-loop", "agentic-commerce", "telegram"],
+  "repository": { "type": "git", "url": "git+https://github.com/Fizzl13/x402-examples.git", "directory": "paypal-guard-mcp" },
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard-mcp#readme",
+  "license": "MIT"
+}
