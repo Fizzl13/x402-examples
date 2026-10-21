@@ -1,5 +1,6 @@
 // Ways to ask the owner. Each is an async function (request) -> { approved, by } that the guard calls when an
-// action is over a limit; no answer in time means no. A request is { id, agent, tool, summary, reasons, customer }.
+// action is over a limit; no answer in time means no. A request is { id, agent, tool, summary, reasons, customer,
+// request, amount, currency }. An approver may also have report(answer, outcome), called after the action ran.
 import { createInterface } from "node:readline/promises";
 
 const reasonsText = (r) => r.reasons.map((x) => `• ${x.message}`).join("\n");
@@ -60,4 +61,35 @@ export function telegramApproval({ token, chatId, timeoutMs = 10 * 60_000, fetch
       polling ??= poll();
     });
   };
+}
+
+// Through the Fizzl Agent Wallet (wallet.fizzl.eu or your own wallet-server): the request shows up on the owner's
+// dashboard, on their phone and in Telegram with the wallet's bot, next to their agents' crypto payments, and the
+// decision and the outcome stay on a receipt there. `key` is the agent's key from the wallet dashboard (awk_…).
+export function fizzlWalletApproval({ key, url = "https://wallet.fizzl.eu", timeoutMs = 10 * 60_000, kind = "paypal", fetch: fetchImpl = globalThis.fetch } = {}) {
+  if (!/^awk_[A-Za-z0-9_-]+$/.test(String(key ?? ""))) throw new TypeError("fizzlWalletApproval: key must be the agent's key from the wallet dashboard (awk_…)");
+  const base = url.replace(/\/$/, "");
+  const call = async (method, path, body) => {
+    const res = await fetchImpl(`${base}${path}`, { method, headers: { authorization: `Bearer ${key}`, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(35_000) });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(`Fizzl wallet ${method} ${path.split("?")[0]}: ${json?.message ?? json?.error ?? `HTTP ${res.status}`}`);
+    return json;
+  };
+  const ask = async (r) => {
+    const asked = await call("POST", "/v1/actions", { kind, tool: r.tool, summary: r.summary, reasons: r.reasons, customer: r.customer ?? null, request: r.request ?? null, amount: r.amount ?? null, currency: r.currency ?? null });
+    if (asked?.status !== "pending") return { approved: false, by: `fizzl wallet: ${asked?.summary ?? asked?.status ?? "not asked"}` };
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      const a = await call("GET", `/v1/approvals/${encodeURIComponent(asked.approvalId)}?wait=25`);
+      if (a?.status && a.status !== "pending") return { approved: a.status === "approved", by: `fizzl wallet: ${a.decidedBy ?? a.status}`, receipt: a.purchaseId ?? null };
+    }
+    return { approved: false, by: "timeout" };
+  };
+  // After an approved action ran: its outcome on the wallet's receipt.
+  ask.report = async (answer, { ok, result, error }) => {
+    if (!answer?.receipt) return;
+    const what = ok ? (() => { try { const j = typeof result === "string" ? JSON.parse(result) : result; return [j?.id, j?.status].filter(Boolean).join(" ") || "done"; } catch { return "done"; } })() : `failed: ${error}`;
+    await call("POST", "/v1/spent", { entries: [], purchaseId: answer.receipt, result: String(what).slice(0, 200) });
+  };
+  return ask;
 }

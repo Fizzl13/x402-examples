@@ -287,6 +287,38 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       return reserveLocked(agent, args, [ruleOutcome(rule, ruleResult), purposeHit]);
     },
 
+    // An action that isn't a signature asks the owner, e.g. a PayPal refund an agent's guard (fizzl-paypal-guard)
+    // held back. The guard has already judged it; the wallet only asks, logs and keeps the receipt. No budget is
+    // booked: the money moves in the other system. Same answer as reserve(): pending (wait on /v1/approvals) or paused.
+    ask: (agent, raw = {}) => locked(async () => {
+      const str = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+      const kind = str(raw.kind, 20), tool = str(raw.tool, 60), summary = str(raw.summary, 300);
+      if (!/^[a-z][a-z0-9_-]*$/.test(kind) || !/^[a-z][a-z0-9_]*$/.test(tool) || !summary) throw Object.assign(new Error("kind, tool and summary are required"), { status: 400 });
+      const amount = /^\d{1,9}(\.\d{1,3})?$/.test(String(raw.amount ?? "")) ? String(raw.amount) : null;
+      const currency = /^[A-Z]{3}$/.test(String(raw.currency ?? "")) ? raw.currency : null;
+      const reasons = (Array.isArray(raw.reasons) ? raw.reasons : []).slice(0, 8)
+        .map((r) => ({ code: str(r?.code, 40) || null, message: str(r?.message, 300) })).filter((r) => r.message);
+      const stored = await store.getAgent(agent.id);
+      if (stored) Object.assign(agent, stored);
+      if (await store.getPaused()) return { status: "paused", summary: "all agents are paused" };
+      if (agent.paused) return { status: "paused", summary: `${agent.name} is paused` };
+      agent.lastSeen = now();
+      await store.putAgent(agent);
+      const customer = str(raw.customer, 120) || null;
+      const approval = {
+        id: id("ap"), status: "pending", agent: agent.id, agentName: agent.name, method: `${kind}:${tool}`, chainId: null,
+        to: customer, summary: reasons.map((r) => r.message).join("; ") || summary, reasons, charges: [], verdict: null,
+        purchase: { description: summary, url: null }, action: { kind, tool, amount, currency, customer, request: str(raw.request, 300) || null },
+        createdAt: now(), expiresAt: now() + approvalTtlMs, entries: [], purchaseId: null,
+      };
+      await store.putApproval(approval);
+      await log("asked", { agent: agent.name, method: approval.method, summary: approval.summary, approval: approval.id, what: summary });
+      safeTrack("action", { input: { kind, tool }, result: { outcome: "asked" } });
+      const { policy } = await policyNow();
+      notify(approval, await summarize(policy, await usedNow(policy))).catch((err) => console.warn(`[notify] ${err.message}`));
+      return { status: "pending", approvalId: approval.id, summary: approval.summary, expiresAt: approval.expiresAt };
+    }),
+
     // The owner decides (dashboard or Telegram). Approved spending is booked now.
     decide: (approvalId, decision, by = "dashboard") => locked(async () => {
       const found = await store.getApproval(approvalId);

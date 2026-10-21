@@ -194,26 +194,29 @@ export function createGuard({
     let { decision, booked } = await limitAndBook(tool, args, a);
     const summary = describe(tool, args, facts ?? {});
     const base = { id, tool, kind, summary, customer: ctx.customer ?? null, reasons: a.reasons.map(({ code, message }) => ({ code, message })) };
-    let approvedBy = null;
+    let approvedBy = null, answer = null;
     if (decision === "deny") { emit({ ...base, decision, outcome: "blocked" }); return blocked(tool, "deny", a.reasons.filter((r) => r.action === "deny")); }
     if (decision === "ask") {
       if (!approve) { emit({ ...base, decision, outcome: "blocked", approvedBy: "no approval channel" }); return blocked(tool, "unasked", a.reasons); }
       emit({ ...base, decision, outcome: "asked" });
-      let answer;
-      try { answer = await approve({ id, agent, tool, kind, summary, reasons: base.reasons, customer: ctx.customer ?? null, request: ctx.request ? String(ctx.request).slice(0, 300) : null }); } catch (err) { answer = { approved: false, by: `error: ${err.message}` }; }
+      try { answer = await approve({ id, agent, tool, kind, summary, reasons: base.reasons, customer: ctx.customer ?? null, request: ctx.request ? String(ctx.request).slice(0, 300) : null, amount: a.amount !== null ? fromMilli(a.amount) : null, currency: a.currency ?? null }); } catch (err) { answer = { approved: false, by: `error: ${err.message}` }; }
       if (!answer?.approved) { emit({ ...base, decision, outcome: "blocked", approvedBy: answer?.by ?? null }); return blocked(tool, "ask", a.reasons, { approvalId: id }); }
       approvedBy = answer.by ?? "owner";
       ({ booked } = await limitAndBook(tool, args, { ...a, reasons: [] }, { force: true }));
     }
+    // An approver that keeps receipts (the Fizzl wallet) hears how the approved action went.
+    const report = (outcome) => (answer && typeof approve?.report === "function" ? Promise.resolve(approve.report(answer, outcome)).catch(() => {}) : null);
     try {
       const result = await exec(args);
       const error = errorIn(result);
       if (error) await unbook(booked);
       emit({ ...base, decision, outcome: error ? "failed" : "done", approvedBy, ...(error ? { error } : {}) });
+      await report(error ? { ok: false, error } : { ok: true, result });
       return result;
     } catch (err) {
       await unbook(booked);
       emit({ ...base, decision, outcome: "failed", approvedBy, error: err.message });
+      await report({ ok: false, error: err.message });
       throw err;
     }
   }

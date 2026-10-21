@@ -22,9 +22,12 @@ export interface Reason { code: string; message: string }
 
 export interface ApprovalRequest {
   id: string; agent: string; tool: string; kind: Kind; summary: string; reasons: Reason[];
-  customer: string | null; request: string | null;
+  customer: string | null; request: string | null; amount: string | null; currency: string | null;
 }
-export type Approve = (request: ApprovalRequest) => Promise<{ approved: boolean; by?: string }>;
+export type Approve = ((request: ApprovalRequest) => Promise<{ approved: boolean; by?: string; [k: string]: any }>) & {
+  /** Called after an approved action ran, with the approver's own answer. */
+  report?: (answer: any, outcome: { ok: boolean; result?: any; error?: string }) => Promise<void>;
+};
 
 export interface Reader {
   capture(id: string): Promise<{ amount: string | null; currency: string | null; refunded: string; payer: string | null; orderId: string | null; status: string | null; customId: string | null; invoiceId: string | null } | null>;
@@ -75,6 +78,8 @@ export function memoryStore(): Store;
 export function paypalReader(opts: { clientId: string; clientSecret: string; sandbox?: boolean; fetch?: typeof fetch; timeoutMs?: number }): Reader;
 export function consoleApproval(opts?: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream }): Approve;
 export function telegramApproval(opts: { token: string; chatId: string | number; timeoutMs?: number; fetch?: typeof fetch }): Approve;
+/** Ask through the Fizzl Agent Wallet: dashboard, phone, Telegram, and a receipt. `key` is the agent key (awk_…). */
+export function fizzlWalletApproval(opts: { key: string; url?: string; timeoutMs?: number; kind?: string; fetch?: typeof fetch }): Approve;
 export function jevIntent(opts?: { apiKey?: string; model?: string; timeoutMs?: number; fetch?: typeof fetch; log?: { warn?: (...a: any[]) => void } }): ((q: { request: string; customer: string | null; action: string }) => Promise<{ fits: number } | null>) | null;
 export const ACTIONS: Readonly<Record<string, Kind>>;
 export const DEFAULT_POLICY: Readonly<Required<Policy>>;

@@ -217,12 +217,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         // On the phone: tapping opens the dashboard on the approval; Android also shows Approve / Deny buttons.
         const host = (() => { try { return new URL(approval.purchase?.url).host; } catch { return null; } })();
         const forWhat = [approval.purchase?.description, host].filter(Boolean).join(" · ");
-        await pushAll(id, { title: `${approval.agentName} asks for your OK`, body: `${approval.summary}${forWhat ? `\nfor: ${forWhat}` : ""}\npresign-guard: ${approval.verdict?.verdict ?? "no verified verdict"}`, url: "/#/overview", tag: `approval-${approval.id}`, approval: approval.id, requireInteraction: true });
+        const checked = approval.action ? `${approval.action.kind === "paypal" ? "PayPal" : approval.action.kind}${approval.action.customer ? ` · customer ${approval.action.customer}` : ""}` : `presign-guard: ${approval.verdict?.verdict ?? "no verified verdict"}`;
+        await pushAll(id, { title: `${approval.agentName} asks for your OK`, body: `${approval.summary}${forWhat ? `\nfor: ${forWhat}` : ""}\n${checked}`, url: "/#/overview", tag: `approval-${approval.id}`, approval: approval.id, requireInteraction: true });
         // A webhook can't take an answer: it says what's waiting and links to the dashboard.
         const hook = a?.alertHook;
         if (hook) {
           const what = [approval.purchase?.description, approval.purchase?.url].filter(Boolean).join(" · ");
-          const text = `🔔 ${approval.agentName} wants to sign something over your limit: ${approval.summary}${what ? `\nfor: ${what}` : ""}\npresign-guard: ${approval.verdict?.verdict ?? "no verified verdict"}\n\nApprove or deny on ${site.origin}/#/overview (no answer means no payment).`;
+          const text = `🔔 ${approval.agentName} ${approval.action ? "asks your OK for" : "wants to sign something over your limit:"} ${approval.summary}${what ? `\nfor: ${what}` : ""}\n${checked}\n\nApprove or deny on ${site.origin}/#/overview (no answer means ${approval.action ? "it isn't done" : "no payment"}).`;
           await alertHook.send(hook.url, text, { type: "approval", agent: approval.agentName, summary: approval.summary, url: approval.purchase?.url ?? null, dashboard: `${site.origin}/#/overview`, at: now() }).catch((err) => console.warn(`[approval] webhook: ${err.message}`));
         }
       },

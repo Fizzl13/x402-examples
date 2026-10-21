@@ -26,7 +26,7 @@ npm install fizzl-paypal-guard @paypal/agent-toolkit
 
 ```js
 import { PayPalAgentToolkit, ALL_TOOLS_ENABLED } from "@paypal/agent-toolkit/ai-sdk";
-import { createGuard, paypalReader, telegramApproval, jevIntent } from "fizzl-paypal-guard";
+import { createGuard, paypalReader, fizzlWalletApproval, jevIntent } from "fizzl-paypal-guard";
 
 const creds = { clientId: process.env.PAYPAL_CLIENT_ID, clientSecret: process.env.PAYPAL_CLIENT_SECRET };
 const toolkit = new PayPalAgentToolkit({ ...creds, configuration: { actions: ALL_TOOLS_ENABLED, context: { sandbox: true } } });
@@ -34,7 +34,7 @@ const toolkit = new PayPalAgentToolkit({ ...creds, configuration: { actions: ALL
 const guard = createGuard({
   agent: "Support agent",
   reader: paypalReader({ ...creds, sandbox: true }),
-  approve: telegramApproval({ token: process.env.TELEGRAM_BOT_TOKEN, chatId: process.env.TELEGRAM_CHAT_ID }),
+  approve: fizzlWalletApproval({ key: process.env.FIZZL_AGENT_KEY }), // or telegramApproval({ token, chatId })
   intent: jevIntent({ apiKey: process.env.TYPESAFE_API_KEY }), // optional
   policy: { refund: { perAction: "25.00", perDay: "100.00" } },
   onEvent: (e) => console.log(e.outcome, e.summary, e.reasons?.map((r) => r.code) ?? []),
@@ -75,6 +75,7 @@ The day's totals live in memory by default. With several processes, pass a `stor
 
 ## Approvals
 
+- `fizzlWalletApproval({ key })` asks through the [Fizzl Agent Wallet](https://wallet.fizzl.eu). The request shows up on your dashboard, as a notification on your phone, and in Telegram with the wallet's bot, next to your agents' crypto payments. The decision and the PayPal outcome stay on a receipt there. `key` is the agent's key from the dashboard (`awk_…`).
 - `telegramApproval({ token, chatId })` sends to your own bot (create one with @BotFather). The bot must have no webhook, because the guard reads the button taps with `getUpdates`. Only taps in `chatId` count.
 - `consoleApproval()` asks in the terminal, for local tries.
 - Or write your own: `async ({ summary, reasons, customer }) => ({ approved, by })`.

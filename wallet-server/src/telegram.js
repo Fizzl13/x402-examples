@@ -25,6 +25,15 @@ export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, 
   const messages = new Map(); // approval id -> { chatId, messageId, body }, to edit after the decision
 
   const text = (a, spending) => {
+    // An action in another system (a PayPal refund held back by fizzl-paypal-guard): what, why, for whom.
+    if (a.action) {
+      const lines = [`<b>${escape(a.agentName)} wants to do something in ${escape(a.action.kind === "paypal" ? "PayPal" : a.action.kind)} that needs your OK</b>`, "", escape(a.purchase?.description ?? a.summary)];
+      if (a.action.customer) lines.push(`customer: <code>${escape(a.action.customer)}</code>`);
+      if (a.reasons?.length) lines.push("", ...a.reasons.map((r) => `• ${escape(r.message)}`));
+      if (a.action.request) lines.push("", `<i>${escape(a.action.request)}</i>`);
+      if (dashboardUrl) lines.push("", `<a href="${escape(dashboardUrl)}">Open the dashboard</a>`);
+      return lines.join("\n");
+    }
     const lines = [`<b>${escape(a.agentName)} wants to sign something over your limit</b>`, "", escape(a.summary), "", `<code>${escape(a.method)}</code>${a.chainId ? ` · ${escape(network(a.chainId))}` : ""}${a.to ? ` · to <code>${escape(a.to)}</code>` : ""}`];
     if (a.purchase?.description || a.purchase?.url) {
       lines.splice(3, 0, ...[a.purchase.description ? `for: ${escape(a.purchase.description)}` : null, a.purchase.url ? `<code>${escape(a.purchase.url)}</code>` : null].filter(Boolean), "");
@@ -69,7 +78,9 @@ export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, 
       const m = messages.get(a.id);
       if (!m) return;
       messages.delete(a.id);
-      const outcome = a.status === "approved" ? `<b>Approved (${escape(a.decidedBy)}): signing.</b>` : a.status === "denied" ? `<b>Denied (${escape(a.decidedBy)}): not signed.</b>` : "<b>No answer in time: not signed.</b>";
+      const outcome = a.action
+        ? (a.status === "approved" ? `<b>Approved (${escape(a.decidedBy)}): going ahead.</b>` : a.status === "denied" ? `<b>Denied (${escape(a.decidedBy)}): not done.</b>` : "<b>No answer in time: not done.</b>")
+        : a.status === "approved" ? `<b>Approved (${escape(a.decidedBy)}): signing.</b>` : a.status === "denied" ? `<b>Denied (${escape(a.decidedBy)}): not signed.</b>` : "<b>No answer in time: not signed.</b>";
       await call("editMessageText", { chat_id: m.chatId, message_id: m.messageId, text: `${m.body}\n\n${outcome}`, parse_mode: "HTML", disable_web_page_preview: true }).catch(() => {});
     },
     // The webhook: returns true when the request was really from Telegram.
