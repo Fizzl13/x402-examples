@@ -4,7 +4,9 @@
 # agent that believes every email ("fooled"), and the guarded MCP server is used the way an MCP client uses it
 # (paypal-guard-mcp/test/sandbox.mjs). Uses the repository secrets PAYPAL_SANDBOX_CLIENT_ID and
 # PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here), ANTHROPIC_API_KEY for Claude, and
-# WALLET_SERVER_URL/KEY when approvals go to the owner's Telegram through the Fizzl wallet.
+# WALLET_SERVER_URL/KEY when approvals go to the owner's Telegram through the Fizzl wallet. Every Monday until the
+# PayPal AI Hackathon's judging ends (15 Dec 2026) it also runs on a schedule, with the free agent only, and checks
+# that the live demo (fizzl-paypal-demo.onrender.com) answers in sandbox mode with Claude on.
 name: paypal-sandbox
 
 on:
@@ -19,6 +21,8 @@ on:
       approver:
         description: "Who answers over-limit actions: scripted, or wallet (your Fizzl wallet: Telegram + dashboard, 10 minutes to answer)"
         default: scripted
+  schedule:
+    - cron: "23 6 * * 1"
   push:
     branches: [claude/x402-agents-solana-payments-nceg9b]
     paths: ["paypal-guard/sandbox/**", "paypal-guard/demo/**", "paypal-guard/src/**", "paypal-guard-mcp/**", ".github/workflows/paypal-sandbox.yml"]
@@ -47,13 +51,23 @@ jobs:
         working-directory: paypal-guard/demo
       - run: npm ci
         working-directory: paypal-guard-mcp
+      - name: Live demo answers
+        if: github.event_name != 'push'
+        working-directory: .
+        run: |
+          for i in 1 2 3; do
+            if c=$(curl -fsS --max-time 60 https://fizzl-paypal-demo.onrender.com/api/config); then break; fi
+            c=""; sleep 30
+          done
+          echo "${c:-no answer}"
+          echo "$c" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let c;try{c=JSON.parse(s)}catch{console.log("::error::the live demo did not answer /api/config");process.exit(1)}if(c.paypal!=="sandbox"){console.log(`::error::the live demo runs with PayPal ${c.paypal}, not the sandbox (Render env PAYPAL_SANDBOX_CLIENT_ID/SECRET)`);process.exit(1)}if(!c.claude){console.log("::error::the live demo has no Claude agent (Render env ANTHROPIC_API_KEY and DEMO_CODE)");process.exit(1)}console.log("live demo ok")})'
       - name: Run
         env:
           PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
           PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # A push runs the free agent only; Claude runs when started by hand (it costs model usage).
-          MODES: ${{ github.event_name == 'push' && 'fooled' || inputs.mode || 'careful fooled' }}
+          # A push or the Monday run uses the free agent only; Claude runs when started by hand (it costs model usage).
+          MODES: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'fooled' || inputs.mode || 'careful fooled' }}
           APPROVER: ${{ inputs.approver || 'scripted' }}
           WALLET_SERVER_URL: ${{ secrets.WALLET_SERVER_URL }}
           WALLET_SERVER_KEY: ${{ secrets.WALLET_SERVER_KEY }}
