@@ -53,6 +53,8 @@ When the guard stops an action, the tool returns `{ blocked: true, reasons, mess
 
 ## Other frameworks and MCP
 
+For Claude Desktop, Claude Code, Cursor and other MCP clients there is a ready MCP server: **[fizzl-paypal-guard-mcp](https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard-mcp)**, PayPal's toolkit with this guard in front of every tool (`npx -y fizzl-paypal-guard-mcp`).
+
 `guard.run(tool, args, exec, context)` guards a single call. `exec` is the toolkit's own function for that tool. `guard.check(tool, args, context)` is a dry run: what would happen, without counting or asking. Use these to put the guard in front of the toolkit's OpenAI, LangChain or MCP tools.
 
 ## Policy

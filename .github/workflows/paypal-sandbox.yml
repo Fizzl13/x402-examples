@@ -1,7 +1,8 @@
 # fizzl-paypal-guard against the PayPal sandbox (test money only): card payments into the sandbox shop, then
 # the guarded Agent Toolkit refunds the right customer and stops the wrong one (sandbox/probe.mjs), and the
 # demo shop's support agent answers five customer emails (demo/run.mjs): Claude ("careful") and a scripted
-# agent that believes every email ("fooled"). Uses the repository secrets PAYPAL_SANDBOX_CLIENT_ID and
+# agent that believes every email ("fooled"), and the guarded MCP server is used the way an MCP client uses it
+# (paypal-guard-mcp/test/sandbox.mjs). Uses the repository secrets PAYPAL_SANDBOX_CLIENT_ID and
 # PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here), ANTHROPIC_API_KEY for Claude, and
 # WALLET_SERVER_URL/KEY when approvals go to the owner's Telegram through the Fizzl wallet.
 name: paypal-sandbox
@@ -10,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: "What to run: demo (the shop's inbox), probe (direct guard checks), or both"
+        description: "What to run: demo (the shop's inbox), probe (direct guard checks), mcp (the MCP server), or several"
         default: demo
       mode:
         description: "Demo agent: careful (Claude), fooled (believes every email, scripted), or both"
@@ -20,7 +21,7 @@ on:
         default: scripted
   push:
     branches: [claude/x402-agents-solana-payments-nceg9b]
-    paths: ["paypal-guard/sandbox/**", "paypal-guard/demo/**", "paypal-guard/src/**", ".github/workflows/paypal-sandbox.yml"]
+    paths: ["paypal-guard/sandbox/**", "paypal-guard/demo/**", "paypal-guard/src/**", "paypal-guard-mcp/**", ".github/workflows/paypal-sandbox.yml"]
 
 permissions:
   contents: read
@@ -44,6 +45,8 @@ jobs:
       - run: npm install --no-save @paypal/agent-toolkit@1.11.0 @anthropic-ai/sdk@0.137.0
       - run: npm ci
         working-directory: paypal-guard/demo
+      - run: npm ci
+        working-directory: paypal-guard-mcp
       - name: Run
         env:
           PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
@@ -54,11 +57,12 @@ jobs:
           APPROVER: ${{ inputs.approver || 'scripted' }}
           WALLET_SERVER_URL: ${{ secrets.WALLET_SERVER_URL }}
           WALLET_SERVER_KEY: ${{ secrets.WALLET_SERVER_KEY }}
-          WHAT: ${{ inputs.script || 'probe demo' }}
+          WHAT: ${{ inputs.script || 'probe demo mcp' }}
         run: |
           for w in $WHAT; do
             case "$w" in
               probe) echo "::group::probe"; node sandbox/probe.mjs; echo "::endgroup::" ;;
+              mcp) echo "::group::mcp"; (cd ../paypal-guard-mcp && node test/sandbox.mjs); echo "::endgroup::" ;;
               demo) for m in $MODES; do case "$m" in careful|fooled) ;; *) echo "bad mode"; exit 1;; esac; echo "::group::demo ($m)"; (cd demo && AGENT_MODE="$m" node run.mjs); echo "::endgroup::"; done ;;
               *) echo "bad choice: $w"; exit 1 ;;
             esac
