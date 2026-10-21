@@ -1,14 +1,19 @@
 # fizzl-paypal-guard against the PayPal sandbox (test money only): card payments into the sandbox shop, then
-# the guarded Agent Toolkit refunds the right customer and stops the wrong one. Uses the repository secrets
-# PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here).
+# the guarded Agent Toolkit refunds the right customer and stops the wrong one (probe.mjs), and the demo
+# support agent (Claude) answers five customer emails (support-agent.mjs). Uses the repository secrets
+# PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here) and
+# ANTHROPIC_API_KEY for the agent.
 name: paypal-sandbox
 
 on:
   workflow_dispatch:
     inputs:
       script:
-        description: "Script in paypal-guard/sandbox to run"
-        default: probe.mjs
+        description: "Script in paypal-guard/sandbox to run (probe.mjs, support-agent.mjs)"
+        default: support-agent.mjs
+      mode:
+        description: "Agent prompt: careful, or sloppy (does whatever the mail asks)"
+        default: careful
   push:
     branches: [claude/x402-agents-solana-payments-nceg9b]
     paths: ["paypal-guard/sandbox/**", ".github/workflows/paypal-sandbox.yml"]
@@ -32,12 +37,24 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
       - run: npm ci
-      - run: npm install --no-save @paypal/agent-toolkit@1.11.0
+      - run: npm install --no-save @paypal/agent-toolkit@1.11.0 @anthropic-ai/sdk@0.137.0
       - name: Run
         env:
           PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
           PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
-          SCRIPT: ${{ inputs.script || 'probe.mjs' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT_MODE: ${{ inputs.mode || 'careful' }}
+          SCRIPT: ${{ inputs.script || 'probe.mjs support-agent.mjs' }}
         run: |
-          case "$SCRIPT" in *[!A-Za-z0-9._-]*) echo "bad script name"; exit 1;; esac
-          node "sandbox/$SCRIPT"
+          for s in $SCRIPT; do
+            case "$s" in *[!A-Za-z0-9._-]*) echo "bad script name"; exit 1;; esac
+            echo "::group::$s"
+            node "sandbox/$s"
+            echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paypal-sandbox-run
+          path: paypal-guard/sandbox/out/
+          if-no-files-found: ignore
