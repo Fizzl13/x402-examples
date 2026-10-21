@@ -190,6 +190,7 @@ test("an action in another system (a PayPal refund held back by fizzl-paypal-gua
     assert.equal((await owner("POST", `/api/approvals/${r.body.approvalId}`, { decision: "approve" })).body.status, "approved");
     const w = await waiting;
     assert.equal(w.body.status, "approved");
+    assert.equal(w.body.decidedBy, "dashboard");
     assert.deepEqual(w.body.entries, []);
     assert.equal((await agent("GET", "/v1/spending")).body.spending[0].used, "0");
     assert.equal((await agent("POST", "/v1/spent", { entries: [], purchaseId: w.body.purchaseId, result: "refund 4AA31823SM8655914 COMPLETED" })).body.ok, true);

@@ -75,6 +75,16 @@ test("a refund without an amount is the rest of the payment, and is judged as su
   assert.equal(out.status, "COMPLETED");
 });
 
+test("a payment refunded in full has nothing left to refund, and the line says what's left", async () => {
+  const done = { ...reader, capture: async (id) => (id === "CAP_DONE" ? { amount: "12.00", currency: "USD", refunded: "12.00", payer: ALICE } : captures[id] ?? null) };
+  const guard = createGuard({ reader: done });
+  const r = await guard.check("create_refund", refund("CAP_DONE"), ctx);
+  assert.equal(r.decision, "deny");
+  assert.equal(r.reasons[0].code, "NOTHING_LEFT");
+  assert.match((await guard.check("create_refund", refund("CAP_PART"), ctx)).summary, /refund 10\.00 USD \(what's left of 40\.00\) to alice@example\.com/);
+  assert.match((await guard.check("create_refund", refund("CAP_ALICE_2"), ctx)).summary, /refund 12\.00 USD \(the full payment\)/);
+});
+
 test("over the per-refund limit the owner decides", async () => {
   const asked = [];
   let answer = true;
@@ -346,7 +356,7 @@ test("fizzlWalletApproval asks through the Fizzl wallet, waits for the owner, an
   const guard = createGuard({ reader, approve, agent: "Support agent" });
   const out = await guard.run("create_refund", refund("CAP_ALICE_3", "60.00"), async () => JSON.stringify({ id: "RF9", status: "COMPLETED" }), ctx);
   assert.equal(JSON.parse(out).id, "RF9");
-  assert.equal(guard.events().at(-1).approvedBy, "fizzl wallet: telegram");
+  assert.equal(guard.events().at(-1).approvedBy, "the owner, in Telegram");
   const asked = seen.find((x) => x.path === "/v1/actions");
   assert.equal(asked.auth, "Bearer awk_test");
   assert.deepEqual({ kind: asked.body.kind, tool: asked.body.tool, amount: asked.body.amount, currency: asked.body.currency, customer: asked.body.customer }, { kind: "paypal", tool: "create_refund", amount: "60.00", currency: "USD", customer: ALICE });

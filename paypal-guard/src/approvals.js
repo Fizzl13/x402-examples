@@ -81,7 +81,7 @@ export function fizzlWalletApproval({ key, url = "https://wallet.fizzl.eu", time
     const until = Date.now() + timeoutMs;
     while (Date.now() < until) {
       const a = await call("GET", `/v1/approvals/${encodeURIComponent(asked.approvalId)}?wait=25`);
-      if (a?.status && a.status !== "pending") return { approved: a.status === "approved", by: `fizzl wallet: ${a.decidedBy ?? a.status}`, receipt: a.purchaseId ?? null };
+      if (a?.status && a.status !== "pending") return { approved: a.status === "approved", by: a.decidedBy ? `the owner, in ${a.decidedBy === "dashboard" ? "the Fizzl wallet dashboard" : a.decidedBy === "telegram" ? "Telegram" : a.decidedBy}` : `fizzl wallet: ${a.status}`, receipt: a.purchaseId ?? null };
     }
     return { approved: false, by: "timeout" };
   };

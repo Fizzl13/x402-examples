@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fizzl Guard for PayPal: live demo</title>
+<meta name="description" content="A shop's AI support agent refunds customers through PayPal's Agent Toolkit. fizzl-paypal-guard stops it from refunding the wrong person, too much, or too often, and asks the owner above the limits.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">FIZZL</span><span class="sub">Guard for PayPal</span></div>
+  <a class="gh" href="https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard" target="_blank" rel="noopener">Code on GitHub ↗</a>
+</header>
+
+<main>
+  <section class="hero">
+    <h1>An AI support agent that can refund.<br><span>And can't be talked into the wrong refund.</span></h1>
+    <p class="lead">Fizzl Home's support agent answers its inbox and acts in PayPal with PayPal's own Agent Toolkit. Between the agent and PayPal sits <b>fizzl-paypal-guard</b>: it reads the payment at PayPal, checks it belongs to the customer who wrote, keeps the shop's limits, and asks the owner above them.</p>
+  </section>
+
+  <section class="controls card">
+    <div class="seg" role="radiogroup" aria-label="Which agent">
+      <button type="button" class="opt" data-mode="careful" role="radio">Claude agent<small>well prompted, decides itself</small></button>
+      <button type="button" class="opt" data-mode="fooled" role="radio">Fooled agent<small>believes every email (scripted)</small></button>
+    </div>
+    <label class="code" id="codeWrap">Demo code <input id="code" type="password" autocomplete="off" placeholder="from the testing instructions"></label>
+    <button type="button" class="run" id="runBtn">Run the inbox</button>
+    <p class="status" id="status">Loading…</p>
+  </section>
+
+  <section class="grid">
+    <div class="col">
+      <h2>Inbox</h2>
+      <ol class="inbox" id="inbox"></ol>
+    </div>
+    <div class="col wide">
+      <h2 id="convTitle">Conversation</h2>
+      <div class="conv" id="conv"><p class="empty">Pick an email, or run the inbox.</p></div>
+    </div>
+    <div class="col">
+      <h2>Owner's phone</h2>
+      <div class="phone" id="phone"><div class="screen" id="screen"><p class="idle">Nothing waits for the owner.</p></div></div>
+      <h2>PayPal <span class="pp" id="ppMode">sandbox</span></h2>
+      <ul class="ledger" id="ledger"></ul>
+    </div>
+  </section>
+
+  <section class="how card">
+    <h2>What the guard checks, on every money action</h2>
+    <ul>
+      <li><b>Whose payment is it?</b> Read at PayPal, compared with the customer the app is serving. A "note from the owner" or a stranger with someone's order number can't change that.</li>
+      <li><b>Never more than is left.</b> A refund without an amount refunds everything; the guard looks it up first.</li>
+      <li><b>The owner's limits.</b> $25 a refund, $100 and 10 refunds a day. Above them, Approve or Deny on the owner's phone. No answer means no.</li>
+      <li><b>Disputes, price changes, marking invoices paid</b>: the owner decides. Read-only tools pass straight through.</li>
+    </ul>
+    <p class="note">Test money only: the PayPal sandbox. <code>npm i fizzl-paypal-guard</code> · Made by <a href="https://fizzl.eu" target="_blank" rel="noopener">Fizzl</a>, safety checks for AI agents that pay.</p>
+  </section>
+</main>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -57,11 +57,18 @@ export const DEFAULT_POLICY = Object.freeze({
   offIntent: "ask",
 });
 
+import { toMilli, fromMilli } from "./paypal.js";
+
 // One line for the owner's phone and the log: what the agent wants to do, in plain words.
 export function describe(name, args = {}, facts = {}) {
   const amt = (a) => (a?.value ? `${a.value} ${a.currency_code ?? ""}`.trim() : null);
   switch (name) {
-    case "create_refund": return `refund ${amt(args.amount) ?? (facts.amount ? `${facts.amount} ${facts.currency} (the full payment)` : "the full payment")}${facts.payer ? ` to ${facts.payer}` : ""} (capture ${args.capture_id})`;
+    case "create_refund": {
+      // Without an amount PayPal refunds what's left of the payment, so that is what the line says.
+      const left = facts.amount ? fromMilli(toMilli(facts.amount) - toMilli(facts.refunded ?? "0")) : null;
+      const what = amt(args.amount) ?? (left === null ? "the full payment" : left === facts.amount ? `${left} ${facts.currency} (the full payment)` : toMilli(left) <= 0n ? `a payment of ${facts.amount} ${facts.currency} that was already refunded in full` : `${left} ${facts.currency} (what's left of ${facts.amount})`);
+      return `refund ${what}${facts.payer ? ` to ${facts.payer}` : ""} (capture ${args.capture_id})`;
+    }
     case "accept_dispute_claim": return `accept dispute ${args.dispute_id}${facts.amount ? ` and pay ${facts.amount} ${facts.currency}` : ""}`;
     case "record_payment_for_invoice": return `mark invoice ${args.invoice_id} as paid${amt(args.amount) ? ` (${amt(args.amount)})` : ""}, without money moving`;
     case "record_refund_for_invoice": return `mark invoice ${args.invoice_id} as refunded${amt(args.amount) ? ` (${amt(args.amount)})` : ""}, without money moving`;
