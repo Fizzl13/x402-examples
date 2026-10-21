@@ -1,0 +1,6 @@
+/test/
+.mcpbignore
+*.tgz
+*.mcpb
+server.json
+package-lock.json
