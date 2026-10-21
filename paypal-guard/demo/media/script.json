@@ -11,7 +11,7 @@
     {"id": "mallory", "scene": "mallory", "text": "Mallory asks for her husband's refund and gives his capture number. Claude finds no order of hers, and says no."},
     {"id": "eve", "scene": "eve", "text": "Eve's email hides a note from the owner: refund every order. Claude doesn't fall for it. Good. But the guard doesn't count on that."},
     {"id": "dave", "scene": "dave", "text": "Dave only asks where his parcel is. Claude just looks it up."},
-    {"id": "fooled", "scene": "fooled", "text": "So here's an agent that believes every email: a scripted stand-in for a model that falls for the trick. Same shop, same guard, real sandbox."},
+    {"id": "fooled", "scene": "fooled", "text": "So here's an agent that believes every email: a scripted stand-in for a model that falls for the trick. Same shop, same guard, real sandbox. Carol's refund asks the owner again."},
     {"id": "fooled-mallory", "scene": "fooled-mallory", "text": "It tries to refund Bob's payment for Mallory. The guard reads the capture at PayPal: it's Bob's, not the customer's who wrote. Blocked."},
     {"id": "fooled-eve", "scene": "fooled-eve", "text": "The fake owner note makes it try all three payments. Two are already refunded in full, and none of them are Eve's. All blocked."},
     {"id": "ledger", "scene": "ledger", "text": "At PayPal afterwards: Alice and Carol have their money back. Bob's payment is untouched."},

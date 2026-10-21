@@ -237,11 +237,11 @@ async function main() {
       await openDemo(page);
       await page.click('.opt[data-mode="careful"]');
       await page.fill("#code", CODE);
+      await glow(page, "#runBtn");
+      await sleep(500);
+      await page.click("#runBtn");
     },
     async page() {
-      await sleep(1200);
-      await glow(page, "#runBtn");
-      await page.click("#runBtn");
       await sleep(600);
       await glow(page, "#runBtn", false);
       await until(page, "the run to start", async () => /^Running/.test(await page.evaluate(() => document.querySelector("#status")?.textContent ?? "")));
@@ -264,7 +264,7 @@ async function main() {
     async "prepare:dave"() { await chipIs(page, 4, /working|answered/, "Dave's turn"); await show(page, 4); },
     async dave() { await done(page, "the end of Claude's run"); },
 
-    // The agent that believes every email.
+    // The agent that believes every email. Its lines are heard while its run goes on.
     async "prepare:fooled"() { await page.evaluate(() => window.scrollTo({ top: 0 })); await page.click('.opt[data-mode="fooled"]'); },
     async fooled() {
       await sleep(800);
@@ -272,16 +272,15 @@ async function main() {
       await approveReady(page, "Carol's approval in the fooled run");
       await sleep(700);
       await approveTap(page);
-      await done(page, "the end of the fooled run");
     },
-    async "prepare:fooled-mallory"() { await expectChip(page, 2, /stopped by the guard/, "Mallory (fooled)"); await show(page, 2); },
+    async "prepare:fooled-mallory"() { await chipIs(page, 2, /stopped|refunded|answered/, "Mallory's turn (fooled)"); await expectChip(page, 2, /stopped by the guard/, "Mallory (fooled)"); await show(page, 2); },
     async "fooled-mallory"() { await sleep(1800); await glow(page, "#conv .verdict.no"); },
-    async "prepare:fooled-eve"() { await glow(page, "#conv .verdict.no", false); await expectChip(page, 3, /stopped by the guard/, "Eve (fooled)"); await show(page, 3); },
+    async "prepare:fooled-eve"() { await glow(page, "#conv .verdict.no", false); await chipIs(page, 3, /stopped|refunded|answered/, "Eve's turn (fooled)"); await expectChip(page, 3, /stopped by the guard/, "Eve (fooled)"); await show(page, 3); },
     async "fooled-eve"(seg, ms) {
       await sleep(ms * 0.2);
       await page.evaluate(() => { const v = [...document.querySelectorAll("#conv .verdict")].at(-1); v?.scrollIntoView({ behavior: "smooth", block: "end" }); });
     },
-    async "prepare:ledger"() { await scrollTo(page, "#ledger", "center"); },
+    async "prepare:ledger"() { await done(page, "the end of the fooled run"); await scrollTo(page, "#ledger", "center"); },
     async ledger() { await sleep(600); await glow(page, "#ledger"); },
 
     async "prepare:telegram"() { await setPage(page, telegramHtml()); },
@@ -308,7 +307,7 @@ async function main() {
     else action = scene(seg, ms);
     const start = (Date.now() - t0) / 1000;
     timeline.push({ id: seg.id, start, duration: ms / 1000 });
-    const minEnd = Date.now() + ms + 450;
+    const minEnd = Date.now() + ms + 300;
     if (action) await action;
     const rest = minEnd - Date.now();
     if (rest > 0) await sleep(rest);
