@@ -2772,7 +2772,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!first && howto.nextElementSibling === $("#setupCard")) $("#agentPlanNote").after(howto);
     howto.querySelector(":scope > summary").textContent = first ? "Start here: connect your first agent ▾" : "How it works · connect an agent · Fizzl services";
     $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
-      const v = a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
+      const v = a.action ? `<span class="verdict v-none">${esc(a.action.kind === "paypal" ? "PayPal" : a.action.kind)}${a.action.customer ? ` · ${esc(a.action.customer)}` : ""}</span>` : a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
       const left = Math.max(0, Math.round((a.expiresAt - s.now) / 60000));
       const right = a.status === "pending"
         ? `<div class="btns"><button class="button primary small" data-decision="approve" data-id="${esc(a.id)}">Approve</button><button class="button ghost small" data-decision="deny" data-id="${esc(a.id)}">Deny</button></div><span class="note">${left} min left</span>`

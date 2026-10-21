@@ -67,6 +67,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   v1.use(agentOnly);
   v1.get("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.getPolicy() })));
   v1.post("/reserve", wrap(async (req, res) => res.json(await req.wallet.reserve(req.agent, req.body ?? {}))));
+  // An action that isn't a signature (a PayPal refund held back by fizzl-paypal-guard): ask the owner.
+  v1.post("/actions", wrap(async (req, res) => res.json(await req.wallet.ask(req.agent, req.body ?? {}))));
   v1.get("/approvals/:id", wrap(async (req, res) => {
     const wait = Math.min(25_000, Math.max(0, Number(req.query.wait ?? 0) * 1000 || 0));
     res.json(await req.wallet.waitForApproval(req.agent, req.params.id, wait));

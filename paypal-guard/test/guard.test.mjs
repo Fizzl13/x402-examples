@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGuard, paypalReader, telegramApproval, jevIntent, toMilli, fromMilli, kindOf, ACTIONS } from "../index.js";
+import { createGuard, paypalReader, telegramApproval, fizzlWalletApproval, jevIntent, toMilli, fromMilli, kindOf, ACTIONS } from "../index.js";
 
 const ALICE = "alice@example.com", BOB = "bob@example.com";
 // A pretend PayPal: two of Alice's payments and one of Bob's.
@@ -328,4 +328,31 @@ test("jevIntent asks TypeSafe one question and reads the probability", async () 
   assert.equal(jevIntent({ apiKey: "" }), null);
   const failing = jevIntent({ apiKey: "k", fetch: async () => new Response("", { status: 500 }), log: { warn() {} } });
   assert.equal(await failing({ request: "x", action: "y" }), null);
+});
+
+test("fizzlWalletApproval asks through the Fizzl wallet, waits for the owner, and puts the outcome on the receipt", async () => {
+  const seen = [];
+  let polls = 0;
+  const fetch = async (url, init = {}) => {
+    const u = new URL(url), body = init.body ? JSON.parse(init.body) : null;
+    seen.push({ method: init.method, path: u.pathname + u.search, body, auth: init.headers.authorization });
+    if (u.pathname === "/v1/actions") return Response.json({ status: "pending", approvalId: "ap_x1", summary: body.reasons[0].message });
+    if (u.pathname === "/v1/approvals/ap_x1") return Response.json(++polls < 2 ? { status: "pending" } : { status: "approved", decidedBy: "telegram", purchaseId: "pu_r1", entries: [] });
+    if (u.pathname === "/v1/spent") return Response.json({ ok: true });
+    return Response.json({ error: "not_found" }, { status: 404 });
+  };
+  assert.throws(() => fizzlWalletApproval({ key: "nope" }), /awk_/);
+  const approve = fizzlWalletApproval({ key: "awk_test", url: "https://wallet.test/", fetch });
+  const guard = createGuard({ reader, approve, agent: "Support agent" });
+  const out = await guard.run("create_refund", refund("CAP_ALICE_3", "60.00"), async () => JSON.stringify({ id: "RF9", status: "COMPLETED" }), ctx);
+  assert.equal(JSON.parse(out).id, "RF9");
+  assert.equal(guard.events().at(-1).approvedBy, "fizzl wallet: telegram");
+  const asked = seen.find((x) => x.path === "/v1/actions");
+  assert.equal(asked.auth, "Bearer awk_test");
+  assert.deepEqual({ kind: asked.body.kind, tool: asked.body.tool, amount: asked.body.amount, currency: asked.body.currency, customer: asked.body.customer }, { kind: "paypal", tool: "create_refund", amount: "60.00", currency: "USD", customer: ALICE });
+  assert.match(asked.body.summary, /refund 60\.00 USD to alice@example\.com/);
+  assert.equal(seen.filter((x) => x.path.startsWith("/v1/approvals/ap_x1?wait=25")).length, 2);
+  assert.deepEqual(seen.find((x) => x.path === "/v1/spent").body, { entries: [], purchaseId: "pu_r1", result: "RF9 COMPLETED" });
+  const paused = fizzlWalletApproval({ key: "awk_test", url: "https://wallet.test", fetch: async () => Response.json({ status: "paused", summary: "Support agent is paused" }) });
+  assert.deepEqual(await paused({ tool: "create_refund", summary: "s", reasons: [] }), { approved: false, by: "fizzl wallet: Support agent is paused" });
 });

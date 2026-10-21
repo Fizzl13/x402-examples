@@ -163,6 +163,46 @@ test("over the limit: Telegram is asked, the dashboard approves, the waiting age
   } finally { server.close(); }
 });
 
+test("an action in another system (a PayPal refund held back by fizzl-paypal-guard): asked on Telegram, approved, a receipt, no budget used", async () => {
+  const { owner, agent, server, tg } = await boot();
+  try {
+    assert.equal((await agent("POST", "/v1/actions", { kind: "paypal" })).status, 400);
+    const r = await agent("POST", "/v1/actions", {
+      kind: "paypal", tool: "create_refund", summary: "refund 300.00 USD to carol@example.com (capture 65H934887P392015R)",
+      amount: "300.00", currency: "USD", customer: "carol@example.com", request: "The lamp I bought ($300) doesn't switch on.",
+      reasons: [{ code: "PER_ACTION", message: "300.00 USD is over the limit of 25.00 USD per refund" }],
+    });
+    assert.equal(r.body.status, "pending");
+    assert.equal(r.body.summary, "300.00 USD is over the limit of 25.00 USD per refund");
+    await new Promise((ok) => setTimeout(ok, 20));
+    const msg = tg.calls.find((c) => c.method === "sendMessage");
+    assert.match(msg.body.text, /research-agent wants to do something in PayPal that needs your OK/);
+    assert.match(msg.body.text, /refund 300\.00 USD to carol@example\.com/);
+    assert.match(msg.body.text, /customer: <code>carol@example\.com<\/code>/);
+    assert.match(msg.body.text, /over the limit of 25\.00 USD per refund/);
+    assert.deepEqual(msg.body.reply_markup.inline_keyboard[0].map((b) => b.text), ["Approve", "Deny"]);
+    const state = await owner("GET", "/api/state");
+    const shown = state.body.approvals.find((a) => a.id === r.body.approvalId);
+    assert.equal(shown.action.customer, "carol@example.com");
+    assert.equal(shown.method, "paypal:create_refund");
+    const waiting = agent("GET", `/v1/approvals/${r.body.approvalId}?wait=5`);
+    await new Promise((ok) => setTimeout(ok, 30));
+    assert.equal((await owner("POST", `/api/approvals/${r.body.approvalId}`, { decision: "approve" })).body.status, "approved");
+    const w = await waiting;
+    assert.equal(w.body.status, "approved");
+    assert.deepEqual(w.body.entries, []);
+    assert.equal((await agent("GET", "/v1/spending")).body.spending[0].used, "0");
+    assert.equal((await agent("POST", "/v1/spent", { entries: [], purchaseId: w.body.purchaseId, result: "refund 4AA31823SM8655914 COMPLETED" })).body.ok, true);
+    const receipt = (await owner("GET", `/api/purchases/${w.body.purchaseId}`)).body.purchase;
+    assert.equal(receipt.what.description, "refund 300.00 USD to carol@example.com (capture 65H934887P392015R)");
+    assert.equal(receipt.result, "refund 4AA31823SM8655914 COMPLETED");
+    await new Promise((ok) => setTimeout(ok, 20));
+    assert.match(tg.calls.find((c) => c.method === "editMessageText").body.text, /Approved \(dashboard\): going ahead/);
+    await owner("POST", "/api/pause", { paused: true });
+    assert.equal((await agent("POST", "/v1/actions", { kind: "paypal", tool: "create_refund", summary: "refund 1.00 USD" })).body.status, "paused");
+  } finally { server.close(); }
+});
+
 test("deny, and no answer in time, both mean not signed", async () => {
   const { owner, agent, server } = await boot({ approvalTtlMs: 80 });
   try {
