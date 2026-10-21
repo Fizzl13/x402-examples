@@ -3,6 +3,7 @@
 // invoice belongs to, and how much a dispute is about. Uses the merchant's own REST app (client id and
 // secret, the same as the toolkit), sandbox or live. It never writes.
 const BASES = { sandbox: "https://api-m.sandbox.paypal.com", live: "https://api-m.paypal.com" };
+const pause = (attempt) => new Promise((r) => setTimeout(r, 400 * attempt));
 
 export function paypalReader({ clientId, clientSecret, sandbox = true, fetch: fetchImpl = globalThis.fetch, timeoutMs = 8000 } = {}) {
   if (!clientId || !clientSecret) throw new TypeError("paypalReader: clientId and clientSecret are required");
@@ -23,12 +24,23 @@ export function paypalReader({ clientId, clientSecret, sandbox = true, fetch: fe
     return token.value;
   }
 
-  async function get(path) {
-    const res = await fetchImpl(`${base}${path}`, { headers: { authorization: `Bearer ${await bearer()}`, accept: "application/json" }, signal: AbortSignal.timeout(timeoutMs) });
-    if (res.status === 404) return null;
-    const body = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(`PayPal GET ${path.split("?")[0]}: HTTP ${res.status} ${body?.name ?? ""}`.trim());
-    return body;
+  // A read is safe to repeat: a busy PayPal (429, 5xx) or a dropped connection gets two more tries.
+  async function get(path, tries = 3) {
+    for (let i = 1; ; i++) {
+      let res;
+      try {
+        res = await fetchImpl(`${base}${path}`, { headers: { authorization: `Bearer ${await bearer()}`, accept: "application/json" }, signal: AbortSignal.timeout(timeoutMs) });
+      } catch (err) {
+        if (i >= tries) throw err;
+        await pause(i);
+        continue;
+      }
+      if (res.status === 404) return null;
+      if ((res.status === 429 || res.status >= 500) && i < tries) { await pause(i); continue; }
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(`PayPal GET ${path.split("?")[0]}: HTTP ${res.status} ${body?.name ?? ""}`.trim());
+      return body;
+    }
   }
   const id = (v) => encodeURIComponent(String(v ?? ""));
 

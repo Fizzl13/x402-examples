@@ -293,6 +293,23 @@ test("paypalReader reads a capture, its payer and what was refunded", async () =
   assert.equal(fetch.seen[1].init.headers.authorization, "Bearer A21");
 });
 
+test("paypalReader tries a read again when PayPal is busy, and gives up after three", async () => {
+  let calls = 0;
+  const fetch = async (url) => {
+    if (url.endsWith("/v1/oauth2/token")) return new Response(JSON.stringify({ access_token: "A21", expires_in: 32000 }));
+    calls++;
+    if (url.includes("/captures/BUSY")) return new Response("{}", { status: 503 });
+    if (calls === 1) return new Response("{}", { status: 503 });
+    return new Response(JSON.stringify({ id: "CAP2", status: "COMPLETED", amount: { currency_code: "USD", value: "5.00" } }));
+  };
+  const r = paypalReader({ clientId: "id", clientSecret: "secret", fetch });
+  assert.equal((await r.capture("CAP2")).amount, "5.00");
+  assert.equal(calls, 2);
+  calls = 10;
+  await assert.rejects(r.capture("BUSY"), /HTTP 503/);
+  assert.equal(calls, 13);
+});
+
 test("telegramApproval sends Approve/Deny buttons and waits for the owner's tap", async () => {
   let sent;
   let polls = 0;
