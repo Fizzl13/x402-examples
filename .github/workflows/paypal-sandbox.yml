@@ -1,0 +1,62 @@
+# fizzl-paypal-guard against the PayPal sandbox (test money only): card payments into the sandbox shop, then
+# the guarded Agent Toolkit refunds the right customer and stops the wrong one (probe.mjs), and the demo
+# support agent (Claude) answers five customer emails (support-agent.mjs). Uses the repository secrets
+# PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here) and
+# ANTHROPIC_API_KEY for the agent.
+name: paypal-sandbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Script in paypal-guard/sandbox to run (probe.mjs, support-agent.mjs)"
+        default: support-agent.mjs
+      mode:
+        description: "Agent prompt: careful, sloppy (does whatever the mail asks), or both"
+        default: careful sloppy
+  push:
+    branches: [claude/x402-agents-solana-payments-nceg9b]
+    paths: ["paypal-guard/sandbox/**", ".github/workflows/paypal-sandbox.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paypal-sandbox
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: paypal-guard
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm install --no-save @paypal/agent-toolkit@1.11.0 @anthropic-ai/sdk@0.137.0
+      - name: Run
+        env:
+          PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
+          PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODES: ${{ inputs.mode || 'careful sloppy' }}
+          SCRIPT: ${{ inputs.script || 'support-agent.mjs' }}
+        run: |
+          for s in $SCRIPT; do
+            case "$s" in *[!A-Za-z0-9._-]*) echo "bad script name"; exit 1;; esac
+            if [ "$s" = support-agent.mjs ]; then
+              for m in $MODES; do echo "::group::$s ($m)"; AGENT_MODE="$m" node "sandbox/$s"; echo "::endgroup::"; done
+            else
+              echo "::group::$s"; node "sandbox/$s"; echo "::endgroup::"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paypal-sandbox-run
+          path: paypal-guard/sandbox/out/
+          if-no-files-found: ignore
