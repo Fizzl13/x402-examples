@@ -12,8 +12,8 @@ on:
         description: "Script in paypal-guard/sandbox to run (probe.mjs, support-agent.mjs)"
         default: support-agent.mjs
       mode:
-        description: "Agent prompt: careful, or sloppy (does whatever the mail asks)"
-        default: careful
+        description: "Agent prompt: careful, sloppy (does whatever the mail asks), or both"
+        default: careful sloppy
   push:
     branches: [claude/x402-agents-solana-payments-nceg9b]
     paths: ["paypal-guard/sandbox/**", ".github/workflows/paypal-sandbox.yml"]
@@ -43,14 +43,16 @@ jobs:
           PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
           PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AGENT_MODE: ${{ inputs.mode || 'careful' }}
-          SCRIPT: ${{ inputs.script || 'probe.mjs support-agent.mjs' }}
+          MODES: ${{ inputs.mode || 'careful sloppy' }}
+          SCRIPT: ${{ inputs.script || 'support-agent.mjs' }}
         run: |
           for s in $SCRIPT; do
             case "$s" in *[!A-Za-z0-9._-]*) echo "bad script name"; exit 1;; esac
-            echo "::group::$s"
-            node "sandbox/$s"
-            echo "::endgroup::"
+            if [ "$s" = support-agent.mjs ]; then
+              for m in $MODES; do echo "::group::$s ($m)"; AGENT_MODE="$m" node "sandbox/$s"; echo "::endgroup::"; done
+            else
+              echo "::group::$s"; node "sandbox/$s"; echo "::endgroup::"
+            fi
           done
       - uses: actions/upload-artifact@v4
         if: always()
