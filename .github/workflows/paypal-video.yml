@@ -1,0 +1,90 @@
+name: paypal-video
+
+# The fizzl-paypal-guard video for the PayPal AI Hackathon: a neural voice (Kokoro, open weights) reads
+# paypal-guard/demo/media/script.json, a real browser records the demo page while a real run goes on (Claude
+# and the scripted agent, against the PayPal sandbox, test money only), and ffmpeg mixes both into an MP4.
+# Download the result from the run's artifact (fizzl-guard-for-paypal).
+on:
+  workflow_dispatch:
+    inputs:
+      voice:
+        description: "Kokoro voice (e.g. af_heart, af_bella, am_michael, bf_emma, bm_george)"
+        required: false
+        default: "af_heart"
+      speed:
+        description: "Speaking speed (1.0 = normal)"
+        required: false
+        default: "1.05"
+  push:
+    branches: [claude/x402-agents-solana-payments-nceg9b]
+    paths: ["paypal-guard/demo/media/**", ".github/workflows/paypal-video.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paypal-sandbox
+  cancel-in-progress: false
+
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: paypal-guard/demo/media
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11" }
+      - name: Voice (Kokoro)
+        run: |
+          pip install -q kokoro-onnx soundfile numpy
+          curl -fsSL -o kokoro-v1.0.onnx https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+          curl -fsSL -o voices-v1.0.bin https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+          python tts.py --engine kokoro --voice "${{ inputs.voice || 'af_heart' }}" --speed "${{ inputs.speed || '1.05' }}"
+      - name: Demo server (PayPal sandbox + Claude)
+        working-directory: paypal-guard/demo
+        env:
+          PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
+          PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm ci
+          DEMO_CODE=$(openssl rand -hex 12)
+          echo "::add-mask::$DEMO_CODE"
+          echo "DEMO_CODE=$DEMO_CODE" >> "$GITHUB_ENV"
+          DEMO_CODE=$DEMO_CODE PORT=8080 nohup node server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8080/health && break; sleep 1; done
+          curl -fs http://127.0.0.1:8080/api/config
+      - name: Browser
+        run: |
+          npm i --no-save --no-package-lock playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Record
+        run: DEMO_URL=http://127.0.0.1:8080 node record.js
+      - name: Server log
+        if: always()
+        working-directory: paypal-guard/demo
+        run: cat server.log || true
+      - name: Mix and encode
+        run: |
+          command -v ffmpeg || (sudo apt-get update -q && sudo apt-get install -y -q ffmpeg)
+          python build.py
+      - name: Contact sheet (one frame per scene)
+        run: |
+          i=0
+          for t in $(python -c "import json;t=json.load(open('out/timeline.json'));print(' '.join(str(round(s['start']+s['duration']*0.8,1)) for s in t['segments']))"); do
+            ffmpeg -loglevel error -y -ss "$t" -i out/fizzl-guard-for-paypal.mp4 -frames:v 1 -update 1 -vf scale=640:-1 "out/f$i.jpg"; i=$((i+1))
+          done
+          ffmpeg -loglevel error -y -framerate 1 -i out/f%d.jpg -vf "tile=3x$(( (i + 2) / 3 ))" -frames:v 1 -update 1 out/contact.jpg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fizzl-guard-for-paypal
+          path: |
+            paypal-guard/demo/media/out/fizzl-guard-for-paypal.mp4
+            paypal-guard/demo/media/out/fizzl-guard-for-paypal.srt
+            paypal-guard/demo/media/out/poster.jpg
+            paypal-guard/demo/media/out/contact.jpg

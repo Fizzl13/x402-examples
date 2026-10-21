@@ -58,3 +58,7 @@ AGENT_MODE=careful APPROVER=wallet node run.mjs      # Claude + the sandbox + yo
 ```
 
 The [paypal-sandbox workflow](../../.github/workflows/paypal-sandbox.yml) runs the same against the sandbox on GitHub Actions.
+
+## The video
+
+[`media/`](media) records a narrated video of a real run on this page (Claude and the PayPal sandbox), for the hackathon submission.
