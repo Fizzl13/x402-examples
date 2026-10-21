@@ -40,7 +40,7 @@ npm start              # http://localhost:8080, PayPal simulated in memory, fool
 | `ANTHROPIC_API_KEY` + `DEMO_CODE` | The Claude agent. Visitors need the code, because every run costs model usage. |
 | `OWNER_CODE` + `WALLET_SERVER_KEY` (+ `WALLET_SERVER_URL`) | Approvals in the owner's Telegram through the Fizzl wallet, for whoever starts the run with the owner code. |
 
-At most 10 Claude runs and 30 fooled runs an hour, across all visitors. While nothing is running, the page shows the last run.
+At most 10 Claude runs and 30 fooled runs an hour, across all visitors. While nothing is running, the page shows the last run; after a restart, a real Claude run recorded on the live demo against the sandbox (`public/recorded.json`, marked as recorded).
 
 ## On Render
 

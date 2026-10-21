@@ -30,7 +30,8 @@ if (env.ANTHROPIC_API_KEY) anthropic = new (await import("@anthropic-ai/sdk")).d
 
 // The run everyone watches.
 let run = null; // { id, token, mode, approver, events: [], started }
-let last = existsSync(RECORDED) ? JSON.parse(readFileSync(RECORDED, "utf8")) : null; // { mode, events } of the last finished run
+// The last finished run; after a restart, a real run recorded on the live demo (public/recorded.json, marked recorded).
+let last = existsSync(RECORDED) ? JSON.parse(readFileSync(RECORDED, "utf8")) : null; // { mode, approver, at, events, recorded? }
 const clients = new Set();
 const recent = { careful: [], fooled: [] };
 const pending = new Map(); // approval id -> resolve
@@ -80,7 +81,7 @@ app.get("/api/stream", (req, res) => {
   res.set({ "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
   res.flushHeaders();
   if (run) { send(res, { type: "run", id: run.id, mode: run.mode, approver: run.approver, live: true }); for (const e of run.events) send(res, e); }
-  else if (last) { send(res, { type: "run", mode: last.mode, approver: last.approver, live: false, at: last.at }); for (const e of last.events) send(res, e); }
+  else if (last) { send(res, { type: "run", mode: last.mode, approver: last.approver, live: false, at: last.at, recorded: last.recorded === true }); for (const e of last.events) send(res, e); }
   clients.add(res);
   const beat = setInterval(() => res.write(": beat\n\n"), 20_000);
   req.on("close", () => { clearInterval(beat); clients.delete(res); });
