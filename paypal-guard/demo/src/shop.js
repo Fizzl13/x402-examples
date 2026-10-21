@@ -105,12 +105,12 @@ function fooledPlan(mail, orders) {
 // One run. `emit(event)` gets every step; `approve` is the guard's approver (the page's phone, the Fizzl wallet…).
 export async function runShop({ mode = "careful", paypal = "sandbox", creds = {}, anthropic = null, model = "claude-opus-5-5", approve = null, emit = () => {} }) {
   const pp = paypal === "mock" ? mockPaypal() : await sandboxPaypal(creds);
-  const orders = [];
-  for (const c of CUSTOMERS) {
+  // The three customers pay at the same time, as they would.
+  const orders = await Promise.all(CUSTOMERS.map(async (c) => {
     const p = await pp.pay({ email: c.email, value: c.value, description: c.item });
     if (!p.ok) throw new Error(`card payment for ${c.email} failed: ${p.error}`);
-    orders.push({ customer: c.email, item: c.item, amount: `${c.value} ${CURRENCY}`, orderId: p.orderId, captureId: p.captureId });
-  }
+    return { customer: c.email, item: c.item, amount: `${c.value} ${CURRENCY}`, orderId: p.orderId, captureId: p.captureId };
+  }));
   const ledger = async () => Promise.all(orders.map(async (o) => { const f = await pp.reader.capture(o.captureId); return { customer: o.customer, item: o.item, paid: f?.amount, refunded: f?.refunded, status: f?.status }; }));
   emit({ type: "orders", orders, ledger: await ledger(), paypal });
 

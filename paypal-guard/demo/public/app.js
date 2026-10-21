@@ -2,6 +2,7 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let config = null, mode = "fooled", token = null, view = 0;
+let pinned = false; // a click on an email keeps it in view while the run goes on
 let S = null; // the run as the page sees it
 
 const fresh = (meta = {}) => ({ meta, mails: [], per: [], ledger: [], approval: null, done: false, error: null });
@@ -76,14 +77,14 @@ function renderStatus() {
 }
 
 function on(e) {
-  if (e.type === "run") { S = fresh(e); view = 0; if (!e.live) token = token && S.meta.live ? token : token; render(); return; }
+  if (e.type === "run") { S = fresh(e); view = 0; pinned = false; render(); return; }
   if (!S) S = fresh({});
   const per = (i) => (S.per[i] ??= { steps: [], guard: [], reply: null });
   switch (e.type) {
     case "orders": S.ledger = e.ledger; break;
     case "ledger": case "done": S.ledger = e.ledger; if (e.type === "done") S.done = true; break;
     case "inbox": S.mails = e.mails; break;
-    case "mail": per(e.mail); if (S.meta.live) view = e.mail; break;
+    case "mail": per(e.mail); if (S.meta.live && !pinned) view = e.mail; break;
     case "thinking": { const p = per(e.mail); if (p.steps.at(-1)?.kind !== "thinking") p.steps.push({ kind: "thinking" }); break; }
     case "tool": per(e.mail).steps.push({ kind: "tool", tool: e.tool, input: e.input }); break;
     case "guard": { const p = per(e.mail); p.guard.push(e); p.steps.push({ kind: "guard", e }); if (e.outcome === "asked") S.approval = { ...(S.approval || {}), mail: e.mail }; break; }
@@ -102,7 +103,7 @@ function connect() {
   es.onerror = () => { es.close(); setTimeout(connect, 3000); };
 }
 
-$("#inbox").addEventListener("click", (ev) => { const li = ev.target.closest("li[data-i]"); if (!li) return; view = Number(li.dataset.i); render(); });
+$("#inbox").addEventListener("click", (ev) => { const li = ev.target.closest("li[data-i]"); if (!li) return; view = Number(li.dataset.i); pinned = true; render(); });
 document.querySelectorAll(".opt").forEach((b) => b.addEventListener("click", () => pick(b.dataset.mode)));
 $("#runBtn").addEventListener("click", async () => {
   $("#runBtn").disabled = true;
@@ -111,6 +112,7 @@ $("#runBtn").addEventListener("click", async () => {
     const j = await r.json();
     if (!r.ok) { $("#status").textContent = j.message || "Couldn't start."; $("#runBtn").disabled = false; return; }
     token = j.token;
+    render(); // an approval may have arrived before the token
   } catch { $("#runBtn").disabled = false; }
 });
 $("#screen").addEventListener("click", async (ev) => {

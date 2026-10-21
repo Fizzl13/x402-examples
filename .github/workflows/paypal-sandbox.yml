@@ -49,7 +49,8 @@ jobs:
           PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
           PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          MODES: ${{ inputs.mode || 'careful fooled' }}
+          # A push runs the free agent only; Claude runs when started by hand (it costs model usage).
+          MODES: ${{ github.event_name == 'push' && 'fooled' || inputs.mode || 'careful fooled' }}
           APPROVER: ${{ inputs.approver || 'scripted' }}
           WALLET_SERVER_URL: ${{ secrets.WALLET_SERVER_URL }}
           WALLET_SERVER_KEY: ${{ secrets.WALLET_SERVER_KEY }}
