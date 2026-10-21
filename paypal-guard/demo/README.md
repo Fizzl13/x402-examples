@@ -1,5 +1,7 @@
 # Fizzl Guard for PayPal: the live demo
 
+**Live:** https://fizzl-paypal-demo.onrender.com · **Video:** https://youtu.be/ICUyRTfnUNg
+
 Fizzl Home is a pretend shop. Its AI support agent answers the inbox and acts in PayPal with [PayPal's Agent Toolkit](https://github.com/paypal/agent-toolkit). Between the agent and PayPal sits [fizzl-paypal-guard](..).
 
 One run plays out like this:

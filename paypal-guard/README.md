@@ -16,7 +16,7 @@ The guard sits between the model and those tools. It doesn't trust what the mode
 
 Read-only tools (orders, invoices, transactions, disputes, insights) pass straight through.
 
-**See it work:** [the live demo](demo) is a shop's support agent (Claude) answering five emails against the PayPal sandbox. It refunds Alice, asks the owner about Carol's $300, and stops "Bob's wife" and a planted "note from the owner".
+**See it work:** [the live demo](https://fizzl-paypal-demo.onrender.com) is a shop's support agent (Claude) answering five emails against the PayPal sandbox. It refunds Alice, asks the owner about Carol's $300, and stops "Bob's wife" and a planted "note from the owner". There is also [a 3-minute video](https://youtu.be/ICUyRTfnUNg) of a recorded run, and [the demo's code](https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard/demo).
 
 ## Install
 
