@@ -20,6 +20,8 @@ const SCALE = 18;
 const fmt = (x) => formatUnits(BigInt(x), SCALE);
 export const hashKey = (key) => createHash("sha256").update(String(key)).digest("hex");
 const id = (p) => `${p}_${randomBytes(9).toString("base64url")}`;
+// Where the owner decided, for the agent: the channel, never their Telegram name.
+const channelOf = (by) => (/^(@|telegram)/i.test(String(by)) ? "telegram" : by === "dashboard" ? "dashboard" : "other");
 
 // What an agent says it is buying (presign-guard-wallet withPurchase): short, plain text.
 function cleanPurchase(p) {
@@ -373,7 +375,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
           waiters.set(approvalId, set);
         });
       }
-      return { status: a.status, entries: a.status === "approved" ? a.entries : [], purchaseId: a.status === "approved" ? a.purchaseId ?? null : null, summary: a.summary, expiresAt: a.expiresAt };
+      return { status: a.status, entries: a.status === "approved" ? a.entries : [], purchaseId: a.status === "approved" ? a.purchaseId ?? null : null, summary: a.summary, expiresAt: a.expiresAt, ...(a.decidedBy && a.status !== "pending" ? { decidedBy: channelOf(a.decidedBy) } : {}) };
     },
 
     // Signing failed: give the spending back. Only an agent's own entries.

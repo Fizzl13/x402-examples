@@ -35,6 +35,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm pack --dry-run
+      - name: Demo shop (simulated PayPal)
+        working-directory: paypal-guard/demo
+        run: npm ci && npm test
 
   publish:
     needs: test

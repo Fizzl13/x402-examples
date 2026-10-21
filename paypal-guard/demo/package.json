@@ -1,0 +1,17 @@
+{
+  "name": "fizzl-paypal-guard-demo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Live demo of fizzl-paypal-guard: a shop's AI support agent acting in PayPal (sandbox), stopped where it shouldn't act, with the owner's approval above the limits.",
+  "type": "module",
+  "main": "server.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node server.js", "test": "node --test test/*.test.mjs" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.137.0",
+    "@paypal/agent-toolkit": "1.11.0",
+    "express": "^5.1.0",
+    "fizzl-paypal-guard": "file:.."
+  },
+  "license": "MIT"
+}

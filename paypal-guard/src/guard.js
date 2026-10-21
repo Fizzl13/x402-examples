@@ -95,7 +95,7 @@ export function createGuard({
     const kind = kindOf(tool), rule = policy[kind], reasons = [];
     const add = (code, message, action) => reasons.push({ code, message, action });
     const customer = ctx?.customer ? lc(ctx.customer) : null;
-    let amount = null, currency = null;
+    let amount = null, currency = null, owner = facts?.payer ?? null;
 
     if (rule === "deny") add("NOT_ALLOWED", `the owner doesn't let the agent ${tool.replaceAll("_", " ")}`, "deny");
     if (rule === "ask") {
@@ -107,6 +107,7 @@ export function createGuard({
     // Someone else's payment, subscription or invoice.
     if (customer && kind !== "read" && kind !== "other") {
       const owners = await ownersOf(tool, args, facts);
+      owner = owners?.[0] ?? owner;
       if (owners?.length) {
         const others = owners.filter((o) => lc(o) !== customer);
         if (others.length) add("OTHER_CUSTOMER", `this is for ${others.join(", ")}, not for ${ctx.customer}, the customer in this conversation`, policy.otherCustomer);
@@ -121,7 +122,7 @@ export function createGuard({
       if (args.amount?.value !== undefined) {
         try { amount = toMilli(args.amount.value); } catch { add("BAD_AMOUNT", `"${args.amount.value}" is not an amount`, "deny"); }
       } else if (remaining !== null) amount = remaining; // no amount: PayPal refunds all that's left
-      if (amount !== null && amount <= 0n) add("BAD_AMOUNT", "a refund must be more than zero", "deny");
+      if (amount !== null && amount <= 0n) add(args.amount?.value === undefined ? "NOTHING_LEFT" : "BAD_AMOUNT", args.amount?.value === undefined ? "this payment was already refunded in full" : "a refund must be more than zero", "deny");
       if (facts?.currency && currency && facts.currency !== currency) add("CURRENCY", `the payment was in ${facts.currency}, the refund is in ${currency}`, "deny");
       if (amount !== null && remaining !== null && amount > remaining) add("OVER_REFUND", `${fromMilli(amount)} ${currency} is more than what's left of this payment (${fromMilli(remaining)} of ${facts.amount} ${facts.currency})`, "deny");
       if (amount === null) add("AMOUNT_UNKNOWN", "the refund has no amount and the guard couldn't read the payment, so it can't tell how much would go", "ask");
@@ -129,10 +130,10 @@ export function createGuard({
     }
 
     if (intent && kind !== "read" && kind !== "other" && ctx?.request && !reasons.some((r) => r.action === "deny")) {
-      const r = await intent({ request: ctx.request, customer: ctx.customer ?? null, action: describe(tool, args, facts ?? {}) });
+      const r = await intent({ request: ctx.request, customer: ctx.customer ?? null, action: describe(tool, args, { ...(facts ?? {}), payer: facts?.payer ?? owner }) });
       if (r && r.fits < 0.5) add("OFF_INTENT", `this doesn't look like what the customer asked for (AI check: ${Math.round((1 - r.fits) * 100)}% sure)`, policy.offIntent);
     }
-    return { kind, reasons, amount, currency };
+    return { kind, reasons, amount, currency, owner: owner ?? null };
   }
 
   // The owner's limits for this kind against what was already done today (`used`). Pure: adds reasons only.
@@ -192,8 +193,9 @@ export function createGuard({
     const facts = await factsFor(tool, args);
     const a = await assess(tool, args, ctx, facts);
     let { decision, booked } = await limitAndBook(tool, args, a);
-    const summary = describe(tool, args, facts ?? {});
-    const base = { id, tool, kind, summary, customer: ctx.customer ?? null, reasons: a.reasons.map(({ code, message }) => ({ code, message })) };
+    const summary = describe(tool, args, { ...(facts ?? {}), payer: facts?.payer ?? a.owner });
+    // `stops`: the reasons that stopped it outright (a deny), next to those that only asked the owner.
+    const base = { id, tool, kind, summary, customer: ctx.customer ?? null, reasons: a.reasons.map(({ code, message, action }) => ({ code, message, ...(action === "deny" ? { stops: true } : {}) })) };
     let approvedBy = null, answer = null;
     if (decision === "deny") { emit({ ...base, decision, outcome: "blocked" }); return blocked(tool, "deny", a.reasons.filter((r) => r.action === "deny")); }
     if (decision === "ask") {
@@ -234,7 +236,7 @@ export function createGuard({
         const cKey = tool === "create_refund" ? captureKey(args) : null;
         a.reasons.push(...limitReasons(tool, args, a, (await store.get(usedKey(a.kind))) ?? { total: "0", count: 0 }, cKey ? await store.get(cKey) : null));
       }
-      return { tool, kind: a.kind, decision: free ? "allow" : decisionOf(a.reasons), summary: describe(tool, args, facts ?? {}), reasons: a.reasons.map(({ code, message }) => ({ code, message })), facts };
+      return { tool, kind: a.kind, decision: free ? "allow" : decisionOf(a.reasons), summary: describe(tool, args, { ...(facts ?? {}), payer: facts?.payer ?? a.owner }), reasons: a.reasons.map(({ code, message }) => ({ code, message })), facts };
     },
     // Wrap a set of AI SDK tools (toolkit.getTools()): same tools, each call through the guard. `context` is the
     // customer and their message, from the app: an object, or a function the guard calls on every tool call.

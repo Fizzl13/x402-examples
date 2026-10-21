@@ -1,25 +1,26 @@
 # fizzl-paypal-guard against the PayPal sandbox (test money only): card payments into the sandbox shop, then
-# the guarded Agent Toolkit refunds the right customer and stops the wrong one (probe.mjs), and the demo
-# support agent (Claude) answers five customer emails (support-agent.mjs). Uses the repository secrets
-# PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here) and
-# ANTHROPIC_API_KEY for the agent.
+# the guarded Agent Toolkit refunds the right customer and stops the wrong one (sandbox/probe.mjs), and the
+# demo shop's support agent answers five customer emails (demo/run.mjs): Claude ("careful") and a scripted
+# agent that believes every email ("fooled"). Uses the repository secrets PAYPAL_SANDBOX_CLIENT_ID and
+# PAYPAL_SANDBOX_SECRET (a sandbox REST app; live keys don't belong here), ANTHROPIC_API_KEY for Claude, and
+# WALLET_SERVER_URL/KEY when approvals go to the owner's Telegram through the Fizzl wallet.
 name: paypal-sandbox
 
 on:
   workflow_dispatch:
     inputs:
       script:
-        description: "Script in paypal-guard/sandbox to run (probe.mjs, support-agent.mjs)"
-        default: support-agent.mjs
+        description: "What to run: demo (the shop's inbox), probe (direct guard checks), or both"
+        default: demo
       mode:
-        description: "Agent prompt: careful, sloppy (does whatever the mail asks), or both"
-        default: careful sloppy
+        description: "Demo agent: careful (Claude), fooled (believes every email, scripted), or both"
+        default: careful fooled
       approver:
         description: "Who answers over-limit actions: scripted, or wallet (your Fizzl wallet: Telegram + dashboard, 10 minutes to answer)"
         default: scripted
   push:
     branches: [claude/x402-agents-solana-payments-nceg9b]
-    paths: ["paypal-guard/sandbox/**", ".github/workflows/paypal-sandbox.yml"]
+    paths: ["paypal-guard/sandbox/**", "paypal-guard/demo/**", "paypal-guard/src/**", ".github/workflows/paypal-sandbox.yml"]
 
 permissions:
   contents: read
@@ -41,28 +42,29 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npm install --no-save @paypal/agent-toolkit@1.11.0 @anthropic-ai/sdk@0.137.0
+      - run: npm ci
+        working-directory: paypal-guard/demo
       - name: Run
         env:
           PAYPAL_SANDBOX_CLIENT_ID: ${{ secrets.PAYPAL_SANDBOX_CLIENT_ID }}
           PAYPAL_SANDBOX_SECRET: ${{ secrets.PAYPAL_SANDBOX_SECRET }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          MODES: ${{ inputs.mode || 'careful sloppy' }}
+          MODES: ${{ inputs.mode || 'careful fooled' }}
           APPROVER: ${{ inputs.approver || 'scripted' }}
           WALLET_SERVER_URL: ${{ secrets.WALLET_SERVER_URL }}
           WALLET_SERVER_KEY: ${{ secrets.WALLET_SERVER_KEY }}
-          SCRIPT: ${{ inputs.script || 'support-agent.mjs' }}
+          WHAT: ${{ inputs.script || 'probe demo' }}
         run: |
-          for s in $SCRIPT; do
-            case "$s" in *[!A-Za-z0-9._-]*) echo "bad script name"; exit 1;; esac
-            if [ "$s" = support-agent.mjs ]; then
-              for m in $MODES; do echo "::group::$s ($m)"; AGENT_MODE="$m" node "sandbox/$s"; echo "::endgroup::"; done
-            else
-              echo "::group::$s"; node "sandbox/$s"; echo "::endgroup::"
-            fi
+          for w in $WHAT; do
+            case "$w" in
+              probe) echo "::group::probe"; node sandbox/probe.mjs; echo "::endgroup::" ;;
+              demo) for m in $MODES; do case "$m" in careful|fooled) ;; *) echo "bad mode"; exit 1;; esac; echo "::group::demo ($m)"; (cd demo && AGENT_MODE="$m" node run.mjs); echo "::endgroup::"; done ;;
+              *) echo "bad choice: $w"; exit 1 ;;
+            esac
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: paypal-sandbox-run
-          path: paypal-guard/sandbox/out/
+          path: paypal-guard/demo/out/
           if-no-files-found: ignore
