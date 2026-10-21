@@ -53,7 +53,7 @@ When an action needs your OK, the server asks the first of these that is set up:
 |---|---|---|
 | **Fizzl Agent Wallet** | Approve or Deny in Telegram (@FizzlWalletBot) or on the wallet dashboard, next to your agents' other payments. The outcome (PayPal's refund id) lands on a receipt there. | `FIZZL_AGENT_KEY`: an agent key (`awk_…`) from [wallet.fizzl.eu](https://wallet.fizzl.eu) → Agents |
 | **Your own Telegram bot** | A message from your bot with Approve and Deny. Make a bot with [@BotFather](https://t.me/BotFather) and send it `/start`; get your chat id from [@userinfobot](https://t.me/userinfobot). The bot must have no webhook. | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
-| **In the chat app** | A form in the app itself (MCP elicitation), with Approve or Deny. Only you can answer it, not the model. Works in MCP clients that support elicitation; in others, use your phone. | Nothing; `APPROVAL_IN_CHAT=off` to turn it off |
+| **In the chat app** | A form in the app itself (MCP elicitation), with Approve or Deny. Only you can answer it, not the model. Works in MCP clients that support elicitation, such as Claude Code; in others, use your phone. Don't set up a hook that answers these forms automatically (Claude Code's `Elicitation` hook can). | Nothing; `APPROVAL_IN_CHAT=off` to turn it off |
 
 With none of these, anything over a limit is simply not done.
 
