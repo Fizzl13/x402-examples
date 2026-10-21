@@ -227,3 +227,20 @@ test("configuration from the environment", () => {
   assert.equal(configFromEnv({ ...base, APPROVAL_IN_CHAT: "off" }).approval.kind, "none");
   assert.equal(configFromEnv({ ...base, APPROVAL_WAIT_SECONDS: "20", APPROVAL_MINUTES: "5" }).approvalMs, 300_000);
 });
+
+test("as a Claude Desktop bundle: optional settings left as their ${user_config.…} placeholder count as not set", async () => {
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const dir = mkdtempSync(join(tmpdir(), "ppg-mcpb-"));
+  try {
+    const client = new Client({ name: "bundle", version: "1.0.0" });
+    await client.connect(new StdioClientTransport({
+      command: process.execPath, args: [new URL("../server.js", import.meta.url).pathname, "--tools=all"],
+      env: { PATH: process.env.PATH, GUARD_STATE_DIR: dir, PAYPAL_CLIENT_ID: "id", PAYPAL_CLIENT_SECRET: "secret", PAYPAL_ENVIRONMENT: "SANDBOX", FIZZL_AGENT_KEY: "${user_config.fizzl_agent_key}", TELEGRAM_BOT_TOKEN: "${user_config.telegram_bot_token}", LIMIT_REFUND: "25" },
+      stderr: "ignore",
+    }));
+    const status = body(await client.callTool({ name: "paypal_guard_status", arguments: {} }));
+    assert.equal(status.approvals, "none"); // no Fizzl key, no Telegram, and this client can't ask in the chat
+    assert.equal(status.limits.refund.perAction, "25");
+    await client.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

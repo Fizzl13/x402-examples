@@ -12,7 +12,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import paypalToolkit from "@paypal/agent-toolkit/ai-sdk";
 import { createGuard, memoryStore, paypalReader, telegramApproval, fizzlWalletApproval, kindOf, toMilli } from "fizzl-paypal-guard";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 export const ALL_TOOLS = paypalToolkit.ALL_TOOLS_ENABLED;
 const KINDS = ["refund", "dispute", "books", "stop", "price", "bill", "other", "unknown"];
 const dayOf = (t) => new Date(t).toISOString().slice(0, 10);

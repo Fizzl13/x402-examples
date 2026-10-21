@@ -5,6 +5,10 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { configFromEnv, serverFromConfig, VERSION } from "./lib.js";
 
+// In a Claude Desktop bundle (manifest.json) an optional setting left empty can arrive as its own placeholder,
+// "${user_config.name}": treat that as not set.
+for (const [k, v] of Object.entries(process.env)) if (/^\$\{user_config\.[^}]*\}$/.test(v ?? "")) delete process.env[k];
+
 let config;
 try {
   config = configFromEnv(process.env, process.argv.slice(2));

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-latest.schema.json",
+  "manifest_version": "0.3",
+  "name": "fizzl-paypal-guard-mcp",
+  "display_name": "PayPal, guarded (Fizzl)",
+  "version": "0.1.1",
+  "description": "PayPal's Agent Toolkit with limits on refunds and your Approve or Deny above them.",
+  "long_description": "The same 47 tools as PayPal's own MCP server, with fizzl-paypal-guard in front of every call that moves or promises money. Reads pass straight through. A refund is never more than is left of the payment and stays within your limits (by default $25 per refund, $100 and 10 refunds a day, one per payment a day). Above them, and for every accepted dispute, price change or invoice marked as paid, you approve or deny: on your phone through the Fizzl Agent Wallet or your own Telegram bot, or in a form in Claude itself. No answer means no. The day's counts and a log of every decision stay on your computer. Start with a sandbox REST app from developer.paypal.com: test money only.",
+  "author": { "name": "Frits Zwager (Fizzl)", "url": "https://fizzl.eu" },
+  "repository": { "type": "git", "url": "https://github.com/Fizzl13/x402-examples" },
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard-mcp",
+  "documentation": "https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard-mcp#readme",
+  "support": "https://github.com/Fizzl13/x402-examples/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server.js", "--tools=all"],
+      "env": {
+        "PAYPAL_CLIENT_ID": "${user_config.paypal_client_id}",
+        "PAYPAL_CLIENT_SECRET": "${user_config.paypal_client_secret}",
+        "PAYPAL_ENVIRONMENT": "${user_config.paypal_environment}",
+        "LIMIT_REFUND": "${user_config.limit_refund}",
+        "LIMIT_REFUND_PER_DAY": "${user_config.limit_refund_per_day}",
+        "LIMIT_REFUNDS_PER_DAY": "${user_config.limit_refunds_per_day}",
+        "LIMIT_CURRENCY": "${user_config.limit_currency}",
+        "FIZZL_AGENT_KEY": "${user_config.fizzl_agent_key}",
+        "TELEGRAM_BOT_TOKEN": "${user_config.telegram_bot_token}",
+        "TELEGRAM_CHAT_ID": "${user_config.telegram_chat_id}",
+        "APPROVAL_MINUTES": "${user_config.approval_minutes}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "tools": [
+    { "name": "create_refund", "description": "Refund a capture: never more than is left, within your limits, your OK above them" },
+    { "name": "accept_dispute_claim", "description": "Accept a dispute: always asks you first" },
+    { "name": "get_order", "description": "Read an order" },
+    { "name": "list_transactions", "description": "List transactions" },
+    { "name": "paypal_guard_status", "description": "Your limits, today's use, waiting approvals and the latest decisions" },
+    { "name": "paypal_guard_check", "description": "Dry run: what the guard would decide for a call, and why" }
+  ],
+  "keywords": ["paypal", "refunds", "agent-toolkit", "guardrails", "approval", "limits", "payments"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=20.0.0" }
+  },
+  "user_config": {
+    "paypal_client_id": { "type": "string", "title": "PayPal client ID", "description": "Client ID of your PayPal REST app (developer.paypal.com → Apps & Credentials). Start with a Sandbox app.", "required": true },
+    "paypal_client_secret": { "type": "string", "title": "PayPal secret", "description": "Secret of the same REST app.", "required": true, "sensitive": true },
+    "paypal_environment": { "type": "string", "title": "PayPal environment", "description": "SANDBOX (test money) or PRODUCTION (real refunds).", "default": "SANDBOX" },
+    "limit_refund": { "type": "number", "title": "Most per refund", "description": "Refunds up to this amount run without asking you.", "default": 25, "min": 0.01 },
+    "limit_refund_per_day": { "type": "number", "title": "Most in refunds a day", "description": "All refunds of a day together, before you are asked.", "default": 100, "min": 0.01 },
+    "limit_refunds_per_day": { "type": "number", "title": "Refunds a day", "description": "How many refunds a day before you are asked.", "default": 10, "min": 1 },
+    "limit_currency": { "type": "string", "title": "Currency of the limits", "description": "A refund in another currency always asks you.", "default": "USD" },
+    "fizzl_agent_key": { "type": "string", "title": "Fizzl Agent Wallet key (optional)", "description": "Approvals in Telegram and on the wallet dashboard: an agent key (awk_…) from wallet.fizzl.eu → Agents. Leave empty to be asked in Claude itself.", "sensitive": true, "default": "" },
+    "telegram_bot_token": { "type": "string", "title": "Your Telegram bot token (optional)", "description": "Instead of the Fizzl wallet: a bot of your own from @BotFather (send it /start first; no webhook).", "sensitive": true, "default": "" },
+    "telegram_chat_id": { "type": "string", "title": "Your Telegram chat id (optional)", "description": "With your own bot: your chat id (from @userinfobot). Approvals go only there.", "default": "" },
+    "approval_minutes": { "type": "number", "title": "Minutes to answer", "description": "How long you have to approve; no answer means no.", "default": 10, "min": 1, "max": 60 }
+  }
+}
