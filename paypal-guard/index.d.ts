@@ -7,6 +7,8 @@ export interface Policy {
   refund?: Rule; dispute?: Rule; books?: Rule; stop?: Rule; price?: Rule; bill?: Rule; other?: Rule; read?: Rule; unknown?: Rule;
   /** A refund, cancellation or bill for someone other than the customer in the conversation. Default "deny". */
   otherCustomer?: "ask" | "deny";
+  /** A refund of a payment with an open dispute or chargeback: the buyer would be paid twice. Default "deny". */
+  openDispute?: "ask" | "deny";
   /** Jev says the action doesn't follow from the customer's request. Default "ask". */
   offIntent?: "ask" | "deny";
 }
@@ -33,7 +35,9 @@ export interface Reader {
   capture(id: string): Promise<{ amount: string | null; currency: string | null; refunded: string; payer: string | null; orderId: string | null; status: string | null; customId: string | null; invoiceId: string | null } | null>;
   subscription(id: string): Promise<{ payer: string | null; status: string | null; planId: string | null } | null>;
   invoice(id: string): Promise<{ recipients: string[]; amount: string | null; currency: string | null; status: string | null } | null>;
-  dispute(id: string): Promise<{ amount: string | null; currency: string | null; status: string | null; reason: string | null } | null>;
+  dispute(id: string): Promise<{ amount: string | null; currency: string | null; status: string | null; reason: string | null; stage?: string | null; captureId?: string | null; payer?: string | null; customId?: string | null } | null>;
+  /** The disputes and chargebacks on a capture that aren't resolved. Optional: without it, refunds skip the open-dispute check. */
+  disputes?(captureId: string): Promise<{ id: string; amount: string | null; currency: string | null; status: string | null; reason: string | null; stage: string | null; channel: string | null }[]>;
 }
 
 export interface GuardEvent {

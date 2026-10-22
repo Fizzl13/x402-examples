@@ -45,6 +45,7 @@ function renderConv() {
   for (const x of p?.steps ?? []) {
     if (x.kind === "tool") parts.push(`<div class="step">Agent calls <code>${esc(x.tool)}</code>${x.tool === "create_refund" ? ` · ${esc(x.input?.amount ? `${x.input.amount.value} ${x.input.amount.currency_code}` : "the whole payment")} on capture <code>${esc(x.input?.capture_id)}</code>` : ""}</div>`);
     if (x.kind === "guard") parts.push(verdictCard(x.e));
+    if (x.kind === "note") parts.push(`<div class="step note">${esc(x.text)}</div>`);
     if (x.kind === "thinking") parts.push(`<div class="step">${esc(S.meta.mode === "careful" ? "Claude is reading…" : "The agent reads the email…")}</div>`);
   }
   if (p?.reply !== null && p?.reply !== undefined) parts.push(`<div class="reply"><span class="who">Reply to ${esc(m.from)}</span>${esc(p.reply)}</div>`);
@@ -62,7 +63,7 @@ function renderPhone() {
 function renderLedger() {
   $("#ledger").innerHTML = S.ledger.map((l) => {
     const pct = l.paid ? Math.min(100, (Number(l.refunded || 0) / Number(l.paid)) * 100) : 0;
-    return `<li><div class="row"><span>${esc(l.item)} · ${esc(l.customer)}</span></div><div class="row"><span>paid $${esc(l.paid)}</span><span>refunded $${esc(l.refunded)}</span></div><div class="bar"><i style="width:${pct}%"></i></div></li>`;
+    return `<li><div class="row"><span>${esc(l.item)} · ${esc(l.customer)}</span>${l.dispute ? `<span class="chip no">${esc(l.dispute)}</span>` : ""}</div><div class="row"><span>paid $${esc(l.paid)}</span><span>refunded $${esc(l.refunded)}</span></div><div class="bar"><i style="width:${pct}%"></i></div></li>`;
   }).join("") || `<li class="empty">No orders yet.</li>`;
 }
 
@@ -87,6 +88,7 @@ function on(e) {
     case "inbox": S.mails = e.mails; break;
     case "mail": per(e.mail); if (S.meta.live && !pinned) view = e.mail; break;
     case "thinking": { const p = per(e.mail); if (p.steps.at(-1)?.kind !== "thinking") p.steps.push({ kind: "thinking" }); break; }
+    case "note": per(e.mail).steps.push({ kind: "note", text: e.text }); break;
     case "tool": per(e.mail).steps.push({ kind: "tool", tool: e.tool, input: e.input }); break;
     case "guard": { const p = per(e.mail); p.guard.push(e); p.steps.push({ kind: "guard", e }); if (e.outcome === "asked") S.approval = { ...(S.approval || {}), mail: e.mail }; break; }
     case "approval": S.approval = { ...e, mail: S.approval?.mail ?? view, done: false }; break;
