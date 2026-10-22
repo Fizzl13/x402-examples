@@ -82,7 +82,20 @@ const REPEAT_BLOCK_MS = 60 * 60 * 1000;
 // The public x402 catalog (Coinbase's x402 Bazaar). Paid APIs list themselves there.
 const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
 const DISCOVERY_TTL_MS = 60 * 60 * 1000;
-const DISCOVERY_PAGES = 20;
+// The catalog comes oldest update first (a listing is updated when a payment settles): its first 20 pages left out
+// the newest two thirds, the sellers paid most lately (22 Oct 2026). Now all of it, four pages at a time, keeping
+// only what find_services reads (~53 MB for 33,000 listings instead of ~250 MB in full).
+const DISCOVERY_PAGES = 100;
+const DISCOVERY_AT_ONCE = 4;
+const slimListing = (item) => {
+  const input = item?.extensions?.bazaar?.info?.input;
+  return {
+    resource: item?.resource,
+    description: typeof item?.description === "string" ? item.description.slice(0, 400) : undefined,
+    accepts: (Array.isArray(item?.accepts) ? item.accepts : []).map((a) => ({ network: a?.network, asset: a?.asset, amount: a?.amount, maxAmountRequired: a?.maxAmountRequired, description: typeof a?.description === "string" ? a.description.slice(0, 400) : undefined })),
+    ...(input ? { extensions: { bazaar: { info: { input } } } } : {}),
+  };
+};
 const CHECK_PRICE_CAP = "$0.02"; // a presign-guard check costs $0.01
 
 const amountString = z.string().regex(/^\d+(\.\d+)?$/, "a decimal amount like \"2.5\"");
@@ -696,13 +709,20 @@ export function createWallet(config, overrides = {}) {
   async function catalog() {
     if (listed && Date.now() - listedAt < DISCOVERY_TTL_MS) return listed;
     loading ??= (async () => {
-      const items = [];
-      for (let page = 0; page < DISCOVERY_PAGES; page++) {
-        const res = await plainFetch(`${config.discoveryUrl}?type=http&limit=500&offset=${page * 500}`, { signal: AbortSignal.timeout(15_000) });
+      const page = async (n) => {
+        const res = await plainFetch(`${config.discoveryUrl}?type=http&limit=500&offset=${n * 500}`, { signal: AbortSignal.timeout(15_000) });
         if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
-        const batch = (await res.json()).items ?? [];
-        items.push(...batch);
-        if (batch.length < 500) break;
+        return res.json();
+      };
+      const first = await page(0);
+      const items = (first.items ?? []).map(slimListing);
+      const total = Number(first.pagination?.total);
+      const pages = Number.isFinite(total) && total > 0 ? Math.min(DISCOVERY_PAGES, Math.ceil(total / 500)) : items.length < 500 ? 1 : DISCOVERY_PAGES;
+      for (let n = 1; n < pages; n += DISCOVERY_AT_ONCE) {
+        const batch = await Promise.all(Array.from({ length: Math.min(DISCOVERY_AT_ONCE, pages - n) }, (_, i) => page(n + i)));
+        let short = false;
+        for (const b of batch) { const got = b.items ?? []; for (const item of got) items.push(slimListing(item)); short ||= got.length < 500; }
+        if (short) break;
       }
       listed = items; listedAt = Date.now();
       return items;

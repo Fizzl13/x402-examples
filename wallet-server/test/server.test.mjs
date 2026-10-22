@@ -1346,6 +1346,35 @@ test("test my setup: the agent's address is learned from the payment it signs", 
   } finally { server.close(); }
 });
 
+test("the whole catalog is read (oldest first, newest on the last pages); its first whole read is a baseline too", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const usdc = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO };
+  let total = 1700; // 4 pages of 500
+  const asked = [];
+  const fetch = async (url) => {
+    const offset = Number(new URL(url).searchParams.get("offset"));
+    asked.push(offset);
+    const items = [];
+    for (let i = offset; i < Math.min(offset + 500, total); i++) items.push({ resource: `https://s${i}.example/signal`, description: "Crypto trend signal", accepts: [usdc] });
+    return Response.json({ items, pagination: { limit: 500, offset, total } });
+  };
+  // Before: only the oldest 10,000 listings were read, so `seen` knows some sellers but not "#whole-catalog".
+  const store = memoryStore();
+  await store.global.addSeen({ "https://s0.example": 1 });
+  let t = Date.parse("2026-10-23T00:00:00Z");
+  const alerts = [];
+  const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, seen: store.global, fetch, onNew: async (p) => alerts.push(p) });
+  await catalog.refresh();
+  assert.deepEqual(asked.sort((x, y) => x - y), [0, 500, 1000, 1500], "every page");
+  assert.equal(alerts.length, 0, "the 1,699 sellers it never read before are not announced as new");
+  assert.equal((await catalog.newProviders()).providers?.length ?? 0, 0);
+  // From then on, a seller that appears is new.
+  t += 2 * 3_600_000; total = 1701;
+  await catalog.refresh();
+  await new Promise((ok) => setTimeout(ok, 30));
+  assert.deepEqual(alerts.flat().map((p) => p.host), ["s1700.example"]);
+});
+
 test("new providers on Telegram: per followed category, once per new seller, never for the baseline", async () => {
   const { createCatalog } = await import("../src/catalog.js");
   const { server, owner, accounts, tg } = await boot();

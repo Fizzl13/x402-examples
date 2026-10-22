@@ -510,6 +510,33 @@ test("find_services: paid APIs from the x402 catalog this wallet can pay, best m
 });
 
 
+test("find_services reads the whole catalog (oldest first, so the newest listings are on its last pages), four pages at a time", async () => {
+  const fake = fakeWallet();
+  const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const total = 501 * 7 - 300; // 7 pages of 500, the last one short
+  const asked = [];
+  let inFlight = 0, most = 0;
+  const fetch = async (url) => {
+    const u = new URL(url);
+    const offset = Number(u.searchParams.get("offset"));
+    asked.push(offset);
+    inFlight++; most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight--;
+    const items = [];
+    for (let i = offset; i < Math.min(offset + 500, total); i++) {
+      items.push({ resource: `https://old${i}.example/x`, description: i === total - 1 ? "Fresh weather forecast" : "Old listing", accepts: [{ scheme: "exact", network: "eip155:8453", asset: USDC_BASE, amount: "1000", payTo: "0x0000000000000000000000000000000000000001", extra: { big: "x".repeat(2000) } }], extensions: { bazaar: { info: { input: { method: "GET" }, output: { schema: "x".repeat(2000) } } } } });
+    }
+    return Response.json({ items, pagination: { limit: 500, offset, total } });
+  };
+  const wallet = createWallet(configFromEnv({ ...ENV, MAX_PAYMENT_USD: "1", X402_DISCOVERY_URL: "https://catalog.test/discovery" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch, guard: { verifyReceipts: "off" } });
+  const r = await wallet.findServices({ query: "weather forecast" });
+  assert.deepEqual(r.services.map((s) => s.url), [`https://old${total - 1}.example/x`], "the newest listing, on the last page");
+  assert.equal(r.services[0].method, "GET");
+  assert.deepEqual([...asked].sort((a, b) => a - b), [0, 500, 1000, 1500, 2000, 2500, 3000], "every page once");
+  assert.ok(most > 1 && most <= 4, `pages fetched side by side, at most four (${most})`);
+});
+
 test("find_services understands a plain question, in Dutch too", () => {
   assert.deepEqual(words("Wat is het weer de komende dagen in Amsterdam?"), ["weather", "days", "amsterdam"]);
   assert.deepEqual(words("Wat is de koers van Bitcoin vandaag?"), ["price", "bitcoin", "today"]);

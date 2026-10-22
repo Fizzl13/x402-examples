@@ -7,7 +7,13 @@ import { isIP } from "node:net";
 
 export const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
 const TTL_MS = 60 * 60 * 1000;
-const PAGES = 20;
+// The catalog comes oldest update first (a listing is updated when a payment settles), so its first pages are the
+// sellers nobody has paid lately. Up to 20 pages left out the newest two thirds (1,062 sellers, 22 Oct 2026); now
+// all of it is read (66 pages of 500 then, ~53 MB as slim listings), four pages at a time.
+const PAGES = 100;
+const AT_ONCE = 4;
+// Marks the first load of the whole catalog in `seen`: the sellers it adds were there before, not new (see track).
+const WHOLE = "#whole-catalog";
 // Fizzl's own services moved from onrender.com to fizzl.eu; the Bazaar still lists some old addresses.
 // An old host is left out of the catalog once its new host is listed too, so Find shows each service once.
 export const MOVED_HOSTS = {
@@ -134,13 +140,20 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
   async function load() {
     if (items && now() - at < TTL_MS) return items;
     loading ??= (async () => {
-      const all = [];
-      for (let page = 0; page < PAGES; page++) {
-        const res = await fetchImpl(`${url}?type=http&limit=500&offset=${page * 500}`, { signal: AbortSignal.timeout(15_000) });
+      const page = async (n) => {
+        const res = await fetchImpl(`${url}?type=http&limit=500&offset=${n * 500}`, { signal: AbortSignal.timeout(15_000) });
         if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
-        const batch = (await res.json()).items ?? [];
-        for (const item of batch) all.push(slimListing(item));
-        if (batch.length < 500) break;
+        return res.json();
+      };
+      const first = await page(0);
+      const all = (first.items ?? []).map(slimListing);
+      const total = Number(first.pagination?.total);
+      const pages = Number.isFinite(total) && total > 0 ? Math.min(PAGES, Math.ceil(total / 500)) : all.length < 500 ? 1 : PAGES;
+      for (let n = 1; n < pages; n += AT_ONCE) {
+        const batch = await Promise.all(Array.from({ length: Math.min(AT_ONCE, pages - n) }, (_, i) => page(n + i)));
+        let short = false;
+        for (const b of batch) { const items = b.items ?? []; for (const item of items) all.push(slimListing(item)); short ||= items.length < 500; }
+        if (short) break;
       }
       items = withoutMovedHosts(all); at = now();
       const fresh = await track(items).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
@@ -154,9 +167,12 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     const origins = new Set();
     for (const item of all) { try { const u = new URL(item.resource); if (u.protocol === "https:") origins.add(u.origin); } catch {} }
     const known = seen ? await seen.getSeen() : firstSeen;
-    const baseline = !Object.keys(known).length;
+    // The very first catalog, and the first time the whole catalog is read (before, only its oldest 10,000 listings):
+    // what they add is the baseline, so customers aren't told about a thousand "new" sellers at once.
+    const baseline = !Object.keys(known).length || !(WHOLE in known);
     const fresh = {};
     for (const o of origins) if (!(o in known)) fresh[o] = baseline ? 0 : now();
+    if (!(WHOLE in known)) fresh[WHOLE] = now();
     if (seen && Object.keys(fresh).length) await seen.addSeen(fresh);
     firstSeen = { ...known, ...fresh };
     return baseline ? [] : Object.keys(fresh);
