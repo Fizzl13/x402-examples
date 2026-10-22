@@ -2061,6 +2061,21 @@ test("signing in the installed app: a code confirmed where you're signed in; the
   } finally { server.close(); }
 });
 
+test("health shows memory and uptime; a wrong or old code says how long codes last and what to ask", async () => {
+  const { owner, base, server } = await boot();
+  try {
+    const h = await (await fetch(`${base}/health`)).json();
+    assert.equal(h.ok, true);
+    for (const k of ["rss_mb", "heap_mb", "heap_total_mb", "heap_limit_mb", "external_mb"]) assert.ok(Number.isInteger(h.memory[k]) && h.memory[k] >= 0, k);
+    assert.ok(h.memory.heap_limit_mb > h.memory.heap_mb);
+    assert.ok(Number.isInteger(h.uptime_s));
+    const r = await owner("GET", "/api/pair/ZZZZ-ZZZZ");
+    assert.equal(r.status, 404);
+    assert.match(r.body.message, /works for 10 minutes/);
+    assert.match(r.body.message, /what is my wallet status\?/);
+  } finally { server.close(); }
+});
+
 test("linking an agent with a code: the agent asks with its address, the owner names it, the agent gets its key once", async () => {
   const c = chain();
   const { owner, base, server, agentCall } = await boot({ rpc: c.rpc });

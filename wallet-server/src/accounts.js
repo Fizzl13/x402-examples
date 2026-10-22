@@ -902,13 +902,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async pairPeek(code) {
       const clean = cleanCode(code);
       const req = clean ? await g.peekOnce("pairreq", clean) : null;
-      if (!req) throw Object.assign(new Error("That code is wrong or has expired. Ask your agent for a new one."), { status: 404 });
+      if (!req) throw Object.assign(new Error("That code is wrong or has expired: a code works for 10 minutes. Ask your agent \"what is my wallet status?\" again for a new one."), { status: 404 });
       return { code: clean, address: req.address, label: req.label, at: req.at };
     },
     async pairApprove(id, code, name) {
       const clean = cleanCode(code);
       const req = clean ? await g.peekOnce("pairreq", clean) : null;
-      if (!req) throw Object.assign(new Error("That code is wrong or has expired. Ask your agent for a new one."), { status: 404 });
+      if (!req) throw Object.assign(new Error("That code is wrong or has expired: a code works for 10 minutes. Ask your agent \"what is my wallet status?\" again for a new one."), { status: 404 });
       const wallet = walletFor(id);
       const { agent, key } = await wallet.addAgent(String(name ?? "").trim() || req.label); // the plan or the name can say no: the code stays
       if (!(await g.takeOnce("pairreq", clean))) { await wallet.removeAgent(agent.id); throw Object.assign(new Error("That code was just used."), { status: 409 }); }
