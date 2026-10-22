@@ -39,5 +39,9 @@ if (!dispute) {
 const d = await api("GET", `/v1/customer/disputes/${dispute.dispute_id}`);
 console.log("dispute", dispute.dispute_id, d.body?.status, d.body?.reason, d.body?.dispute_life_cycle_stage, d.body?.dispute_amount?.value, "links", (d.body?.links ?? []).map((l) => l.rel).join(","));
 console.log("disputed transaction", JSON.stringify(d.body?.disputed_transactions?.[0] ?? {}).slice(0, 300));
-const accept = await api("POST", `/v1/customer/disputes/${dispute.dispute_id}/accept-claim`, { note: "Sandbox probe: accept the claim." });
-console.log("accept-claim", brief(accept), JSON.stringify(accept.body).slice(0, 200));
+console.log("disputes listed for the capture after", Math.round((Date.now() - now.getTime()) / 1000), "s");
+// Does PayPal itself stop a refund of a payment under an open chargeback? If not, the shop pays twice.
+const refund = await api("POST", `/v2/payments/captures/${pay.captureId}/refund`, { amount: { currency_code: "USD", value: "40.00" }, note_to_payer: "Sandbox probe" });
+console.log("refund while the chargeback is open", brief(refund), refund.body?.status ?? "", JSON.stringify(refund.body?.details ?? "").slice(0, 200));
+const after = await api("GET", `/v2/payments/captures/${pay.captureId}`);
+console.log("capture after", after.body?.status, JSON.stringify(after.body?.status_details ?? {}));
