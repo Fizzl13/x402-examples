@@ -40,6 +40,8 @@ function mergePolicy(p = {}) {
   }
   for (const k of ["otherCustomer", "openDispute", "afterReturnDays", "offIntent"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
   if (out.returnDays !== null && !(Number.isInteger(out.returnDays) && out.returnDays > 0)) throw new TypeError("policy.returnDays: a whole number of days, or null");
+  const cr = out.customerRefunds;
+  if (cr !== null && !(cr && Number.isInteger(cr.max) && cr.max >= 0 && Number.isInteger(cr.days) && cr.days > 0)) throw new TypeError("policy.customerRefunds: { max, days } in whole numbers, or null");
   return out;
 }
 
@@ -166,9 +168,11 @@ export function createGuard({
     return { kind, reasons, amount, currency, owner: owner ?? null };
   }
 
-  // The owner's limits for this kind against what was already done today (`used`). Pure: adds reasons only.
-  function limitReasons(tool, args, a, used, capturedToday) {
-    const rule = policy[a.kind], out = [];
+  // The owner's limits for this kind against what was already done today (`used`), and this customer's refunds
+  // within policy.customerRefunds.days (`earlier`). Pure: adds reasons only.
+  function limitReasons(tool, args, a, used, capturedToday, earlier = []) {
+    const rule = policy[a.kind], out = [], cr = policy.customerRefunds;
+    if (cr && earlier.length + 1 > cr.max) out.push({ code: "CUSTOMER_REFUNDS", message: `this would be refund number ${earlier.length + 1} for ${a.owner} in ${cr.days} days; above ${cr.max} the owner decides`, action: "ask" });
     if (!rule || typeof rule !== "object") return out;
     const cur = a.currency ?? policy.currency;
     if (rule.countPerDay !== undefined && used.count + 1 > rule.countPerDay) out.push({ code: "COUNT_PER_DAY", message: `this would be number ${used.count + 1} today; the limit is ${rule.countPerDay} a day`, action: "ask" });
@@ -182,19 +186,24 @@ export function createGuard({
   const decisionOf = (reasons) => (reasons.some((r) => r.action === "deny") ? "deny" : reasons.length ? "ask" : "allow");
   const usedKey = (kind) => `${dayOf(now())}:${kind}`;
   const captureKey = (args) => (args.capture_id ? `${dayOf(now())}:capture:${args.capture_id}` : null);
+  // A customer's refunds through the guard, as times; only those within the window count.
+  const customerKey = (tool, a) => (tool === "create_refund" && policy.customerRefunds && a.owner ? `refunds:${lc(a.owner)}` : null);
+  const within = (list) => (Array.isArray(list) ? list : []).filter((t) => t > now() - policy.customerRefunds.days * DAY);
 
   // Limits and booking in one step, in the lock, so two refunds at the same moment can't both use the last of
   // the day's limit. `force` books an action the owner approved, past the limits.
   const limitAndBook = (tool, args, a, { force = false } = {}) => locked(async () => {
-    const key = usedKey(a.kind), cKey = tool === "create_refund" ? captureKey(args) : null;
+    const key = usedKey(a.kind), cKey = tool === "create_refund" ? captureKey(args) : null, rKey = customerKey(tool, a);
     const used = (await store.get(key)) ?? { total: "0", count: 0 };
-    if (!force) a.reasons.push(...limitReasons(tool, args, a, used, cKey ? await store.get(cKey) : null));
+    const earlier = rKey ? within(await store.get(rKey)) : [];
+    if (!force) a.reasons.push(...limitReasons(tool, args, a, used, cKey ? await store.get(cKey) : null, earlier));
     const decision = decisionOf(a.reasons);
     if (decision !== "allow" && !force) return { decision, booked: null };
-    const amount = a.currency === policy.currency && a.amount !== null ? a.amount : 0n;
+    const amount = a.currency === policy.currency && a.amount !== null ? a.amount : 0n, at = now();
     await store.set(key, { total: fromMilli(toMilli(used.total) + amount), count: used.count + 1 });
     if (cKey) await store.set(cKey, true);
-    return { decision, booked: { key, amount, cKey } };
+    if (rKey) await store.set(rKey, [...earlier, at]);
+    return { decision, booked: { key, amount, cKey, rKey, at } };
   });
   // PayPal refused the action after it was booked: give the day's room back.
   const unbook = (booked) => booked && locked(async () => {
@@ -202,6 +211,11 @@ export function createGuard({
     const left = toMilli(used.total) - booked.amount;
     await store.set(booked.key, { total: fromMilli(left < 0n ? 0n : left), count: Math.max(0, used.count - 1) });
     if (booked.cKey) await store.set(booked.cKey, null);
+    if (booked.rKey) {
+      const list = Array.isArray(await store.get(booked.rKey)) ? await store.get(booked.rKey) : [];
+      const i = list.lastIndexOf(booked.at);
+      if (i >= 0) await store.set(booked.rKey, list.filter((_, j) => j !== i));
+    }
   });
 
   // The answer the model gets when an action didn't happen: plain, final, and with what to tell the customer.
@@ -263,8 +277,8 @@ export function createGuard({
       const a = await assess(tool, args, ctx, facts);
       const free = passes(a.kind, policy);
       if (!free) {
-        const cKey = tool === "create_refund" ? captureKey(args) : null;
-        a.reasons.push(...limitReasons(tool, args, a, (await store.get(usedKey(a.kind))) ?? { total: "0", count: 0 }, cKey ? await store.get(cKey) : null));
+        const cKey = tool === "create_refund" ? captureKey(args) : null, rKey = customerKey(tool, a);
+        a.reasons.push(...limitReasons(tool, args, a, (await store.get(usedKey(a.kind))) ?? { total: "0", count: 0 }, cKey ? await store.get(cKey) : null, rKey ? within(await store.get(rKey)) : []));
       }
       return { tool, kind: a.kind, decision: free ? "allow" : decisionOf(a.reasons), summary: describe(tool, args, { ...(facts ?? {}), payer: facts?.payer ?? a.owner }), reasons: a.reasons.map(({ code, message }) => ({ code, message })), facts };
     },

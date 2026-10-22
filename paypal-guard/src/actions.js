@@ -53,6 +53,9 @@ export const DEFAULT_POLICY = Object.freeze({
   unknown: "ask",
   // A refund, cancellation or bill for someone other than the customer in this conversation.
   otherCustomer: "deny",
+  // Refunds per customer: one more than `max` within `days` asks the owner (a customer who asks again and again).
+  // null: not checked. Counts the refunds that went through this guard, in its store.
+  customerRefunds: { max: 2, days: 30 },
   // A refund of a payment the buyer already disputed or charged back: they would get the money twice.
   openDispute: "deny",
   // The shop's return period in days (14 days' withdrawal, or a longer money-back promise), counted from the

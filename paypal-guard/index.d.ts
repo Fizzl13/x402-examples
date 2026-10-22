@@ -7,6 +7,8 @@ export interface Policy {
   refund?: Rule; dispute?: Rule; books?: Rule; stop?: Rule; price?: Rule; bill?: Rule; other?: Rule; read?: Rule; unknown?: Rule;
   /** A refund, cancellation or bill for someone other than the customer in the conversation. Default "deny". */
   otherCustomer?: "ask" | "deny";
+  /** One more refund than `max` for the same customer within `days` asks the owner. Default { max: 2, days: 30 }; null turns it off. */
+  customerRefunds?: { max: number; days: number } | null;
   /** A refund of a payment with an open dispute or chargeback: the buyer would be paid twice. Default "deny". */
   openDispute?: "ask" | "deny";
   /** The shop's return period in days, counted from purchaseDateOf (else the payment date). Default null: not checked. */

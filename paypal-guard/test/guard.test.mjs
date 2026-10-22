@@ -113,7 +113,8 @@ test("without a way to ask, over the limit is a no", async () => {
 
 test("the daily total, the daily count and a second refund of one payment ask the owner", async () => {
   const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`CAP_MANY_${i}`, { amount: "30.00", currency: "USD", refunded: "0.00", payer: ALICE }]));
-  const guard = createGuard({ reader: { ...reader, capture: async (id) => many[id] ?? captures[id] } });
+  // Four refunds for one customer: the per-customer count (its own test) is off here.
+  const guard = createGuard({ reader: { ...reader, capture: async (id) => many[id] ?? captures[id] }, policy: { customerRefunds: null } });
   const exec = async () => ({ status: "COMPLETED" });
   for (let i = 0; i < 4; i++) assert.equal((await guard.run("create_refund", refund(`CAP_MANY_${i}`, "25.00"), exec, ctx)).status, "COMPLETED");
   const fifth = await guard.check("create_refund", refund("CAP_MANY_4", "1.00"), ctx);
@@ -126,6 +127,37 @@ test("the daily total, the daily count and a second refund of one payment ask th
   const third = await counted.check("create_refund", refund("CAP_MANY_2", "1.00"), ctx);
   assert.ok(third.reasons.some((r) => r.code === "COUNT_PER_DAY"));
   assert.equal(counted.policy.refund.perAction, "25.00", "a partial policy keeps the other defaults");
+});
+
+test("a customer who keeps asking for refunds: the third within 30 days asks the owner", async () => {
+  const DAY = 86_400_000;
+  let t = Date.parse("2026-10-01T09:00:00Z");
+  const many = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`CAP_A${i}`, { amount: "10.00", currency: "USD", refunded: "0.00", payer: ALICE }]));
+  const asked = [];
+  const guard = createGuard({ reader: { ...reader, capture: async (id) => many[id] ?? captures[id] }, now: () => t, approve: async (r) => { asked.push(r); return { approved: false }; } });
+  const ok = async () => ({ status: "COMPLETED" });
+  assert.equal((await guard.run("create_refund", refund("CAP_A0", "5.00"), ok, ctx)).status, "COMPLETED");
+  t += 3 * DAY;
+  assert.equal((await guard.run("create_refund", refund("CAP_A1", "5.00"), ok, ctx)).status, "COMPLETED");
+  t += 3 * DAY;
+  const third = await guard.run("create_refund", refund("CAP_A2", "5.00"), ok, ctx);
+  assert.equal(third.blocked, true);
+  assert.deepEqual(asked.at(-1).reasons.map((r) => r.code), ["CUSTOMER_REFUNDS"]);
+  assert.match(asked.at(-1).reasons[0].message, /refund number 3 for alice@example\.com in 30 days; above 2 the owner decides/);
+  // Bob's own refund isn't counted with Alice's.
+  assert.equal((await guard.check("create_refund", refund("CAP_BOB", "5.00"), { customer: BOB })).decision, "allow");
+  // A refund PayPal refused doesn't count.
+  const refused = createGuard({ reader: { ...reader, capture: async (id) => many[id] }, now: () => t });
+  await refused.run("create_refund", refund("CAP_A0", "5.00"), async () => '{"error":{"message":"UNPROCESSABLE_ENTITY"}}', ctx);
+  await refused.run("create_refund", refund("CAP_A1", "5.00"), ok, ctx);
+  assert.equal((await refused.check("create_refund", refund("CAP_A2", "5.00"), ctx)).decision, "allow");
+  // Once the first is more than 30 days old, it no longer counts.
+  t += 25 * DAY;
+  assert.equal((await guard.check("create_refund", refund("CAP_A3", "5.00"), ctx)).decision, "allow");
+  // The owner can set it, or turn it off.
+  assert.equal((await createGuard({ reader, policy: { customerRefunds: { max: 0, days: 7 } } }).check("create_refund", refund("CAP_ALICE_1", "5.00"), ctx)).reasons[0].code, "CUSTOMER_REFUNDS");
+  assert.equal(createGuard({ policy: { customerRefunds: null } }).policy.customerRefunds, null);
+  assert.throws(() => createGuard({ policy: { customerRefunds: { max: -1, days: 30 } } }), /policy\.customerRefunds/);
 });
 
 test("two refunds at the same moment can't both use the last of the day", async () => {
