@@ -23,16 +23,19 @@ See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 
 ## Quick start (hosted, about 2 minutes)
 
-No server or Telegram bot to set up: the hosted wallet at wallet.fizzl.eu does the limits, approvals and receipts. Free to start.
+No keys to copy: the wallet makes its own key on your computer, and you link it to your account with a code. The hosted wallet at wallet.fizzl.eu does the limits, approvals and receipts. Free to start.
 
-1. **Sign in** at **[wallet.fizzl.eu](https://wallet.fizzl.eu/?ref=readme)** with e-mail, a passkey, Xaman or your wallet.
-2. **Add an agent** (Agents → Add agent) and copy the setup it shows for your app: Claude Desktop, Claude Code, Cursor or any MCP client. It is this MCP server with your agent's key filled in.
-3. **Put a few dollars of USDC** in the agent's wallet (the address is on the dashboard). Most calls cost a cent or less.
-4. **Restart your app** and ask your agent: *"what is my wallet status?"*, then something like *"find a weather API and get the forecast for Amsterdam"*. It finds a paid API, pays within your limits and shows you the receipt.
+1. **Install it in your app, without keys.**
+   - Claude Desktop: download **[fizzl-wallet.mcpb](https://wallet.fizzl.eu/download/claude-desktop)** and open it; Claude Desktop installs it (it brings its own Node.js).
+   - Claude Code: `claude mcp add wallet -- npx -y presign-guard-wallet-mcp@0.22.0`
+   - Cursor and other MCP clients: `{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "presign-guard-wallet-mcp@0.22.0"] } } }`
+2. **Ask your agent:** *"what is my wallet status?"* It makes its own wallet (the key goes into `~/.fizzl/agent-key`, readable only by you, and is never sent anywhere) and answers with a link and a code that works for 10 minutes.
+3. **Open the link, sign in at wallet.fizzl.eu** with e-mail, a passkey, Xaman or your wallet, **and enter the code.** Give the agent a name. The wallet picks up its key for the wallet server by itself; no restart.
+4. **Put a few dollars of USDC** in the agent's wallet (the dashboard has buttons for it). Most calls cost a cent or less. Then ask something like *"find a weather API and get the forecast for Amsterdam"*. It finds a paid API, pays within your limits and shows you the receipt.
 
 Then connect Telegram on the dashboard to approve anything above your limit from your phone, and press **Test my setup** to see what's still missing.
 
-Prefer to run everything yourself? See [Set up](#set-up) below.
+Rather paste the keys yourself? On the dashboard, Agents → Add agent shows the setup for your app with the keys filled in. Prefer to run everything yourself? See [Set up](#set-up) below.
 
 ## Tools
 
@@ -60,7 +63,7 @@ The wallet signs only what these tools need: payment signatures and transfers. I
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp@0.21.1"],
+      "args": ["-y", "presign-guard-wallet-mcp@0.22.0"],
       "env": {
         "AGENT_KEY": "0x…the agent wallet's private key…",
         "LIMIT_USDC_PER_TX": "5",
@@ -79,10 +82,10 @@ For Claude Code, the key goes into a file at a prompt (not shown, not in your sh
 
 ```sh
 mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
-claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.21.1
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.22.0
 ```
 
-**Pin the version** (`@0.21.1`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
+**Pin the version** (`@0.22.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 
@@ -109,7 +112,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 
 | Variable | |
 |---|---|
-| `AGENT_KEY` | **required** to pay: private key of the agent's own wallet (64 hex characters, with or without 0x). Without it the server starts in setup mode: it lists its tools and each one answers with how to add the key (nothing can be signed) |
+| `AGENT_KEY` | private key of the agent's own wallet (64 hex characters, with or without 0x). Without it the wallet [links itself with a code](#linked-with-a-code): it makes its own key and each tool answers with a code to enter on the wallet server's dashboard |
 | `AGENT_KEY_FILE` | instead of `AGENT_KEY`: the path to a file holding the key (`~/` works), so it is in neither the client's config nor your shell history. Make it readable only by you (`chmod 600`); the server warns otherwise. The same works for `XRPL_SEED_FILE`, `ALGORAND_MNEMONIC_FILE` and `SOLANA_PRIVATE_KEY_FILE` |
 | `LIMIT_USDC_PER_TX`, `LIMIT_USDC_PER_DAY` | USDC limits (payments and transfers together). Limits or a wallet server are required |
 | `LIMIT_NATIVE_PER_TX`, `LIMIT_NATIVE_PER_DAY` | limits for the native coin; without them, sending it needs approval |
@@ -117,6 +120,8 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | approvals on Telegram; without them (or AC2), anything over a limit is refused |
 | `AC2_OWNER` | instead of Telegram: approvals **signed in your own wallet** over [AC2](https://github.com/algorandfoundation/ac2) (the Algorand Foundation's protocol for agents to ask their owner). Your Algorand address: only its signature approves, and the signed approval is kept with the payment. Needs the AC2 service (`ac2-cli`) running on the same machine and paired with your wallet (`ac2 pair`); if it isn't, nothing over a limit is signed. `AC2_APPROVALS=on` uses the paired wallet's address instead. `AC2_DAEMON_SOCKET` if the service's socket isn't `~/.ac2/ac2d.sock` |
 | `WALLET_SERVER_URL`, `WALLET_SERVER_KEY` | a wallet server instead of the above |
+| `FIZZL_DIR` | without `AGENT_KEY`: where the wallet keeps `agent-key` and, once linked, `wallet-server.json` (default `~/.fizzl`). One directory per agent if you run several on one computer |
+| `LINKING` | `off`: without `AGENT_KEY`, don't link with a code; the server starts in setup mode (it lists its tools and each one says how to add a key) |
 | `CHAIN` | `base` (default), `ethereum`, `optimism`, `arbitrum`, `polygon` or `bsc` |
 | `MAX_PAYMENT_USD` | most one `pay_x402` call may cost (default `1`); a cap on top of the limits |
 | `X402_DISCOVERY_URL` | the x402 catalog `find_services` searches (default Coinbase's Bazaar discovery API) |
@@ -140,6 +145,17 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | `AGENT_LABEL` | the name shown in Telegram and AC2 approval requests (default `mcp-agent`) |
 
 One Telegram bot serves one running server at a time, and the bot must not have a webhook. To run several agents on one bot, use the wallet server.
+
+### Linked with a code
+
+Without `AGENT_KEY` (or `AGENT_KEY_FILE`) the wallet sets itself up:
+
+1. On the first tool call it makes the agent wallet's key in `~/.fizzl/agent-key` (or `FIZZL_DIR`), readable only by you. An existing key there is used.
+2. It asks the wallet server (`WALLET_SERVER_URL`, default `https://wallet.fizzl.eu`) for a code with only that wallet's address, and every tool answers with the link and the code until it is entered.
+3. Signed in on the dashboard, you enter the code and name the agent. The agent's address is filled in for you.
+4. The wallet polls with a secret token only it holds, gets its key for the wallet server once, saves it in `wallet-server.json` next to the key, and works from then on, without a restart. On the next start it reads both files.
+
+The code alone is useless without that token, and both last 10 minutes. Removed the agent on the dashboard, or want to link it to another account? Delete `wallet-server.json` and ask for the wallet status again.
 
 ## Receipts
 

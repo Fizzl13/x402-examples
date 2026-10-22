@@ -68,7 +68,12 @@ const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
 // The subscription contract (../subscription): automatic Pro payments.
 const SUBSCRIPTION = JSON.parse(readFileSync(new URL("./subscription-artifact.json", import.meta.url), "utf8"));
 const rand = (n = 12) => randomBytes(n).toString("base64url").replace(/[-_]/g, "x");
-const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+// A code to type over (sign in the phone app, link an agent): 8 letters and digits that can't be mixed up, as ABCD-2345.
+const CODE_ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const newCode = () => [...randomBytes(8)].map((b) => CODE_ABC[b % CODE_ABC.length]).join("").replace(/^(.{4})/, "$1-");
+const cleanCode = (c) => { const s = String(c ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(.{4})/, "$1-"); return s.length === 9 ? s : null; };
+const short =(a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const date = (t) => new Date(t).toISOString().slice(0, 10);
 
 /**
@@ -862,24 +867,59 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     // their wallet app (its own browser) and confirms that code there; the app then gets its own
     // session. The code alone is useless without the secret token the app keeps; both last 10 minutes.
     async deviceStart(label) {
-      const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-      const code = [...randomBytes(8)].map((b) => ABC[b % ABC.length]).join("").replace(/^(.{4})/, "$1-");
+      const code = newCode();
       const token = rand(24);
       const name = String(label ?? "").replace(/[^\p{L}\p{N} ·.,()/-]/gu, "").trim().slice(0, 40) || "A device";
-      await g.putOnce("devreq", code, { tokenHash: createHash("sha256").update(token).digest("hex"), label: name, at: now() }, DEVICE_TTL_S);
+      await g.putOnce("devreq", code, { tokenHash: sha256(token), label: name, at: now() }, DEVICE_TTL_S);
       return { code, token, expiresIn: DEVICE_TTL_S };
     },
     async deviceApprove(id, code) {
-      const clean = String(code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(.{4})/, "$1-");
-      const req = clean.length === 9 ? await g.takeOnce("devreq", clean) : null;
+      const clean = cleanCode(code);
+      const req = clean ? await g.takeOnce("devreq", clean) : null;
       if (!req) throw Object.assign(new Error("That code is wrong or has expired. Get a new one in the app."), { status: 404 });
       await g.putOnce("devok", req.tokenHash, { account: id }, DEVICE_TTL_S);
       return { ok: true, label: req.label };
     },
     async devicePoll(token) {
       if (typeof token !== "string" || token.length < 16 || token.length > 64) return null;
-      const done = await g.takeOnce("devok", createHash("sha256").update(token).digest("hex"));
+      const done = await g.takeOnce("devok", sha256(token));
       return done?.account ?? null;
+    },
+
+    // ---------- linking an agent with a code ----------
+    // wallet-mcp without keys makes its own wallet on the customer's computer and asks for a code with that
+    // wallet's address. The customer enters the code where they are signed in and names the agent; the agent
+    // then gets its key by polling with the secret token it kept. The code alone is useless without that token,
+    // and the key goes out once; both last 10 minutes.
+    async pairStart(address, label) {
+      if (typeof address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(address)) throw Object.assign(new Error("address: the agent wallet's 0x… address"), { status: 400 });
+      const code = newCode();
+      const token = rand(24);
+      const name = String(label ?? "").replace(/[^\w .-]/g, "").trim().slice(0, 40) || "agent";
+      await g.putOnce("pairreq", code, { tokenHash: sha256(token), address, label: name, at: now() }, DEVICE_TTL_S);
+      return { code, token, expiresIn: DEVICE_TTL_S };
+    },
+    async pairPeek(code) {
+      const clean = cleanCode(code);
+      const req = clean ? await g.peekOnce("pairreq", clean) : null;
+      if (!req) throw Object.assign(new Error("That code is wrong or has expired. Ask your agent for a new one."), { status: 404 });
+      return { code: clean, address: req.address, label: req.label, at: req.at };
+    },
+    async pairApprove(id, code, name) {
+      const clean = cleanCode(code);
+      const req = clean ? await g.peekOnce("pairreq", clean) : null;
+      if (!req) throw Object.assign(new Error("That code is wrong or has expired. Ask your agent for a new one."), { status: 404 });
+      const wallet = walletFor(id);
+      const { agent, key } = await wallet.addAgent(String(name ?? "").trim() || req.label); // the plan or the name can say no: the code stays
+      if (!(await g.takeOnce("pairreq", clean))) { await wallet.removeAgent(agent.id); throw Object.assign(new Error("That code was just used."), { status: 409 }); }
+      const linked = await wallet.setAgentAddress(agent.id, req.address);
+      await g.putOnce("pairok", req.tokenHash, { key, agent: agent.name }, DEVICE_TTL_S);
+      usage.record("pair", { account: id });
+      return { agent: linked };
+    },
+    async pairPoll(token) {
+      if (typeof token !== "string" || token.length < 16 || token.length > 64) return null;
+      return g.takeOnce("pairok", sha256(token));
     },
 
     // ---------- notifications on this device (the dashboard installed as an app) ----------

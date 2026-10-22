@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, keccak256, parseEther, parseUnits, stringToHex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { arbitrum, base, bsc, mainnet, optimism, polygon, tempo, tempoModerato } from "viem/chains";
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
@@ -837,6 +837,97 @@ export function setupWallet() {
     sendNative: notSetUp,
     pause: notSetUp,
     closeSessions: notSetUp,
+  };
+}
+
+// ---------- linking with a code: no keys in the app's config ----------
+// Without AGENT_KEY the wallet keeps its files in FIZZL_DIR (default ~/.fizzl, readable only by you): agent-key, the
+// agent wallet's key, made here on first use and never sent anywhere, and wallet-server.json, the wallet server's key
+// for this agent, saved when the owner enters the code on the dashboard.
+export const WALLET_SERVER = "https://wallet.fizzl.eu";
+const LINK_FILE = "wallet-server.json";
+const home = (p) => (p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p);
+export const fizzlDir = (env = process.env) => home(env.FIZZL_DIR?.trim() || "~/.fizzl");
+
+/** The environment of a wallet that was linked with a code (its files filled in), or null if it isn't linked yet. */
+export function linkedEnv(env = process.env) {
+  const dir = fizzlDir(env);
+  let link;
+  try { link = JSON.parse(readFileSync(join(dir, LINK_FILE), "utf8")); } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw new Error(`can't read ${join(dir, LINK_FILE)} (${err.code ?? err.message}): delete it to link this agent again`);
+  }
+  if (typeof link?.key !== "string" || typeof link.url !== "string") throw new Error(`${join(dir, LINK_FILE)} is damaged: delete it to link this agent again`);
+  return { ...env, AGENT_KEY_FILE: join(dir, "agent-key"), WALLET_SERVER_URL: link.url, WALLET_SERVER_KEY: link.key };
+}
+
+/**
+ * The wallet before it is linked: every tool answers with a code for the owner to enter on the dashboard. The agent
+ * wallet's key is made on this computer and stays there; only its address goes to the wallet server. Once the owner
+ * enters the code, the server's key for this agent is saved next to it and onLinked() switches to the real wallet,
+ * without a restart.
+ */
+export function linkingWallet(env = process.env, { fetchImpl = fetch, onLinked = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = Date.now, log = (m) => console.error(`[presign-guard-wallet-mcp] ${m}`) } = {}) {
+  const dir = fizzlDir(env);
+  const keyFile = join(dir, "agent-key");
+  const server = (env.WALLET_SERVER_URL?.trim() || WALLET_SERVER).replace(/\/+$/, "");
+  let address = null, pending = null, waiting = null;
+  function agentAddress() {
+    if (address) return address;
+    let key;
+    try { key = readFileSync(keyFile, "utf8").trim(); } catch (err) {
+      if (err.code !== "ENOENT") throw new Error(`can't read ${keyFile} (${err.code ?? err.message})`);
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      try {
+        writeFileSync(keyFile, `${generatePrivateKey()}\n`, { mode: 0o600, flag: "wx" });
+        log(`made this agent's wallet; its key is in ${keyFile}, on this computer only`);
+      } catch (e) { if (e.code !== "EEXIST") throw e; } // another start made it at the same moment
+      key = readFileSync(keyFile, "utf8").trim();
+    }
+    if (!/^(0x)?[0-9a-fA-F]{64}$/.test(key)) throw new Error(`${keyFile} must hold a private key (64 hex characters)`);
+    address = privateKeyToAccount(key.startsWith("0x") ? key : `0x${key}`).address;
+    return address;
+  }
+  const call = async (path, body) => {
+    const r = await fetchImpl(`${server}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`the wallet server (${server}) said: ${j.message ?? `HTTP ${r.status}`}`);
+    return j;
+  };
+  async function code() {
+    if (pending && now() < pending.until) return pending;
+    const j = await call("/v1/pair/start", { address: agentAddress(), label: env.AGENT_LABEL || "agent" });
+    pending = { code: j.code, url: j.url, token: j.token, until: now() + j.expiresIn * 1000, every: (j.interval ?? 3) * 1000 };
+    log(`to link this agent, open ${j.url} and enter the code ${j.code}`);
+    waiting ??= wait().finally(() => { waiting = null; });
+    return pending;
+  }
+  async function wait() {
+    while (pending && now() < pending.until) {
+      await sleep(pending.every);
+      let j;
+      try { j = await call("/v1/pair/poll", { token: pending.token }); } catch { continue; } // the network: try again
+      if (j.status !== "linked") continue;
+      writeFileSync(join(dir, LINK_FILE), `${JSON.stringify({ url: server, key: j.key, agent: j.agent, linkedAt: new Date(now()).toISOString() }, null, 2)}\n`, { mode: 0o600 });
+      pending = null;
+      log(`linked as "${j.agent}" on ${server}`);
+      await onLinked(j);
+      return;
+    }
+  }
+  const message = (p) => `This wallet isn't linked to a Fizzl account yet. Ask your user to open ${p.url} (signed in) and enter the code ${p.code} there. The code works for 10 minutes; after that, ask again for a new one. No restart needed: once the code is entered, the wallet works. This agent's wallet is ${address}; its key stays on this computer. (Rather use your own key and local limits? Set AGENT_KEY and LIMIT_USDC_PER_TX instead.)`;
+  const notLinked = async () => { throw new Error(message(await code())); };
+  return {
+    address: null,
+    sessionsOn: false,
+    async status() { const p = await code(); return { linked: false, link: { url: p.url, code: p.code, minutesLeft: Math.max(1, Math.ceil((p.until - now()) / 60_000)) }, agentWallet: address, next: message(p) }; },
+    findServices: notLinked,
+    payX402: notLinked,
+    sendUsdc: notLinked,
+    sendNative: notLinked,
+    pause: notLinked,
+    closeSessions: notLinked,
+    waiting: () => waiting, // for tests: the poll that is running, if any
   };
 }
 

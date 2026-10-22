@@ -118,6 +118,8 @@ An agent pays from its own wallet, so its key is on the computer it runs on, whe
 | `POST /v1/spent` `{ entries, result, purchaseId? }` | record the signed result |
 | `POST /v1/purchases/annotate` `{ ids, outcome }` | what happened afterwards: `{ httpStatus, settlement: { transaction, network }, error }` |
 | `GET /v1/spending`, `GET /v1/policy` | |
+| `POST /v1/pair/start` `{ address, label? }` (no key) | a code to link an agent that has no key yet (wallet-mcp without `AGENT_KEY`): `{ code, token, url, expiresIn, interval }`. The owner enters the code on the dashboard (Agents → Link an agent with a code) and names the agent; its address is filled in |
+| `POST /v1/pair/poll` `{ token }` (no key) | `{ status: "waiting" }` until the owner enters the code, then once `{ status: "linked", key, agent }` |
 | `GET /v1/mandate?address=0x…` | the agent's signed spending mandate (`{ mandate, alg, sig, terms }`), or 404 without one |
 | `GET /v1/onchain` | the agent's on-chain limit: `{ on, perPeriodUsdc, floatUsdc, leftThisPeriodUsdc, agentBalanceUsdc, … }`, or `{ on: false, reason }` |
 | `POST /v1/topup` `{ needUsdc? }` | top the agent's wallet up to its float from the owner's wallet, within the on-chain limit: `{ toppedUp, tx }`, or `{ toppedUp: 0, reason }` when it has enough, the day's limit is used up, or no limit is set |

@@ -25,6 +25,17 @@ The wallet server is at {{ORIGIN}}. It never holds keys or money: you keep your 
 
 Do these steps together with your owner. Explain each one in plain words.
 
+### The easy way: a code, no keys to copy (~2 minutes)
+
+1. Your owner installs the wallet without keys, then restarts the app:
+   - **Claude Desktop:** download {{ORIGIN}}/download/claude-desktop and open the file; Claude Desktop installs it (no Node.js needed).
+   - **Claude Code:** `claude mcp add wallet -- npx -y {{WALLET_MCP}}`
+   - **Cursor and other clients:** `{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }` in their MCP config.
+2. Call `wallet_status`. The wallet makes its own key on your owner's computer (it never leaves it) and answers with a link and a code. Give both to your owner: they open the link, sign in (e-mail, a passkey or their wallet) and enter the code. It works for 10 minutes.
+3. Call `wallet_status` again: now it shows your wallet and limits. Ask your owner to put a few dollars of USDC on Base in your wallet (the dashboard has a **Send 5 USDC** button), then you're ready. Skip to [Using it](#using-it).
+
+The steps below are the other way: your owner makes the key on the dashboard and pastes it into the config.
+
 ### 1. An account and an agent key (your owner, ~1 minute)
 
 Ask your owner to open {{ORIGIN}}, sign in (with e-mail, no crypto wallet needed; or with a passkey or their wallet: one free signature, no password), go to **Your agents**, type a name for you (for example `claude-desktop`) and click **Add agent**. The dashboard shows a key starting with `awk_` once. Your owner keeps it for step 3; they don't need to show it to you.
