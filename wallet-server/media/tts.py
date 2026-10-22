@@ -26,6 +26,7 @@ PRONUNCIATION = [
     (r"\bfizzl\b", "fizzle"),
     (r"\bpresign-guard\b", "pre-sign guard"),
     (r"\bUSDC\b", "U S D C"),
+    (r"\bNode\.js\b", "Node J S"),
     (r"\$5\b", "five dollars"),
 ]
 

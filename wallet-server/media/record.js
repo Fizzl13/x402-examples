@@ -195,6 +195,79 @@ const marketHtml = () => `<!doctype html><html><head><style>${THEME}
   <div class="row"><span class="fade" data-step="2">x402</span><span class="fade" data-step="3">MPP</span><span class="fade" data-step="4">Base</span><span class="fade" data-step="5">Solana</span><span class="fade" data-step="6">Tempo</span></div>
 </div></body></html>`;
 
+// What's new (new.json): installing in Claude Desktop without keys, the code in the chat, the limit on the chain, and
+// not paying twice.
+const installHtml = () => `<!doctype html><html><head><style>${THEME}
+  .r { display:flex; align-items:center; gap: 60px; }
+  .file { width: 380px; text-align:center; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 46px 30px; }
+  .file .ic { font-size: 120px; } .file b { display:block; font: 700 36px 'Space Grotesk', 'DM Sans', sans-serif; margin-top: 16px; } .file small { font-size: 28px; color: var(--soft); }
+  .arrow { font-size: 72px; color: var(--mint); }
+  .dlg { width: 640px; border: 2px solid #2b4a44; border-radius: 30px; background: #0b1416; padding: 44px 46px; box-shadow: 0 40px 120px rgba(0,0,0,.55); }
+  .dlg small { font-size: 26px; letter-spacing: .1em; color: var(--soft); } .dlg h2 { font-size: 54px; margin: 14px 0 8px; } .dlg p { font-size: 30px; color: var(--soft); margin: 0 0 34px; }
+  .dlg .b { display:inline-block; padding: 20px 44px; border-radius: 999px; font: 700 32px 'DM Sans', sans-serif; background: #1a3236; transition: all .3s; }
+  .dlg .b.tap { background: var(--mint); color: #021; transform: scale(.96); }
+  .ok { margin-top: 26px; font: 700 34px 'DM Sans', sans-serif; color: var(--mint); }
+  .chips { position:absolute; bottom: 130px; left:0; right:0; display:flex; gap: 22px; justify-content:center; }
+  .chips span { font-size: 36px; padding: 16px 32px; border-radius: 999px; border: 2px solid var(--mint); color: var(--mint); }
+  .line { position:absolute; bottom: 70px; left:0; right:0; text-align:center; font-size: 30px; color: var(--soft); }
+</style></head><body><div class="r">
+  <div class="file fade" data-step="0"><div class="ic">📦</div><b>fizzl-wallet.mcpb</b><small>from wallet.fizzl.eu</small></div>
+  <div class="arrow fade" data-step="1">→</div>
+  <div class="dlg fade" data-step="2"><small>CLAUDE DESKTOP · INSTALL EXTENSION</small><h2>Fizzl Agent Wallet</h2><p>A wallet with spending limits for your agent</p><span class="b" id="inst">Install</span><div class="ok fade" id="ok">✓ Installed</div></div>
+</div>
+<div class="chips"><span class="fade" data-step="3">No keys</span><span class="fade" data-step="4">No config file</span><span class="fade" data-step="5">No Node.js</span></div>
+<div class="line fade" data-step="6">Claude Code or Cursor? One line.</div></body></html>`;
+
+const chatHtml = () => `<!doctype html><html><head><style>${THEME}
+  .c { width: 1500px; }
+  .b { max-width: 1100px; font-size: 42px; line-height: 1.45; padding: 30px 40px; border-radius: 34px; margin-bottom: 30px; }
+  .me { margin-left: auto; background: #1a3236; border-bottom-right-radius: 10px; width: fit-content; }
+  .ag { background: var(--panel); border: 2px solid var(--line); border-bottom-left-radius: 10px; }
+  .ag small { display:block; font-size: 26px; letter-spacing: .1em; color: var(--mint); margin-bottom: 12px; }
+  .code { font: 700 46px 'Space Grotesk', 'DM Sans', sans-serif; color: #021; background: var(--mint); padding: 2px 16px; border-radius: 12px; white-space: nowrap; }
+  a { color: var(--mint); }
+  .key { margin-top: 40px; text-align:center; font-size: 38px; color: var(--soft); }
+  .key b { color: #fff; }
+</style></head><body><div class="c">
+  <div class="b me fade" data-step="0">What is my wallet status?</div>
+  <div class="b ag fade" data-step="1"><small>WALLET</small>This wallet isn't linked yet. Open <a>wallet.fizzl.eu/pair</a> and enter the code <span class="code">K7QF-29XM</span>. It works for 10 minutes.</div>
+  <div class="key fade" data-step="2">🔑 The agent made its own wallet. <b>Its key stays on your computer.</b></div>
+</div></body></html>`;
+
+const onchainHtml = () => `<!doctype html><html><head><style>${THEME}
+  .o { text-align:center; }
+  h1 { font-size: 74px; margin-bottom: 56px; }
+  .f { display:flex; align-items:center; gap: 22px; justify-content:center; }
+  .box { width: 420px; min-height: 330px; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 36px 30px; }
+  .box .ic { font-size: 84px; margin-bottom: 12px; } .box h2 { font-size: 44px; margin-bottom: 12px; } .box p { font-size: 32px; color: var(--soft); margin: 0; line-height: 1.4; }
+  .box.mint { border-color: var(--mint); } .amt { color: var(--mint); font-weight: 700; }
+  .arrow { font-size: 64px; color: var(--mint); }
+  .under { margin-top: 54px; font-size: 40px; color: var(--mint); }
+</style></head><body><div class="o">
+  <h1 class="fade" data-step="0">Your limit, on the chain</h1>
+  <div class="f">
+    <div class="box mint fade" data-step="1"><div class="ic">👛</div><h2>Your wallet</h2><p>your USDC stays here</p></div>
+    <div class="arrow fade" data-step="2">→</div>
+    <div class="box fade" data-step="3"><div class="ic">📜</div><h2>Contract on Base</h2><p>at most <span class="amt">$2 a day</span></p></div>
+    <div class="arrow fade" data-step="4">→</div>
+    <div class="box fade" data-step="5"><div class="ic">🤖</div><h2>Agent wallet</h2><p>topped up to <span class="amt">$1.50</span></p></div>
+  </div>
+  <div class="under fade" data-step="6">A leaked agent key can take at most the daily limit.</div>
+</div></body></html>`;
+
+const twiceHtml = () => `<!doctype html><html><head><style>${THEME}
+  .k { width: 1560px; }
+  h1 { font-size: 76px; margin-bottom: 44px; text-align:center; }
+  .row { display:grid; grid-template-columns: 1fr 470px; align-items:center; gap: 30px; padding: 26px 36px; margin-bottom: 18px; border-radius: 24px; border: 2px solid var(--line); background: var(--panel); font-size: 40px; }
+  .v { text-align:center; font: 700 32px 'Space Grotesk', 'DM Sans', sans-serif; padding: 14px 0; border-radius: 999px; border: 2px solid currentColor; }
+  .red { color: var(--rose); } .amber { color: var(--amber); } .green { color: var(--mint); }
+</style></head><body><div class="k">
+  <h1 class="fade" data-step="0">It won't pay twice</h1>
+  <div class="row fade" data-step="1"><span>💸 Paid, but the API answers an error</span><span class="v green">CHECKED ON BASE</span></div>
+  <div class="row fade" data-step="2"><span>🔁 Asked again, with a new payout address</span><span class="v amber">SECOND PAYMENT WAITS</span></div>
+  <div class="row fade" data-step="3"><span>⛔ Taken without an answer</span><span class="v red">BLOCKED · OWNER TOLD</span></div>
+</div></body></html>`;
+
 // Captions: a bar at the bottom of every page, re-created after navigation.
 async function caption(page, text) {
   await page.evaluate((text) => {
@@ -216,12 +289,13 @@ async function caption(page, text) {
 // The demo dashboard, zoomed so it reads on a phone, with the top bar hidden (it would sit over what we show).
 async function openDemo(page) {
   await page.goto(DEMO, { waitUntil: "load", timeout: 120000 });
-  await page.waitForSelector("#buys .buy", { timeout: 60000 });
+  // Rendered, not necessarily visible: the purchases now sit on their own tab.
+  await page.waitForSelector("#buys .buy", { state: "attached", timeout: 60000 });
   await page.evaluate((z) => {
     document.documentElement.style.zoom = String(z);
     document.documentElement.style.scrollBehavior = "smooth";
     const s = document.createElement("style");
-    s.textContent = ".topbar, .demo-banner { display: none !important; } .glow { outline: 3px solid #61f5c3 !important; outline-offset: 6px; border-radius: 18px; box-shadow: 0 0 40px rgba(97,245,195,.35) !important; transition: all .4s; }";
+    s.textContent = ".topbar, .demo-banner, #tabs { display: none !important; } .glow { outline: 3px solid #61f5c3 !important; outline-offset: 6px; border-radius: 18px; box-shadow: 0 0 40px rgba(97,245,195,.35) !important; transition: all .4s; }";
     document.head.appendChild(s);
   }, ZOOM);
 }
@@ -379,6 +453,46 @@ async function main() {
       await page.click("#newBtn").catch(() => {});
       await sleep(400);
       await scrollTo(page, "#searchOut", "start");
+    },
+
+    async "prepare:install"() { await setPage(page, installHtml()); },
+    async install(seg, ms) {
+      await reveal(page, ms * 0.35);
+      await page.evaluate(() => document.getElementById("inst").classList.add("tap"));
+      await sleep(500);
+      await page.evaluate(() => document.getElementById("ok").classList.add("on"));
+      await page.evaluate((gap) => { for (let i = 3; i <= 6; i++) setTimeout(() => document.querySelector(`[data-step="${i}"]`)?.classList.add("on"), (i - 3) * gap); }, Math.max(300, ms * 0.1));
+    },
+    async "prepare:chat"() { await setPage(page, chatHtml()); },
+    async chat(seg, ms) { await reveal(page, ms * 0.8); },
+    async "prepare:onchain"() { await setPage(page, onchainHtml()); },
+    async onchain(seg, ms) { await reveal(page, ms * 0.85); },
+    async "prepare:twice"() { await setPage(page, twiceHtml()); },
+    async twice(seg, ms) { await reveal(page, ms * 0.85); },
+
+    // The live demo: the code from the chat in the "Link an agent with a code" card, looked up and linked.
+    async "prepare:link"() {
+      await openDemo(page);
+      await page.evaluate(() => { location.hash = "#/agents"; });
+      await sleep(600);
+      await scrollTo(page, "#pairForm", "center");
+    },
+    async link(seg, ms) {
+      await glow(page, "#pairForm");
+      await page.locator("#pairCode").pressSequentially("K7QF-29XM", { delay: Math.min(140, (ms * 0.2) / 9) });
+      await sleep(300);
+      await page.locator("#pairForm button[type=submit]").click();
+      await glow(page, "#pairForm", false);
+      await sleep(ms * 0.2);
+      await glow(page, "#pairLink");
+      await sleep(ms * 0.15);
+      await page.locator("#pairLink button[type=submit]").click();
+      await glow(page, "#pairLink", false);
+      await sleep(400);
+      // The demo adds "(This is the demo: nothing was linked.)": the video shows what an account sees.
+      await page.evaluate(() => { const m = document.querySelector("#pairOut .msg.good"); if (m) m.textContent = m.textContent.replace(/\s*\(This is the demo[^)]*\)/, ""); });
+      await scrollTo(page, "#pairOut .msg.good", "center");
+      await glow(page, "#pairOut .msg.good");
     },
 
     async "prepare:agents"() { await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#agentsSec"); },
