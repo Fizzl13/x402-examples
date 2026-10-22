@@ -18,7 +18,8 @@ function chipFor(i) {
   if (!p) return `<span class="chip">waiting</span>`;
   const g = p.guard;
   if (S.approval && S.approval.mail === i && !S.approval.done) return `<span class="chip ask">asking the owner</span>`;
-  if (g.some((e) => e.outcome === "blocked")) return `<span class="chip no">stopped by the guard</span>`;
+  if (g.some((e) => e.outcome === "blocked" && e.decision === "deny")) return `<span class="chip no">stopped by the guard</span>`;
+  if (g.some((e) => e.outcome === "blocked")) return `<span class="chip no">not approved by the owner</span>`;
   if (g.some((e) => e.outcome === "done" && e.decision === "ask")) return `<span class="chip ask">refunded, owner approved</span>`;
   if (g.some((e) => e.outcome === "done")) return `<span class="chip ok">refunded</span>`;
   if (p.reply !== null) return `<span class="chip ok">answered</span>`;
@@ -31,7 +32,7 @@ function renderInbox() {
 
 function verdictCard(e) {
   const cls = e.outcome === "blocked" ? "no" : e.decision === "ask" ? "ask" : "ok";
-  const title = e.outcome === "blocked" ? (e.decision === "deny" ? "Guard: blocked" : "Guard: not approved") : e.outcome === "asked" ? "Guard: over the limit, asking the owner" : e.outcome === "failed" ? "PayPal refused it" : e.decision === "ask" ? `Guard: approved by ${esc(e.approvedBy || "the owner")}, done` : "Guard: within the rules, done";
+  const title = e.outcome === "blocked" ? (e.decision === "deny" ? "Guard: blocked" : "Guard: not approved") : e.outcome === "asked" ? "Guard: asking the owner" : e.outcome === "failed" ? "PayPal refused it" : e.decision === "ask" ? `Guard: approved by ${esc(e.approvedBy || "the owner")}, done` : "Guard: within the rules, done";
   // A deny shows what stopped it; limits it would also have passed don't matter then.
   const reasons = e.decision === "deny" && e.reasons?.some((r) => r.stops) ? e.reasons.filter((r) => r.stops) : e.reasons ?? [];
   return `<div class="verdict ${cls}"><div class="t">${title}</div><div>${esc(e.summary)}</div>${reasons.length ? `<ul>${reasons.map((r) => `<li>${esc(r.message)}</li>`).join("")}</ul>` : ""}</div>`;

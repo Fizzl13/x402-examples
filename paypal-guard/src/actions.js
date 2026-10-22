@@ -55,6 +55,11 @@ export const DEFAULT_POLICY = Object.freeze({
   otherCustomer: "deny",
   // A refund of a payment the buyer already disputed or charged back: they would get the money twice.
   openDispute: "deny",
+  // The shop's return period in days (14 days' withdrawal, or a longer money-back promise), counted from the
+  // purchase date (purchaseDateOf, else the day PayPal took the payment). null: no return period is checked.
+  returnDays: null,
+  // A refund past the return period: a warranty claim, where repair or replacement usually comes first.
+  afterReturnDays: "ask",
   // TypeSafe's Jev says the action doesn't follow from what the customer asked (when an intent checker is set).
   offIntent: "ask",
 });

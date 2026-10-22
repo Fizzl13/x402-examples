@@ -8,6 +8,7 @@ The guard sits between the model and those tools. It doesn't trust what the mode
 
 - **Refunds go only to the customer in this conversation.** The guard reads the payment at PayPal and compares the payer with the customer your app is serving. Your inbox or login says who that is; the conversation doesn't.
 - **Never more than is left of a payment.** A refund without an amount refunds everything that's left, so the guard looks that up first.
+- **After the return period, you decide.** Set `returnDays` (for example 14, or 30 for a money-back promise) and a refund for something bought longer ago asks you: that's a warranty claim, where repair or replacement usually comes first. And past PayPal's own limit of 180 days after the payment, the guard tells you that PayPal will most likely refuse.
 - **Never a refund on a disputed payment.** When the buyer already opened a dispute or their bank a chargeback, a refund pays them twice. PayPal lets that refund through (we tried it in the sandbox), so the guard reads the payment's open disputes first and stops it.
 - **Daily limits.** By default: $25 per refund, $100 and 10 refunds a day, and one refund per payment a day. Cancellations: 3 a day. Invoices: 20 a day.
 - **The owner decides on the rest:** accepting a dispute (the buyer gets paid, and it can't be undone), marking an invoice paid or refunded (the books change while no money moves), price changes, and tools the guard doesn't know yet.
@@ -17,7 +18,7 @@ The guard sits between the model and those tools. It doesn't trust what the mode
 
 Read-only tools (orders, invoices, transactions, disputes, insights) pass straight through.
 
-**See it work:** [the live demo](https://fizzl-paypal-demo.onrender.com) is a shop's support agent (Claude) answering six emails against the PayPal sandbox. It refunds Alice, asks the owner about Carol's $300, stops "Bob's wife" and a planted "note from the owner", and stops a refund for Frank, whose bank already took the money back. There is also [a 3-minute video](https://youtu.be/ICUyRTfnUNg) of a recorded run, and [the demo's code](https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard/demo).
+**See it work:** [the live demo](https://fizzl-paypal-demo.onrender.com) is a shop's support agent (Claude) answering seven emails against the PayPal sandbox. It refunds Alice, asks the owner about Grace's kettle from four months ago and Carol's $300, stops "Bob's wife" and a planted "note from the owner", and stops a refund for Frank, whose bank already took the money back. There is also [a 3-minute video](https://youtu.be/ICUyRTfnUNg) of a recorded run, and [the demo's code](https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard/demo).
 
 ## Install
 
@@ -72,7 +73,7 @@ For Claude Desktop, Claude Code, Cursor and other MCP clients there is a ready M
 | other | orders, captures, shipment tracking, reminders setup | allowed |
 | unknown | a tool from a newer toolkit | the owner decides |
 
-You can set each kind to `"allow"`, `"ask"`, `"deny"` or limits, for example `{ perAction, perDay, countPerDay }`. `otherCustomer` (default `"deny"`) decides what happens to an action for someone other than the customer. `openDispute` (default `"deny"`) decides what happens to a refund of a payment with an open dispute or chargeback. `offIntent` (default `"ask"`) decides what happens when the intent check says it doesn't fit.
+You can set each kind to `"allow"`, `"ask"`, `"deny"` or limits, for example `{ perAction, perDay, countPerDay }`. `otherCustomer` (default `"deny"`) decides what happens to an action for someone other than the customer. `openDispute` (default `"deny"`) decides what happens to a refund of a payment with an open dispute or chargeback. `returnDays` (default `null`, off) is your return period in days; `afterReturnDays` (default `"ask"`) decides what happens to a refund after it. The period counts from the day PayPal took the payment, or from your own date (the delivery date, usually) when you pass `purchaseDateOf({ tool, args, facts })`. `offIntent` (default `"ask"`) decides what happens when the intent check says it doesn't fit.
 
 A card payment has no payer email at PayPal. Pass `customerOf({ tool, args, facts })` to answer "whose is this?" from your own order database. `facts.customId` and `facts.invoiceId` carry your references.
 
