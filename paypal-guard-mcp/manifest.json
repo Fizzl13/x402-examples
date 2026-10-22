@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "fizzl-paypal-guard-mcp",
   "display_name": "PayPal, guarded (Fizzl)",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "PayPal's Agent Toolkit with limits on refunds and your Approve or Deny above them.",
   "long_description": "The same 47 tools as PayPal's own MCP server, with fizzl-paypal-guard in front of every call that moves or promises money. Reads pass straight through. A refund is never more than is left of the payment and stays within your limits (by default $25 per refund, $100 and 10 refunds a day, one per payment a day). Above them, and for every accepted dispute, price change or invoice marked as paid, you approve or deny: on your phone through the Fizzl Agent Wallet or your own Telegram bot, or in a form in Claude itself. No answer means no. The day's counts and a log of every decision stay on your computer. Start with a sandbox REST app from developer.paypal.com: test money only.",
   "author": { "name": "Frits Zwager (Fizzl)", "url": "https://fizzl.eu" },

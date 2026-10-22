@@ -1,6 +1,6 @@
 {
   "name": "fizzl-paypal-guard-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "PayPal's Agent Toolkit as an MCP server for Claude, Cursor and any MCP client, guarded by fizzl-paypal-guard: never more than is left of a payment, the owner's limits, and Approve/Deny on the owner's phone (Telegram, Fizzl wallet) or in the chat app above them.",
   "mcpName": "io.github.Fizzl13/paypal-guard",
   "type": "module",
@@ -17,7 +17,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@paypal/agent-toolkit": "1.11.0",
-    "fizzl-paypal-guard": "^0.1.0",
+    "fizzl-paypal-guard": "^0.3.0",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
