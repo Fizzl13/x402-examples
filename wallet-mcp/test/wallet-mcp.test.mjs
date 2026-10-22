@@ -27,7 +27,7 @@ export const rlusdOffer = (amount = "0.02", extra = {}) => ({ scheme: "exact", n
 // presign-guard (red for the drainer) and an x402 API that costs 0.05 USDC.
 function network({ price = "50000", ...opts } = {}) {
   const checks = [], paid = [];
-  const requirements = { scheme: "exact", network: "eip155:8453", amount: price, asset: USDC_BASE, payTo: SHOP, maxTimeoutSeconds: 60, extra: { name: "USD Coin", version: "2" } };
+  const requirements = { scheme: "exact", network: "eip155:8453", amount: price, asset: USDC_BASE, payTo: SHOP, maxTimeoutSeconds: opts.maxTimeoutSeconds ?? 60, extra: { name: "USD Coin", version: "2" } };
   const fetch = async (input, init = {}) => {
     const url = String(input instanceof Request ? input.url : input);
     const headers = new Headers(input instanceof Request ? input.headers : init.headers);
@@ -49,6 +49,7 @@ function network({ price = "50000", ...opts } = {}) {
         return new Response("{}", { status: 402, headers: { "content-type": "application/json", "payment-required": Buffer.from(JSON.stringify(challenge)).toString("base64") } });
       }
       paid.push(JSON.parse(Buffer.from(sig, "base64").toString()));
+      if (opts.afterPaid) return opts.afterPaid(requirements); // a seller that doesn't answer what was paid for
       const receipt = Buffer.from(JSON.stringify({ success: true, transaction: "0xsettled", network: "eip155:8453", payer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" })).toString("base64");
       return new Response(JSON.stringify({ answer: 42 }), { status: 200, headers: { "content-type": "application/json", "payment-response": receipt } });
     }
@@ -310,6 +311,81 @@ test("pay_x402: pays the API through the guard and returns its answer", async ()
   assert.ok(sent, "the check carries the x402 requirements");
   assert.equal(sent.payTo.toLowerCase(), net.paid[0].payload.authorization.to.toLowerCase());
   assert.equal(String(sent.amount), String(net.paid[0].payload.authorization.value));
+});
+
+// A seller that answers a paid call with a fresh 402 for another payTo (the first payment not collected yet), or
+// with 405 after collecting it. Paying the same endpoint again could pay twice.
+const OTHER_PAYTO = "0x3333333333333333333333333333333333333333";
+const fresh402 = (requirements) => {
+  const challenge = { x402Version: 2, error: "payment required", resource: { url: API, description: "data", mimeType: "application/json" }, accepts: [{ ...requirements, payTo: OTHER_PAYTO }] };
+  return new Response("{}", { status: 402, headers: { "content-type": "application/json", "payment-required": Buffer.from(JSON.stringify(challenge)).toString("base64") } });
+};
+const authorizationState = (fake, taken) => {
+  const asked = [];
+  const balance = fake.publicClient.readContract;
+  fake.publicClient.readContract = async (args) => {
+    if (args.functionName !== "authorizationState") return balance(args);
+    asked.push(args.args);
+    return taken();
+  };
+  return asked;
+};
+
+test("pay_x402: a fresh 402 with another payTo after paying: not taken yet, so the wallet won't sign a second payment for that endpoint until the first expires", async () => {
+  const { call, net, fake } = await setup({}, { afterPaid: fresh402, maxTimeoutSeconds: 2 });
+  const asked = authorizationState(fake, () => false);
+  const first = JSON.parse((await call("pay_x402", { url: API })).text);
+  assert.equal(first.status, 402);
+  assert.equal(first.paid, false);
+  assert.equal(first.charge.taken, false);
+  assert.equal(first.charge.payTo.toLowerCase(), SHOP.toLowerCase());
+  assert.match(first.warnings[0], /hasn't been taken \(yet\).*Don't sign another payment for this API before then, even if it asks again with another payTo/);
+  assert.deepEqual(asked[0], [net.paid[0].payload.authorization.from, net.paid[0].payload.authorization.nonce], "asked USDC about the signature that was sent");
+
+  const again = await call("pay_x402", { url: API });
+  assert.equal(again.error, true);
+  assert.match(again.text, /can still collect it until .*could pay twice.*nothing was signed now/);
+  assert.equal(net.paid.length, 1, "no second payment went out");
+  assert.equal(fake.sent.filter(([k]) => k === "signTypedData").length, 1);
+  // Another endpoint isn't held up.
+  assert.equal((await call("pay_x402", { url: MPP_API })).error, false);
+
+  // Once the first signature can't be collected any more, paying again is fine.
+  await new Promise((r) => setTimeout(r, 2200));
+  const later = JSON.parse((await call("pay_x402", { url: API })).text);
+  assert.equal(later.status, 402);
+  assert.equal(net.paid.length, 2);
+});
+
+test("pay_x402: charged and answered 405: paid is true, the agent is told, and the endpoint is blocked for an hour", async () => {
+  const { call, net, fake } = await setup({}, { afterPaid: () => new Response("Method Not Allowed", { status: 405 }) });
+  authorizationState(fake, () => true);
+  const r = await call("pay_x402", { url: API });
+  assert.equal(r.error, false, r.text);
+  const out = JSON.parse(r.text);
+  assert.equal(out.status, 405);
+  assert.equal(out.paid, true, "the USDC left the wallet");
+  assert.equal(out.charge.taken, true);
+  assert.equal(out.charge.amountUsd, 0.05);
+  assert.match(out.warnings[0], /taken on-chain, but the API answered HTTP 405: charged without an answer. Don't pay this API again; tell your owner/);
+  const again = await call("pay_x402", { url: API });
+  assert.equal(again.error, true);
+  assert.match(again.text, /took \$0\.05 from this wallet .* answered HTTP 405 .*blocked until .*Tell your owner/);
+  assert.equal(net.paid.length, 1);
+});
+
+test("pay_x402: a paid call that answers is forgotten; one that can't be checked on-chain still holds the endpoint until it expires", async () => {
+  const { call, fake } = await setup({}, { afterPaid: () => new Response("busy", { status: 503 }) });
+  authorizationState(fake, () => { throw new Error("rpc down"); });
+  const out = JSON.parse((await call("pay_x402", { url: API })).text);
+  assert.equal(out.charge.taken, null);
+  assert.match(out.warnings[0], /couldn't be checked/);
+  assert.equal((await call("pay_x402", { url: API })).error, true);
+  // A normal paid call on a fresh wallet carries no charge note.
+  const ok = await setup();
+  const fine = JSON.parse((await ok.call("pay_x402", { url: API })).text);
+  assert.equal(fine.charge, undefined);
+  assert.equal(fine.warnings, undefined);
 });
 
 test("pay_x402: a price above the cap is not paid", async () => {
