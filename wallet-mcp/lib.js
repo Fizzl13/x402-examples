@@ -202,8 +202,10 @@ export function withSecretFiles(env = process.env, { warn = (m) => console.error
 export function configFromEnv(env = process.env) {
   const fromFile = Boolean(env.AGENT_KEY_FILE?.trim());
   env = withSecretFiles(env);
-  const key = env.AGENT_KEY?.trim();
-  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error(`${fromFile ? "The file in AGENT_KEY_FILE must hold" : "AGENT_KEY must be"} the agent wallet's private key (0x + 64 hex). Use a separate wallet with only what the agent may spend.`);
+  // A key as MetaMask shows it (64 hex characters, no 0x) works too.
+  const raw = env.AGENT_KEY?.trim();
+  const key = raw && /^(0x)?[0-9a-fA-F]{64}$/.test(raw) ? (raw.startsWith("0x") ? raw : `0x${raw}`) : null;
+  if (!key) throw new Error(`${fromFile ? "The file in AGENT_KEY_FILE must hold" : "AGENT_KEY must be"} the agent wallet's private key (64 hex characters, with or without 0x). Use a separate wallet with only what the agent may spend.`);
   const chainName = (env.CHAIN ?? "base").toLowerCase();
   if (!CHAINS[chainName]) throw new Error(`CHAIN must be one of ${Object.keys(CHAINS).join(", ")}`);
 

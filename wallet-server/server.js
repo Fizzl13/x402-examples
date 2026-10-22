@@ -92,9 +92,13 @@ if (env.TELEGRAM_BOT_TOKEN) {
 // charge transactions (it only needs a little ETH on Base for gas; it never receives the payments,
 // and its key can do nothing but trigger charges that are due anyway).
 const rpcUrl = env.BASE_RPC_URL || "https://mainnet.base.org";
+// A key as MetaMask shows it (64 hex characters, no 0x) works too. A value that isn't a key turns the charger off
+// with a line in the log, instead of stopping the whole server.
+const hexKey = (v) => { const k = String(v ?? "").trim(); return /^(0x)?[0-9a-fA-F]{64}$/.test(k) ? (k.startsWith("0x") ? k : `0x${k}`) : null; };
 let charger = null;
-if (env.CHARGER_KEY) {
-  const account = privateKeyToAccount(env.CHARGER_KEY.trim());
+if (env.CHARGER_KEY && !hexKey(env.CHARGER_KEY)) console.error("[subscription] CHARGER_KEY is not a private key (64 hex characters, with or without 0x): monthly charges and top-ups are off");
+else if (env.CHARGER_KEY) {
+  const account = privateKeyToAccount(hexKey(env.CHARGER_KEY));
   const client = createWalletClient({ account, chain: base, transport: http(rpcUrl) });
   charger = { address: account.address, send: (to, data) => client.sendTransaction({ to, data }) };
   console.log(`[subscription] charger ${account.address}`);
@@ -107,7 +111,9 @@ const baseRpc = async (method, params) => {
   if (!data || data.error) throw Object.assign(new Error(`Base RPC ${method}: ${data?.error?.message ?? `HTTP ${res.status}`}`), { status: 502 });
   return data.result;
 };
-const allowance = createAllowance({ contract: env.ALLOWANCE_CONTRACT?.trim() || null, rpc: baseRpc, charger });
+const allowanceContract = env.ALLOWANCE_CONTRACT?.trim() || null;
+if (allowanceContract && !/^0x[0-9a-fA-F]{40}$/.test(allowanceContract)) console.error("[allowance] ALLOWANCE_CONTRACT is not an 0x… address: on-chain limits are off");
+const allowance = createAllowance({ contract: /^0x[0-9a-fA-F]{40}$/.test(allowanceContract ?? "") ? allowanceContract : null, rpc: baseRpc, charger });
 
 // Notifications on phones and computers where the dashboard is installed as an app (no setup needed:
 // the key comes from VAPID_PRIVATE_KEY, or else from the session secret).
