@@ -17,6 +17,8 @@ It can only do that within the budget you set:
 
 The key stays on your machine; the server only decides whether a signature is allowed. Each check costs $0.01, paid in USDC on Base from the same wallet, or from prepaid credits.
 
+> **What the limits do and don't stop.** The limits are enforced by this MCP server on your computer, not on the blockchain. The agent wallet's private key is on that computer too (in the MCP config, or in a file with `AGENT_KEY_FILE`). An agent that can read files or run commands (Claude Code, Cursor) could read the key and sign without these rules. So give the agent its **own wallet with only what you'd accept losing**, never your main wallet. Limits on the chain itself (a smart account with session keys) would close this gap; this server doesn't do that yet.
+
 See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 
 ## Quick start (hosted, about 2 minutes)
@@ -51,14 +53,14 @@ The wallet signs only what these tools need: payment signatures and transfers. I
 2. **Optional: phone approvals.**
    - Create a bot with [@BotFather](https://t.me/BotFather), send it `/start`.
    - Get your chat id from [@userinfobot](https://t.me/userinfobot).
-3. **Add it to your MCP client.** For Claude Desktop, put this in `claude_desktop_config.json`:
+3. **Add it to your MCP client.** For Claude Desktop: Settings → Developer → Edit Config opens `claude_desktop_config.json` (on a Mac in `~/Library/Application Support/Claude/`, on Windows in `%APPDATA%\Claude\`). Put this in it:
 
 ```json
 {
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp"],
+      "args": ["-y", "presign-guard-wallet-mcp@0.20.0"],
       "env": {
         "AGENT_KEY": "0x…the agent wallet's private key…",
         "LIMIT_USDC_PER_TX": "5",
@@ -71,11 +73,16 @@ The wallet signs only what these tools need: payment signatures and transfers. I
 }
 ```
 
-For Claude Code:
+Rather keep the key out of that file? Put it in a file only you can read and set `"AGENT_KEY_FILE": "/full/path/to/that/file"` instead of `AGENT_KEY`.
+
+For Claude Code, the key goes into a file at a prompt (not shown, not in your shell history or Claude's config):
 
 ```sh
-claude mcp add wallet -e AGENT_KEY=0x… -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp
+mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.20.0
 ```
+
+**Pin the version** (`@0.20.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 
@@ -103,6 +110,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 | Variable | |
 |---|---|
 | `AGENT_KEY` | **required** to pay: private key of the agent's own wallet. Without it the server starts in setup mode: it lists its tools and each one answers with how to add the key (nothing can be signed) |
+| `AGENT_KEY_FILE` | instead of `AGENT_KEY`: the path to a file holding the key (`~/` works), so it is in neither the client's config nor your shell history. Make it readable only by you (`chmod 600`); the server warns otherwise. The same works for `XRPL_SEED_FILE`, `ALGORAND_MNEMONIC_FILE` and `SOLANA_PRIVATE_KEY_FILE` |
 | `LIMIT_USDC_PER_TX`, `LIMIT_USDC_PER_DAY` | USDC limits (payments and transfers together). Limits or a wallet server are required |
 | `LIMIT_NATIVE_PER_TX`, `LIMIT_NATIVE_PER_DAY` | limits for the native coin; without them, sending it needs approval |
 | `ALLOW_LIST` | optional: only these recipients, spenders and contracts, comma-separated (0x, XRPL `r…` or Algorand addresses, each checked); a payment or signature for anything else needs your approval like an amount over a limit. With a wallet server, set the allow list there instead |

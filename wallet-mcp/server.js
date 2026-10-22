@@ -5,9 +5,9 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { configFromEnv, createServer, createWallet, setupWallet, SETUP_MESSAGE, VERSION } from "./lib.js";
 
-// Without AGENT_KEY the server starts in setup mode: it lists its tools and each
-// one explains how to add the wallet. Any other configuration error stops it.
-if (!process.env.AGENT_KEY?.trim()) {
+// Without AGENT_KEY (or AGENT_KEY_FILE) the server starts in setup mode: it lists its
+// tools and each one explains how to add the wallet. Any other configuration error stops it.
+if (!process.env.AGENT_KEY?.trim() && !process.env.AGENT_KEY_FILE?.trim()) {
   await createServer(setupWallet()).connect(new StdioServerTransport());
   console.error(`[presign-guard-wallet-mcp ${VERSION}] ${SETUP_MESSAGE}`);
 } else {

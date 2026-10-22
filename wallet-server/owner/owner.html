@@ -1,0 +1,74 @@
+<!-- The owner's Stats tab, loaded into the dashboard only after the owner signs in (GET /api/admin/owner.html). -->
+<style>
+/* Stats (owner only): hero numbers, one small column chart per measure, the funnel, tables */
+.statsbar { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; color: var(--soft); font: 700 11px/1 var(--body); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--mint); color: #02100c; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { padding: 16px 18px; display: grid; gap: 4px; }
+.kpi b { font: 700 34px/1 var(--display); color: var(--text); font-variant-numeric: tabular-nums; }
+.kpi small { color: var(--muted); font-size: 12px; }
+.kpi .up { color: var(--mint); } .kpi .down { color: var(--rose); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.chart { padding: 16px 18px; display: grid; gap: 8px; position: relative; }
+.chart header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.chart header b { color: var(--text); font-size: 14px; }
+.chart header span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart .plot { position: relative; padding-left: 40px; }
+.chart .plot .ymax, .chart .plot .yzero { position: absolute; left: 0; width: 34px; text-align: right; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart .plot .ymax { top: -2px; } .chart .plot .yzero { bottom: -4px; }
+.chart .xlab { display: flex; justify-content: space-between; padding-left: 40px; color: var(--muted); font-size: 10px; }
+.chart svg { width: 100%; height: 110px; display: block; }
+.chart svg .grid { stroke: rgba(244,248,247,.10); stroke-width: 1; }
+.chart svg .tick { fill: var(--muted); font: 10px var(--body); }
+.chart svg .bar { fill: #22a87c; }
+.chart svg g.col:hover .bar, .chart svg g.col:focus .bar { fill: #61f5c3; }
+.chart svg g.col { outline: none; }
+.tip { position: absolute; pointer-events: none; background: #0b1f1c; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--text); white-space: nowrap; transform: translate(-50%, -110%); z-index: 2; }
+.tip small { color: var(--muted); display: block; }
+.chart details summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.chart details table, .stable table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.chart details td, .stable td, .stable th { padding: 4px 6px; border-bottom: 1px solid rgba(244,248,247,.06); text-align: left; }
+.stable th { color: var(--muted); font-weight: 600; } .stable td:last-child, .stable th:last-child { text-align: right; }
+.funnel { padding: 16px 18px; display: grid; gap: 8px; margin-bottom: 14px; }
+.funnel .frow { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 90px; gap: 10px; align-items: center; font-size: 13px; }
+.funnel .frow span:first-child { color: var(--soft); }
+.funnel .track { height: 14px; border-radius: 0 4px 4px 0; background: rgba(244,248,247,.05); position: relative; }
+.funnel .track i { position: absolute; inset: 0 auto 0 0; background: #22a87c; border-radius: 0 4px 4px 0; min-width: 2px; }
+.funnel .frow em { font-style: normal; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.funnel .frow em small { color: var(--muted); }
+.stables { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.stable { padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
+.snote { padding: 14px 16px; margin-bottom: 14px; border-color: var(--amber); display: grid; gap: 8px; }
+@media (max-width: 760px) { .kpis { grid-template-columns: 1fr 1fr; } .funnel .frow { grid-template-columns: minmax(0, 1fr) 70px; } .funnel .track { grid-column: 1 / -1; grid-row: 2; } }
+</style>
+<section class="section" id="statsSec" data-tab="stats">
+  <div class="eyebrow"><i></i>STATS <span style="color:var(--dim)">/</span> ONLY YOU SEE THIS</div>
+  <div class="statsbar"><h2 style="margin:0">YOUR NUMBERS.<br><span>WEBSITE TO PRO.</span></h2>
+    <div class="seg" role="group" aria-label="Period"><button type="button" data-days="7" aria-pressed="false">7 days</button><button type="button" data-days="30" aria-pressed="true">30 days</button></div></div>
+  <div id="statsOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
+  <p class="note" style="margin:14px 0 0">Every Monday morning you get the last 7 days of this on Telegram. <button class="link" type="button" id="digestNow">Send me the weekly summary now</button> <span id="digestMsg" role="status"></span></p>
+  <details id="outreachBox" style="margin-top:18px"><summary><img src="/icons/outreach.png" alt="" width="20" height="20" style="vertical-align:-4px;margin-right:6px;border-radius:5px">Outreach to sellers</summary>
+    <p class="note" style="margin:8px 0">Drafts to sellers with a broken paid endpoint, from x402 Doctor or added here. Nothing is mailed until you press Send (here or on Telegram). One mail per address, ever; a "stop" reply means never again.</p>
+    <div id="outreachOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
+    <details style="margin-top:10px"><summary>New draft</summary>
+      <form id="outreachNew" style="display:grid;gap:8px;margin-top:8px">
+        <input id="owTo" type="email" placeholder="contact@seller.com (the address the seller publishes)" aria-label="To" maxlength="254" required>
+        <input id="owUrl" type="url" placeholder="https://… the endpoint (optional)" aria-label="Endpoint" maxlength="500">
+        <input id="owSubject" placeholder="Subject" aria-label="Subject" maxlength="200" required>
+        <textarea id="owBody" rows="8" placeholder="Text (the opt-out line is added when it is sent)" aria-label="Text" maxlength="8000" required></textarea>
+        <button class="button small" type="submit">Save draft</button>
+      </form>
+    </details>
+    <details style="margin-top:10px"><summary>Import drafts</summary>
+      <form id="outreachImport" style="display:grid;gap:8px;margin-top:8px">
+        <p class="note" style="margin:0">Paste a list of drafts (JSON: <code>[{"to", "subject", "body", "url"}, …]</code>, at most 20). Each becomes a draft here and on Telegram; nothing is sent until you press Send.</p>
+        <textarea id="owImport" rows="6" placeholder='[{"to": "contact@seller.com", "subject": "…", "body": "…", "url": "https://…"}]' aria-label="Drafts to import" maxlength="200000" required></textarea>
+        <button class="button small" type="submit">Import</button>
+      </form>
+    </details>
+    <form id="outreachStop" class="paste" style="margin-top:10px"><input id="owStop" type="email" placeholder="Someone replied stop: their address" aria-label="Never mail this address" maxlength="254"><button class="button small" type="submit">Never mail</button></form>
+    <div class="msg" id="outreachMsg" role="status"></div>
+  </details>
+</section>

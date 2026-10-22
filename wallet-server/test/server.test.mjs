@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { canonicalJson, inputHash } from "x402-safe-fetch";
 import { guardWallet } from "presign-guard-wallet";
@@ -388,6 +389,25 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
 });
 
 // ---------- hosted accounts: wallet sign-in, isolation, Telegram links, Pro ----------
+
+test("the owner's Stats tab is not in the public page: its markup and script go only to the signed-in owner", async () => {
+  const { base, server } = await boot();
+  try {
+    assert.doesNotMatch(await (await fetch(`${base}/`)).text(), /outreach|website to pro|statsOut/i);
+    const c = await signInAs(base, customer());
+    for (const path of ["/api/admin/owner.html", "/api/admin/owner.js"]) {
+      assert.equal((await fetch(base + path)).status, 401);
+      assert.equal((await c.call("GET", path)).status, 403);
+    }
+    const cookie = (await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) })).headers.get("set-cookie").split(";")[0];
+    const html = await fetch(`${base}/api/admin/owner.html`, { headers: { cookie } });
+    assert.equal(html.headers.get("cache-control"), "private, no-store");
+    assert.match(await html.text(), /id="statsSec"[\s\S]*Outreach to sellers/);
+    const js = await fetch(`${base}/api/admin/owner.js`, { headers: { cookie } });
+    assert.match(js.headers.get("content-type"), /javascript/);
+    assert.match(await js.text(), /export function startOwner\(/);
+  } finally { server.close(); }
+});
 
 async function signInAs(base, account, { ref } = {}) {
   const m = await (await fetch(`${base}/api/signin/message`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: account.address }) })).json();
@@ -1166,8 +1186,14 @@ test("skill.md: instructions an agent can follow, with this server's address", a
     assert.match(r.headers.get("content-type"), /^text\/markdown/);
     const md = await r.text();
     assert.match(md, /^---\nname: fizzl-agent-wallet\n/);
-    assert.ok(!md.includes("{{ORIGIN}}"));
+    assert.ok(!md.includes("{{ORIGIN}}") && !md.includes("{{WALLET_MCP}}"));
     assert.ok(md.includes(`"WALLET_SERVER_URL": "${base}"`)); // this server, here a local one
+    // The MCP server pinned to the version next to this server, and the key kept out of the config and shell history.
+    const { version } = JSON.parse(readFileSync(new URL("../../wallet-mcp/package.json", import.meta.url), "utf8"));
+    assert.ok(md.includes(`npx -y presign-guard-wallet-mcp@${version}`) && md.includes(`"presign-guard-wallet-mcp@${version}"`));
+    assert.match(md, /AGENT_KEY_FILE=\$HOME\/\.fizzl\/agent-key/);
+    const page = await (await fetch(`${base}/`)).text();
+    assert.ok(page.includes(`const WALLET_MCP = "presign-guard-wallet-mcp@${version}";`) && !page.includes("{{WALLET_MCP}}"));
     assert.match(md, /Never ask your owner to paste a private key/);
     for (const tool of ["wallet_status", "find_services", "pay_x402", "send_usdc", "pause_spending"]) assert.ok(md.includes(`\`${tool}\``), tool);
     // Behind a proxy on a real domain the address is https.
