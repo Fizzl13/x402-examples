@@ -2053,19 +2053,19 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // Look the code up, show the agent's wallet, link it under a name; the agent then gets its key by itself.
   async function pairLookup(code) {
     const out = $("#pairOut");
-    if (DEMO) { out.innerHTML = `<div class="msg good">This is the demo: on your own account the code links your agent.</div>`; return; }
     try {
-      const p = await api("GET", `/api/pair/${encodeURIComponent(String(code ?? "").trim())}`);
+      // The demo shows the same steps with an example agent; nothing is linked.
+      const p = DEMO ? { code: String(code ?? "").trim().toUpperCase(), address: "0x2F96D3dFC42f2eC1f3226F4bB54D71b801964f54", label: "claude-desktop" } : await api("GET", `/api/pair/${encodeURIComponent(String(code ?? "").trim())}`);
       out.innerHTML = `<p class="note" style="margin:8px 0 0">An agent with wallet <code>${esc(p.address.slice(0, 6))}…${esc(p.address.slice(-4))}</code> asks to be linked to this account. Only link a code your own agent just showed you.</p>
         <form class="addform" id="pairLink" style="margin-top:8px"><input id="pairName" value="${esc(p.label)}" maxlength="40" required aria-label="Name for this agent"><button class="button primary small" type="submit">Link this agent</button></form>`;
       $("#pairLink").addEventListener("submit", async (e) => {
         e.preventDefault();
         const b = e.submitter; b.disabled = true;
         try {
-          const { agent } = await post("/api/pair", { code: p.code, name: $("#pairName").value.trim() });
+          const { agent } = DEMO ? { agent: { id: "demo", name: $("#pairName").value.trim() || p.label, address: p.address } } : await post("/api/pair", { code: p.code, name: $("#pairName").value.trim() });
           fundTo = agent.address; setupAgentId = agent.id;
-          out.innerHTML = `<div class="msg good">Linked: ${esc(agent.name)}. Within a few seconds your agent has its key; ask it again and it works.</div>${fundHtml(agent, null)}`;
-          refresh();
+          out.innerHTML = `<div class="msg good">Linked: ${esc(agent.name)}. Within a few seconds your agent has its key; ask it again and it works.${DEMO ? " (This is the demo: nothing was linked.)" : ""}</div>${fundHtml(agent, null)}`;
+          if (!DEMO) refresh();
         } catch (err) { b.disabled = false; if (err.message !== "login") out.insertAdjacentHTML("beforeend", `<div class="msg bad">${esc(err.message)}</div>`); }
       });
       $("#pairName").focus();

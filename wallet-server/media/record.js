@@ -195,6 +195,81 @@ const marketHtml = () => `<!doctype html><html><head><style>${THEME}
   <div class="row"><span class="fade" data-step="2">x402</span><span class="fade" data-step="3">MPP</span><span class="fade" data-step="4">Base</span><span class="fade" data-step="5">Solana</span><span class="fade" data-step="6">Tempo</span></div>
 </div></body></html>`;
 
+// What's new (new.json): installing in Claude Desktop without keys, the code in the chat, the limit on the chain, and
+// not paying twice. The words are English unless the segment's "labels" give others (new-nl.json).
+const INSTALL = { from: "from wallet.fizzl.eu", dialog: "CLAUDE DESKTOP · INSTALL EXTENSION", about: "A wallet with spending limits for your agent", install: "Install", installed: "✓ Installed", chips: ["No keys", "No config file", "No Node.js"], line: "Claude Code or Cursor? One line." };
+const installHtml = (labels) => { const L = { ...INSTALL, ...labels }; return `<!doctype html><html><head><style>${THEME}
+  .r { display:flex; align-items:center; gap: 60px; }
+  .file { width: 380px; text-align:center; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 46px 30px; }
+  .file .ic { font-size: 120px; } .file b { display:block; font: 700 36px 'Space Grotesk', 'DM Sans', sans-serif; margin-top: 16px; } .file small { font-size: 28px; color: var(--soft); }
+  .arrow { font-size: 72px; color: var(--mint); }
+  .dlg { width: 640px; border: 2px solid #2b4a44; border-radius: 30px; background: #0b1416; padding: 44px 46px; box-shadow: 0 40px 120px rgba(0,0,0,.55); }
+  .dlg small { font-size: 26px; letter-spacing: .1em; color: var(--soft); } .dlg h2 { font-size: 54px; margin: 14px 0 8px; } .dlg p { font-size: 30px; color: var(--soft); margin: 0 0 34px; }
+  .dlg .b { display:inline-block; padding: 20px 44px; border-radius: 999px; font: 700 32px 'DM Sans', sans-serif; background: #1a3236; transition: all .3s; }
+  .dlg .b.tap { background: var(--mint); color: #021; transform: scale(.96); }
+  .ok { margin-top: 26px; font: 700 34px 'DM Sans', sans-serif; color: var(--mint); }
+  .chips { position:absolute; bottom: 130px; left:0; right:0; display:flex; gap: 22px; justify-content:center; }
+  .chips span { font-size: 36px; padding: 16px 32px; border-radius: 999px; border: 2px solid var(--mint); color: var(--mint); }
+  .line { position:absolute; bottom: 70px; left:0; right:0; text-align:center; font-size: 30px; color: var(--soft); }
+</style></head><body><div class="r">
+  <div class="file fade" data-step="0"><div class="ic">📦</div><b>fizzl-wallet.mcpb</b><small>${L.from}</small></div>
+  <div class="arrow fade" data-step="1">→</div>
+  <div class="dlg fade" data-step="2"><small>${L.dialog}</small><h2>Fizzl Agent Wallet</h2><p>${L.about}</p><span class="b" id="inst">${L.install}</span><div class="ok fade" id="ok">${L.installed}</div></div>
+</div>
+<div class="chips">${L.chips.map((c, i) => `<span class="fade" data-step="${3 + i}">${c}</span>`).join("")}</div>
+<div class="line fade" data-step="6">${L.line}</div></body></html>`; };
+
+const CHAT = { ask: "What is my wallet status?", answer: `This wallet isn't linked yet. Open <a>wallet.fizzl.eu/pair</a> and enter the code <span class="code">K7QF-29XM</span>. It works for 10 minutes.`, key: "🔑 The agent made its own wallet. <b>Its key stays on your computer.</b>" };
+const chatHtml = (labels) => { const L = { ...CHAT, ...labels }; return `<!doctype html><html><head><style>${THEME}
+  .c { width: 1500px; }
+  .b { max-width: 1100px; font-size: 42px; line-height: 1.45; padding: 30px 40px; border-radius: 34px; margin-bottom: 30px; }
+  .me { margin-left: auto; background: #1a3236; border-bottom-right-radius: 10px; width: fit-content; }
+  .ag { background: var(--panel); border: 2px solid var(--line); border-bottom-left-radius: 10px; }
+  .ag small { display:block; font-size: 26px; letter-spacing: .1em; color: var(--mint); margin-bottom: 12px; }
+  .code { font: 700 46px 'Space Grotesk', 'DM Sans', sans-serif; color: #021; background: var(--mint); padding: 2px 16px; border-radius: 12px; white-space: nowrap; }
+  a { color: var(--mint); }
+  .key { margin-top: 40px; text-align:center; font-size: 38px; color: var(--soft); }
+  .key b { color: #fff; }
+</style></head><body><div class="c">
+  <div class="b me fade" data-step="0">${L.ask}</div>
+  <div class="b ag fade" data-step="1"><small>WALLET</small>${L.answer}</div>
+  <div class="key fade" data-step="2">${L.key}</div>
+</div></body></html>`; };
+
+const ONCHAIN = { title: "Your limit, on the chain", yours: "Your wallet", stays: "your USDC stays here", contract: "Contract on Base", most: `at most <span class="amt">$2 a day</span>`, agent: "Agent wallet", topped: `topped up to <span class="amt">$1.50</span>`, under: "A leaked agent key can take at most the daily limit." };
+const onchainHtml = (labels) => { const L = { ...ONCHAIN, ...labels }; return `<!doctype html><html><head><style>${THEME}
+  .o { text-align:center; }
+  h1 { font-size: 74px; margin-bottom: 56px; }
+  .f { display:flex; align-items:center; gap: 22px; justify-content:center; }
+  .box { width: 420px; min-height: 330px; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 36px 30px; }
+  .box .ic { font-size: 84px; margin-bottom: 12px; } .box h2 { font-size: 44px; margin-bottom: 12px; } .box p { font-size: 32px; color: var(--soft); margin: 0; line-height: 1.4; }
+  .box.mint { border-color: var(--mint); } .amt { color: var(--mint); font-weight: 700; }
+  .arrow { font-size: 64px; color: var(--mint); }
+  .under { margin-top: 54px; font-size: 40px; color: var(--mint); }
+</style></head><body><div class="o">
+  <h1 class="fade" data-step="0">${L.title}</h1>
+  <div class="f">
+    <div class="box mint fade" data-step="1"><div class="ic">👛</div><h2>${L.yours}</h2><p>${L.stays}</p></div>
+    <div class="arrow fade" data-step="2">→</div>
+    <div class="box fade" data-step="3"><div class="ic">📜</div><h2>${L.contract}</h2><p>${L.most}</p></div>
+    <div class="arrow fade" data-step="4">→</div>
+    <div class="box fade" data-step="5"><div class="ic">🤖</div><h2>${L.agent}</h2><p>${L.topped}</p></div>
+  </div>
+  <div class="under fade" data-step="6">${L.under}</div>
+</div></body></html>`; };
+
+const TWICE = { title: "It won't pay twice", rows: [["💸 Paid, but the API answers an error", "CHECKED ON BASE"], ["🔁 Asked again, with a new payout address", "SECOND PAYMENT WAITS"], ["⛔ Taken without an answer", "BLOCKED · OWNER TOLD"]] };
+const twiceHtml = (labels) => { const L = { ...TWICE, ...labels }; return `<!doctype html><html><head><style>${THEME}
+  .k { width: 1560px; }
+  h1 { font-size: 76px; margin-bottom: 44px; text-align:center; }
+  .row { display:grid; grid-template-columns: 1fr minmax(470px, auto); align-items:center; gap: 30px; padding: 26px 36px; margin-bottom: 18px; border-radius: 24px; border: 2px solid var(--line); background: var(--panel); font-size: 40px; }
+  .v { text-align:center; font: 700 32px 'Space Grotesk', 'DM Sans', sans-serif; padding: 14px 28px; border-radius: 999px; border: 2px solid currentColor; }
+  .red { color: var(--rose); } .amber { color: var(--amber); } .green { color: var(--mint); }
+</style></head><body><div class="k">
+  <h1 class="fade" data-step="0">${L.title}</h1>
+${L.rows.map(([what, verdict], i) => `  <div class="row fade" data-step="${1 + i}"><span>${what}</span><span class="v ${["green", "amber", "red"][i]}">${verdict}</span></div>`).join("\n")}
+</div></body></html>`; };
+
 // Captions: a bar at the bottom of every page, re-created after navigation.
 async function caption(page, text) {
   await page.evaluate((text) => {
@@ -216,12 +291,13 @@ async function caption(page, text) {
 // The demo dashboard, zoomed so it reads on a phone, with the top bar hidden (it would sit over what we show).
 async function openDemo(page) {
   await page.goto(DEMO, { waitUntil: "load", timeout: 120000 });
-  await page.waitForSelector("#buys .buy", { timeout: 60000 });
+  // Rendered, not necessarily visible: the purchases now sit on their own tab.
+  await page.waitForSelector("#buys .buy", { state: "attached", timeout: 60000 });
   await page.evaluate((z) => {
     document.documentElement.style.zoom = String(z);
     document.documentElement.style.scrollBehavior = "smooth";
     const s = document.createElement("style");
-    s.textContent = ".topbar, .demo-banner { display: none !important; } .glow { outline: 3px solid #61f5c3 !important; outline-offset: 6px; border-radius: 18px; box-shadow: 0 0 40px rgba(97,245,195,.35) !important; transition: all .4s; }";
+    s.textContent = ".topbar, .demo-banner, #tabs { display: none !important; } .glow { outline: 3px solid #61f5c3 !important; outline-offset: 6px; border-radius: 18px; box-shadow: 0 0 40px rgba(97,245,195,.35) !important; transition: all .4s; }";
     document.head.appendChild(s);
   }, ZOOM);
 }
@@ -379,6 +455,46 @@ async function main() {
       await page.click("#newBtn").catch(() => {});
       await sleep(400);
       await scrollTo(page, "#searchOut", "start");
+    },
+
+    async "prepare:install"(seg) { await setPage(page, installHtml(seg.labels)); },
+    async install(seg, ms) {
+      await reveal(page, ms * 0.35);
+      await page.evaluate(() => document.getElementById("inst").classList.add("tap"));
+      await sleep(500);
+      await page.evaluate(() => document.getElementById("ok").classList.add("on"));
+      await page.evaluate((gap) => { for (let i = 3; i <= 6; i++) setTimeout(() => document.querySelector(`[data-step="${i}"]`)?.classList.add("on"), (i - 3) * gap); }, Math.max(300, ms * 0.1));
+    },
+    async "prepare:chat"(seg) { await setPage(page, chatHtml(seg.labels)); },
+    async chat(seg, ms) { await reveal(page, ms * 0.8); },
+    async "prepare:onchain"(seg) { await setPage(page, onchainHtml(seg.labels)); },
+    async onchain(seg, ms) { await reveal(page, ms * 0.85); },
+    async "prepare:twice"(seg) { await setPage(page, twiceHtml(seg.labels)); },
+    async twice(seg, ms) { await reveal(page, ms * 0.85); },
+
+    // The live demo: the code from the chat in the "Link an agent with a code" card, looked up and linked.
+    async "prepare:link"() {
+      await openDemo(page);
+      await page.evaluate(() => { location.hash = "#/agents"; });
+      await sleep(600);
+      await scrollTo(page, "#pairForm", "center");
+    },
+    async link(seg, ms) {
+      await glow(page, "#pairForm");
+      await page.locator("#pairCode").pressSequentially("K7QF-29XM", { delay: Math.min(140, (ms * 0.2) / 9) });
+      await sleep(300);
+      await page.locator("#pairForm button[type=submit]").click();
+      await glow(page, "#pairForm", false);
+      await sleep(ms * 0.2);
+      await glow(page, "#pairLink");
+      await sleep(ms * 0.15);
+      await page.locator("#pairLink button[type=submit]").click();
+      await glow(page, "#pairLink", false);
+      await sleep(400);
+      // The demo adds "(This is the demo: nothing was linked.)": the video shows what an account sees.
+      await page.evaluate(() => { const m = document.querySelector("#pairOut .msg.good"); if (m) m.textContent = m.textContent.replace(/\s*\(This is the demo[^)]*\)/, ""); });
+      await scrollTo(page, "#pairOut .msg.good", "center");
+      await glow(page, "#pairOut .msg.good");
     },
 
     async "prepare:agents"() { await page.evaluate(() => document.getElementById("receipt")?.close()); await scrollTo(page, "#agentsSec"); },

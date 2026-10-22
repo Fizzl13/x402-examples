@@ -1,0 +1,13 @@
+{
+  "title": "What's new in the Fizzl Agent Wallet: no keys to copy, limits on the chain, no paying twice",
+  "output": "fizzl-agent-wallet-new",
+  "segments": [
+    { "id": "hook", "scene": "card", "card": { "title": "Your agent's wallet.", "sub": "Now without copying a single key.", "note": "What's new in the Fizzl Agent Wallet" }, "text": "Giving an AI agent its own wallet used to mean copying keys into a config file. Not anymore." },
+    { "id": "install", "scene": "install", "text": "Download the wallet for Claude Desktop and open the file. That's the whole install: no keys, no config file, no Node.js. On Claude Code or Cursor, it's one line." },
+    { "id": "chat", "scene": "chat", "text": "Ask your agent for its wallet status. It makes its own wallet on your computer, and answers with a link and a short code. The key never leaves your machine." },
+    { "id": "link", "scene": "link", "hold": 9, "text": "Open the link, and the code is already filled in. Give your agent a name, click link, and it's ready to pay. Within your rules, from the very first payment." },
+    { "id": "onchain", "scene": "onchain", "text": "Want the limit on the blockchain itself? Your USDC stays in your own wallet. A small contract on Base tops your agent up, at most two dollars a day. Even a leaked key can't take more." },
+    { "id": "twice", "scene": "twice", "text": "And it won't pay twice. If a seller takes the money without answering, or asks again with a new address, the wallet checks on-chain what happened, and holds back a second payment." },
+    { "id": "end", "scene": "card", "card": { "title": "Free to start.", "sub": "wallet.fizzl.eu", "note": "Never holds your keys or your money" }, "text": "The Fizzl Agent Wallet. Free to start, at wallet.fizzl.eu." }
+  ]
+}
