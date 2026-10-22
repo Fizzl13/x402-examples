@@ -1,0 +1,17 @@
+{
+  "title": "From your Fizzl wallet to Claude Desktop: the whole install, step by step",
+  "output": "fizzl-agent-wallet-install",
+  "segments": [
+    { "id": "intro", "scene": "card", "card": { "title": "From your Fizzl wallet to Claude.", "sub": "The whole install, step by step.", "note": "About two minutes · no keys to copy" }, "text": "Here's how to give Claude Desktop its own wallet, from start to finish. It takes about two minutes, and you never copy a key." },
+    { "id": "wallet", "scene": "tut-wallet", "step": "1 · Your Fizzl wallet", "text": "Sign in at wallet.fizzl.eu and open the Agents tab. In the card that says: link an agent with a code, click: download the wallet." },
+    { "id": "download", "scene": "tut-download", "step": "2 · Open the file", "text": "Your browser downloads one file, fizzl-wallet.mcpb. Open it, and Claude Desktop takes it from there." },
+    { "id": "install", "scene": "tut-install", "step": "3 · Install it in Claude Desktop", "text": "Claude Desktop shows the extension and the tools it brings. Click Install, and confirm. There's no config file to edit, and no Node.js to set up." },
+    { "id": "ask", "scene": "tut-ask", "step": "4 · Ask Claude", "hold": 13, "text": "Start a new chat and ask: what is my wallet status? Claude asks once if it may use the wallet. Allow it. The wallet makes its own key on your computer, and answers with a link and a short code." },
+    { "id": "link", "scene": "tut-link", "step": "5 · Link it in your wallet", "hold": 9, "text": "Click the link. Your wallet opens with the code already filled in, and shows which agent asks to be linked. Give it a name, and click: link this agent." },
+    { "id": "fund", "scene": "tut-fund", "step": "6 · Give it a few dollars", "text": "Now give it a few dollars to spend: send USDC on Base from the wallet in your browser, with one click. It doesn't need any ETH." },
+    { "id": "test", "scene": "tut-test", "step": "7 · Test it, for free", "text": "Click: test my setup. It checks the five things your agent needs, without paying anything. All green? You're ready." },
+    { "id": "buy", "scene": "tut-buy", "step": "8 · Just ask", "hold": 12, "text": "Back in Claude, just ask. Claude finds a paid service, pays it within your limits, and answers. Anything above your limits waits for your OK on your phone." },
+    { "id": "receipt", "scene": "tut-receipt", "step": "9 · A receipt for every purchase", "hold": 6.5, "text": "And every purchase shows up in your wallet, with a receipt in plain words." },
+    { "id": "end", "scene": "card", "card": { "title": "Ready in two minutes.", "sub": "wallet.fizzl.eu", "note": "Never holds your keys or your money" }, "text": "That's it. The Fizzl Agent Wallet: free to start, at wallet.fizzl.eu." }
+  ]
+}
