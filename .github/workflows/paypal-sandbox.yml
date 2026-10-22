@@ -71,12 +71,13 @@ jobs:
           APPROVER: ${{ inputs.approver || 'scripted' }}
           WALLET_SERVER_URL: ${{ secrets.WALLET_SERVER_URL }}
           WALLET_SERVER_KEY: ${{ secrets.WALLET_SERVER_KEY }}
-          WHAT: ${{ inputs.script || 'probe demo mcp' }}
+          WHAT: ${{ github.event_name == 'push' && 'dispute' || inputs.script || 'probe demo mcp' }}
         run: |
           for w in $WHAT; do
             case "$w" in
               probe) echo "::group::probe"; node sandbox/probe.mjs; echo "::endgroup::" ;;
               mcp) echo "::group::mcp"; (cd ../paypal-guard-mcp && node test/sandbox.mjs); echo "::endgroup::" ;;
+              dispute) echo "::group::dispute probe"; node sandbox/dispute-probe.mjs; echo "::endgroup::" ;;
               demo) for m in $MODES; do case "$m" in careful|fooled) ;; *) echo "bad mode"; exit 1;; esac; echo "::group::demo ($m)"; (cd demo && AGENT_MODE="$m" node run.mjs); echo "::endgroup::"; done ;;
               *) echo "bad choice: $w"; exit 1 ;;
             esac
