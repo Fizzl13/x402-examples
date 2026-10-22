@@ -98,6 +98,14 @@ Unusual purchases: once an agent has 5 or more purchases, every new one within t
 
 Per agent, the owner can set a spending mandate on the dashboard ([x402 `authority` extension draft](https://github.com/x402-foundation/x402/pull/3220), `x402-mandate/1`): a total budget in USDC on Base, an optional maximum per payment, the sellers it may pay (or any), how many days, and what it is for. The server signs it for the owner with an Ed25519 key of the account, derived from `MANDATE_SECRET` (set it in Render; without it, mandates are off), and is the accountant: every spend of that agent is held to the terms, including the running total, and anything outside is stopped. The purpose is judged per purchase by TypeSafe's Jev (as the plain-words rule): outside it or unsure, the owner is asked. Agents fetch the signed mandate with `GET /v1/mandate`; presign-guard-wallet-mcp (0.10+) does that by itself, so its x402 payments carry the mandate's binding and presign-guard checks them too. New terms start a new mandate (spent back to 0); "end" removes it and the normal limits apply again.
 
+## On-chain limits
+
+An agent pays from its own wallet, so its key is on the computer it runs on, where a capable agent or anyone who copies the key could sign without the rules above. With `ALLOWANCE_CONTRACT` set (the [FizzlAgentAllowance](../agent-allowance) contract on Base, deployed once from the owner's Stats tab), each customer can put an agent's limit on the chain too:
+
+- **Their USDC stays in their own wallet.** On the agent's card (**On-chain limit**) they sign two transactions: an approval for the contract (a capped total), then the limit for that agent's wallet (so much a day, and the most it holds at once, its float).
+- **The agent's wallet is topped up to its float**, never past the day's limit. presign-guard-wallet-mcp (0.21+) asks for a top-up by itself before a payment when its wallet holds less than the payment may cost (`POST /v1/topup`); the server's `CHARGER_KEY` wallet sends it and pays the gas, so the agent needs no ETH. The money only ever goes from that owner's wallet to the agent address the owner set.
+- **A leaked key can take at most the float plus the day's limit.** The owner stops it on the card (or sets the approval to 0); what the agent holds stays there.
+
 ## API (for agents)
 
 `Authorization: Bearer awk_…`
@@ -111,6 +119,8 @@ Per agent, the owner can set a spending mandate on the dashboard ([x402 `authori
 | `POST /v1/purchases/annotate` `{ ids, outcome }` | what happened afterwards: `{ httpStatus, settlement: { transaction, network }, error }` |
 | `GET /v1/spending`, `GET /v1/policy` | |
 | `GET /v1/mandate?address=0x…` | the agent's signed spending mandate (`{ mandate, alg, sig, terms }`), or 404 without one |
+| `GET /v1/onchain` | the agent's on-chain limit: `{ on, perPeriodUsdc, floatUsdc, leftThisPeriodUsdc, agentBalanceUsdc, … }`, or `{ on: false, reason }` |
+| `POST /v1/topup` `{ needUsdc? }` | top the agent's wallet up to its float from the owner's wallet, within the on-chain limit: `{ toppedUp, tx }`, or `{ toppedUp: 0, reason }` when it has enough, the day's limit is used up, or no limit is set |
 
 MIT licensed.
 

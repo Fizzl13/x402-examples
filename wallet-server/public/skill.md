@@ -16,7 +16,7 @@ The wallet server is at {{ORIGIN}}. It never holds keys or money: you keep your 
 ## Ground rules (read these first)
 
 1. **Never ask your owner to paste a private key, seed phrase or recovery phrase into the chat.** Keys go in your MCP configuration, which your owner edits themselves.
-2. Your wallet must be a **separate agent wallet** with only what you may spend, never your owner's main wallet. Tell your owner why, plainly: the limits are checked by the wallet MCP server on their computer, not on the blockchain, so an agent that can read files (you, perhaps) could read the key and pay without them. Never read the key file or the MCP config yourself.
+2. Your wallet must be a **separate agent wallet** with only what you may spend, never your owner's main wallet. Tell your owner why, plainly: the limits are checked by the wallet MCP server on their computer, not on the blockchain, so an agent that can read files (you, perhaps) could read the key and pay without them. Never read the key file or the MCP config yourself. If the wallet server offers it, your owner can also put your limit on the chain (**Agents → On-chain limit** on the dashboard): their USDC stays in their wallet, and the wallet MCP server tops your wallet up a little at a time before payments, within a limit a day that the chain keeps.
 3. Pay only what the task needs. Prefer the cheapest service that does the job, and always set `max_price_usd`.
 4. If a payment is refused (over the limit, denied, red verdict), tell your owner why. Do not retry another way around the rules.
 5. If something looks wrong (an API asks far more than expected, an unknown address wants money), call `pause_spending`.

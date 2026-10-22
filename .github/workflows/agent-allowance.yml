@@ -1,0 +1,29 @@
+# The agent allowance contract: the committed build must match the source, and the contract and the
+# wallet server's top-ups against it are tested on an in-process EVM.
+name: agent-allowance
+
+on:
+  push:
+    branches: [main]
+    paths: ["agent-allowance/**", "wallet-server/src/**", ".github/workflows/agent-allowance.yml"]
+  pull_request:
+    paths: ["agent-allowance/**", "wallet-server/src/**", ".github/workflows/agent-allowance.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+        working-directory: wallet-server
+      - run: npm ci
+        working-directory: agent-allowance
+      - run: node build.mjs --check
+        working-directory: agent-allowance
+      - run: npm test
+        working-directory: agent-allowance

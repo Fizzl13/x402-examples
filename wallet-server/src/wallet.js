@@ -499,7 +499,19 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       return locked(async () => {
         const a = await store.getAgent(agentId);
         if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
+        // A new wallet address leaves an on-chain limit behind: that was set for the old address.
+        if ((a.address ?? null)?.toLowerCase() !== address?.toLowerCase()) a.allowanceOwner = null;
         a.address = address; await store.putAgent(a);
+        return publicAgent(a);
+      });
+    },
+    // The wallet that set an on-chain limit for this agent (src/allowance.js checks it on chain first), or null.
+    async setAgentAllowanceOwner(agentId, owner) {
+      if (owner !== null && !(typeof owner === "string" && /^0x[0-9a-fA-F]{40}$/.test(owner))) throw Object.assign(new Error("owner must be an 0x… address"), { status: 400 });
+      return locked(async () => {
+        const a = await store.getAgent(agentId);
+        if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
+        a.allowanceOwner = owner; await store.putAgent(a);
         return publicAgent(a);
       });
     },

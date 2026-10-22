@@ -114,6 +114,8 @@ function network({ price = "50000", ...opts } = {}) {
       server.push([url.slice("https://wallet.test".length), body]);
       if (url.endsWith("/v1/reserve")) return Response.json({ status: "ok", entries: ["sp_1"], purchaseId: "pu_1" });
       if (url.includes("/v1/mandate")) return opts.mandate ? Response.json(opts.mandate) : Response.json({ error: "no_mandate" }, { status: 404 });
+      if (url.endsWith("/v1/topup")) return Response.json(opts.topup ?? { toppedUp: 0, reason: "this agent has no on-chain limit: the owner turns it on in the dashboard" });
+      if (url.endsWith("/v1/onchain")) return Response.json(opts.onchain ?? { on: false });
       if (url.endsWith("/v1/purchases/annotate") && opts.check) return Response.json({ updated: 1, check: opts.check });
       return Response.json({ ok: true, updated: 1 });
     }
@@ -367,6 +369,32 @@ test("pay_x402 with a wallet server: the API's answer goes on the receipt", asyn
   assert.equal(annotate[1].outcome.httpStatus, 200);
   assert.deepEqual(annotate[1].outcome.settlement, { transaction: "0xsettled", network: "eip155:8453" });
   assert.deepEqual(annotate[1].outcome.content, { contentType: "application/json", body: JSON.stringify({ answer: 42 }) });
+});
+
+test("on-chain limit: a wallet that holds less than a payment may cost asks the wallet server for a top-up first", async () => {
+  const net = network({ topup: { toppedUp: 4.5, tx: "0xtop" }, onchain: { on: true, perPeriodUsdc: 20, leftThisPeriodUsdc: 15, floatUsdc: 5 } });
+  const fake = fakeWallet();
+  fake.publicClient.readContract = async ({ functionName }) => (functionName === "balanceOf" ? 500_000n : 0n); // $0.50
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  await wallet.payX402({ url: API, maxPriceUsd: 0.8, reason: "the answer" });
+  const paths = net.server.map(([path]) => path);
+  assert.ok(paths.indexOf("/v1/topup") >= 0 && paths.indexOf("/v1/topup") < paths.indexOf("/v1/reserve"), paths.join());
+  assert.deepEqual(net.server.find(([path]) => path === "/v1/topup")[1], { needUsdc: 0.8 });
+  const status = await wallet.status();
+  assert.deepEqual([status.onchainLimit.perDayUsdc, status.onchainLimit.leftTodayUsdc, status.onchainLimit.floatUsdc], [20, 15, 5]);
+});
+
+test("on-chain limit: no top-up asked when the wallet holds enough, and \"no limit\" is remembered instead of asked each time", async () => {
+  const net = network();
+  const fake = fakeWallet(); // $12.34
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  await wallet.payX402({ url: API, maxPriceUsd: 1, reason: "the answer" });
+  assert.ok(!net.server.some(([path]) => path === "/v1/topup"));
+  assert.equal((await wallet.status()).onchainLimit, undefined);
+  fake.publicClient.readContract = async ({ functionName }) => (functionName === "balanceOf" ? 100_000n : 0n); // $0.10
+  await wallet.payX402({ url: API, maxPriceUsd: 1, reason: "again" }).catch(() => {});
+  await wallet.payX402({ url: API, maxPriceUsd: 1, reason: "and again" }).catch(() => {});
+  assert.equal(net.server.filter(([path]) => path === "/v1/topup").length, 1);
 });
 
 test("pay_x402 with a wallet server: an answer flagged by the server's check comes back with a warning first", async () => {

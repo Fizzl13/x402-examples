@@ -33,7 +33,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null, allowance = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -82,6 +82,19 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   v1.post("/spent", wrap(async (req, res) => res.json(await req.wallet.spent(req.agent, ids(req.body?.entries), req.body?.result, { purchaseId: req.body?.purchaseId }))));
   v1.post("/purchases/annotate", wrap(async (req, res) => res.json(await req.wallet.annotate(req.agent, ids(req.body?.ids), req.body?.outcome))));
   v1.get("/spending", wrap(async (req, res) => res.json({ spending: await req.wallet.spending() })));
+  // On-chain limits (src/allowance.js): the agent's wallet is low or short for a payment; the charger tops it up from
+  // the owner's wallet, within the limit the owner set on chain, to the address the owner set (never one the agent names).
+  v1.get("/onchain", wrap(async (req, res) => {
+    const a = req.agent;
+    if (!allowance?.enabled || !a.address || !a.allowanceOwner) return res.json({ on: false, reason: allowance?.enabled ? "the owner hasn't turned it on for this agent (Agents → On-chain limit)" : "not set up on this server" });
+    res.json(await allowance.status(a.allowanceOwner, a.address));
+  }));
+  v1.post("/topup", wrap(async (req, res) => {
+    if (!allowance?.enabled) return res.status(503).json({ error: "unavailable", message: "On-chain limits aren't set up on this server." });
+    const a = req.agent;
+    if (!a.address || !a.allowanceOwner) return res.json({ toppedUp: 0, reason: "this agent has no on-chain limit: the owner turns it on in the dashboard (Agents → On-chain limit)" });
+    res.json(await allowance.topUp(a.allowanceOwner, a.address, { needUsdc: req.body?.needUsdc }));
+  }));
   // The agent's signed spending mandate (src/mandate.js), for the wallet it pays from; 404 without one.
   v1.get("/mandate", wrap(async (req, res) => {
     const m = await req.wallet.mandateFor(req.agent, typeof req.query.address === "string" ? req.query.address : null);
@@ -288,7 +301,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   const owner = express.Router();
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
-  owner.get("/state", wrap(async (req, res) => res.json(await req.wallet.state())));
+  owner.get("/state", wrap(async (req, res) => res.json({ ...(await req.wallet.state()), onchain: allowance?.enabled ? allowance.contract : null })));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
@@ -298,6 +311,31 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/agents/:id/pause", wrap(async (req, res) => res.json(await req.wallet.setAgentPaused(req.params.id, !!req.body?.paused))));
   owner.put("/agents/:id/site", wrap(async (req, res) => res.json(await req.wallet.setAgentSite(req.params.id, req.body?.site ?? null))));
   owner.put("/agents/:id/address", wrap(async (req, res) => res.json(await req.wallet.setAgentAddress(req.params.id, req.body?.address || null))));
+  // On-chain limits per agent (src/allowance.js): the state, the transactions the owner signs, a top-up now.
+  const agentById = async (req) => {
+    if (!allowance?.enabled) throw Object.assign(new Error("On-chain limits aren't set up on this server."), { status: 503 });
+    const a = (await req.wallet.agents()).find((x) => x.id === req.params.id);
+    if (!a) throw Object.assign(new Error("no such agent"), { status: 404 });
+    return a;
+  };
+  owner.get("/agents/:id/onchain", wrap(async (req, res) => {
+    const a = await agentById(req);
+    const status = a.allowanceOwner && a.address ? await allowance.status(a.allowanceOwner, a.address) : null;
+    res.json({ contract: allowance.contract, agent: a.address ?? null, owner: a.allowanceOwner ?? null, status, ...(status?.on ? { stop: allowance.stopTx(a.address) } : {}) });
+  }));
+  owner.post("/agents/:id/onchain/txs", wrap(async (req, res) => res.json(allowance.turnOnTxs((await agentById(req)).address, req.body ?? {}))));
+  owner.put("/agents/:id/onchain", wrap(async (req, res) => {
+    const a = await agentById(req);
+    const from = req.body?.owner ?? null;
+    if (from !== null && !(await allowance.status(from, a.address ?? "")).on) throw Object.assign(new Error("There is no on-chain limit from that wallet for this agent yet."), { status: 409 });
+    res.json(await req.wallet.setAgentAllowanceOwner(a.id, from));
+  }));
+  owner.post("/agents/:id/onchain/topup", wrap(async (req, res) => {
+    const a = await agentById(req);
+    if (!a.address || !a.allowanceOwner) throw Object.assign(new Error("This agent has no on-chain limit yet."), { status: 409 });
+    const s = await allowance.status(a.allowanceOwner, a.address);
+    res.json(await allowance.topUp(a.allowanceOwner, a.address, { needUsdc: s.floatUsdc })); // by hand: fill it up
+  }));
   owner.put("/agents/:id/mandate", wrap(async (req, res) => res.json(await req.wallet.setAgentMandate(req.params.id, req.body?.terms ?? null))));
   owner.delete("/agents/:id/mandate", wrap(async (req, res) => res.json(await req.wallet.setAgentMandate(req.params.id, null))));
   owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
@@ -389,6 +427,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const r = await accounts.weeklyDigest({ summary, force: true });
     if (!r.sent) return res.status(409).json({ error: "not_sent", message: r.reason });
     res.json(r);
+  }));
+  owner.get("/admin/allowance", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    if (!allowance) return res.status(503).json({ error: "unavailable", message: "On-chain limits aren't part of this server." });
+    res.json(await allowance.setup());
   }));
   owner.get("/admin/subscription", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });

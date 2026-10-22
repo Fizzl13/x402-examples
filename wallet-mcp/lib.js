@@ -505,6 +505,31 @@ export function createWallet(config, overrides = {}) {
   }
 
   // The mandate to pay under: MANDATE from the config, else the one the owner set for this agent on the
+  // The wallet server's agent API (Bearer agent key), for the calls guard-wallet doesn't make itself.
+  async function serverJson(method, path, body) {
+    if (!config.server?.url || !config.server?.key) return null;
+    const res = await plainFetch(`${config.server.url.replace(/\/$/, "")}${path}`, {
+      method, headers: { authorization: `Bearer ${config.server.key}`, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(45_000),
+    });
+    if (!res.ok) throw new Error(`wallet server ${path}: HTTP ${res.status}`);
+    return res.json();
+  }
+  // On-chain limit (wallet server + agent-allowance contract on Base): when this wallet holds less USDC than a payment
+  // may cost, ask the server to top it up from the owner's wallet first, within the limit the chain keeps. Best effort:
+  // without a limit, or if it fails, the payment goes ahead with what the wallet holds. "No limit" is remembered a while.
+  let noLimitUntil = 0;
+  async function topUpFor(needUsdc) {
+    if (!config.server || config.chainName !== "base" || !(needUsdc > 0) || Date.now() < noLimitUntil) return null;
+    try {
+      const have = await publicClient.readContract({ address: usdc[0], abi: erc20Abi, functionName: "balanceOf", args: [account.address] });
+      if (have >= parseUnits(String(needUsdc), usdc[1])) return null;
+      const r = await serverJson("POST", "/v1/topup", { needUsdc });
+      if (!r?.toppedUp && /no on-chain limit|isn't set up|not set up/i.test(r?.reason ?? "")) noLimitUntil = Date.now() + 10 * 60_000;
+      return r;
+    } catch { return null; }
+  }
+
   // wallet server (GET /v1/mandate, kept 5 minutes; none or unreachable = pay without one; the server holds
   // the agent to its mandate either way).
   let serverMandate = { at: 0, value: null };
@@ -654,6 +679,7 @@ export function createWallet(config, overrides = {}) {
         } catch { return "unknown"; }
       }
       const mandateNow = await currentMandate();
+      const onchain = await serverJson("GET", "/v1/onchain").catch(() => null);
       const [native, usdcBalance, tempoBalance] = await Promise.all([
         publicClient.getBalance({ address: account.address }).catch(() => null),
         publicClient.readContract({ address: usdc[0], abi: erc20Abi, functionName: "balanceOf", args: [account.address] }).catch(() => null),
@@ -674,6 +700,10 @@ export function createWallet(config, overrides = {}) {
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
         approvals: config.server ? "wallet server (dashboard / Telegram)" : config.ac2 ? `signed in the owner's own wallet over AC2${config.ac2.owner ? ` (${config.ac2.owner})` : " (the paired wallet)"}` : config.telegram ? "Telegram" : "none: anything over a limit is refused",
         maxPaymentUsd: config.maxPaymentUsd,
+        ...(onchain?.on && { onchainLimit: {
+          perDayUsdc: onchain.perPeriodUsdc, leftTodayUsdc: onchain.leftThisPeriodUsdc, floatUsdc: onchain.floatUsdc,
+          note: "your owner's USDC stays in their wallet; this wallet is topped up to the float from it, within the limit a day the chain keeps (done for you before a payment when it runs low)",
+        } }),
         ...(mandateNow && { mandate: {
           digest: mandateDigest(mandateNow.mandate),
           from: config.mandate ? "MANDATE setting" : "wallet server",
@@ -692,6 +722,7 @@ export function createWallet(config, overrides = {}) {
     // Every payment is recorded with what it is for: on the wallet server's receipts, in Telegram approvals, in onSpend.
     async sendUsdc({ to, amount, reason }) {
       const value = parseUnits(amount, usdc[1]);
+      await topUpFor(Number(amount));
       const hash = await guarded.withPurchase({ description: reason || `Send ${amount} USDC to ${to}` }, () => guarded.writeContract({ address: usdc[0], abi: erc20Abi, functionName: "transfer", args: [to, value] }));
       return { hash, sent: `${amount} USDC`, to, chain: config.chainName };
     },
@@ -740,6 +771,7 @@ export function createWallet(config, overrides = {}) {
 
     async payX402({ url, method = "GET", body, headers, maxPriceUsd, reason }) {
       if (!/^https?:\/\//.test(url)) throw new TypeError("url must start with https:// or http://");
+      await topUpFor(Math.min(Number(maxPriceUsd ?? config.maxPaymentUsd), config.maxPaymentUsd));
       return guarded.withPurchase({ url, description: reason || `${method} ${new URL(url).host}` }, async (report) => {
         const out = await callX402({ url, method, body, headers, maxPriceUsd });
         // The answer goes on the owner's receipt too (wallet server), so they can see what was bought.

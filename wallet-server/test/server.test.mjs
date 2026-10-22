@@ -41,7 +41,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined, allowance = null } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -63,7 +63,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     ...(mailer ? { mailer } : {}),
     ...(xaman ? { xaman } : {}),
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, allowance, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -406,6 +406,53 @@ test("the owner's Stats tab is not in the public page: its markup and script go 
     const js = await fetch(`${base}/api/admin/owner.js`, { headers: { cookie } });
     assert.match(js.headers.get("content-type"), /javascript/);
     assert.match(await js.text(), /export function startOwner\(/);
+  } finally { server.close(); }
+});
+
+test("on-chain limits: the owner's wallet is checked on chain before it is saved; agents ask for top-ups, to the address the owner set", async () => {
+  const OWNER_WALLET = "0x00000000000000000000000000000000000a11ce", AGENT_WALLET = "0x00000000000000000000000000000000000a9e47";
+  const calls = [];
+  const allowance = {
+    enabled: true, contract: "0x00000000000000000000000000000000000c0ffe",
+    status: async (owner, agent) => ({ on: owner.toLowerCase() === OWNER_WALLET && agent.toLowerCase() === AGENT_WALLET, floatUsdc: 5, agentBalanceUsdc: 1 }),
+    turnOnTxs: (agent, o) => ({ approve: { to: "0xusdc", data: "0x095e" }, setLimit: { to: "0xc0ffe", data: `0x${agent}` }, o }),
+    stopTx: () => ({ to: "0xc0ffe", data: "0x5700" }),
+    topUp: async (owner, agent, o) => { calls.push([owner, agent, o.needUsdc]); return { toppedUp: 4, tx: "0xabc" }; },
+    setup: async () => ({ contract: null, deployData: "0x60" }),
+  };
+  const { base, server, owner, agent, key } = await boot({ allowance });
+  try {
+    assert.equal((await owner("GET", "/api/state")).body.onchain, allowance.contract);
+    assert.deepEqual((await agent("POST", "/v1/topup", { needUsdc: 2 })).body.toppedUp, 0); // nothing set up yet
+    const { body: { agents: [a] } } = await owner("GET", "/api/state");
+    await owner("PUT", `/api/agents/${a.id}/address`, { address: AGENT_WALLET });
+    assert.equal((await owner("POST", `/api/agents/${a.id}/onchain/txs`, { perDayUsdc: 20, floatUsdc: 5, approveUsdc: 30 })).body.setLimit.data, `0x${AGENT_WALLET}`);
+    assert.equal((await owner("PUT", `/api/agents/${a.id}/onchain`, { owner: "0x00000000000000000000000000000000000b0b00" })).status, 409); // not on chain from that wallet
+    assert.equal((await owner("PUT", `/api/agents/${a.id}/onchain`, { owner: OWNER_WALLET })).status, 200);
+    const st = (await owner("GET", `/api/agents/${a.id}/onchain`)).body;
+    assert.deepEqual([st.owner, st.agent, st.status.on, st.stop.data], [OWNER_WALLET, AGENT_WALLET, true, "0x5700"]);
+    assert.deepEqual((await agent("POST", "/v1/topup", { needUsdc: 2 })).body, { toppedUp: 4, tx: "0xabc" });
+    assert.deepEqual((await owner("POST", `/api/agents/${a.id}/onchain/topup`, {})).body.toppedUp, 4);
+    assert.deepEqual(calls, [[OWNER_WALLET, AGENT_WALLET, 2], [OWNER_WALLET, AGENT_WALLET, 5]]);
+    // A new agent wallet address drops the limit (it was set for the old address).
+    await owner("PUT", `/api/agents/${a.id}/address`, { address: "0x00000000000000000000000000000000000a9e48" });
+    assert.equal((await owner("GET", `/api/agents/${a.id}/onchain`)).body.owner, null);
+    // Deploying is the server owner's business only.
+    assert.equal((await owner("GET", "/api/admin/allowance")).body.deployData, "0x60");
+    const c = await signInAs(base, customer());
+    assert.equal((await c.call("GET", "/api/admin/allowance")).status, 403);
+    assert.equal((await fetch(`${base}/v1/topup`, { method: "POST" })).status, 401);
+    assert.ok(key.startsWith("awk_"));
+  } finally { server.close(); }
+});
+
+test("on-chain limits off: the routes say so", async () => {
+  const { server, owner, agent } = await boot();
+  try {
+    assert.equal((await owner("GET", "/api/state")).body.onchain, null);
+    assert.equal((await agent("POST", "/v1/topup", {})).status, 503);
+    const { body: { agents: [a] } } = await owner("GET", "/api/state");
+    assert.equal((await owner("GET", `/api/agents/${a.id}/onchain`)).status, 503);
   } finally { server.close(); }
 });
 
