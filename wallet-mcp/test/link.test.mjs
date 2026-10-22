@@ -107,7 +107,8 @@ test("linking end to end: the MCP server without any keys gives a code, switches
       assert.equal(s.link.code, "K7QF-29X1");
       assert.equal(s.link.url, `https://wallet.test/pair?code=K7QF-29X1`);
       fake.linked = true;
-      for (let i = 0; i < 100 && !/linked as "claude-desktop"/.test(log); i++) await new Promise((r) => setTimeout(r, 50));
+      // The switch-over logs "linked as …", then makes the real wallet and logs it: wait for that last line.
+      for (let i = 0; i < 200 && !/limits on/.test(log); i++) await new Promise((r) => setTimeout(r, 50));
       assert.match(log, /linked as "claude-desktop"/);
       assert.match(log, new RegExp(`wallet ${s.agentWallet} on base, limits on ${base}`), "switched to the real wallet without a restart");
     } finally { await client.close(); }
