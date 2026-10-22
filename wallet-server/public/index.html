@@ -1100,7 +1100,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       // Linking with a code: any well-formed code is an example agent; linking adds it to this page's list only.
       if (method === "GET" && (m0 = /^\/api\/pair\/(.+)$/.exec(path))) {
         const code = decodeURIComponent(m0[1]).toUpperCase().replace(/[^A-Z0-9]/g, "");
-        if (code.length !== 8) throw Object.assign(new Error("That code is wrong or has expired. Ask your agent for a new one."), { status: 404 });
+        if (code.length !== 8) throw Object.assign(new Error("That code is wrong or has expired: a code works for 10 minutes. Ask your agent \"what is my wallet status?\" again for a new one."), { status: 404 });
         return { code: `${code.slice(0, 4)}-${code.slice(4)}`, address: "0x2F96D3dFC42f2eC1f3226F4bB54D71b801964f54", label: "claude-desktop" };
       }
       if (method === "POST" && path === "/api/pair") {

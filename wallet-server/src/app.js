@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { getHeapStatistics } from "node:v8";
 import indexNow from "./indexnow.cjs";
 import { WALLET_MCP, WALLET_MCPB } from "./mcp-package.js";
 
@@ -51,7 +52,13 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.status(status).json({ error: status >= 500 ? "server_error" : "bad_request", message: status >= 500 && !err.expose ? "Something went wrong." : err.message });
   });
 
-  app.get("/health", (_req, res) => res.json({ ok: true }));
+  // Memory too, so a leak shows before Render stops the server: on 22 Oct 2026 it exited with 134 (out of memory).
+  // heap_limit_mb is where V8 gives up, which can sit well below the plan's 512 MB.
+  app.get("/health", (_req, res) => {
+    const { rss, heapUsed, heapTotal, external } = process.memoryUsage();
+    const mb = (n) => Math.round(n / 1048576);
+    res.json({ ok: true, memory: { rss_mb: mb(rss), heap_mb: mb(heapUsed), heap_total_mb: mb(heapTotal), heap_limit_mb: mb(getHeapStatistics().heap_size_limit), external_mb: mb(external) }, uptime_s: Math.round(process.uptime()) });
+  });
   // What the sign-in page offers.
   app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, algorand: signInWithWallet && !!accounts.algorandEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
 
