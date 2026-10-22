@@ -1,6 +1,8 @@
-// Can a card payment in the PayPal sandbox be disputed by API? A sandbox-only probe for the demo's dispute case:
-// pay by card, raise a chargeback with PayPal's sandbox endpoint (/v2/customer-support/process-chargeback), see
-// it in the Disputes API, and accept the claim. Test money only.
+// What PayPal does with a chargeback, without the guard (the workflow's "dispute" choice). Pay by card, raise a
+// chargeback with PayPal's sandbox-only endpoint (/v2/customer-support/process-chargeback), wait until the
+// Disputes API lists it, then refund the payment anyway. On 22 Oct 2026: listed after ~50 s, and the refund went
+// through (201 COMPLETED, capture REFUNDED) while the chargeback stayed open, so the buyer is paid twice. That is
+// why the guard reads a payment's open disputes before a refund. Test money only.
 import { api, brief, cardPayment } from "./api.mjs";
 
 const now = new Date();

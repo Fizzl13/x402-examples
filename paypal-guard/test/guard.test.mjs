@@ -174,6 +174,37 @@ test("disputes, books, price changes and unknown tools ask the owner", async () 
   assert.match(d.reasons[0].message, /pays the buyer 80\.00 USD/);
 });
 
+test("a refund of a payment the buyer already charged back is stopped: PayPal would let it through and pay twice", async () => {
+  const open = { CAP_ALICE_1: [{ id: "PP-R-1", amount: "40.00", currency: "USD", status: "UNDER_REVIEW", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", stage: "CHARGEBACK", channel: "EXTERNAL" }], CAP_ALICE_2: [{ id: "PP-D-2", amount: "12.00", currency: "USD", status: "WAITING_FOR_SELLER_RESPONSE", stage: "INQUIRY", channel: "INTERNAL" }] };
+  const withDisputes = { ...reader, disputes: async (id) => open[id] ?? [] };
+  const approvals = [];
+  const { guard, calls, exec } = setup({ reader: withDisputes, approve: async (r) => { approvals.push(r); return { approved: true }; } });
+  const out = await guard.run("create_refund", refund("CAP_ALICE_1", "12.50"), exec, ctx);
+  assert.equal(out.blocked, true);
+  assert.equal(out.decision, "deny");
+  assert.match(out.message, /open chargeback on this payment \(40\.00 USD, PP-R-1\): the bank already takes this money back, so a refund now pays them twice/);
+  assert.equal(guard.events().at(-1).reasons[0].code, "OPEN_DISPUTE");
+  assert.match((await guard.check("create_refund", refund("CAP_ALICE_2", "5.00"), ctx)).reasons[0].message, /open dispute .*Settle it in the dispute instead/);
+  assert.equal((await guard.run("create_refund", refund("CAP_ALICE_3", "5.00"), exec, ctx)).status, "COMPLETED");
+  assert.equal(calls.length, 1);
+  assert.equal(approvals.length, 0, "a deny doesn't ask");
+  // The owner can make it a question instead; a reader that can't read the disputes asks too.
+  const lenient = createGuard({ reader: withDisputes, policy: { openDispute: "ask" } });
+  assert.equal((await lenient.check("create_refund", refund("CAP_ALICE_1", "5.00"), ctx)).decision, "ask");
+  const blind = createGuard({ reader: { ...reader, disputes: async () => { throw new Error("HTTP 503"); } } });
+  const b = await blind.check("create_refund", refund("CAP_ALICE_3", "5.00"), ctx);
+  assert.equal(b.decision, "ask");
+  assert.match(b.reasons[0].message, /couldn't read this payment's disputes at PayPal \(HTTP 503\)/);
+  assert.throws(() => createGuard({ policy: { openDispute: "allow" } }), /policy\.openDispute/);
+});
+
+test("accepting a dispute about someone else's payment is stopped", async () => {
+  const theirs = { ...reader, dispute: async () => ({ amount: "25.00", currency: "USD", status: "OPEN", captureId: "CAP_BOB", payer: BOB }) };
+  const r = await createGuard({ reader: theirs }).check("accept_dispute_claim", { dispute_id: "D2" }, ctx);
+  assert.equal(r.decision, "deny");
+  assert.ok(r.reasons.some((x) => x.code === "OTHER_CUSTOMER"));
+});
+
 test("cancellations: the customer's own, a few a day; someone else's never", async () => {
   const { guard, calls, exec } = setup();
   for (let i = 0; i < 3; i++) assert.equal((await guard.run("cancel_subscription", { subscription_id: `SUB_A${i}`, payload: { reason: "asked" } }, exec, ctx)).status, "COMPLETED");
@@ -267,7 +298,7 @@ function fakeFetch(routes) {
   const f = async (url, init = {}) => {
     const u = new URL(url), key = `${init.method ?? "GET"} ${u.pathname}`;
     seen.push({ key, init });
-    const body = typeof routes[key] === "function" ? routes[key](init) : routes[key];
+    const body = typeof routes[key] === "function" ? routes[key](init, u) : routes[key];
     if (body === undefined) return new Response(JSON.stringify({ name: "RESOURCE_NOT_FOUND" }), { status: 404 });
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   };
@@ -291,6 +322,21 @@ test("paypalReader reads a capture, its payer and what was refunded", async () =
   assert.equal(fetch.seen.filter((s) => s.key === "POST /v1/oauth2/token").length, 1, "the token is reused");
   assert.match(fetch.seen[0].init.headers.authorization, /^Basic /);
   assert.equal(fetch.seen[1].init.headers.authorization, "Bearer A21");
+});
+
+test("paypalReader lists the open disputes of a capture and reads which payment a dispute is about", async () => {
+  const fetch = fakeFetch({
+    "POST /v1/oauth2/token": { access_token: "A21", expires_in: 32000 },
+    "GET /v1/customer/disputes": (_init, u) => (u.searchParams.get("disputed_transaction_id") === "CAP1" ? { items: [
+      { dispute_id: "PP-R-1", status: "UNDER_REVIEW", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", dispute_amount: { currency_code: "USD", value: "40.00" }, dispute_life_cycle_stage: "CHARGEBACK", dispute_channel: "EXTERNAL" },
+      { dispute_id: "PP-D-0", status: "RESOLVED", dispute_amount: { currency_code: "USD", value: "5.00" } },
+    ] } : { items: [] }),
+    "GET /v1/customer/disputes/PP-R-1": { dispute_id: "PP-R-1", status: "OPEN", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", dispute_amount: { currency_code: "USD", value: "40.00" }, dispute_life_cycle_stage: "CHARGEBACK", disputed_transactions: [{ seller_transaction_id: "CAP1", custom: "cust-7" }] },
+  });
+  const r = paypalReader({ clientId: "id", clientSecret: "secret", fetch });
+  assert.deepEqual(await r.disputes("CAP1"), [{ id: "PP-R-1", amount: "40.00", currency: "USD", status: "UNDER_REVIEW", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", stage: "CHARGEBACK", channel: "EXTERNAL" }]);
+  assert.deepEqual(await r.disputes("CAP2"), []);
+  assert.deepEqual(await r.dispute("PP-R-1"), { amount: "40.00", currency: "USD", status: "OPEN", reason: "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", stage: "CHARGEBACK", captureId: "CAP1", payer: null, customId: "cust-7" });
 });
 
 test("paypalReader tries a read again when PayPal is busy, and gives up after three", async () => {

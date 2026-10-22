@@ -53,6 +53,8 @@ export const DEFAULT_POLICY = Object.freeze({
   unknown: "ask",
   // A refund, cancellation or bill for someone other than the customer in this conversation.
   otherCustomer: "deny",
+  // A refund of a payment the buyer already disputed or charged back: they would get the money twice.
+  openDispute: "deny",
   // TypeSafe's Jev says the action doesn't follow from what the customer asked (when an intent checker is set).
   offIntent: "ask",
 });

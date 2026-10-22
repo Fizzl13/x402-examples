@@ -1,6 +1,6 @@
 {
   "name": "fizzl-paypal-guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Limits, checks and the owner's approval for AI agents that use PayPal's Agent Toolkit: refunds only for the customer in the conversation and never more than was paid, daily limits, an AI check that the action fits the request, and Approve/Deny on the owner's phone above the limits.",
   "type": "module",
   "exports": {

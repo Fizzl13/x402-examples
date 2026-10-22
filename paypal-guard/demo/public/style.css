@@ -49,6 +49,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 24px; }
 .mail b { color: var(--text); }
 .step { font-size: 13px; color: var(--muted); padding-left: 12px; border-left: 2px solid var(--line); overflow-wrap: anywhere; }
 .step code { color: var(--text); }
+.step.note { color: var(--amber); border-left-color: rgba(245,195,97,.5); font-style: italic; }
 .verdict { border-radius: 12px; padding: 10px 12px; border: 1px solid; }
 .verdict .t { font-weight: 700; }
 .verdict ul { margin: 6px 0 0; padding-left: 18px; color: var(--soft); font-size: 13px; }

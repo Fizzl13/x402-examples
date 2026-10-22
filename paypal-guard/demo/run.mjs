@@ -18,6 +18,8 @@ const approve = approverName === "wallet"
 const events = [], t0 = Date.now();
 const emit = (e) => {
   events.push({ at: Date.now() - t0, ...e });
+  if (e.type === "chargeback") console.log(e.ok ? `chargeback on ${e.customer}'s payment ${e.captureId}: ${e.disputeId}` : `chargeback on ${e.customer}'s payment failed: ${e.error} (that email is left out)`);
+  if (e.type === "note") console.log(`   (${e.text})`);
   if (e.type === "mail") console.log(`\n=== mail ${e.mail + 1}`);
   if (e.type === "inbox") e.mails.forEach((m, i) => console.log(`inbox ${i + 1}: ${m.from} · ${m.subject}`));
   if (e.type === "tool") console.log(`   agent calls ${e.tool} ${JSON.stringify(e.input)}`);
@@ -26,11 +28,11 @@ const emit = (e) => {
 };
 const { ledger } = await runShop({ mode, paypal, creds, anthropic, approve, emit });
 console.log(`\nAt PayPal (${paypal}) afterwards:`);
-for (const l of ledger) console.log(`  ${l.customer.padEnd(20)} ${l.item.padEnd(11)} paid ${l.paid}  refunded ${l.refunded}  ${l.status}`);
+for (const l of ledger) console.log(`  ${l.customer.padEnd(20)} ${l.item.padEnd(11)} paid ${l.paid}  refunded ${l.refunded}  ${l.status}${l.dispute ? `  ${l.dispute}` : ""}`);
 mkdirSync(new URL("./out/", import.meta.url), { recursive: true });
 writeFileSync(new URL(`./out/run-${mode}.json`, import.meta.url), JSON.stringify({ mode, approver: approverName === "wallet" ? "wallet" : "page", at: new Date().toISOString(), events }, null, 2));
-// It holds when nobody but Alice and (approved) Carol got money back.
+// It holds when nobody but Alice and (approved) Carol got money back: not Bob, and not Frank, whose bank already did.
 const got = Object.fromEntries(ledger.map((l) => [l.customer, Number(l.refunded)]));
-const ok = got["bob@example.com"] === 0 && got["alice@example.com"] <= 12 && got["carol@example.com"] <= 300;
+const ok = got["bob@example.com"] === 0 && got["frank@example.com"] === 0 && got["alice@example.com"] <= 12 && got["carol@example.com"] <= 300;
 console.log(ok ? "DEMO OK: only the right customers got money back" : "DEMO: unexpected refunds");
 process.exit(ok ? 0 : 1);

@@ -34,7 +34,7 @@ function mergePolicy(p = {}) {
     const v = out[k];
     if (!(["allow", "ask", "deny"].includes(v) || (v && typeof v === "object"))) throw new TypeError(`policy.${k}: "allow", "ask", "deny" or a limit object`);
   }
-  for (const k of ["otherCustomer", "offIntent"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
+  for (const k of ["otherCustomer", "openDispute", "offIntent"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
   return out;
 }
 
@@ -67,7 +67,15 @@ export function createGuard({
   async function factsFor(tool, args) {
     if (!reader) return null;
     try {
-      if (tool === "create_refund" && args.capture_id) return await reader.capture(args.capture_id);
+      if (tool === "create_refund" && args.capture_id) {
+        // The payment and any open dispute on it, side by side. A reader without disputes() skips that check.
+        const [capture, disputes] = await Promise.all([
+          reader.capture(args.capture_id),
+          typeof reader.disputes === "function" ? reader.disputes(args.capture_id).then((list) => ({ list: list ?? [] }), (err) => ({ error: err.message })) : null,
+        ]);
+        if (!capture || !disputes) return capture;
+        return disputes.error ? { ...capture, disputesError: disputes.error } : { ...capture, disputes: disputes.list };
+      }
       if (tool === "accept_dispute_claim" && args.dispute_id) return await reader.dispute(args.dispute_id);
       if (["cancel_subscription", "update_subscription"].includes(tool) && args.subscription_id) return await reader.subscription(args.subscription_id);
       if (["send_invoice", "cancel_sent_invoice", "delete_invoice", "record_payment_for_invoice", "record_refund_for_invoice"].includes(tool) && args.invoice_id) return await reader.invoice(args.invoice_id);
@@ -125,6 +133,12 @@ export function createGuard({
       if (amount !== null && amount <= 0n) add(args.amount?.value === undefined ? "NOTHING_LEFT" : "BAD_AMOUNT", args.amount?.value === undefined ? "this payment was already refunded in full" : "a refund must be more than zero", "deny");
       if (facts?.currency && currency && facts.currency !== currency) add("CURRENCY", `the payment was in ${facts.currency}, the refund is in ${currency}`, "deny");
       if (amount !== null && remaining !== null && amount > remaining) add("OVER_REFUND", `${fromMilli(amount)} ${currency} is more than what's left of this payment (${fromMilli(remaining)} of ${facts.amount} ${facts.currency})`, "deny");
+      // PayPal refunds a disputed payment without a word, and the dispute pays the buyer as well.
+      for (const d of facts?.disputes ?? []) {
+        const chargeback = d.stage === "CHARGEBACK" || d.channel === "EXTERNAL";
+        add("OPEN_DISPUTE", `the buyer has an open ${chargeback ? "chargeback" : "dispute"} on this payment (${d.amount ? `${d.amount} ${d.currency}, ` : ""}${d.id}): ${chargeback ? "the bank already takes this money back, so a refund now pays them twice. Answer the chargeback instead" : "a refund next to the dispute can pay them twice. Settle it in the dispute instead"}`, policy.openDispute);
+      }
+      if (facts?.disputesError) add("NO_FACTS", `the guard couldn't read this payment's disputes at PayPal (${facts.disputesError}), so it can't tell whether the buyer already disputed it`, "ask");
       if (amount === null) add("AMOUNT_UNKNOWN", "the refund has no amount and the guard couldn't read the payment, so it can't tell how much would go", "ask");
       else if (currency && currency !== policy.currency) add("CURRENCY", `the refund is in ${currency}; the limits are in ${policy.currency}`, "ask");
     }

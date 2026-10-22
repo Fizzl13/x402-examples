@@ -76,9 +76,21 @@ export function paypalReader({ clientId, clientSecret, sandbox = true, fetch: fe
       const recipients = (inv.primary_recipients ?? []).map((r) => r.billing_info?.email_address).filter(Boolean);
       return { recipients, amount: inv.amount?.value ?? null, currency: inv.amount?.currency_code ?? null, status: inv.status ?? null };
     },
+    // A dispute, with the payment it is about: the capture, the buyer's email (none for a card) and custom_id.
     async dispute(disputeId) {
       const d = await get(`/v1/customer/disputes/${id(disputeId)}`);
-      return d ? { amount: d.dispute_amount?.value ?? null, currency: d.dispute_amount?.currency_code ?? null, status: d.status ?? null, reason: d.reason ?? null } : null;
+      if (!d) return null;
+      const tx = d.disputed_transactions?.[0] ?? {};
+      return { amount: d.dispute_amount?.value ?? null, currency: d.dispute_amount?.currency_code ?? null, status: d.status ?? null, reason: d.reason ?? null, stage: d.dispute_life_cycle_stage ?? null, captureId: tx.seller_transaction_id ?? null, payer: tx.buyer?.email ?? null, customId: tx.custom ?? null };
+    },
+    // The disputes and chargebacks on a capture that aren't resolved yet. PayPal lists a new one after a minute
+    // or so, and lets a refund through while one is open: the buyer then gets the money twice.
+    async disputes(captureId) {
+      const list = await get(`/v1/customer/disputes?disputed_transaction_id=${id(captureId)}`);
+      return (list?.items ?? []).filter((d) => d.status !== "RESOLVED").map((d) => ({
+        id: d.dispute_id, amount: d.dispute_amount?.value ?? null, currency: d.dispute_amount?.currency_code ?? null,
+        status: d.status ?? null, reason: d.reason ?? null, stage: d.dispute_life_cycle_stage ?? null, channel: d.dispute_channel ?? null,
+      }));
     },
   };
 }
