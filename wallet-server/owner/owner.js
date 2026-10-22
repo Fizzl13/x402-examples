@@ -189,7 +189,7 @@ export function startOwner({ $, esc, api, post, me, DEMO, wallet }) {
         try {
           const [from] = await eth.request({ method: "eth_requestAccounts" });
           await wallet.onBase(eth);
-          const r = await wallet.sendAndWait(eth, { from, data: s.deployData, value: "0x0" }, say, "deploying the contract");
+          const r = await wallet.sendAndWait(eth, { from, data: s.deployData, value: "0x0" }, say, "deploying the contract", (await wallet.gasNote?.(eth, from)) ?? "");
           $("#allowanceMsg").innerHTML = `Deployed at <code>${esc(r.contractAddress)}</code>. In Render → Environment, add <b>ALLOWANCE_CONTRACT</b> = that address, then save (Render restarts).`;
           $("#allowanceMsg").className = "msg good";
         } catch (err) { say(wallet.walletError(err), "bad"); }

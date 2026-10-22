@@ -1638,8 +1638,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // ---------- automatic payment (the subscription contract) ----------
   const word = (v) => BigInt(v).toString(16).padStart(64, "0");
   const addrWord = (a) => a.slice(2).toLowerCase().padStart(64, "0");
-  async function sendAndWait(eth, tx, say, what) {
-    say(`Confirm ${what} in ${walletName}…`);
+  async function sendAndWait(eth, tx, say, what, note = "") {
+    say(`Confirm ${what} in ${walletName}…${note ? ` ${note}` : ""}`);
     const hash = await eth.request({ method: "eth_sendTransaction", params: [tx] });
     say(`${what[0].toUpperCase()}${what.slice(1)} sent. Waiting for Base…`);
     for (let i = 0; i < 60; i++) {
@@ -1648,6 +1648,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       await sleep(2000);
     }
     throw new Error(`Base hasn't confirmed ${what} yet. Reload in a minute.`);
+  }
+  // Almost no ETH on Base: the wallet shows the network fee in red. Some wallets offer to pay it in USDC instead.
+  async function gasNote(eth, from) {
+    const wei = await eth.request({ method: "eth_getBalance", params: [from, "latest"] }).then(BigInt, () => null);
+    return wei !== null && wei < 10n ** 13n ? "This wallet has almost no ETH on Base for the network fee (a cent or two): pay it in USDC if your wallet offers that, or send it a little ETH on Base first." : "";
   }
   async function autoAction(kind) {
     const say = (t, cls = "") => { const m = $("#autoMsg"); m.textContent = t; m.className = `msg ${cls}`; };
@@ -2083,7 +2088,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       import("/api/admin/owner.js"),
     ]).then(([html, mod]) => {
       $("#accountSec").insertAdjacentHTML("beforebegin", html);
-      return mod.startOwner({ $, esc, api, post, me: () => me, DEMO, wallet: { currentWallet, onBase, sendAndWait, walletError } });
+      return mod.startOwner({ $, esc, api, post, me: () => me, DEMO, wallet: { currentWallet, onBase, sendAndWait, gasNote, walletError } });
     }).catch((err) => { owner = null; throw err; });
     return owner;
   }
@@ -2223,8 +2228,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const [from] = await eth.request({ method: "eth_requestAccounts" });
       if (from.toLowerCase() === agent.address.toLowerCase()) return say("That's the agent's own wallet. Switch to your main wallet: the money stays there.", "bad");
       await onBase(eth);
-      await sendAndWait(eth, { from, ...t.approve, value: "0x0" }, say, "the approval");
-      await sendAndWait(eth, { from, ...t.setLimit, value: "0x0" }, say, "the limit");
+      const gas = await gasNote(eth, from);
+      const spender = state.onchain ? `${state.onchain.slice(0, 6)}…${state.onchain.slice(-4)}` : "the limits contract";
+      await sendAndWait(eth, { from, ...t.approve, value: "0x0" }, say, "the approval", `${gas} Your wallet may call it a high-risk approval because the contract is new: check that the spender is ${spender}, the Fizzl limits contract (source verified on Basescan).`.trim());
+      await sendAndWait(eth, { from, ...t.setLimit, value: "0x0" }, say, "the limit", gas);
       await api("PUT", path, { owner: from });
       const r = await post(`${path}/topup`, {}).catch((err) => ({ toppedUp: 0, reason: err.message }));
       say(`On. ${r.toppedUp ? `${agent.name}'s wallet got ${money(r.toppedUp)}.` : `First top-up: ${r.reason}.`}`, "good");
@@ -2324,7 +2331,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     return json;
   }
   const SETUP_WHERE = {
-    desktop: "Claude Desktop → Settings → Developer → Edit Config. That opens claude_desktop_config.json (on a Mac in ~/Library/Application Support/Claude/, on Windows in %APPDATA%\\Claude\\). Already have servers there? Add only the \"wallet\" part inside mcpServers. Then quit Claude Desktop fully and open it again. Rather keep the key out of this file? Put it in a file only you can read and use \"AGENT_KEY_FILE\": \"/full/path/to/that/file\" instead of AGENT_KEY.",
+    desktop: "Claude Desktop → Settings → Developer → Edit Config. That opens claude_desktop_config.json (on a Mac in ~/Library/Application Support/Claude/, on Windows in %APPDATA%\\Claude\\). Already have servers there? Add only the \"wallet\" part inside mcpServers. Other settings there already (such as \"preferences\")? Add \"mcpServers\" as one more entry inside the outer { }, after a comma: two { } blocks one after the other don't work. Then quit Claude Desktop fully and open it again. Rather keep the key out of this file? Put it in a file only you can read and use \"AGENT_KEY_FILE\": \"/full/path/to/that/file\" instead of AGENT_KEY.",
     code: "Run this in a terminal (macOS or Linux). At the prompt, paste the agent wallet's private key. On Windows: save the key in a file in your user folder and set AGENT_KEY_FILE to its full path.",
     cursor: "Cursor → Settings → MCP → Add new global MCP server (the file ~/.cursor/mcp.json). Rather keep the key out of this file? Use \"AGENT_KEY_FILE\": \"/full/path/to/a/file\" instead of AGENT_KEY.",
     env: "For any MCP client or your own agent: the key in a file, and these environment variables.",
