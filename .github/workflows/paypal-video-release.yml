@@ -1,0 +1,31 @@
+name: paypal-video-release
+
+# One-off: attach the recorded PayPal demo video (artifact of a paypal-video run) to a pre-release, so it can be
+# downloaded as a file. Removed again after use.
+on:
+  push:
+    branches: [claude/x402-agents-solana-payments-nceg9b]
+    paths: [".github/workflows/paypal-video-release.yml"]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: fizzl-guard-for-paypal
+          run-id: 39752419346
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: video
+      - name: Attach to a pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -la video
+          TAG=paypal-demo-video-2026-10-22
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title "PayPal demo video (22 Oct 2026)" --notes "The fizzl-paypal-guard demo video, recorded from a real run on the PayPal sandbox (paypal-video run 39752419346)."
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" video/* --clobber
