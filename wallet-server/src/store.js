@@ -61,6 +61,7 @@ export function memoryStore() {
       once.delete(k);
       return v && v.until > Date.now() ? v.value : null;
     },
+    async peekOnce(kind, id) { const v = once.get(`${kind}:${id}`); return v && v.until > Date.now() ? v.value : null; },
     async claimTx(hash) { if (claimed.has(hash)) return false; claimed.add(hash); return true; },
     // When each seller (origin) was first seen in the x402 catalog: { origin: ms }, 0 = before tracking began.
     async getSeen() { return Object.fromEntries(seen); },
@@ -166,6 +167,7 @@ export async function redisStore(url, { prefix = "aw:" } = {}) {
     async setApprovalOwner(id, account) { await client.set(g(`approval:${id}`), account, { EX: 2 * 86_400 }); },
     async putOnce(kind, id, value, ttlS) { await client.set(g(`once:${kind}:${id}`), JSON.stringify(value), { EX: ttlS }); },
     async takeOnce(kind, id) { return json(await client.getDel(g(`once:${kind}:${id}`))); },
+    async peekOnce(kind, id) { return json(await client.get(g(`once:${kind}:${id}`))); },
     async claimTx(hash) { return (await client.set(g(`tx:${hash}`), "1", { NX: true })) === "OK"; },
     async getSeen() { return Object.fromEntries(Object.entries(await client.hGetAll(g("seen"))).map(([k, v]) => [k, Number(v)])); },
     async addSeen(entries) { for (const [k, v] of Object.entries(entries)) await client.hSetNX(g("seen"), k, String(v)); },

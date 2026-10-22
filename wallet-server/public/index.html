@@ -261,8 +261,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .fz details[open] summary { background: var(--mint); color: #021; }
 .fz .how { display: grid; gap: 10px; margin-top: 12px; }
 .fz .how b { color: var(--text); }
-.askcard .copy, .fz .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
-.askcard .copy code, .fz .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
+.askcard .copy, .fz .copy, #pairCard .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
+#pairCard .copy { margin-top: 6px; }
+#pairCard .setup-steps a { color: var(--mint); text-decoration: underline; }
+.askcard .copy code, .fz .copy code, #pairCard .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
 .newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
 .wallet-more { width: 100%; margin-top: 10px; justify-content: center; }
 .more-wallets { display: grid; gap: 14px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(97,245,195,.04); }
@@ -674,6 +676,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <li id="st3"><b>Check that it works</b><span class="note">Ask your agent “what is my wallet status?”. This step turns green the moment it reaches the wallet. No USDC needed yet.</span>
             <button class="button ghost small" type="button" data-start="test">Test my setup</button></li>
         </ol>
+        <p class="note" style="margin:0">No keys to copy: <button class="link" type="button" data-start="pair">link your agent with a code</button> instead.</p>
       </div>
       <div class="card day">
         <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
@@ -770,6 +773,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
+      <div class="card setup" id="pairCard">
+        <span class="tag">EASIEST: LINK AN AGENT WITH A CODE · NO KEYS TO COPY</span>
+        <ol class="setup-steps" style="margin:0">
+          <li><b style="color:#fff">Install the wallet in your AI app</b>, without keys:
+            <p class="note" style="margin:6px 0 0"><b style="color:#fff">Claude Desktop:</b> <a href="/download/claude-desktop" data-track="pair_download">download the wallet</a> and open the file: Claude Desktop installs it. No Node.js needed.</p>
+            <div class="copy"><code>claude mcp add wallet -- npx -y {{WALLET_MCP}}</code><button class="button ghost small" type="button" data-copy="claude mcp add wallet -- npx -y {{WALLET_MCP}}">Copy</button></div>
+            <div class="copy"><code>{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }</code><button class="button ghost small" type="button" data-copy='{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }'>Copy</button></div>
+            <span class="note">The first line is for Claude Code, the second for Cursor and other apps (their MCP config file).</span></li>
+          <li><b style="color:#fff">Ask your agent “what is my wallet status?”</b> It makes its own wallet on your computer (the key never leaves it) and gives you a code.</li>
+          <li><b style="color:#fff">Enter the code here</b> and give the agent a name. It can pay right away, within your rules.</li>
+        </ol>
+        <form class="addform" id="pairForm"><input id="pairCode" placeholder="Code from your agent, e.g. K7QF-29XM" maxlength="12" autocomplete="off" autocapitalize="characters" aria-label="Code from your agent"><button class="button primary small" type="submit">Look up</button></form>
+        <div id="pairOut" role="status" aria-live="polite"></div>
+      </div>
       <div class="card setup" id="setupCard">
         <span class="tag">IS EVERYTHING READY? TEST IT WITHOUT PAYING</span>
         <p class="note" style="margin:0">Checks the five things your agent needs: a key, contact with this wallet, rules that let it spend, USDC to pay with, and approvals on your phone. Nothing is paid or signed.</p>
@@ -1942,6 +1959,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const b = e.target.closest("[data-start]");
     if (!b) return;
     if (b.dataset.start === "test") { $("#setupTop").click(); return; }
+    if (b.dataset.start === "pair") { showTab("agents"); scrollTo($("#pairCard"), "center"); $("#pairCode").focus({ preventScroll: true }); return; }
     // Connect: the key and setup just made (shown once), or the how-to under Agents.
     showTab("agents");
     const target = $("#newKey").firstElementChild ? $("#newKey") : $("#howto");
@@ -2030,6 +2048,42 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     } catch (err) { say(walletError(err), "bad"); }
   }
   $("#newKey").addEventListener("click", async (e) => { const fb = e.target.closest("[data-fund]"); if (fb) { fb.disabled = true; try { await fundAgent(Number(fb.dataset.fund)); } finally { fb.disabled = false; } } });
+
+  // ---------- linking an agent with a code (wallet-mcp without keys asks for one: /v1/pair/start) ----------
+  // Look the code up, show the agent's wallet, link it under a name; the agent then gets its key by itself.
+  async function pairLookup(code) {
+    const out = $("#pairOut");
+    if (DEMO) { out.innerHTML = `<div class="msg good">This is the demo: on your own account the code links your agent.</div>`; return; }
+    try {
+      const p = await api("GET", `/api/pair/${encodeURIComponent(String(code ?? "").trim())}`);
+      out.innerHTML = `<p class="note" style="margin:8px 0 0">An agent with wallet <code>${esc(p.address.slice(0, 6))}…${esc(p.address.slice(-4))}</code> asks to be linked to this account. Only link a code your own agent just showed you.</p>
+        <form class="addform" id="pairLink" style="margin-top:8px"><input id="pairName" value="${esc(p.label)}" maxlength="40" required aria-label="Name for this agent"><button class="button primary small" type="submit">Link this agent</button></form>`;
+      $("#pairLink").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const b = e.submitter; b.disabled = true;
+        try {
+          const { agent } = await post("/api/pair", { code: p.code, name: $("#pairName").value.trim() });
+          fundTo = agent.address; setupAgentId = agent.id;
+          out.innerHTML = `<div class="msg good">Linked: ${esc(agent.name)}. Within a few seconds your agent has its key; ask it again and it works.</div>${fundHtml(agent, null)}`;
+          refresh();
+        } catch (err) { b.disabled = false; if (err.message !== "login") out.insertAdjacentHTML("beforeend", `<div class="msg bad">${esc(err.message)}</div>`); }
+      });
+      $("#pairName").focus();
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<div class="msg bad">${esc(err.message)}</div>`; }
+  }
+  $("#pairForm").addEventListener("submit", (e) => { e.preventDefault(); pairLookup($("#pairCode").value); });
+  $("#pairOut").addEventListener("click", async (e) => { const fb = e.target.closest("[data-fund]"); if (fb) { fb.disabled = true; try { await fundAgent(Number(fb.dataset.fund)); } finally { fb.disabled = false; } } });
+  // The link the agent shows (/pair?code=…) lands here with ?pair=: fill it in once signed in.
+  function pairFromLink() {
+    const q = new URLSearchParams(location.search), code = q.get("pair");
+    if (!code) return;
+    q.delete("pair");
+    history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    showTab("agents");
+    $("#pairCode").value = code;
+    scrollTo($("#pairCard"), "center");
+    pairLookup(code);
+  }
   $("#setupRun").addEventListener("click", runSetup);
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
@@ -2134,6 +2188,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     api("GET", "/api/me").then((m) => { me = m; renderAccount(); }, () => {});
     refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
     loadCats();
+    pairFromLink();
   }
 
   const usdc = () => state?.policy?.tokens?.USDC ?? {};

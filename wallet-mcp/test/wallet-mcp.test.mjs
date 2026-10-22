@@ -694,11 +694,11 @@ test("MPP sessions: off by default, MPP_SESSION_DEPOSIT turns them on with a clo
   assert.deepEqual(status.mppSessions, { depositPerTopUp: "0.5 USDC.e", open: [] });
 });
 
-test("without AGENT_KEY the server starts in setup mode: tools listed, each explains the setup, nothing signed", async () => {
+test("with LINKING=off and without AGENT_KEY the server starts in setup mode: tools listed, each explains the setup, nothing signed", async () => {
   const { spawn } = await import("node:child_process");
   const { fileURLToPath } = await import("node:url");
   const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
-  const transport = new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL("../server.js", import.meta.url))], env: { PATH: process.env.PATH }, stderr: "ignore" });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL("../server.js", import.meta.url))], env: { PATH: process.env.PATH, LINKING: "off" }, stderr: "ignore" });
   const client = new Client({ name: "glama-like", version: "1" });
   await client.connect(transport);
   try {

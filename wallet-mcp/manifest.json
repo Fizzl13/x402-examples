@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/schemas/mcpb-manifest-latest.schema.json",
+  "manifest_version": "0.3",
+  "name": "fizzl-wallet",
+  "display_name": "Fizzl Agent Wallet",
+  "version": "0.22.0",
+  "description": "A wallet with spending limits for Claude: it pays x402 and MPP APIs in USDC within your budget, checked before every signature.",
+  "long_description": "Install it and ask Claude \"what is my wallet status?\". The wallet makes its own key on your computer (in ~/.fizzl, readable only by you, never sent anywhere) and answers with a link and a code. Open the link, sign in at wallet.fizzl.eu and enter the code: the agent is linked, with no keys to copy. From then on Claude can find paid APIs in the x402 catalog and pay them in USDC on Base within the limits you set on the dashboard; above them you approve or deny on your phone. Every signature is checked by presign-guard first (drainers, sanctioned addresses, what the seller asked), and the answers it pays for are checked for prompt injection before Claude reads them. Put only a few dollars on the agent's wallet, or keep your USDC in your own wallet with an on-chain limit.",
+  "author": { "name": "Frits Zwager (Fizzl)", "url": "https://fizzl.eu" },
+  "repository": { "type": "git", "url": "https://github.com/Fizzl13/x402-examples" },
+  "homepage": "https://wallet.fizzl.eu",
+  "documentation": "https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp#readme",
+  "support": "https://github.com/Fizzl13/x402-examples/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server.js"],
+      "env": {
+        "AGENT_LABEL": "claude-desktop"
+      }
+    }
+  },
+  "tools": [
+    { "name": "wallet_status", "description": "Address, balances, limits, what is left today; before it is linked, the link and the code" },
+    { "name": "find_services", "description": "Search the x402 catalog for paid APIs this wallet can pay" },
+    { "name": "pay_x402", "description": "Call an API that answers 402 Payment Required and pay it within your limits" },
+    { "name": "send_usdc", "description": "Send USDC to an address, within your limits" },
+    { "name": "send_native", "description": "Send ETH to an address, within your limits" },
+    { "name": "pause_spending", "description": "Stop the wallet when something looks wrong" }
+  ],
+  "keywords": ["wallet", "x402", "mpp", "usdc", "payments", "spending-limits", "agents"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=20.0.0" }
+  }
+}

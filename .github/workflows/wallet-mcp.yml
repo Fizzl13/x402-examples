@@ -22,6 +22,10 @@ on:
         description: "List the version in wallet-mcp/server.json in the official MCP registry (after it is on npm)"
         type: boolean
         default: false
+      bundle:
+        description: "Attach the Claude Desktop bundle (.mcpb) to a GitHub release for the version in wallet-mcp/manifest.json"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +43,44 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm pack --dry-run
+
+  # The Claude Desktop bundle: the server with its dependencies and manifest.json, packed as one .mcpb file that
+  # installs with a double click (Claude Desktop brings its own Node.js). Built on every change; attached to the
+  # GitHub release wallet-mcp-v<version> when started by hand with "bundle". wallet.fizzl.eu/download/claude-desktop
+  # points at the version the dashboard pins. Not marked latest: other packages release here too.
+  bundle:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: wallet-mcp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Versions match
+        run: |
+          node -e "const p=require('./package.json'),m=require('./manifest.json'),s=require('./server.json');if(p.version!==m.version||p.version!==s.version)throw new Error('package.json '+p.version+', manifest.json '+m.version+', server.json '+s.version)"
+      - run: npm ci --omit=dev
+      - run: npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json
+      - run: npx -y @anthropic-ai/mcpb@2.1.2 pack . fizzl-wallet.mcpb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fizzl-wallet-mcpb
+          path: wallet-mcp/fizzl-wallet.mcpb
+      - name: Attach to a GitHub release
+        if: github.event_name == 'workflow_dispatch' && inputs.bundle && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(node -p "require('./manifest.json').version"); TAG="wallet-mcp-v$V"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" fizzl-wallet.mcpb --clobber
+          else
+            gh release create "$TAG" fizzl-wallet.mcpb --title "Fizzl Agent Wallet $V for Claude Desktop" --notes "The Fizzl Agent Wallet (presign-guard-wallet-mcp $V) for Claude Desktop. Download fizzl-wallet.mcpb and open it: Claude Desktop installs it. Then ask Claude \"what is my wallet status?\" and enter the code it gives you at wallet.fizzl.eu. No keys to copy. Docs: https://github.com/Fizzl13/x402-examples/tree/main/wallet-mcp" --latest=false
+          fi
 
   publish:
     needs: test

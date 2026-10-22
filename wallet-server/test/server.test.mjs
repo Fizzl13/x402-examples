@@ -2044,6 +2044,55 @@ test("signing in the installed app: a code confirmed where you're signed in; the
   } finally { server.close(); }
 });
 
+test("linking an agent with a code: the agent asks with its address, the owner names it, the agent gets its key once", async () => {
+  const c = chain();
+  const { owner, base, server, agentCall } = await boot({ rpc: c.rpc });
+  try {
+    const post = async (path, body) => { const r = await fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+    const agentWallet = privateKeyToAccount(generatePrivateKey()).address;
+    assert.equal((await post("/v1/pair/start", { label: "claude" })).status, 400, "the agent's address is needed");
+    const p = (await post("/v1/pair/start", { address: agentWallet, label: "claude desktop!" })).body;
+    assert.match(p.code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    assert.equal(p.url, `${base}/pair?code=${p.code}`);
+    assert.equal(p.expiresIn, 600);
+    assert.equal(p.interval, 3);
+    assert.deepEqual((await post("/v1/pair/poll", { token: p.token })).body, { status: "waiting" }, "nothing until the owner enters the code");
+    assert.equal((await fetch(`${base}/api/pair/${p.code}`)).status, 401, "looking at a code needs a signed-in session");
+    assert.deepEqual((await owner("GET", `/api/pair/${p.code.toLowerCase()}`)).body, { code: p.code, address: agentWallet, label: "claude desktop", at: (await owner("GET", `/api/pair/${p.code}`)).body.at });
+    assert.equal((await owner("POST", "/api/pair", { code: "WXYZ-2345", name: "x" })).status, 404);
+
+    // A plan that has no room for another agent says no, and the code still works afterwards.
+    const alice = customer();
+    const a = await signInAs(base, alice);
+    assert.equal((await a.call("POST", "/api/agents", { name: "one" })).status, 200);
+    const full = await a.call("POST", "/api/pair", { code: p.code, name: "two" });
+    assert.equal(full.status, 403);
+    assert.equal((await owner("GET", `/api/pair/${p.code}`)).status, 200, "the code is still there");
+
+    const ok = await owner("POST", "/api/pair", { code: p.code.replace("-", " "), name: "claude-desktop" });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.agent.name, "claude-desktop");
+    assert.equal(ok.body.agent.address, agentWallet, "the agent's wallet is filled in, no pasting");
+    assert.equal((await owner("POST", "/api/pair", { code: p.code, name: "again" })).status, 404, "a code works once");
+    assert.deepEqual((await post("/v1/pair/poll", { token: "wrong-token-of-some-length" })).body, { status: "waiting" });
+    const got = (await post("/v1/pair/poll", { token: p.token })).body;
+    assert.equal(got.status, "linked");
+    assert.equal(got.agent, "claude-desktop");
+    assert.match(got.key, /^awk_/);
+    assert.deepEqual((await post("/v1/pair/poll", { token: p.token })).body, { status: "waiting" }, "the key goes out once");
+    assert.equal((await agentCall(got.key)("GET", "/v1/policy")).status, 200, "and it works as that agent's key");
+    const listed = (await owner("GET", "/api/state")).body.agents.find((x) => x.name === "claude-desktop");
+    assert.equal(listed.address, agentWallet);
+
+    // The link the agent shows opens the dashboard on the Agents tab with the code filled in.
+    const r = await fetch(`${base}/pair?code=${p.code.toLowerCase()}`, { redirect: "manual" });
+    assert.equal(r.status, 302);
+    assert.equal(r.headers.get("location"), `/?pair=${p.code}#/agents`);
+    const d = await fetch(`${base}/download/claude-desktop`, { redirect: "manual" });
+    assert.match(d.headers.get("location"), /^https:\/\/github\.com\/Fizzl13\/x402-examples\/releases\/download\/wallet-mcp-v\d+\.\d+\.\d+\/fizzl-wallet\.mcpb$/);
+  } finally { server.close(); }
+});
+
 // A mailer that keeps what it would send; the code is the first 6 digits in the text.
 function fakeMailer() {
   const sent = [];

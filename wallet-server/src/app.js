@@ -10,7 +10,7 @@ import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import indexNow from "./indexnow.cjs";
-import { WALLET_MCP } from "./mcp-package.js";
+import { WALLET_MCP, WALLET_MCPB } from "./mcp-package.js";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
@@ -101,6 +101,31 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!m) return res.status(404).json({ error: "no_mandate", message: "This agent has no mandate." });
     res.json(m);
   }));
+  // Linking an agent with a code (wallet-mcp without keys): the agent asks for a code with its wallet's address,
+  // the customer enters it on the dashboard, the agent polls with its secret token and gets its key once.
+  // Before v1's agent check: the agent has no key yet.
+  const pairTries = new Map();
+  const tooMany = (who, most) => {
+    const now = Date.now(), h = pairTries.get(who);
+    if (!h || now - h.since > 600_000) { pairTries.set(who, { n: 1, since: now }); if (pairTries.size > 10_000) pairTries.clear(); return false; }
+    return ++h.n > most;
+  };
+  const originOf = (req) => {
+    const host = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(req.host ?? "") ? req.host : "wallet.fizzl.eu";
+    return `${req.protocol === "http" && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "https" : req.protocol}://${host}`;
+  };
+  app.post("/v1/pair/start", wrap(async (req, res) => {
+    if (tooMany(`ip:${req.ip}`, 20)) return res.status(429).json({ error: "slow_down", message: "Too many codes. Wait ten minutes." });
+    const p = await accounts.pairStart(req.body?.address, req.body?.label);
+    res.json({ ...p, interval: 3, url: `${originOf(req)}/pair?code=${p.code}` });
+  }));
+  app.post("/v1/pair/poll", wrap(async (req, res) => {
+    const done = await accounts.pairPoll(req.body?.token);
+    res.json(done ? { status: "linked", key: done.key, agent: done.agent } : { status: "waiting" });
+  }));
+  // The wallet for Claude Desktop in one file (the pinned version's .mcpb): open it and Claude Desktop installs it.
+  app.get("/download/claude-desktop", (_req, res) => res.set("cache-control", "public, max-age=300").redirect(302, WALLET_MCPB));
+  app.get("/pair", (req, res) => res.redirect(302, `/?pair=${String(req.query.code ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 12)}#/agents`));
   app.use("/v1", v1);
 
   // ---------- the search bar: paid APIs in the public x402 catalog ----------
@@ -374,6 +399,15 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.post("/passkey/add", wrap(async (req, res) => res.json(await accounts.passkeyAdd(req.account, req.body?.answer, req.body?.label, where(req)))));
   owner.post("/passkey/remove", wrap(async (req, res) => res.json(await accounts.passkeyRemove(req.account, String(req.body?.id ?? "")))));
   owner.post("/device/approve", wrap(async (req, res) => res.json(await accounts.deviceApprove(req.account, req.body?.code))));
+  // A code from an agent (see /v1/pair/start): look at what asks to be linked, then link it under a name.
+  owner.get("/pair/:code", wrap(async (req, res) => {
+    if (tooMany(`acct:${req.account}`, 30)) return res.status(429).json({ error: "slow_down", message: "Too many codes tried. Wait ten minutes." });
+    res.json(await accounts.pairPeek(req.params.code));
+  }));
+  owner.post("/pair", wrap(async (req, res) => {
+    if (tooMany(`acct:${req.account}`, 30)) return res.status(429).json({ error: "slow_down", message: "Too many codes tried. Wait ten minutes." });
+    res.json(await accounts.pairApprove(req.account, req.body?.code, req.body?.name));
+  }));
   owner.post("/push/test", wrap(async (req, res) => res.json(await accounts.pushTest(req.account))));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
