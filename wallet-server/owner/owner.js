@@ -1,6 +1,6 @@
 // The owner's Stats tab and outreach to sellers: served only to the signed-in owner (GET /api/admin/owner.js),
 // so the public page holds none of it. The dashboard passes its helpers in; me() is the current account.
-export function startOwner({ $, esc, api, post, me, DEMO }) {
+export function startOwner({ $, esc, api, post, me, DEMO, wallet }) {
   // ---------- Stats (owner only): the website, the wallet and the four services, from the usage log ----------
   let statsDays = 30, statsBusy = false;
   const n0 = (v) => (Number(v) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -171,5 +171,32 @@ export function startOwner({ $, esc, api, post, me, DEMO }) {
     catch (err) { m.textContent = err.message; }
     finally { b.disabled = false; }
   });
+  // ---------- the on-chain limits contract (../agent-allowance): deployed once from the owner's wallet ----------
+  async function loadAllowance() {
+    const out = $("#allowanceOut");
+    const link = (a) => `<a href="https://basescan.org/address/${esc(a)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(a.slice(0, 6))}…${esc(a.slice(-4))}</a>`;
+    try {
+      const s = await api("GET", "/api/admin/allowance");
+      const ch = s.charger ? `Charger ${link(s.charger.address)}: ${esc(s.charger.balanceEth.toFixed(5))} ETH for gas${s.charger.balanceEth < 0.0003 ? ` <span style="color:var(--amber)">(top it up)</span>` : ""}.` : `<span style="color:var(--amber)">Set CHARGER_KEY in Render: it pays the gas of top-ups.</span>`;
+      if (s.contract) { out.innerHTML = `<p class="note" style="margin:0">On: contract ${link(s.contract)} (USDC ${link(s.token)}). Customers see <b>On-chain limit</b> on their agents. ${ch}</p>`; return; }
+      out.innerHTML = `<p class="note" style="margin:0">Not deployed. Deploy it once from your own wallet (a few cents of ETH on Base). It is fixed forever: USDC only, no owner, nothing to change later. A top-up can only move USDC from a customer's wallet to their own agent's wallet, within the limit they set. ${ch}</p>
+        <div class="btns"><button class="button primary small" type="button" id="deployAllowance">Deploy the contract</button></div><div class="msg" id="allowanceMsg" role="status"></div>`;
+      $("#deployAllowance").onclick = async () => {
+        const say = (t, cls = "") => { const m = $("#allowanceMsg"); m.textContent = t; m.className = `msg ${cls}`; };
+        if (DEMO) return say("This is the demo: nothing is sent.");
+        const eth = wallet.currentWallet();
+        if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Coinbase Wallet, …).", "bad");
+        try {
+          const [from] = await eth.request({ method: "eth_requestAccounts" });
+          await wallet.onBase(eth);
+          const r = await wallet.sendAndWait(eth, { from, data: s.deployData, value: "0x0" }, say, "deploying the contract");
+          $("#allowanceMsg").innerHTML = `Deployed at <code>${esc(r.contractAddress)}</code>. In Render → Environment, add <b>ALLOWANCE_CONTRACT</b> = that address, then save (Render restarts).`;
+          $("#allowanceMsg").className = "msg good";
+        } catch (err) { say(wallet.walletError(err), "bad"); }
+      };
+    } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="note">${esc(err.message)}</p>`; }
+  }
+  $("#allowanceAdmin").addEventListener("toggle", (e) => { if (e.target.id === "allowanceAdmin" && e.target.open) loadAllowance(); });
+
   return { loadStats };
 }

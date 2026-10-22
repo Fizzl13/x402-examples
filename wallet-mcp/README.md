@@ -17,7 +17,7 @@ It can only do that within the budget you set:
 
 The key stays on your machine; the server only decides whether a signature is allowed. Each check costs $0.01, paid in USDC on Base from the same wallet, or from prepaid credits.
 
-> **What the limits do and don't stop.** The limits are enforced by this MCP server on your computer, not on the blockchain. The agent wallet's private key is on that computer too (in the MCP config, or in a file with `AGENT_KEY_FILE`). An agent that can read files or run commands (Claude Code, Cursor) could read the key and sign without these rules. So give the agent its **own wallet with only what you'd accept losing**, never your main wallet. Limits on the chain itself (a smart account with session keys) would close this gap; this server doesn't do that yet.
+> **What the limits do and don't stop.** The limits are enforced by this MCP server on your computer, not on the blockchain. The agent wallet's private key is on that computer too (in the MCP config, or in a file with `AGENT_KEY_FILE`). An agent that can read files or run commands (Claude Code, Cursor) could read the key and sign without these rules. So give the agent its **own wallet with only what you'd accept losing**, never your main wallet. With the [wallet server](https://github.com/Fizzl13/x402-examples/tree/main/wallet-server) (hosted at wallet.fizzl.eu), you can also **put the limit on the chain**: your USDC stays in your own wallet, and the agent's wallet is topped up to a small float within a limit a day that a contract on Base keeps ([agent-allowance](https://github.com/Fizzl13/x402-examples/tree/main/agent-allowance)). A leaked key can then take at most that. This server asks for the top-up by itself before a payment when its wallet runs low.
 
 See the dashboard (demo data): **https://wallet.fizzl.eu/demo**
 
@@ -60,7 +60,7 @@ The wallet signs only what these tools need: payment signatures and transfers. I
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp@0.20.0"],
+      "args": ["-y", "presign-guard-wallet-mcp@0.21.0"],
       "env": {
         "AGENT_KEY": "0x…the agent wallet's private key…",
         "LIMIT_USDC_PER_TX": "5",
@@ -79,10 +79,10 @@ For Claude Code, the key goes into a file at a prompt (not shown, not in your sh
 
 ```sh
 mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
-claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.20.0
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.21.0
 ```
 
-**Pin the version** (`@0.20.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
+**Pin the version** (`@0.21.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 

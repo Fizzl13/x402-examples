@@ -2083,7 +2083,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       import("/api/admin/owner.js"),
     ]).then(([html, mod]) => {
       $("#accountSec").insertAdjacentHTML("beforebegin", html);
-      return mod.startOwner({ $, esc, api, post, me: () => me, DEMO });
+      return mod.startOwner({ $, esc, api, post, me: () => me, DEMO, wallet: { currentWallet, onBase, sendAndWait, walletError } });
     }).catch((err) => { owner = null; throw err; });
     return owner;
   }
@@ -2183,9 +2183,58 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // Compact rows: remember which ones are open, so the refresh every few seconds doesn't close them.
   $("#agents").addEventListener("toggle", (e) => { const d = e.target.closest("details[data-agent]"); if (d) d.open ? openAgents.add(d.dataset.agent) : openAgents.delete(d.dataset.agent); }, true);
   $("#agentFilter").addEventListener("input", () => { if (state) render(); });
+  // The on-chain limit for one agent: turned on from the owner's own wallet (an approval, then the limit), checked,
+  // topped up by the server's charger, stopped. Messages are kept per agent, so the list's refresh doesn't wipe them.
+  const onchainMsg = new Map();
+  const onchainText = (s) => (!s?.on ? "Stopped: no more top-ups." : `${money(s.leftThisPeriodUsdc)} of ${money(s.perPeriodUsdc)} left today · its wallet holds ${money(s.agentBalanceUsdc)} (topped up to ${money(s.floatUsdc)}) · approval left ${money(s.approvalUsdc)} · your wallet ${money(s.ownerBalanceUsdc)}`);
+  async function onchainAction(act, id, b) {
+    const say = (text, cls = "") => {
+      onchainMsg.set(id, { text, cls });
+      const box = document.getElementById(`oc-${id}`); if (!box) return;
+      let m = box.querySelector(".msg"); if (!m) { m = Object.assign(document.createElement("div"), { role: "status" }); box.append(m); }
+      m.textContent = text; m.className = `msg ${cls}`;
+    };
+    const path = `/api/agents/${encodeURIComponent(id)}/onchain`;
+    try {
+      if (DEMO) return say("This is the demo: nothing is sent. On your own account this asks your wallet.", "good");
+      if (act === "onchain-check") return say(onchainText((await api("GET", path)).status), "good");
+      if (act === "onchain-topup") { const r = await post(`${path}/topup`, {}); return say(r.toppedUp ? `Topped up ${money(r.toppedUp)}${r.pending ? " (still confirming on Base)" : ""}.` : `Not topped up: ${r.reason}.`, r.toppedUp ? "good" : ""); }
+      const eth = currentWallet();
+      if (!eth) return say("Open this page in a browser with your wallet (MetaMask, Coinbase Wallet, …): the limit is set from your own wallet.", "bad");
+      if (act === "onchain-stop") {
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "sure? no more top-ups"; return; }
+        const r = await api("GET", path);
+        const [from] = await eth.request({ method: "eth_requestAccounts" });
+        if (r.stop) {
+          if (from.toLowerCase() !== r.owner.toLowerCase()) return say(`Switch to the wallet that set it (${r.owner.slice(0, 6)}…${r.owner.slice(-4)}).`, "bad");
+          await onBase(eth);
+          await sendAndWait(eth, { from, ...r.stop, value: "0x0" }, say, "stopping the on-chain limit");
+        }
+        await api("PUT", path, { owner: null });
+        say("Stopped. What its wallet holds stays there.", "good");
+        return refresh();
+      }
+      const agent = state.agents.find((x) => x.id === id);
+      if (!agent?.address) return say("Make or connect this agent's wallet first: Test my setup asks for its address.", "bad");
+      const perDay = prompt("On-chain limit: the most that may go to this agent's wallet per day, in USDC", "20"); if (perDay === null) return;
+      const float = prompt("The most its wallet holds at once, in USDC. It is topped up to this from your wallet when it runs low.", String(Math.min(5, Number(perDay) || 5))); if (float === null) return;
+      const total = prompt("Your approval for the contract: the most it may ever move from your wallet in total, in USDC. You can raise it later by doing this again.", String((Number(perDay) || 20) * 5)); if (total === null) return;
+      const t = await post(`${path}/txs`, { perDayUsdc: perDay, floatUsdc: float, approveUsdc: total });
+      const [from] = await eth.request({ method: "eth_requestAccounts" });
+      if (from.toLowerCase() === agent.address.toLowerCase()) return say("That's the agent's own wallet. Switch to your main wallet: the money stays there.", "bad");
+      await onBase(eth);
+      await sendAndWait(eth, { from, ...t.approve, value: "0x0" }, say, "the approval");
+      await sendAndWait(eth, { from, ...t.setLimit, value: "0x0" }, say, "the limit");
+      await api("PUT", path, { owner: from });
+      const r = await post(`${path}/topup`, {}).catch((err) => ({ toppedUp: 0, reason: err.message }));
+      say(`On. ${r.toppedUp ? `${agent.name}'s wallet got ${money(r.toppedUp)}.` : `First top-up: ${r.reason}.`}`, "good");
+      refresh();
+    } catch (err) { if (err.message !== "login") say(walletError(err), "bad"); }
+  }
   $("#agents").addEventListener("click", async (e) => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     const id = b.dataset.id;
+    if (b.dataset.act.startsWith("onchain-")) { b.disabled = true; try { await onchainAction(b.dataset.act, id, b); } finally { b.disabled = false; } return; }
     if (b.dataset.act === "site") {
       const v = prompt("Where does this agent live? Its site or app page (https://…). Leave empty to remove.", b.dataset.site || "https://");
       if (v === null) return;
@@ -2289,7 +2338,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:0">Made here, in your browser: the key goes straight into the config below. This page doesn't keep it and our server never sees it.</p>
       </div>
       <div id="agentWalletOut"></div>
-      <p class="note" style="margin:0">Why its own wallet: your limits are checked by the wallet program on your computer, not on the blockchain. An agent that can read your files or run commands (Claude Code, Cursor) could read the key and pay without them. So keep only a few dollars on it.</p>
+      <p class="note" style="margin:0">Why its own wallet: your limits are checked by the wallet program on your computer, not on the blockchain. An agent that can read your files or run commands (Claude Code, Cursor) could read the key and pay without them. So keep only a few dollars on it.${state?.onchain ? " Want the chain to keep the limit too? Turn on <b>On-chain limit</b> on its card: your USDC stays in your wallet, and its wallet is topped up a little at a time." : ""}</p>
       <ol class="note setup-steps" id="ownSteps" hidden><li>Make a <b>separate wallet</b> for this agent (a new account in MetaMask) with only what it may spend: a few dollars of USDC on Base. Its private key: in MetaMask, the account menu (⋮) → Account details → Show private key.</li><li>Pick your app, copy, and replace <code>0x…</code> with that wallet's private key. It stays on your computer; this page never sees it.</li><li>Run <b>Test my setup</b> and paste the agent wallet's address (public): you can send it USDC from there in one click.</li></ol>
       <p class="note" style="margin:0"><b style="color:var(--text)">2. Add it to your app:</b></p>
       <div class="setup-tabs" role="tablist">${SETUP_CLIENTS.map(([id, label], i) => `<button type="button" role="tab" class="${i ? "" : "on"}" data-setup="${id}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
@@ -2591,7 +2640,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const mandateLine = !s.mandates ? "" : md
         ? `<div class="note agentmandate">Mandate: <b style="color:#fff">${esc(money(md.left))} of ${esc(money(md.cap))} left</b>${md.perPayment ? ` · max ${esc(money(md.perPayment))} per payment` : ""} · ${esc(sellers(md.recipients))} · ${md.expired ? `<span style="color:var(--amber)">expired ${esc(md.notAfter.slice(0, 10))}</span>` : `until ${esc(md.notAfter.slice(0, 10))}`} · for: ${esc(md.purpose)} · <button class="link" type="button" data-act="mandate" data-id="${esc(a.id)}">new</button> · <button class="link" type="button" data-act="mandate-end" data-id="${esc(a.id)}">end</button></div>`
         : `<div class="note agentmandate"><button class="link" type="button" data-act="mandate" data-id="${esc(a.id)}">+ Give this agent a mandate: a budget, which sellers, until when (optional)</button></div>`;
-      const buttons = `${siteLine}${mandateLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
+      // The on-chain limit (src/allowance.js): the owner's USDC stays in their wallet, and the agent's wallet is topped
+      // up to a small float within a limit a day that the chain keeps, so a leaked key can take at most that.
+      const om = onchainMsg.get(a.id);
+      const onchainLine = !s.onchain ? "" : `<div class="note agentonchain" id="oc-${esc(a.id)}">${a.allowanceOwner
+        ? `On-chain limit: <b style="color:var(--mint)">on</b>, from your wallet ${esc(a.allowanceOwner.slice(0, 6))}…${esc(a.allowanceOwner.slice(-4))} · <button class="link" type="button" data-act="onchain-check" data-id="${esc(a.id)}">check</button> · <button class="link" type="button" data-act="onchain-topup" data-id="${esc(a.id)}">top up now</button> · <button class="link" type="button" data-act="onchain-stop" data-id="${esc(a.id)}">stop</button>`
+        : `<button class="link" type="button" data-act="onchain-on" data-id="${esc(a.id)}">+ Put this agent's limit on the chain: your USDC stays in your wallet, and a leaked key can take at most the limit (optional)</button>`}${om ? `<div class="msg ${esc(om.cls)}" role="status">${esc(om.text)}</div>` : ""}</div>`;
+      const buttons = `${siteLine}${mandateLine}${onchainLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
       if (compact) return `<details class="card agentrow" data-agent="${esc(a.id)}"${openAgents.has(a.id) ? " open" : ""}><summary><span class="rowdot" style="color:${st[1]}" aria-hidden="true"></span><span class="name">${esc(a.name)}</span><span class="state" style="color:${st[1]}">${st[0]}</span><span class="meta">spent ${esc(spent)} · seen ${a.lastSeen ? time(a.lastSeen) : "never"}</span></summary>${buttons}</details>`;
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div>${buttons}</article>`;
     }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;

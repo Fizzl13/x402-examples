@@ -52,12 +52,15 @@
 //   MAIL_FROM           optional: the sender, on a domain verified at Resend (default "Fizzl wallet <noreply@fizzl.eu>")
 //   VAPID_PRIVATE_KEY   optional: the key that signs phone notifications (32 bytes, base64url); by default it
 //                       is derived from SESSION_SECRET / ADMIN_PASSWORD
+//   ALLOWANCE_CONTRACT  optional: the deployed FizzlAgentAllowance address (on-chain limits per agent: the owner's
+//                       USDC stays in their wallet, agents are topped up to a small float; ../agent-allowance)
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
 import { createHash } from "node:crypto";
 import { createApp, SITEMAP_PATHS } from "./src/app.js";
 import indexNow from "./src/indexnow.cjs";
 import { createAuth } from "./src/auth.js";
+import { createAllowance } from "./src/allowance.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
@@ -97,6 +100,15 @@ if (env.CHARGER_KEY) {
   console.log(`[subscription] charger ${account.address}`);
 }
 
+// On-chain limits per agent (src/allowance.js): the same charger wallet pays the gas of top-ups.
+const baseRpc = async (method, params) => {
+  const res = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const data = await res.json().catch(() => null);
+  if (!data || data.error) throw Object.assign(new Error(`Base RPC ${method}: ${data?.error?.message ?? `HTTP ${res.status}`}`), { status: 502 });
+  return data.result;
+};
+const allowance = createAllowance({ contract: env.ALLOWANCE_CONTRACT?.trim() || null, rpc: baseRpc, charger });
+
 // Notifications on phones and computers where the dashboard is installed as an app (no setup needed:
 // the key comes from VAPID_PRIVATE_KEY, or else from the session secret).
 const pushSeed = env.SESSION_SECRET || env.ADMIN_PASSWORD;
@@ -128,7 +140,7 @@ const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: en
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).
 const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null });
 const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png`, recheck: doctorRecheck({ baseUrl: env.DOCTOR_URL?.trim() || undefined, key: env.OUTREACH_KEY?.trim() || null }) });
-const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);
