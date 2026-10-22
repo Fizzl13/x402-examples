@@ -232,6 +232,13 @@ test("the READMEs pin the version they document: npx without one fetches the new
   }
 });
 
+test("the wallet server pins this version: a new version also changes wallet-server/, so Render deploys it", () => {
+  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const pinned = JSON.parse(readFileSync(new URL("../../wallet-server/src/mcp-version.json", import.meta.url), "utf8")).version;
+  assert.equal(pinned, version, "set wallet-server/src/mcp-version.json to this version too");
+  for (const f of ["../manifest.json", "../server.json"]) assert.equal(JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8")).version, version, f);
+});
+
 test("the MCP client sees six tools", async () => {
   const { client } = await setup();
   const { tools } = await client.listTools();

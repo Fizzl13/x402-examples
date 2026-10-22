@@ -1,11 +1,12 @@
-// The wallet MCP server as npx runs it, pinned to one version (presign-guard-wallet-mcp@0.20.0), read from the
-// package next to this server. Every setup line we show uses it: without a version, npx fetches whatever is newest on
-// each start, and that code sees the agent's key.
+// The wallet MCP server as npx runs it, pinned to one version (presign-guard-wallet-mcp@0.23.0). Every setup line we
+// show uses it: without a version, npx fetches whatever is newest on each start, and that code sees the agent's key.
+// The version is kept in mcp-version.json here, not read from ../wallet-mcp: Render deploys this server only when a
+// file under wallet-server/ changes, so a new wallet-mcp version has to change one (wallet-mcp's tests check they match).
 import { readFileSync } from "node:fs";
 
 export const WALLET_MCP_VERSION = (() => {
   try {
-    return JSON.parse(readFileSync(new URL("../../wallet-mcp/package.json", import.meta.url), "utf8")).version;
+    return JSON.parse(readFileSync(new URL("./mcp-version.json", import.meta.url), "utf8")).version;
   } catch {
     return null;
   }
