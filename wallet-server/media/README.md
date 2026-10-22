@@ -20,5 +20,12 @@ or `short.json` for a 30-second version, and optionally a voice), then download
 the run's artifact. Edit the narration in `script.json`; the
 timing follows the voice.
 
+What's new: `new.json` (~70 seconds), `short-new.json` (30 seconds) and
+`new-nl.json`, the same video in Dutch. Kokoro has no Dutch voice, so that
+script names a Piper voice (`"voice": {"engine": "piper", "name": "nl_NL-pim-medium"}`,
+open weights too); `tts.py` uses it and the workflow downloads it. Its scenes
+take their Dutch words from each segment's `labels`, and `tts.py` has Dutch
+pronunciation rules (a Dutch voice reads "key" as "kei").
+
 Local dry run without a voice model (silent narration of the right length),
 against a local server: `python tts.py --engine silent && DEMO_URL=http://127.0.0.1:3000/demo node record.js && python build.py`.

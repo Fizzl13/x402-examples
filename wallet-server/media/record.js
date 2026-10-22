@@ -196,8 +196,9 @@ const marketHtml = () => `<!doctype html><html><head><style>${THEME}
 </div></body></html>`;
 
 // What's new (new.json): installing in Claude Desktop without keys, the code in the chat, the limit on the chain, and
-// not paying twice.
-const installHtml = () => `<!doctype html><html><head><style>${THEME}
+// not paying twice. The words are English unless the segment's "labels" give others (new-nl.json).
+const INSTALL = { from: "from wallet.fizzl.eu", dialog: "CLAUDE DESKTOP · INSTALL EXTENSION", about: "A wallet with spending limits for your agent", install: "Install", installed: "✓ Installed", chips: ["No keys", "No config file", "No Node.js"], line: "Claude Code or Cursor? One line." };
+const installHtml = (labels) => { const L = { ...INSTALL, ...labels }; return `<!doctype html><html><head><style>${THEME}
   .r { display:flex; align-items:center; gap: 60px; }
   .file { width: 380px; text-align:center; border: 2px solid var(--line); border-radius: 28px; background: var(--panel); padding: 46px 30px; }
   .file .ic { font-size: 120px; } .file b { display:block; font: 700 36px 'Space Grotesk', 'DM Sans', sans-serif; margin-top: 16px; } .file small { font-size: 28px; color: var(--soft); }
@@ -211,14 +212,15 @@ const installHtml = () => `<!doctype html><html><head><style>${THEME}
   .chips span { font-size: 36px; padding: 16px 32px; border-radius: 999px; border: 2px solid var(--mint); color: var(--mint); }
   .line { position:absolute; bottom: 70px; left:0; right:0; text-align:center; font-size: 30px; color: var(--soft); }
 </style></head><body><div class="r">
-  <div class="file fade" data-step="0"><div class="ic">📦</div><b>fizzl-wallet.mcpb</b><small>from wallet.fizzl.eu</small></div>
+  <div class="file fade" data-step="0"><div class="ic">📦</div><b>fizzl-wallet.mcpb</b><small>${L.from}</small></div>
   <div class="arrow fade" data-step="1">→</div>
-  <div class="dlg fade" data-step="2"><small>CLAUDE DESKTOP · INSTALL EXTENSION</small><h2>Fizzl Agent Wallet</h2><p>A wallet with spending limits for your agent</p><span class="b" id="inst">Install</span><div class="ok fade" id="ok">✓ Installed</div></div>
+  <div class="dlg fade" data-step="2"><small>${L.dialog}</small><h2>Fizzl Agent Wallet</h2><p>${L.about}</p><span class="b" id="inst">${L.install}</span><div class="ok fade" id="ok">${L.installed}</div></div>
 </div>
-<div class="chips"><span class="fade" data-step="3">No keys</span><span class="fade" data-step="4">No config file</span><span class="fade" data-step="5">No Node.js</span></div>
-<div class="line fade" data-step="6">Claude Code or Cursor? One line.</div></body></html>`;
+<div class="chips">${L.chips.map((c, i) => `<span class="fade" data-step="${3 + i}">${c}</span>`).join("")}</div>
+<div class="line fade" data-step="6">${L.line}</div></body></html>`; };
 
-const chatHtml = () => `<!doctype html><html><head><style>${THEME}
+const CHAT = { ask: "What is my wallet status?", answer: `This wallet isn't linked yet. Open <a>wallet.fizzl.eu/pair</a> and enter the code <span class="code">K7QF-29XM</span>. It works for 10 minutes.`, key: "🔑 The agent made its own wallet. <b>Its key stays on your computer.</b>" };
+const chatHtml = (labels) => { const L = { ...CHAT, ...labels }; return `<!doctype html><html><head><style>${THEME}
   .c { width: 1500px; }
   .b { max-width: 1100px; font-size: 42px; line-height: 1.45; padding: 30px 40px; border-radius: 34px; margin-bottom: 30px; }
   .me { margin-left: auto; background: #1a3236; border-bottom-right-radius: 10px; width: fit-content; }
@@ -229,12 +231,13 @@ const chatHtml = () => `<!doctype html><html><head><style>${THEME}
   .key { margin-top: 40px; text-align:center; font-size: 38px; color: var(--soft); }
   .key b { color: #fff; }
 </style></head><body><div class="c">
-  <div class="b me fade" data-step="0">What is my wallet status?</div>
-  <div class="b ag fade" data-step="1"><small>WALLET</small>This wallet isn't linked yet. Open <a>wallet.fizzl.eu/pair</a> and enter the code <span class="code">K7QF-29XM</span>. It works for 10 minutes.</div>
-  <div class="key fade" data-step="2">🔑 The agent made its own wallet. <b>Its key stays on your computer.</b></div>
-</div></body></html>`;
+  <div class="b me fade" data-step="0">${L.ask}</div>
+  <div class="b ag fade" data-step="1"><small>WALLET</small>${L.answer}</div>
+  <div class="key fade" data-step="2">${L.key}</div>
+</div></body></html>`; };
 
-const onchainHtml = () => `<!doctype html><html><head><style>${THEME}
+const ONCHAIN = { title: "Your limit, on the chain", yours: "Your wallet", stays: "your USDC stays here", contract: "Contract on Base", most: `at most <span class="amt">$2 a day</span>`, agent: "Agent wallet", topped: `topped up to <span class="amt">$1.50</span>`, under: "A leaked agent key can take at most the daily limit." };
+const onchainHtml = (labels) => { const L = { ...ONCHAIN, ...labels }; return `<!doctype html><html><head><style>${THEME}
   .o { text-align:center; }
   h1 { font-size: 74px; margin-bottom: 56px; }
   .f { display:flex; align-items:center; gap: 22px; justify-content:center; }
@@ -244,29 +247,28 @@ const onchainHtml = () => `<!doctype html><html><head><style>${THEME}
   .arrow { font-size: 64px; color: var(--mint); }
   .under { margin-top: 54px; font-size: 40px; color: var(--mint); }
 </style></head><body><div class="o">
-  <h1 class="fade" data-step="0">Your limit, on the chain</h1>
+  <h1 class="fade" data-step="0">${L.title}</h1>
   <div class="f">
-    <div class="box mint fade" data-step="1"><div class="ic">👛</div><h2>Your wallet</h2><p>your USDC stays here</p></div>
+    <div class="box mint fade" data-step="1"><div class="ic">👛</div><h2>${L.yours}</h2><p>${L.stays}</p></div>
     <div class="arrow fade" data-step="2">→</div>
-    <div class="box fade" data-step="3"><div class="ic">📜</div><h2>Contract on Base</h2><p>at most <span class="amt">$2 a day</span></p></div>
+    <div class="box fade" data-step="3"><div class="ic">📜</div><h2>${L.contract}</h2><p>${L.most}</p></div>
     <div class="arrow fade" data-step="4">→</div>
-    <div class="box fade" data-step="5"><div class="ic">🤖</div><h2>Agent wallet</h2><p>topped up to <span class="amt">$1.50</span></p></div>
+    <div class="box fade" data-step="5"><div class="ic">🤖</div><h2>${L.agent}</h2><p>${L.topped}</p></div>
   </div>
-  <div class="under fade" data-step="6">A leaked agent key can take at most the daily limit.</div>
-</div></body></html>`;
+  <div class="under fade" data-step="6">${L.under}</div>
+</div></body></html>`; };
 
-const twiceHtml = () => `<!doctype html><html><head><style>${THEME}
+const TWICE = { title: "It won't pay twice", rows: [["💸 Paid, but the API answers an error", "CHECKED ON BASE"], ["🔁 Asked again, with a new payout address", "SECOND PAYMENT WAITS"], ["⛔ Taken without an answer", "BLOCKED · OWNER TOLD"]] };
+const twiceHtml = (labels) => { const L = { ...TWICE, ...labels }; return `<!doctype html><html><head><style>${THEME}
   .k { width: 1560px; }
   h1 { font-size: 76px; margin-bottom: 44px; text-align:center; }
-  .row { display:grid; grid-template-columns: 1fr 470px; align-items:center; gap: 30px; padding: 26px 36px; margin-bottom: 18px; border-radius: 24px; border: 2px solid var(--line); background: var(--panel); font-size: 40px; }
-  .v { text-align:center; font: 700 32px 'Space Grotesk', 'DM Sans', sans-serif; padding: 14px 0; border-radius: 999px; border: 2px solid currentColor; }
+  .row { display:grid; grid-template-columns: 1fr minmax(470px, auto); align-items:center; gap: 30px; padding: 26px 36px; margin-bottom: 18px; border-radius: 24px; border: 2px solid var(--line); background: var(--panel); font-size: 40px; }
+  .v { text-align:center; font: 700 32px 'Space Grotesk', 'DM Sans', sans-serif; padding: 14px 28px; border-radius: 999px; border: 2px solid currentColor; }
   .red { color: var(--rose); } .amber { color: var(--amber); } .green { color: var(--mint); }
 </style></head><body><div class="k">
-  <h1 class="fade" data-step="0">It won't pay twice</h1>
-  <div class="row fade" data-step="1"><span>💸 Paid, but the API answers an error</span><span class="v green">CHECKED ON BASE</span></div>
-  <div class="row fade" data-step="2"><span>🔁 Asked again, with a new payout address</span><span class="v amber">SECOND PAYMENT WAITS</span></div>
-  <div class="row fade" data-step="3"><span>⛔ Taken without an answer</span><span class="v red">BLOCKED · OWNER TOLD</span></div>
-</div></body></html>`;
+  <h1 class="fade" data-step="0">${L.title}</h1>
+${L.rows.map(([what, verdict], i) => `  <div class="row fade" data-step="${1 + i}"><span>${what}</span><span class="v ${["green", "amber", "red"][i]}">${verdict}</span></div>`).join("\n")}
+</div></body></html>`; };
 
 // Captions: a bar at the bottom of every page, re-created after navigation.
 async function caption(page, text) {
@@ -455,7 +457,7 @@ async function main() {
       await scrollTo(page, "#searchOut", "start");
     },
 
-    async "prepare:install"() { await setPage(page, installHtml()); },
+    async "prepare:install"(seg) { await setPage(page, installHtml(seg.labels)); },
     async install(seg, ms) {
       await reveal(page, ms * 0.35);
       await page.evaluate(() => document.getElementById("inst").classList.add("tap"));
@@ -463,11 +465,11 @@ async function main() {
       await page.evaluate(() => document.getElementById("ok").classList.add("on"));
       await page.evaluate((gap) => { for (let i = 3; i <= 6; i++) setTimeout(() => document.querySelector(`[data-step="${i}"]`)?.classList.add("on"), (i - 3) * gap); }, Math.max(300, ms * 0.1));
     },
-    async "prepare:chat"() { await setPage(page, chatHtml()); },
+    async "prepare:chat"(seg) { await setPage(page, chatHtml(seg.labels)); },
     async chat(seg, ms) { await reveal(page, ms * 0.8); },
-    async "prepare:onchain"() { await setPage(page, onchainHtml()); },
+    async "prepare:onchain"(seg) { await setPage(page, onchainHtml(seg.labels)); },
     async onchain(seg, ms) { await reveal(page, ms * 0.85); },
-    async "prepare:twice"() { await setPage(page, twiceHtml()); },
+    async "prepare:twice"(seg) { await setPage(page, twiceHtml(seg.labels)); },
     async twice(seg, ms) { await reveal(page, ms * 0.85); },
 
     // The live demo: the code from the chat in the "Link an agent with a code" card, looked up and linked.

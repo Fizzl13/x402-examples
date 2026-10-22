@@ -1,0 +1,13 @@
+{
+  "title": "What's new in the Fizzl Agent Wallet, in 30 seconds",
+  "output": "fizzl-agent-wallet-new-30s",
+  "segments": [
+    { "id": "hook", "scene": "card", "card": { "title": "Your agent's wallet.", "sub": "No keys to copy." }, "text": "Your AI agent's own wallet. No keys to copy." },
+    { "id": "install", "scene": "install", "hold": 3.8, "text": "One file in Claude Desktop. No config, no Node.js." },
+    { "id": "chat", "scene": "chat", "hold": 3.5, "text": "Your agent gives you a code." },
+    { "id": "link", "scene": "link", "hold": 5, "text": "Enter it, and it pays within your rules." },
+    { "id": "onchain", "scene": "onchain", "hold": 4, "text": "With the daily limit on-chain, if you like." },
+    { "id": "twice", "scene": "twice", "hold": 3.5, "text": "And it never pays twice." },
+    { "id": "end", "scene": "card", "card": { "title": "Fizzl Agent Wallet", "sub": "Free to start · wallet.fizzl.eu", "note": "Never holds your keys or your money" }, "text": "Free to start, at wallet.fizzl.eu." }
+  ]
+}
