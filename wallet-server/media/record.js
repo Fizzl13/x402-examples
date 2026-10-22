@@ -270,6 +270,91 @@ const twiceHtml = (labels) => { const L = { ...TWICE, ...labels }; return `<!doc
 ${L.rows.map(([what, verdict], i) => `  <div class="row fade" data-step="${1 + i}"><span>${what}</span><span class="v ${["green", "amber", "red"][i]}">${verdict}</span></div>`).join("\n")}
 </div></body></html>`; };
 
+// The install walkthrough (install.json): a browser download and Claude Desktop, drawn (simplified, and labelled so);
+// the wallet itself is the live demo. The extension's icon and version are the real ones.
+const MCP_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(HERE, "../src/mcp-version.json"), "utf8")).version; } catch { return ""; } })();
+const ICON = (() => { try { return `data:image/png;base64,${fs.readFileSync(path.join(HERE, "../../wallet-mcp/icon.png")).toString("base64")}`; } catch { return ""; } })();
+const CLAUDE = `
+  .win { width: 1640px; height: 860px; border-radius: 20px; background: #262624; border: 1px solid #3a3936; box-shadow: 0 40px 140px rgba(0,0,0,.6); display:flex; flex-direction:column; overflow:hidden; color: #ece9e2; }
+  .bar { height: 54px; flex: none; display:flex; align-items:center; gap: 10px; padding: 0 22px; background: #1f1e1d; border-bottom: 1px solid #333230; font-size: 24px; color: #a9a59c; }
+  .bar i { width: 14px; height: 14px; border-radius: 50%; background: #4a4844; }
+  .bar span { margin: 0 auto; } .bar small { font-size: 18px; color: #77736c; }
+  .body { flex:1; display:flex; min-height:0; }
+  .side { width: 290px; flex: none; background: #1f1e1d; border-right: 1px solid #333230; padding: 26px 16px; font-size: 26px; color: #a9a59c; }
+  .side div { padding: 12px 16px; border-radius: 10px; margin-bottom: 6px; } .side .on { background: #34322f; color: #fff; }
+  .main { flex:1; padding: 40px 60px; position: relative; overflow: hidden; display:flex; flex-direction:column; }
+  .btn { display:inline-block; padding: 14px 30px; border-radius: 12px; font: 600 26px 'DM Sans', sans-serif; background: #3a3936; color: #ece9e2; transition: all .25s; }
+  .btn.pri { background: #d97757; color: #fff; } .btn.tap { transform: scale(.95); filter: brightness(1.15); }
+  .hide { display: none !important; }
+`;
+const claudeWin = (side, main) => `<div class="win"><div class="bar"><i></i><i></i><i></i><span>Claude</span><small>Claude Desktop · simplified</small></div><div class="body"><div class="side">${side}</div><div class="main">${main}</div></div></div>`;
+const chatSide = `<div>＋ New chat</div><div class="on">Wallet</div><div>Recents</div>`;
+const CHAT_CSS = `
+  .chat { flex:1; display:flex; flex-direction:column; gap: 22px; font-size: 32px; line-height: 1.45; }
+  .me { align-self: flex-end; background: #3a3936; padding: 18px 28px; border-radius: 22px; max-width: 1000px; }
+  .tool { font-size: 24px; color: #a9a59c; border: 1px solid #3a3936; border-radius: 12px; padding: 10px 18px; align-self: flex-start; }
+  .tool b { color: #ece9e2; font-weight: 600; }
+  .perm { border: 1px solid #55524c; background: #2f2e2b; border-radius: 16px; padding: 22px 26px; font-size: 28px; }
+  .perm .row { display:flex; gap: 14px; margin-top: 16px; justify-content: flex-end; }
+  .ans { max-width: 1150px; } .ans a { color: #8ab4f8; text-decoration: underline; }
+  .code { font: 700 32px 'Space Grotesk', 'DM Sans', sans-serif; background: #3a3936; padding: 2px 12px; border-radius: 8px; white-space: nowrap; }
+  .input { flex: none; margin-top: 18px; border: 1px solid #45433f; border-radius: 18px; padding: 20px 26px; font-size: 28px; color: #77736c; min-height: 74px; }
+  .input.typing { color: #ece9e2; }
+`;
+
+const downloadHtml = () => `<!doctype html><html><head><style>${THEME}
+  .br { width: 1640px; height: 860px; border-radius: 20px; background: #f3f4f6; box-shadow: 0 40px 140px rgba(0,0,0,.6); overflow:hidden; color: #1f2328; position: relative; }
+  .tabs { height: 54px; background: #dfe3e8; display:flex; align-items:flex-end; padding: 0 18px; } .tabs div { background: #f3f4f6; border-radius: 12px 12px 0 0; padding: 12px 26px; font-size: 22px; }
+  .addr { margin: 12px 18px; background: #fff; border-radius: 999px; padding: 12px 24px; font-size: 24px; color: #57606a; }
+  .pagebody { padding: 60px; font-size: 30px; color: #8c959f; }
+  .dl { position:absolute; right: 26px; top: 120px; width: 620px; background:#fff; border-radius: 16px; box-shadow: 0 16px 50px rgba(0,0,0,.25); padding: 26px 28px; }
+  .dl small { font-size: 20px; color: #57606a; letter-spacing: .05em; } .file { display:flex; gap: 20px; align-items:center; margin-top: 16px; }
+  .file .ic { font-size: 64px; } .file b { display:block; font-size: 30px; } .file span { font-size: 22px; color: #57606a; }
+  .open { margin-top: 18px; display:inline-block; font: 700 26px 'DM Sans', sans-serif; color: #0969da; padding: 8px 14px; border-radius: 10px; transition: all .25s; } .open.tap { background: #ddf4ff; }
+</style></head><body><div class="br">
+  <div class="tabs"><div>Fizzl Agent Wallet</div></div>
+  <div class="addr">🔒 wallet.fizzl.eu/download/claude-desktop</div>
+  <div class="pagebody">Your download starts…</div>
+  <div class="dl fade" data-step="0"><small>DOWNLOADS</small><div class="file"><div class="ic">📦</div><div><b>fizzl-wallet.mcpb</b><span>23 MB · Done</span></div></div><span class="open" id="openFile">Open file</span></div>
+</div></body></html>`;
+
+const cdInstallHtml = () => `<!doctype html><html><head><style>${THEME}${CLAUDE}
+  .crumb { font-size: 24px; color: #a9a59c; margin-bottom: 30px; }
+  .ext { display:flex; align-items:center; gap: 28px; } .ext img { width: 112px; height: 112px; border-radius: 24px; }
+  .ext h2 { font-size: 46px; } .ext p { margin: 6px 0 0; font-size: 24px; color: #a9a59c; } .ext .act { margin-left: auto; display:flex; align-items:center; gap: 18px; }
+  .ok { font: 600 26px 'DM Sans', sans-serif; color: #7fd1a8; } .tog { width: 72px; height: 40px; border-radius: 999px; background: #7fd1a8; position: relative; } .tog::after { content:""; position:absolute; right: 5px; top: 5px; width: 30px; height: 30px; border-radius: 50%; background: #fff; }
+  .desc { font-size: 30px; line-height: 1.45; margin: 34px 0 26px; max-width: 1150px; }
+  .tools b { display:block; font-size: 24px; color: #a9a59c; margin-bottom: 12px; } .tools span { display:inline-block; font: 500 24px ui-monospace, monospace; background: #34322f; padding: 8px 16px; border-radius: 10px; margin: 0 10px 10px 0; }
+  .modal { position:absolute; inset: 0; background: rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
+  .dlg { width: 760px; background: #2f2e2b; border: 1px solid #55524c; border-radius: 20px; padding: 36px 40px; }
+  .dlg h3 { margin: 0 0 14px; font-size: 36px; } .dlg p { margin: 0 0 28px; font-size: 27px; color: #c9c5bc; line-height: 1.45; } .dlg .row { display:flex; gap: 16px; justify-content:flex-end; }
+</style></head><body>${claudeWin(`<div>General</div><div>Account</div><div>Privacy</div><div class="on">Extensions</div><div>Developer</div>`, `
+  <div class="crumb">Settings › Extensions › Install</div>
+  <div class="ext"><img src="${ICON}" alt=""><div><h2>Fizzl Agent Wallet</h2><p>Frits Zwager (Fizzl) · ${MCP_VERSION}</p></div>
+    <div class="act"><span class="btn pri" id="inst">Install</span><span class="ok hide" id="done">✓ Installed</span><span class="tog hide" id="tog"></span></div></div>
+  <p class="desc">A wallet with spending limits for Claude: it pays x402 and MPP APIs in USDC within your budget, checked before every signature.</p>
+  <div class="tools"><b>TOOLS</b><span>wallet_status</span><span>find_services</span><span>pay_x402</span><span>send_usdc</span><span>send_native</span><span>pause_spending</span></div>
+  <div class="modal hide" id="modal"><div class="dlg"><h3>Install this extension?</h3><p>Fizzl Agent Wallet will run on this computer. Only install extensions from developers you trust.</p><div class="row"><span class="btn">Cancel</span><span class="btn pri" id="confirm">Install</span></div></div></div>`)}</body></html>`;
+
+const cdAskHtml = () => `<!doctype html><html><head><style>${THEME}${CLAUDE}${CHAT_CSS}</style></head><body>${claudeWin(chatSide, `
+  <div class="chat">
+    <div class="me hide" id="q">What is my wallet status?</div>
+    <div class="perm hide" id="perm">Claude wants to use <b>Wallet status</b> from <b>Fizzl Agent Wallet</b>.<div class="row"><span class="btn">Deny</span><span class="btn">Allow once</span><span class="btn pri" id="always">Always allow</span></div></div>
+    <div class="tool hide" id="tool">⚙ <b>Fizzl Agent Wallet</b> · Wallet status ▸</div>
+    <div class="ans hide" id="ans">Your wallet isn't linked to a Fizzl account yet. Open <a id="plink">wallet.fizzl.eu/pair?code=K7QF-29XM</a> and enter the code <span class="code">K7QF-29XM</span>. It works for 10 minutes. The wallet's key was made on this computer and stays here.</div>
+  </div>
+  <div class="input" id="in">Reply to Claude…</div>`)}</body></html>`;
+
+const cdBuyHtml = () => `<!doctype html><html><head><style>${THEME}${CLAUDE}${CHAT_CSS}</style></head><body>${claudeWin(chatSide, `
+  <div class="chat">
+    <div class="me hide" id="q">Is the token 0x8335…2913 on Base safe? Use a paid check.</div>
+    <div class="tool hide" id="t1">⚙ <b>Fizzl Agent Wallet</b> · Find paid services ▸</div>
+    <div class="perm hide" id="perm">Claude wants to use <b>Pay x402</b> from <b>Fizzl Agent Wallet</b>.<div class="row"><span class="btn">Deny</span><span class="btn pri" id="once">Allow once</span><span class="btn">Always allow</span></div></div>
+    <div class="tool hide" id="t2">⚙ <b>Fizzl Agent Wallet</b> · Pay x402 · presign-guard.fizzl.eu · <b>$0.01</b> ▸</div>
+    <div class="ans hide" id="ans">It's <b>USDC</b>, Circle's stablecoin on Base: <b style="color:#7fd1a8">SAFE</b>. I paid $0.01 for the check from your agent's wallet, within your limits. The receipt is in your Fizzl wallet.</div>
+  </div>
+  <div class="input" id="in">Reply to Claude…</div>`)}</body></html>`;
+
 // Captions: a bar at the bottom of every page, re-created after navigation.
 async function caption(page, text) {
   await page.evaluate((text) => {
@@ -289,8 +374,8 @@ async function caption(page, text) {
 }
 
 // The demo dashboard, zoomed so it reads on a phone, with the top bar hidden (it would sit over what we show).
-async function openDemo(page) {
-  await page.goto(DEMO, { waitUntil: "load", timeout: 120000 });
+async function openDemo(page, suffix = "") {
+  await page.goto(DEMO + suffix, { waitUntil: "load", timeout: 120000 });
   // Rendered, not necessarily visible: the purchases now sit on their own tab.
   await page.waitForSelector("#buys .buy", { state: "attached", timeout: 60000 });
   await page.evaluate((z) => {
@@ -301,11 +386,82 @@ async function openDemo(page) {
     document.head.appendChild(s);
   }, ZOOM);
 }
-async function scrollTo(page, selector, block = "start") {
-  await page.evaluate(({ selector, block }) => document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block }), { selector, block });
+// margin: room above the element (CSS px before the demo's zoom), e.g. for the walkthrough's step label.
+async function scrollTo(page, selector, block = "start", margin = 0) {
+  await page.evaluate(({ selector, block, margin }) => {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    if (margin) el.style.scrollMarginTop = `${margin}px`;
+    el.scrollIntoView({ behavior: "smooth", block });
+  }, { selector, block, margin });
   await sleep(900);
 }
 const glow = (page, selector, on = true) => page.evaluate(({ selector, on }) => document.querySelectorAll(selector).forEach((el) => el.classList.toggle("glow", on)), { selector, on });
+// The walkthrough's step label in the top left corner, and a drawn mouse pointer (a recording shows no real one).
+// Both undo the demo's zoom, so they look the same on drawn and live pages.
+async function stepTag(page, text) {
+  await page.evaluate((text) => {
+    let el = document.getElementById("__step");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "__step";
+      el.style.cssText = "position:fixed;left:48px;top:30px;z-index:2147483646;background:rgba(2,7,8,.9);border:2px solid #61f5c3;color:#61f5c3;" +
+        "font:700 32px/1 'Space Grotesk','DM Sans',system-ui,sans-serif;letter-spacing:.03em;padding:14px 26px;border-radius:999px;pointer-events:none;";
+      document.body.appendChild(el);
+    }
+    el.style.zoom = String(1 / (parseFloat(document.documentElement.style.zoom) || 1));
+    el.textContent = text;
+  }, text);
+}
+// Move the pointer to an element (over ms), and with click: a ripple, and the element's own click if real is set.
+async function pointAt(page, selector, { ms = 700, click = false, real = false } = {}) {
+  const at = await page.evaluate(({ selector, ms }) => {
+    const z = parseFloat(document.documentElement.style.zoom) || 1;
+    let c = document.getElementById("__cursor");
+    if (!c) {
+      c = document.createElement("div");
+      c.id = "__cursor";
+      c.innerHTML = '<svg width="46" height="46" viewBox="0 0 24 24"><path d="M4 2l15 9.5-6.6 1.4 3.9 7.4-3 1.5-3.8-7.5L4 19z" fill="#fff" stroke="#021" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+      c.style.cssText = "position:fixed;left:1180px;top:820px;z-index:2147483647;pointer-events:none;filter:drop-shadow(0 4px 8px rgba(0,0,0,.5));";
+      document.body.appendChild(c);
+    }
+    c.style.zoom = String(1 / z);
+    const el = document.querySelector(selector);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const x = r.left + Math.min(r.width / 2, 120), y = r.top + r.height / 2;
+    c.style.transition = `left ${ms}ms cubic-bezier(.3,.7,.4,1), top ${ms}ms cubic-bezier(.3,.7,.4,1)`;
+    c.style.left = `${x - 6}px`;
+    c.style.top = `${y - 4}px`;
+    return { x, y };
+  }, { selector, ms });
+  await sleep(ms + 80);
+  if (!at || !click) return;
+  await page.evaluate(({ x, y }) => {
+    const z = parseFloat(document.documentElement.style.zoom) || 1;
+    const r = document.createElement("div");
+    r.style.cssText = `position:fixed;left:${x - 30}px;top:${y - 30}px;width:60px;height:60px;border-radius:50%;border:4px solid #61f5c3;z-index:2147483646;pointer-events:none;zoom:${1 / z};transition:transform .5s ease-out, opacity .5s ease-out;`;
+    document.body.appendChild(r);
+    requestAnimationFrame(() => { r.style.transform = "scale(1.8)"; r.style.opacity = "0"; });
+    setTimeout(() => r.remove(), 600);
+  }, at);
+  if (real) await page.locator(selector).first().click();
+  await sleep(250);
+}
+const tap = (page, selector) => page.evaluate((s) => { const el = document.querySelector(s); el?.classList.add("tap"); setTimeout(() => el?.classList.remove("tap"), 300); }, selector);
+const show = (page, ...ids) => page.evaluate((ids) => ids.forEach((id) => document.getElementById(id)?.classList.remove("hide")), ids);
+const hide = (page, ...ids) => page.evaluate((ids) => ids.forEach((id) => document.getElementById(id)?.classList.add("hide")), ids);
+// Type into the drawn chat box, then send it as the user's message.
+async function typeAsk(page, ms) {
+  const text = await page.evaluate(() => document.getElementById("q").textContent);
+  const per = Math.min(60, ms / text.length);
+  for (let i = 1; i <= text.length; i++) {
+    await page.evaluate(({ t }) => { const el = document.getElementById("in"); el.textContent = t; el.classList.add("typing"); }, { t: text.slice(0, i) });
+    await sleep(per);
+  }
+  await sleep(250);
+  await page.evaluate(() => { const el = document.getElementById("in"); el.textContent = "Reply to Claude…"; el.classList.remove("typing"); document.getElementById("q").classList.remove("hide"); });
+}
 // Move a range input smoothly to a value, firing input events like a hand would.
 async function slide(page, selector, to, ms) {
   const from = await page.evaluate((s) => Number(document.querySelector(s).value), selector);
@@ -419,7 +575,7 @@ async function main() {
 
     async receipt(seg, ms) {
       await page.locator("#buys .buy").first().click();
-      await page.waitForSelector("#rcBody .steps", { timeout: 15000 });
+      await page.waitForSelector("#receipt[open]", { timeout: 15000 });
       await sleep(ms * 0.3);
       // Scroll the receipt to "What your agent got".
       await page.evaluate(() => { const d = document.getElementById("receipt"); const got = d.querySelector(".rc-sec:nth-of-type(2)") || d.querySelector(".headline"); d.scrollTo({ top: got ? got.offsetTop - 40 : d.scrollHeight / 2, behavior: "smooth" }); });
@@ -503,6 +659,145 @@ async function main() {
       await sleep(ms * 0.45);
       await glow(page, "#agents .agent", false);
       await scrollTo(page, "#fizzlAgents", "center");
+    },
+    // The install walkthrough (install.json), step by step.
+    async "prepare:tut-wallet"(seg) {
+      await openDemo(page);
+      await page.evaluate(() => { location.hash = "#/agents"; });
+      await sleep(600);
+      await scrollTo(page, "#pairCard", "start", 40);
+      await stepTag(page, seg.step);
+    },
+    async "tut-wallet"(seg, ms) {
+      await glow(page, "#pairCard");
+      await sleep(ms * 0.35);
+      await pointAt(page, '#pairCard a[href="/download/claude-desktop"]', { ms: 900 });
+      await sleep(ms * 0.2);
+      await pointAt(page, '#pairCard a[href="/download/claude-desktop"]', { ms: 100, click: true });
+    },
+    async "prepare:tut-download"(seg) { await setPage(page, downloadHtml()); await stepTag(page, seg.step); },
+    async "tut-download"(seg, ms) {
+      await reveal(page, 500);
+      await sleep(ms * 0.35);
+      await pointAt(page, "#openFile", { ms: 900 });
+      await sleep(ms * 0.1);
+      await pointAt(page, "#openFile", { ms: 100, click: true });
+      await tap(page, "#openFile");
+    },
+    async "prepare:tut-install"(seg) { await setPage(page, cdInstallHtml()); await stepTag(page, seg.step); },
+    async "tut-install"(seg, ms) {
+      await sleep(ms * 0.3);
+      await pointAt(page, "#inst", { ms: 800 });
+      await pointAt(page, "#inst", { ms: 100, click: true });
+      await tap(page, "#inst");
+      await sleep(500);
+      await show(page, "modal");
+      await sleep(ms * 0.15);
+      await pointAt(page, "#confirm", { ms: 700 });
+      await pointAt(page, "#confirm", { ms: 100, click: true });
+      await tap(page, "#confirm");
+      await sleep(400);
+      await hide(page, "modal", "inst");
+      await show(page, "done", "tog");
+    },
+    async "prepare:tut-ask"(seg) { await setPage(page, cdAskHtml()); await stepTag(page, seg.step); },
+    async "tut-ask"(seg, ms) {
+      await pointAt(page, "#in", { ms: 600 });
+      await typeAsk(page, ms * 0.15);
+      await sleep(600);
+      await show(page, "perm");
+      await sleep(ms * 0.12);
+      await pointAt(page, "#always", { ms: 700 });
+      await pointAt(page, "#always", { ms: 100, click: true });
+      await tap(page, "#always");
+      await sleep(400);
+      await hide(page, "perm");
+      await show(page, "tool");
+      await sleep(900);
+      await show(page, "ans");
+      await sleep(ms * 0.2);
+      await pointAt(page, "#plink", { ms: 800 });
+      await pointAt(page, "#plink", { ms: 100, click: true });
+    },
+    // The link from the chat: the wallet opens with the code filled in and looked up.
+    async "prepare:tut-link"(seg) {
+      await openDemo(page, "?pair=K7QF-29XM#/agents");
+      await page.waitForSelector("#pairLink", { timeout: 20000 });
+      await scrollTo(page, "#pairCode", "start", 70);
+      await stepTag(page, seg.step);
+    },
+    async "tut-link"(seg, ms) {
+      await glow(page, "#pairForm");
+      await sleep(ms * 0.3);
+      await glow(page, "#pairForm", false);
+      await glow(page, "#pairLink");
+      await pointAt(page, "#pairName", { ms: 700 });
+      await sleep(ms * 0.15);
+      await pointAt(page, "#pairLink button[type=submit]", { ms: 600 });
+      await pointAt(page, "#pairLink button[type=submit]", { ms: 100, click: true, real: true });
+      await glow(page, "#pairLink", false);
+      await sleep(400);
+      // "(This is the demo: …)": the video shows what an account sees.
+      await page.evaluate(() => { const m = document.querySelector("#pairOut .msg.good"); if (m) m.textContent = m.textContent.replace(/\s*\(This is the demo[^)]*\)/, ""); });
+      await scrollTo(page, "#pairOut .msg.good", "start", 40);
+      await glow(page, "#pairOut .msg.good");
+    },
+    async "prepare:tut-fund"(seg) { await glow(page, "#pairOut .msg.good", false); await stepTag(page, seg.step); },
+    async "tut-fund"(seg, ms) {
+      await glow(page, "#pairOut .fund");
+      await sleep(ms * 0.3);
+      await pointAt(page, '#pairOut [data-fund="5"]', { ms: 800 });
+      await sleep(ms * 0.15);
+      await pointAt(page, '#pairOut [data-fund="5"]', { ms: 100, click: true });
+      await tap(page, '#pairOut [data-fund="5"]');
+    },
+    async "prepare:tut-test"(seg) {
+      await glow(page, "#pairOut .fund", false);
+      await scrollTo(page, "#setupCard", "start", 40);
+      await stepTag(page, seg.step);
+    },
+    async "tut-test"(seg, ms) {
+      await pointAt(page, "#setupRun", { ms: 800 });
+      await pointAt(page, "#setupRun", { ms: 100, click: true, real: true });
+      await page.waitForSelector("#setupOut .verdictline", { timeout: 15000 });
+      await sleep(600);
+      await scrollTo(page, "#setupOut .verdictline", "start", 40);
+      await glow(page, "#setupOut .verdictline");
+    },
+    async "prepare:tut-buy"(seg) { await setPage(page, cdBuyHtml()); await stepTag(page, seg.step); },
+    async "tut-buy"(seg, ms) {
+      await pointAt(page, "#in", { ms: 600 });
+      await typeAsk(page, ms * 0.2);
+      await sleep(500);
+      await show(page, "t1");
+      await sleep(700);
+      await show(page, "perm");
+      await sleep(ms * 0.1);
+      await pointAt(page, "#once", { ms: 600 });
+      await pointAt(page, "#once", { ms: 100, click: true });
+      await tap(page, "#once");
+      await sleep(400);
+      await hide(page, "perm");
+      await show(page, "t2");
+      await sleep(900);
+      await show(page, "ans");
+    },
+    async "prepare:tut-receipt"(seg) {
+      await openDemo(page);
+      await page.evaluate(() => { location.hash = "#/purchases"; });
+      await sleep(600);
+      await scrollTo(page, "#buysSec", "start", 40);
+      await stepTag(page, seg.step);
+    },
+    async "tut-receipt"(seg, ms) {
+      const row = '#buys .buy';
+      const pick = await page.evaluate((row) => { const all = [...document.querySelectorAll(row)]; const i = all.findIndex((b) => /presign-guard/.test(b.textContent)); return i < 0 ? 0 : i; }, row);
+      await page.evaluate(({ row, pick }) => document.querySelectorAll(row)[pick]?.setAttribute("data-pick", ""), { row, pick });
+      await pointAt(page, "#buys .buy[data-pick]", { ms: 800 });
+      await pointAt(page, "#buys .buy[data-pick]", { ms: 100, click: true, real: true });
+      await page.waitForSelector("#receipt[open]", { timeout: 15000 });
+      await sleep(ms * 0.3);
+      await page.evaluate(() => { const d = document.getElementById("receipt"); const got = d.querySelector(".rc-sec:nth-of-type(2)") || d.querySelector(".headline"); d.scrollTo({ top: got ? got.offsetTop - 40 : d.scrollHeight / 2, behavior: "smooth" }); });
     },
   };
 

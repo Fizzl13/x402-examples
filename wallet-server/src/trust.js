@@ -3,22 +3,49 @@
 // as one letter per day (g = go, c = caution, n = no go, x = broken, - = not checked). Here they
 // are summed up per seller (origin), so the search bar can put sellers that keep working first.
 // Loaded on first use and every 6 hours; unknown sellers are simply unknown (null).
-export const TRUST_INDEX_URL = "https://raw.githubusercontent.com/Fizzl13/x402-doctor/trust-data/index.json";
+// Read line by line from index.ndjson (a header line, then one [key, resource] per line): the same index as one
+// JSON file is 34 MB, and parsing that at once took this 512 MB server down (22 Oct 2026, exit status 134).
+export const TRUST_INDEX_URL = "https://raw.githubusercontent.com/Fizzl13/x402-doctor/trust-data/index.ndjson";
 const TTL_MS = 6 * 60 * 60 * 1000;
+
+// One resource's track record, added to its seller's totals.
+function add(by, key, entry) {
+  let origin; try { origin = new URL(key).origin; } catch { return; }
+  const seen = [...String(entry?.h ?? "")].filter((c) => c !== "-");
+  if (!seen.length) return;
+  const ok = seen.filter((c) => c === "g" || c === "c").length;
+  const s = by.get(origin) ?? { checks: 0, payable: 0, days: 0, payableDays: 0 };
+  s.checks += seen.length; s.payable += ok;
+  if (seen.length > s.days || (seen.length === s.days && ok > s.payableDays)) { s.days = seen.length; s.payableDays = ok; }
+  by.set(origin, s);
+}
+const totals = (by) => new Map([...by].map(([o, s]) => [o, { days: s.days, payableDays: s.payableDays, ratio: Math.round((s.payable / s.checks) * 100) / 100 }]));
 
 export function summarizeIndex(index) {
   const by = new Map();
-  for (const [key, entry] of Object.entries(index?.resources ?? {})) {
-    let origin; try { origin = new URL(key).origin; } catch { continue; }
-    const seen = [...String(entry?.h ?? "")].filter((c) => c !== "-");
-    if (!seen.length) continue;
-    const ok = seen.filter((c) => c === "g" || c === "c").length;
-    const s = by.get(origin) ?? { checks: 0, payable: 0, days: 0, payableDays: 0 };
-    s.checks += seen.length; s.payable += ok;
-    if (seen.length > s.days || (seen.length === s.days && ok > s.payableDays)) { s.days = seen.length; s.payableDays = ok; }
-    by.set(origin, s);
+  for (const [key, entry] of Object.entries(index?.resources ?? {})) add(by, key, entry);
+  return totals(by);
+}
+
+// The same from a response body, as it arrives: one line at a time. A line that is a whole index ({ resources })
+// counts too, so index.json (small ones, in tests) still works.
+export async function summarizeBody(body) {
+  const by = new Map();
+  const line = (text) => {
+    if (!text.trim()) return;
+    let row; try { row = JSON.parse(text); } catch { return; }
+    if (Array.isArray(row)) add(by, row[0], row[1]);
+    else if (row?.resources) for (const [key, entry] of Object.entries(row.resources)) add(by, key, entry);
+  };
+  const decoder = new TextDecoder();
+  let rest = "";
+  for await (const chunk of body) {
+    const parts = (rest + decoder.decode(chunk, { stream: true })).split("\n");
+    rest = parts.pop();
+    for (const p of parts) line(p);
   }
-  return new Map([...by].map(([o, s]) => [o, { days: s.days, payableDays: s.payableDays, ratio: Math.round((s.payable / s.checks) * 100) / 100 }]));
+  line(rest + decoder.decode());
+  return totals(by);
 }
 
 export function createTrustIndex({ url = TRUST_INDEX_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
@@ -27,7 +54,7 @@ export function createTrustIndex({ url = TRUST_INDEX_URL, fetch: fetchImpl = glo
     loading ??= (async () => {
       const res = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
       if (!res.ok) throw new Error(`trust index HTTP ${res.status}`);
-      sellers = summarizeIndex(await res.json()); at = now();
+      sellers = await summarizeBody(res.body); at = now();
     })().catch((err) => { console.warn(`[trust] ${err.message}`); at = now() - TTL_MS + 600_000; }) // retry in 10 minutes
       .finally(() => { loading = null; });
     return loading;

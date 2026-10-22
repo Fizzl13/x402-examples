@@ -30,6 +30,8 @@ PRONUNCIATION = [
     (r"\bpresign-guard\b", "pre-sign guard"),
     (r"\bUSDC\b", "U S D C"),
     (r"\bNode\.js\b", "Node J S"),
+    (r"\.mcpb\b", " dot M C P B"),
+    (r"\bETH\b", "eth"),
     (r"\$5\b", "five dollars"),
 ]
 

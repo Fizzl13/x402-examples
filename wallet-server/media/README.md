@@ -27,5 +27,11 @@ open weights too); `tts.py` uses it and the workflow downloads it. Its scenes
 take their Dutch words from each segment's `labels`, and `tts.py` has Dutch
 pronunciation rules (a Dutch voice reads "key" as "kei").
 
+The install walkthrough: `install.json` (~2 minutes) goes from the wallet's
+Agents tab to Claude Desktop and back, step by step, with a step label and a
+drawn pointer. The browser download and Claude Desktop are drawn (simplified,
+and labelled so); the wallet is the live demo, which links the example agent
+when you enter a code.
+
 Local dry run without a voice model (silent narration of the right length),
 against a local server: `python tts.py --engine silent && DEMO_URL=http://127.0.0.1:3000/demo node record.js && python build.py`.

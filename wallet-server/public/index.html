@@ -1097,6 +1097,18 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         ];
         return { agent: { id: a.id, name: a.name, address: a.address ?? null }, checks, ready: checks.every((c) => c.status !== "fail") };
       }
+      // Linking with a code: any well-formed code is an example agent; linking adds it to this page's list only.
+      if (method === "GET" && (m0 = /^\/api\/pair\/(.+)$/.exec(path))) {
+        const code = decodeURIComponent(m0[1]).toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (code.length !== 8) throw Object.assign(new Error("That code is wrong or has expired. Ask your agent for a new one."), { status: 404 });
+        return { code: `${code.slice(0, 4)}-${code.slice(4)}`, address: "0x2F96D3dFC42f2eC1f3226F4bB54D71b801964f54", label: "claude-desktop" };
+      }
+      if (method === "POST" && path === "/api/pair") {
+        const a = { id: `ag_${Date.now().toString(36)}`, name: String(body.name || "claude-desktop").slice(0, 40), paused: false, createdAt: Date.now(), lastSeen: Date.now(), spent: 0, address: "0x2F96D3dFC42f2eC1f3226F4bB54D71b801964f54" };
+        D.agents.unshift(a);
+        D.events.unshift({ at: Date.now(), type: "agent_added", by: "you", agent: a.name });
+        return { agent: a };
+      }
       if (method === "PUT" && path === "/api/policy") { D.policy = body.policy; D.events.unshift({ at: Date.now(), type: "policy", by: "you" }); return { policy: D.policy }; }
       if (method === "POST" && path === "/api/pause") { D.paused = !!body.paused; D.events.unshift({ at: Date.now(), type: body.paused ? "paused" : "resumed", by: "you" }); return { ok: true }; }
       let m;
@@ -2054,18 +2066,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   async function pairLookup(code) {
     const out = $("#pairOut");
     try {
-      // The demo shows the same steps with an example agent; nothing is linked.
-      const p = DEMO ? { code: String(code ?? "").trim().toUpperCase(), address: "0x2F96D3dFC42f2eC1f3226F4bB54D71b801964f54", label: "claude-desktop" } : await api("GET", `/api/pair/${encodeURIComponent(String(code ?? "").trim())}`);
+      const p = await api("GET", `/api/pair/${encodeURIComponent(String(code ?? "").trim())}`);
       out.innerHTML = `<p class="note" style="margin:8px 0 0">An agent with wallet <code>${esc(p.address.slice(0, 6))}…${esc(p.address.slice(-4))}</code> asks to be linked to this account. Only link a code your own agent just showed you.</p>
         <form class="addform" id="pairLink" style="margin-top:8px"><input id="pairName" value="${esc(p.label)}" maxlength="40" required aria-label="Name for this agent"><button class="button primary small" type="submit">Link this agent</button></form>`;
       $("#pairLink").addEventListener("submit", async (e) => {
         e.preventDefault();
         const b = e.submitter; b.disabled = true;
         try {
-          const { agent } = DEMO ? { agent: { id: "demo", name: $("#pairName").value.trim() || p.label, address: p.address } } : await post("/api/pair", { code: p.code, name: $("#pairName").value.trim() });
+          const { agent } = await api("POST", "/api/pair", { code: p.code, name: $("#pairName").value.trim() });
           fundTo = agent.address; setupAgentId = agent.id;
-          out.innerHTML = `<div class="msg good">Linked: ${esc(agent.name)}. Within a few seconds your agent has its key; ask it again and it works.${DEMO ? " (This is the demo: nothing was linked.)" : ""}</div>${fundHtml(agent, null)}`;
-          if (!DEMO) refresh();
+          out.innerHTML = `<div class="msg good">Linked: ${esc(agent.name)}. Within a few seconds your agent has its key; ask it again and it works.${DEMO ? " (This is the demo: it is linked on this page only.)" : ""}</div>${fundHtml(agent, null)}`;
+          refresh();
         } catch (err) { b.disabled = false; if (err.message !== "login") out.insertAdjacentHTML("beforeend", `<div class="msg bad">${esc(err.message)}</div>`); }
       });
       $("#pairName").focus();
