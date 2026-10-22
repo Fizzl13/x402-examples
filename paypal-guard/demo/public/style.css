@@ -75,6 +75,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 24px; }
 .ledger { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .ledger li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
 .ledger .row { display: flex; justify-content: space-between; gap: 8px; }
+.ledger .row .chip { margin-top: 0; white-space: nowrap; flex: none; align-self: flex-start; }
 .ledger .bar { height: 6px; border-radius: 6px; background: #12312c; margin-top: 8px; overflow: hidden; }
 .ledger .bar i { display: block; height: 100%; background: var(--mint); width: 0; transition: width .6s; }
 .pp { font: 600 11px "Lexend", sans-serif; letter-spacing: 0; text-transform: none; color: var(--mint); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
