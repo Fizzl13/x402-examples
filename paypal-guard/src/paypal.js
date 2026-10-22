@@ -45,7 +45,7 @@ export function paypalReader({ clientId, clientSecret, sandbox = true, fetch: fe
   const id = (v) => encodeURIComponent(String(v ?? ""));
 
   return {
-    // { amount, currency, refunded, payer, orderId, status } for a capture, or null if PayPal doesn't know it.
+    // { amount, currency, refunded, payer, orderId, status, paidAt, … } for a capture, or null if PayPal doesn't know it.
     async capture(captureId) {
       const c = await get(`/v2/payments/captures/${id(captureId)}`);
       if (!c) return null;
@@ -64,7 +64,7 @@ export function paypalReader({ clientId, clientSecret, sandbox = true, fetch: fe
       // Who paid: the buyer's PayPal email. A card payment has none; then the merchant's own customer
       // reference (custom_id or invoice_id) is all there is, for the guard's customerOf hook.
       const payer = order?.payer?.email_address ?? order?.payment_source?.paypal?.email_address ?? null;
-      return { amount: c.amount?.value ?? null, currency: c.amount?.currency_code ?? null, refunded: fromMilli(refunded), payer, orderId, status: c.status ?? null, customId: c.custom_id ?? null, invoiceId: c.invoice_id ?? null };
+      return { amount: c.amount?.value ?? null, currency: c.amount?.currency_code ?? null, refunded: fromMilli(refunded), payer, orderId, status: c.status ?? null, customId: c.custom_id ?? null, invoiceId: c.invoice_id ?? null, paidAt: c.create_time ?? null };
     },
     async subscription(subscriptionId) {
       const s = await get(`/v1/billing/subscriptions/${id(subscriptionId)}`);

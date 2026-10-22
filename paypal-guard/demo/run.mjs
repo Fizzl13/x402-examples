@@ -31,8 +31,9 @@ console.log(`\nAt PayPal (${paypal}) afterwards:`);
 for (const l of ledger) console.log(`  ${l.customer.padEnd(20)} ${l.item.padEnd(11)} paid ${l.paid}  refunded ${l.refunded}  ${l.status}${l.dispute ? `  ${l.dispute}` : ""}`);
 mkdirSync(new URL("./out/", import.meta.url), { recursive: true });
 writeFileSync(new URL(`./out/run-${mode}.json`, import.meta.url), JSON.stringify({ mode, approver: approverName === "wallet" ? "wallet" : "page", at: new Date().toISOString(), events }, null, 2));
-// It holds when nobody but Alice and (approved) Carol got money back: not Bob, and not Frank, whose bank already did.
+// It holds when nobody but Alice and, if the owner approved, Carol and Grace got money back: not Bob, and not
+// Frank, whose bank already did.
 const got = Object.fromEntries(ledger.map((l) => [l.customer, Number(l.refunded)]));
-const ok = got["bob@example.com"] === 0 && got["frank@example.com"] === 0 && got["alice@example.com"] <= 12 && got["carol@example.com"] <= 300;
+const ok = got["bob@example.com"] === 0 && got["frank@example.com"] === 0 && got["alice@example.com"] <= 12 && got["carol@example.com"] <= 300 && got["grace@example.com"] <= 18;
 console.log(ok ? "DEMO OK: only the right customers got money back" : "DEMO: unexpected refunds");
 process.exit(ok ? 0 : 1);

@@ -198,6 +198,29 @@ test("a refund of a payment the buyer already charged back is stopped: PayPal wo
   assert.throws(() => createGuard({ policy: { openDispute: "allow" } }), /policy\.openDispute/);
 });
 
+test("past the shop's return period the owner decides; past PayPal's 180 days too", async () => {
+  const NOW = Date.parse("2026-10-22T09:00:00Z");
+  const paid = { CAP_JUNE: "2026-06-20T10:00:00Z", CAP_MARCH: "2026-03-01T10:00:00Z", CAP_NEW: "2026-10-20T10:00:00Z", CAP_NODATE: null };
+  const dated = { ...reader, capture: async (id) => (id in paid ? { amount: "18.00", currency: "USD", refunded: "0.00", payer: ALICE, paidAt: paid[id] } : null) };
+  const shop = createGuard({ reader: dated, now: () => NOW, policy: { returnDays: 30 } });
+  const june = await shop.check("create_refund", refund("CAP_JUNE", "18.00"), ctx);
+  assert.equal(june.decision, "ask");
+  assert.deepEqual(june.reasons.map((r) => r.code), ["RETURN_PERIOD"]);
+  assert.match(june.reasons[0].message, /bought on 20 Jun 2026, 123 days ago, past the shop's 30-day return period: a warranty claim/);
+  assert.equal((await shop.check("create_refund", refund("CAP_NEW", "18.00"), ctx)).decision, "allow");
+  assert.equal((await shop.check("create_refund", refund("CAP_NODATE", "18.00"), ctx)).reasons[0].code, "DATE_UNKNOWN");
+  const march = await shop.check("create_refund", refund("CAP_MARCH", "18.00"), ctx);
+  assert.deepEqual(march.reasons.map((r) => r.code), ["TOO_OLD", "RETURN_PERIOD"]);
+  assert.match(march.reasons[0].message, /up to 180 days after it; this one is from 1 Mar 2026/);
+  // The shop's own date (delivery) counts for the return period; PayPal's limit still counts from the payment.
+  const delivered = createGuard({ reader: dated, now: () => NOW, policy: { returnDays: 30 }, purchaseDateOf: ({ args }) => (args.capture_id === "CAP_JUNE" ? "2026-10-10" : null) });
+  assert.equal((await delivered.check("create_refund", refund("CAP_JUNE", "18.00"), ctx)).decision, "allow");
+  // Without a return period only PayPal's limit is checked; the owner can make a late refund a no.
+  assert.equal((await createGuard({ reader: dated, now: () => NOW }).check("create_refund", refund("CAP_JUNE", "18.00"), ctx)).decision, "allow");
+  assert.equal((await createGuard({ reader: dated, now: () => NOW, policy: { returnDays: 30, afterReturnDays: "deny" } }).check("create_refund", refund("CAP_JUNE", "18.00"), ctx)).decision, "deny");
+  assert.throws(() => createGuard({ policy: { returnDays: "30" } }), /policy\.returnDays/);
+});
+
 test("accepting a dispute about someone else's payment is stopped", async () => {
   const theirs = { ...reader, dispute: async () => ({ amount: "25.00", currency: "USD", status: "OPEN", captureId: "CAP_BOB", payer: BOB }) };
   const r = await createGuard({ reader: theirs }).check("accept_dispute_claim", { dispute_id: "D2" }, ctx);
@@ -317,7 +340,7 @@ test("paypalReader reads a capture, its payer and what was refunded", async () =
     ] } }] },
   });
   const r = paypalReader({ clientId: "id", clientSecret: "secret", fetch });
-  assert.deepEqual(await r.capture("CAP1"), { amount: "40.00", currency: "USD", refunded: "10.00", payer: ALICE, orderId: "ORD1", status: "PARTIALLY_REFUNDED", customId: "cust-7", invoiceId: null });
+  assert.deepEqual(await r.capture("CAP1"), { amount: "40.00", currency: "USD", refunded: "10.00", payer: ALICE, orderId: "ORD1", status: "PARTIALLY_REFUNDED", customId: "cust-7", invoiceId: null, paidAt: null });
   assert.equal(await r.capture("NOPE"), null);
   assert.equal(fetch.seen.filter((s) => s.key === "POST /v1/oauth2/token").length, 1, "the token is reused");
   assert.match(fetch.seen[0].init.headers.authorization, /^Basic /);

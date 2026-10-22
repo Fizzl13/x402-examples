@@ -9,6 +9,10 @@ export interface Policy {
   otherCustomer?: "ask" | "deny";
   /** A refund of a payment with an open dispute or chargeback: the buyer would be paid twice. Default "deny". */
   openDispute?: "ask" | "deny";
+  /** The shop's return period in days, counted from purchaseDateOf (else the payment date). Default null: not checked. */
+  returnDays?: number | null;
+  /** A refund past the return period (a warranty claim). Default "ask". */
+  afterReturnDays?: "ask" | "deny";
   /** Jev says the action doesn't follow from the customer's request. Default "ask". */
   offIntent?: "ask" | "deny";
 }
@@ -32,7 +36,7 @@ export type Approve = ((request: ApprovalRequest) => Promise<{ approved: boolean
 };
 
 export interface Reader {
-  capture(id: string): Promise<{ amount: string | null; currency: string | null; refunded: string; payer: string | null; orderId: string | null; status: string | null; customId: string | null; invoiceId: string | null } | null>;
+  capture(id: string): Promise<{ amount: string | null; currency: string | null; refunded: string; payer: string | null; orderId: string | null; status: string | null; customId: string | null; invoiceId: string | null; paidAt?: string | null } | null>;
   subscription(id: string): Promise<{ payer: string | null; status: string | null; planId: string | null } | null>;
   invoice(id: string): Promise<{ recipients: string[]; amount: string | null; currency: string | null; status: string | null } | null>;
   dispute(id: string): Promise<{ amount: string | null; currency: string | null; status: string | null; reason: string | null; stage?: string | null; captureId?: string | null; payer?: string | null; customId?: string | null } | null>;
@@ -65,6 +69,8 @@ export interface GuardOptions {
   onEvent?: (e: GuardEvent) => void;
   /** Your own answer to "whose is this?" (e.g. from your order database), when PayPal has no payer email. */
   customerOf?: (x: { tool: string; args: any; facts: any }) => Promise<string | string[] | null> | string | string[] | null;
+  /** When the return period starts for this payment (the delivery date, from your orders). Default: the day PayPal took the payment. */
+  purchaseDateOf?: (x: { tool: string; args: any; facts: any }) => Promise<string | number | Date | null> | string | number | Date | null;
   now?: () => number;
   keepEvents?: number;
 }

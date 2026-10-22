@@ -10,6 +10,10 @@ import { toMilli, fromMilli } from "./paypal.js";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const lc = (s) => String(s ?? "").trim().toLowerCase();
 const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
+const DAY = 86_400_000;
+// PayPal refunds a payment up to 180 days after it was taken; after that the refund API refuses.
+const PAYPAL_REFUND_DAYS = 180;
+const dateOf = (t) => new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 // The toolkit doesn't throw when PayPal says no: it returns '{"error":{...}}' as a string. The error message, or null.
 function errorIn(result) {
   let r = result;
@@ -34,7 +38,8 @@ function mergePolicy(p = {}) {
     const v = out[k];
     if (!(["allow", "ask", "deny"].includes(v) || (v && typeof v === "object"))) throw new TypeError(`policy.${k}: "allow", "ask", "deny" or a limit object`);
   }
-  for (const k of ["otherCustomer", "openDispute", "offIntent"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
+  for (const k of ["otherCustomer", "openDispute", "afterReturnDays", "offIntent"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
+  if (out.returnDays !== null && !(Number.isInteger(out.returnDays) && out.returnDays > 0)) throw new TypeError("policy.returnDays: a whole number of days, or null");
   return out;
 }
 
@@ -49,7 +54,7 @@ function recipientsIn(args) {
 
 export function createGuard({
   policy: rawPolicy = {}, reader = null, approve = null, intent = null, agent = "Support agent",
-  store = memoryStore(), onEvent = () => {}, customerOf = null, now = () => Date.now(), keepEvents = 200,
+  store = memoryStore(), onEvent = () => {}, customerOf = null, purchaseDateOf = null, now = () => Date.now(), keepEvents = 200,
 } = {}) {
   const policy = mergePolicy(rawPolicy);
   const recent = [];
@@ -137,6 +142,17 @@ export function createGuard({
       for (const d of facts?.disputes ?? []) {
         const chargeback = d.stage === "CHARGEBACK" || d.channel === "EXTERNAL";
         add("OPEN_DISPUTE", `the buyer has an open ${chargeback ? "chargeback" : "dispute"} on this payment (${d.amount ? `${d.amount} ${d.currency}, ` : ""}${d.id}): ${chargeback ? "the bank already takes this money back, so a refund now pays them twice. Answer the chargeback instead" : "a refund next to the dispute can pay them twice. Settle it in the dispute instead"}`, policy.openDispute);
+      }
+      // How old the purchase is. PayPal's own limit counts from the payment; the shop's return period from the
+      // purchase date the shop knows (delivery, usually), else from the payment.
+      const paidAt = Date.parse(facts?.paidAt ?? "");
+      if (Number.isFinite(paidAt) && now() - paidAt > PAYPAL_REFUND_DAYS * DAY) add("TOO_OLD", `PayPal refunds a payment up to ${PAYPAL_REFUND_DAYS} days after it; this one is from ${dateOf(paidAt)}, so PayPal will most likely refuse. Paying it back another way is for the owner to decide`, "ask");
+      if (policy.returnDays !== null && !facts?.error) {
+        const own = purchaseDateOf ? await purchaseDateOf({ tool, args, facts }) : null;
+        const from = own ? new Date(own).getTime() : paidAt;
+        const days = Number.isFinite(from) ? Math.floor((now() - from) / DAY) : null;
+        if (days === null) add("DATE_UNKNOWN", `the guard can't tell when this was bought, so it can't check the ${policy.returnDays}-day return period`, "ask");
+        else if (days > policy.returnDays) add("RETURN_PERIOD", `this was bought on ${dateOf(from)}, ${days} days ago, past the shop's ${policy.returnDays}-day return period: a warranty claim, where repair or replacement usually comes first`, policy.afterReturnDays);
       }
       if (facts?.disputesError) add("NO_FACTS", `the guard couldn't read this payment's disputes at PayPal (${facts.disputesError}), so it can't tell whether the buyer already disputed it`, "ask");
       if (amount === null) add("AMOUNT_UNKNOWN", "the refund has no amount and the guard couldn't read the payment, so it can't tell how much would go", "ask");
