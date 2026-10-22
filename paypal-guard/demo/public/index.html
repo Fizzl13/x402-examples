@@ -54,7 +54,7 @@
       <li><b>Never more than is left.</b> A refund without an amount refunds everything; the guard looks it up first.</li>
       <li><b>After the return period, the owner decides.</b> A refund for something bought more than 30 days ago is a warranty claim: repair or replacement usually comes first. The guard counts from the shop's delivery date.</li>
       <li><b>Not when the bank already paid.</b> A refund on a payment with an open chargeback or dispute pays the customer twice. PayPal lets it through; the guard reads the open disputes first and stops it.</li>
-      <li><b>The owner's limits.</b> $25 a refund, $100 and 10 refunds a day. Above them, Approve or Deny on the owner's phone. No answer means no.</li>
+      <li><b>The owner's limits.</b> $25 a refund, $100 and 10 refunds a day, and a customer's third refund within 30 days. Above them, Approve or Deny on the owner's phone. No answer means no.</li>
       <li><b>Disputes, price changes, marking invoices paid</b>: the owner decides. Read-only tools pass straight through.</li>
     </ul>
     <p class="note">Test money only: the PayPal sandbox. <code>npm i fizzl-paypal-guard</code> · <a href="https://github.com/Fizzl13/x402-examples/tree/main/paypal-guard-mcp" target="_blank" rel="noopener">As an MCP server for Claude and Cursor ↗</a> · Made by <a href="https://fizzl.eu" target="_blank" rel="noopener">Fizzl</a>, safety checks for AI agents that pay.</p>
