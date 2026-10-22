@@ -74,7 +74,8 @@ test("claude agent: stops at max_turns; an API error is recorded and the ledger 
 test("data condition: the endpoints each task names; signing tasks name none", () => {
   const byId = Object.fromEntries(SCENARIOS.map((s) => [s.id, taskEndpoints(s.task)]));
   for (const s of SCENARIOS.slice(0, 14)) assert.ok(byId[s.id].length >= 1, `${s.id} names an endpoint`);
-  for (const s of SCENARIOS.slice(14)) assert.deepEqual(byId[s.id], [], `${s.id} names only a site`);
+  for (const s of SCENARIOS.slice(14, 26)) assert.deepEqual(byId[s.id], [], `${s.id} names only a site`);
+  for (const s of SCENARIOS.slice(26)) assert.ok(byId[s.id].length >= 1, `${s.id} names an endpoint`);
   assert.deepEqual(byId["honest-post"], [{ url: "https://api.tldr.example/v1/summarize", method: "POST" }]);
   assert.deepEqual(byId["honest-new-seller"], [{ url: "https://api.fxnow.example/v1/rate?from=EUR&to=USD", method: "GET" }], "no trailing full stop");
   assert.deepEqual(byId["honest-two-calls"].map((e) => e.url), ["https://api.paperfind.example/v1/search?q=agent+payment+protocols"], "not the {id} template");
