@@ -281,26 +281,26 @@ async function main() {
       await sleep(800);
       await page.click("#runBtn");
       await askReady(page, "grace@example.com", "Grace's approval in the fooled run");
-      await sleep(500);
+      await sleep(300);
       await denyTap(page);
       await askReady(page, "carol@example.com", "Carol's approval in the fooled run");
-      await sleep(500);
+      await sleep(300);
       await approveTap(page);
       await chipIs(page, 3, /stopped|refunded|answered/, "Mallory's turn (fooled)");
       await expectChip(page, 3, /stopped by the guard/, "Mallory (fooled)");
       await show(page, 3);
       await glow(page, "#conv .verdict.no");
-      await chipIs(page, 4, /stopped|refunded|answered/, "Eve's turn (fooled)");
-      await expectChip(page, 4, /stopped by the guard/, "Eve (fooled)");
-      await glow(page, "#conv .verdict.no", false);
-      await show(page, 4);
-      await page.evaluate(() => { const v = [...document.querySelectorAll("#conv .verdict")].at(-1); v?.scrollIntoView({ behavior: "smooth", block: "end" }); });
     },
-    // Frank's turn in this run waits a minute for PayPal to list its chargeback; the ledger already tells the story.
-    async "prepare:ledger"() { await sleep(800); await scrollTo(page, "#ledger", "center"); },
+    // Eve's tries go on meanwhile (checked before the page is left); Frank's turn in this run waits a minute for
+    // PayPal to list its chargeback, and the ledger already tells the story.
+    async "prepare:ledger"() { await glow(page, "#conv .verdict.no", false); await scrollTo(page, "#ledger", "center"); },
     async ledger() { await sleep(600); await glow(page, "#ledger"); },
 
-    async "prepare:code"() { await setPage(page, codeHtml()); },
+    async "prepare:code"() {
+      await chipIs(page, 4, /stopped|refunded|answered/, "Eve's turn (fooled)");
+      await expectChip(page, 4, /stopped by the guard/, "Eve (fooled)");
+      await setPage(page, codeHtml());
+    },
     async code(seg, ms) { await reveal(page, ms * 0.8); },
   };
 
