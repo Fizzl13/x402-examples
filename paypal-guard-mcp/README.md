@@ -7,7 +7,7 @@ It has the same 47 tools as PayPal's own MCP server (`@paypal/mcp`), under the s
 - **Reads pass straight through.** Orders, invoices, transactions, disputes and refunds: look as much as you like.
 - **Never more than is left.** A refund without an amount refunds everything that's left of a payment. The guard reads the payment at PayPal first. A refund of a payment that was already refunded in full is stopped, and so is a refund for more than is left.
 - **Not when the bank already paid.** A refund of a payment with an open chargeback or dispute is stopped: the buyer would get the money twice, and PayPal lets that refund through.
-- **Your limits.** By default up to $25 per refund, $100 and 10 refunds a day, and one refund per payment a day. Cancellations and bills have a number a day.
+- **Your limits.** By default up to $25 per refund, $100 and 10 refunds a day, one refund per payment a day, and the third refund for the same customer within 30 days asks you. Cancellations and bills have a number a day.
 - **You decide the rest.** Above a limit, and for every accepted dispute, price change or invoice marked as paid, you get Approve and Deny: on your phone (Telegram, or the [Fizzl Agent Wallet](https://wallet.fizzl.eu)) or in the chat app itself. No answer means no.
 - **A log the agent doesn't write.** Every action that isn't a read is logged on your machine with its decision, the reasons and who approved it. The day's counts are kept there too, so restarting the app doesn't give the agent a fresh day of limits.
 
@@ -42,7 +42,7 @@ For Claude Code:
 claude mcp add paypal -e PAYPAL_CLIENT_ID=… -e PAYPAL_CLIENT_SECRET=… -e PAYPAL_ENVIRONMENT=SANDBOX -- npx -y fizzl-paypal-guard-mcp --tools=all
 ```
 
-**Claude Desktop, with a double click:** download [fizzl-paypal-guard-mcp.mcpb](https://github.com/Fizzl13/x402-examples/releases/download/paypal-guard-mcp-v0.2.0/fizzl-paypal-guard-mcp.mcpb) and open it with Claude Desktop. It asks for the client ID and secret, your limits and, if you like, your Fizzl wallet key or Telegram bot; nothing to type in a config file.
+**Claude Desktop, with a double click:** download [fizzl-paypal-guard-mcp.mcpb](https://github.com/Fizzl13/x402-examples/releases/download/paypal-guard-mcp-v0.2.1/fizzl-paypal-guard-mcp.mcpb) and open it with Claude Desktop. It asks for the client ID and secret, your limits and, if you like, your Fizzl wallet key or Telegram bot; nothing to type in a config file.
 
 3. **Restart the app** and ask, for example: *"List my PayPal transactions of the last week"*, then *"Refund capture 2GG… in full"*. Ask `paypal_guard_status` what the guard allows and what it did today.
 
