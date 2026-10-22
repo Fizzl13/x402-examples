@@ -1346,6 +1346,20 @@ test("test my setup: the agent's address is learned from the payment it signs", 
   } finally { server.close(); }
 });
 
+test("search results carry the seller's example input, so an agent knows how to call it", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const usdc = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO };
+  const items = [
+    { resource: "https://get.example/forecast", description: "Weather forecast", accepts: [usdc], extensions: { bazaar: { info: { input: { method: "GET", queryParams: { city: "Tokyo" } }, output: { example: "big" } } } } },
+    { resource: "https://post.example/forecast", description: "Weather forecast", accepts: [usdc], extensions: { bazaar: { info: { input: { method: "POST", body: { lat: 35.7, lon: 139.7 } } } } } },
+    { resource: "https://none.example/forecast", description: "Weather forecast", accepts: [usdc] },
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }) });
+  const r = await catalog.search("weather forecast");
+  const by = Object.fromEntries(r.results.map((x) => [x.host, [x.method, x.example]]));
+  assert.deepEqual(by, { "get.example": ["GET", { city: "Tokyo" }], "post.example": ["POST", { lat: 35.7, lon: 139.7 }], "none.example": [null, null] });
+});
+
 test("the whole catalog is read (oldest first, newest on the last pages); its first whole read is a baseline too", async () => {
   const { createCatalog } = await import("../src/catalog.js");
   const usdc = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO };
