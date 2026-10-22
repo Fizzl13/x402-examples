@@ -109,6 +109,11 @@ function network({ price = "50000", ...opts } = {}) {
         { resource: "https://cheap.example/trend", description: "Crypto trend in one word", accepts: [usdcOn("eip155:8453", USDC_BASE, "5000")] },
       ] });
     }
+    // The wallet server's search (find_services when linked).
+    if (url.startsWith("https://wallet.test/api/public/services/search")) {
+      searches.push(url);
+      return opts.search ? opts.search(new URL(url)) : Response.json({ error: "unavailable" }, { status: 503 });
+    }
     // A wallet server: everything allowed, records what the receipts get.
     if (url.startsWith("https://wallet.test/v1/")) {
       const body = init.body ? JSON.parse(init.body) : null;
@@ -122,8 +127,8 @@ function network({ price = "50000", ...opts } = {}) {
     }
     throw new Error(`unexpected fetch ${url}`);
   };
-  const server = [], catalogCalls = [], mppPaid = [];
-  return { fetch, checks, paid, server, catalogCalls, mppPaid };
+  const server = [], catalogCalls = [], mppPaid = [], searches = [];
+  return { fetch, checks, paid, server, catalogCalls, mppPaid, searches };
 }
 
 // A stand-in for the viem wallet: records what it would send or sign.
@@ -535,6 +540,39 @@ test("find_services reads the whole catalog (oldest first, so the newest listing
   assert.equal(r.services[0].method, "GET");
   assert.deepEqual([...asked].sort((a, b) => a - b), [0, 500, 1000, 1500, 2000, 2500, 3000], "every page once");
   assert.ok(most > 1 && most <= 4, `pages fetched side by side, at most four (${most})`);
+});
+
+test("find_services with a wallet server: its ranked search (whole catalog, track records), no catalog download; the catalog here when it can't answer", async () => {
+  const fake = fakeWallet();
+  const results = [
+    { url: "https://steady.example/forecast", description: "Weather forecast", method: "GET", example: { city: "Tokyo" }, prices: [{ network: "Solana", usd: 0.001 }, { network: "Base", usd: 0.002 }], record: { days: 30, payableDays: 30, ratio: 1 }, skill: "https://steady.example/skill.md" },
+    { url: "https://solana-only.example/w", description: "Weather", prices: [{ network: "Solana", usd: 0.001 }] },
+    { url: "https://pricey.example/w", description: "Weather", prices: [{ network: "Base", usd: 0.9 }] },
+    { url: "https://new.example/w", description: "Weather today", method: "POST", prices: [{ network: "Base", usd: 0.01 }], record: null },
+  ];
+  const net = network({ search: (u) => Response.json({ results: results.filter((r) => r.prices.some((p) => p.network === u.searchParams.get("net"))) }) });
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test", MAX_PAYMENT_USD: "0.5", X402_DISCOVERY_URL: "https://catalog.test/discovery" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const r = await wallet.findServices({ query: "Wat is het weer in Tokio?" });
+  const asked = new URL(net.searches[0]);
+  assert.equal(asked.searchParams.get("q"), "Wat is het weer in Tokio?", "the question as asked: the server ranks by meaning");
+  assert.equal(asked.searchParams.get("net"), "Base");
+  assert.equal(asked.searchParams.get("max"), "0.5");
+  assert.deepEqual(r.services.map((s) => [s.url, s.price_usd]), [["https://steady.example/forecast", 0.002], ["https://new.example/w", 0.01]], "the Base price; over the cap left out");
+  assert.deepEqual(r.services[0].input_example, { city: "Tokyo" });
+  assert.equal(r.services[0].method, "GET");
+  assert.match(r.services[0].track_record, /30 of the 30 days/);
+  assert.equal(r.services[0].skill, "https://steady.example/skill.md");
+  assert.equal(r.services[1].track_record, undefined);
+  assert.match(r.note, /wallet server/);
+  assert.equal(net.catalogCalls.length, 0, "no catalog download on this computer");
+
+  // The server can't answer: the catalog is read here, as without a server.
+  const down = network();
+  const w2 = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test", MAX_PAYMENT_USD: "1", X402_DISCOVERY_URL: "https://catalog.test/discovery" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: down.fetch, guard: { verifyReceipts: "off" } });
+  const r2 = await w2.findServices({ query: "bitcoin crypto trend signal" });
+  assert.equal(down.searches.length, 1);
+  assert.equal(down.catalogCalls.length, 1);
+  assert.equal(r2.services[0].url, "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT");
 });
 
 test("find_services understands a plain question, in Dutch too", () => {

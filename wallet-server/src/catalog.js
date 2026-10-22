@@ -279,7 +279,8 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         if (!score) continue;
         const key = `${u.origin}${u.pathname}`;
         if (found.has(key) && found.get(key).score >= score) continue;
-        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, prices, cheapest, isNew: isNew(u.origin), category: cat });
+        // example: the seller's own example input (query parameters or body), so an agent knows how to call it.
+        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, example: info.input?.queryParams ?? info.input?.body ?? null, prices, cheapest, isNew: isNew(u.origin), category: cat });
       }
       let all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
       const origin = (r) => new URL(r.url).origin;

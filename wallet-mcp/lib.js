@@ -706,6 +706,34 @@ export function createWallet(config, overrides = {}) {
 
   // The x402 catalog, fetched page by page and kept for an hour.
   let listed = null, listedAt = 0, loading = null;
+  // With a wallet server, it searches for us: it has the whole catalog loaded already (reading it here takes ~13 s),
+  // ranks by meaning, and puts sellers x402 Doctor has seen paying out day after day first. Null when there is
+  // no server or it can't answer: then the catalog is read here.
+  async function serverSearch({ query, cap, limit }) {
+    if (!config.server?.url) return null;
+    const net = config.chainName[0].toUpperCase() + config.chainName.slice(1); // the server's network names: Base, …
+    try {
+      const qs = new URLSearchParams({ q: String(query).slice(0, 200), max: String(cap), net });
+      const res = await plainFetch(`${config.server.url.replace(/\/$/, "")}/api/public/services/search?${qs}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return null;
+      const { results } = await res.json();
+      if (!Array.isArray(results)) return null;
+      return results
+        .map((r) => ({ r, price: r.prices?.find((p) => p.network === net)?.usd }))
+        .filter(({ r, price }) => typeof r?.url === "string" && price >= 0 && price <= cap)
+        .slice(0, Math.min(10, Math.max(1, limit)))
+        .map(({ r, price }) => ({
+          url: r.url,
+          description: String(r.description ?? "").slice(0, 300),
+          price_usd: price,
+          method: r.method || undefined,
+          input_example: r.example ?? undefined,
+          ...(r.record?.days ? { track_record: `paid out on ${r.record.payableDays} of the ${r.record.days} days x402 Doctor checked it` } : {}),
+          ...(r.skill ? { skill: r.skill } : {}),
+        }));
+    } catch { return null; }
+  }
+
   async function catalog() {
     if (listed && Date.now() - listedAt < DISCOVERY_TTL_MS) return listed;
     loading ??= (async () => {
@@ -829,6 +857,16 @@ export function createWallet(config, overrides = {}) {
       const terms = words(query);
       if (!terms.length) throw new TypeError("say what you need, e.g. \"crypto price signal\" or \"token safety check\"");
       const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
+      const ranked = await serverSearch({ query, cap, limit });
+      if (ranked) {
+        return {
+          query,
+          services: ranked,
+          note: ranked.length
+            ? "From the public x402 catalog, searched by your wallet server: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply."
+            : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}).`,
+        };
+      }
       const network = `eip155:${chain.id}`;
       const found = [];
       for (const item of await catalog()) {
