@@ -1,11 +1,13 @@
 import { test } from "node:test";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { decodeFunctionData, erc20Abi } from "viem";
 import { Wallet } from "xrpl";
-import { configFromEnv, createServer, createWallet, words } from "../lib.js";
+import { configFromEnv, createServer, createWallet, withSecretFiles, words } from "../lib.js";
 
 const KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // a well-known test key (anvil #1), no funds
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -193,6 +195,37 @@ test("configuration: a budget is required and conflicting setups are refused", (
   const s = configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.fizzl.eu", WALLET_SERVER_KEY: "awk_x" });
   assert.equal(s.limits, undefined);
   assert.equal(s.server.url, "https://wallet.fizzl.eu");
+});
+
+test("AGENT_KEY_FILE: the key from a file (out of the config and the shell history); a readable file is warned about", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wallet-mcp-"));
+  const file = join(dir, "agent-key");
+  writeFileSync(file, `${KEY}\n`);
+  chmodSync(file, 0o600);
+  const warnings = [];
+  assert.equal(withSecretFiles({ AGENT_KEY_FILE: file }, { warn: (m) => warnings.push(m) }).AGENT_KEY, KEY);
+  assert.deepEqual(warnings, []);
+  const limits = { LIMIT_USDC_PER_TX: "5", LIMIT_USDC_PER_DAY: "20" };
+  assert.equal(configFromEnv({ ...limits, AGENT_KEY_FILE: file }).key, KEY);
+  if (process.platform !== "win32") {
+    chmodSync(file, 0o644);
+    withSecretFiles({ AGENT_KEY_FILE: file }, { warn: (m) => warnings.push(m) });
+    assert.match(warnings[0], /chmod 600/);
+  }
+  assert.throws(() => withSecretFiles({ AGENT_KEY: KEY, AGENT_KEY_FILE: file }), /AGENT_KEY or AGENT_KEY_FILE, not both/);
+  assert.throws(() => withSecretFiles({ AGENT_KEY_FILE: join(dir, "missing") }), /AGENT_KEY_FILE: can't read .*ENOENT/);
+  writeFileSync(file, "not a key");
+  assert.throws(() => configFromEnv({ ...limits, AGENT_KEY_FILE: file }), /The file in AGENT_KEY_FILE must hold/);
+});
+
+test("the READMEs pin the version they document: npx without one fetches the newest release on every start", () => {
+  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  for (const file of ["../README.md", "../../README.md"]) {
+    const text = readFileSync(new URL(file, import.meta.url), "utf8");
+    const pins = [...text.matchAll(/presign-guard-wallet-mcp@(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
+    assert.ok(pins.length && pins.every((v) => v === version), `${file}: ${pins.join() || "no pinned version"}`);
+    assert.doesNotMatch(text, /npx -y presign-guard-wallet-mcp(?!@)|"presign-guard-wallet-mcp"\]/, file);
+  }
 });
 
 test("the MCP client sees six tools", async () => {

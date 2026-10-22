@@ -10,6 +10,7 @@
 // with the Telegram chat from TELEGRAM_CHAT_ID. That is the original
 // single-owner setup, unchanged.
 import { issuerFor } from "./mandate.js";
+import { WALLET_MCP } from "./mcp-package.js";
 import { randomBytes, createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isSolanaAddress, isSolanaSignature, verifySolanaSignature, usdcTransferMessage, usdcPaid, USDC_MINT } from "./solana.js";
@@ -88,7 +89,7 @@ export function welcomeMail(origin) {
       "",
       "Four steps to get started (each one is on your dashboard):",
       "",
-      `1. Add an agent and connect it. Dashboard → Agents → Add agent, then copy the setup for your app (Claude Desktop, Claude Code, Cursor or any MCP client). It runs the wallet MCP server: npx -y presign-guard-wallet-mcp. Restart your app and ask your agent: "what is my wallet status?"`,
+      `1. Add an agent and connect it. Dashboard → Agents → Add agent, then copy the setup for your app (Claude Desktop, Claude Code, Cursor or any MCP client). It runs the wallet MCP server: npx -y ${WALLET_MCP}. Restart your app and ask your agent: "what is my wallet status?"`,
       "",
       "2. Put a few dollars in your agent's wallet. The address and the networks it pays on are shown with your agent on the dashboard. A few dollars of USDC lasts a long time: most calls cost a cent or less.",
       "",

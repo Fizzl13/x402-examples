@@ -108,48 +108,6 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .overview .start li > button { justify-self: start; }
 #newKey, #howto { scroll-margin-top: 90px; }
 @media (max-width: 760px) { .overview { grid-template-columns: 1fr 1fr; } .overview .day { grid-column: 1 / -1; } }
-/* Stats (owner only): hero numbers, one small column chart per measure, the funnel, tables */
-.statsbar { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
-.seg button { border: 0; background: transparent; color: var(--soft); font: 700 11px/1 var(--body); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
-.seg button[aria-pressed="true"] { background: var(--mint); color: #02100c; }
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-.kpi { padding: 16px 18px; display: grid; gap: 4px; }
-.kpi b { font: 700 34px/1 var(--display); color: var(--text); font-variant-numeric: tabular-nums; }
-.kpi small { color: var(--muted); font-size: 12px; }
-.kpi .up { color: var(--mint); } .kpi .down { color: var(--rose); }
-.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
-.chart { padding: 16px 18px; display: grid; gap: 8px; position: relative; }
-.chart header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.chart header b { color: var(--text); font-size: 14px; }
-.chart header span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.chart .plot { position: relative; padding-left: 40px; }
-.chart .plot .ymax, .chart .plot .yzero { position: absolute; left: 0; width: 34px; text-align: right; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-.chart .plot .ymax { top: -2px; } .chart .plot .yzero { bottom: -4px; }
-.chart .xlab { display: flex; justify-content: space-between; padding-left: 40px; color: var(--muted); font-size: 10px; }
-.chart svg { width: 100%; height: 110px; display: block; }
-.chart svg .grid { stroke: rgba(244,248,247,.10); stroke-width: 1; }
-.chart svg .tick { fill: var(--muted); font: 10px var(--body); }
-.chart svg .bar { fill: #22a87c; }
-.chart svg g.col:hover .bar, .chart svg g.col:focus .bar { fill: #61f5c3; }
-.chart svg g.col { outline: none; }
-.tip { position: absolute; pointer-events: none; background: #0b1f1c; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 12px; color: var(--text); white-space: nowrap; transform: translate(-50%, -110%); z-index: 2; }
-.tip small { color: var(--muted); display: block; }
-.chart details summary { cursor: pointer; color: var(--muted); font-size: 11px; }
-.chart details table, .stable table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-.chart details td, .stable td, .stable th { padding: 4px 6px; border-bottom: 1px solid rgba(244,248,247,.06); text-align: left; }
-.stable th { color: var(--muted); font-weight: 600; } .stable td:last-child, .stable th:last-child { text-align: right; }
-.funnel { padding: 16px 18px; display: grid; gap: 8px; margin-bottom: 14px; }
-.funnel .frow { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 90px; gap: 10px; align-items: center; font-size: 13px; }
-.funnel .frow span:first-child { color: var(--soft); }
-.funnel .track { height: 14px; border-radius: 0 4px 4px 0; background: rgba(244,248,247,.05); position: relative; }
-.funnel .track i { position: absolute; inset: 0 auto 0 0; background: #22a87c; border-radius: 0 4px 4px 0; min-width: 2px; }
-.funnel .frow em { font-style: normal; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
-.funnel .frow em small { color: var(--muted); }
-.stables { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.stable { padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
-.snote { padding: 14px 16px; margin-bottom: 14px; border-color: var(--amber); display: grid; gap: 8px; }
-@media (max-width: 760px) { .kpis { grid-template-columns: 1fr 1fr; } .funnel .frow { grid-template-columns: minmax(0, 1fr) 70px; } .funnel .track { grid-column: 1 / -1; grid-row: 2; } }
 /* agents: the explanation folds away */
 .howto { margin-top: 20px; border: 1px dashed var(--line); border-radius: 16px; padding: 12px 16px; }
 .howto > summary { cursor: pointer; color: var(--mint); font: 700 11px/1.4 var(--body); letter-spacing: 2px; text-transform: uppercase; list-style: none; }
@@ -396,6 +354,10 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .wallets .netgrid { display: grid; gap: 8px; }
 .wallets .netgrid .button { flex-direction: column; justify-content: center; gap: 5px; min-height: 64px; padding: 8px 6px; border-radius: 14px; letter-spacing: 1px; }
 .wallets .netgrid .button small { font: 500 10px/1 var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); }
+.login .intro { color: var(--soft); margin: 0 0 10px; font-size: 15px; line-height: 1.5; }
+.login .intro-steps { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; color: var(--soft); font-size: 14px; line-height: 1.45; }
+.login .intro-steps b { color: var(--text); }
+#walletLogin .or { margin-bottom: 10px; }
 .login .or { display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
 .login .or::before, .login .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
@@ -542,7 +504,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
    "name": "Does Fizzl hold my keys or my money?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No. The agent signs with its own key, which stays in your MCP configuration, and the wallet server only says yes or no. Use a separate wallet for the agent with only what it may spend."
+    "text": "No. The agent signs with its own key, which stays on your computer (in your MCP configuration or a key file), and the wallet server only says yes or no. Your limits are checked by the wallet program on your computer, not on the blockchain: an agent that can read your files could read the key and pay without them. So use a separate wallet for the agent with only what it may spend."
    }
   },
   {
@@ -607,10 +569,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <div class="card">
       <span class="tag">Fizzl Agent Wallet</span>
       <h1 class="login-title">Spending limits and phone approvals for your AI agents</h1>
+      <p class="intro">For anyone whose AI agent (Claude, Cursor or one you built) pays for APIs and data in USDC. The agent keeps its own wallet; you set the limits and say yes or no to the rest on your phone.</p>
+      <ol class="intro-steps"><li><b>Sign in</b> with e-mail, a passkey or a crypto wallet.</li><li><b>Add your agent.</b> It gets its own wallet, made in your browser, and a setup to paste into your app.</li><li><b>Set your limits.</b> Under them it pays by itself; above them it asks you first.</li></ol>
+      <p class="note" style="margin:0 0 4px"><a class="button ghost small" href="/demo">Open the demo</a> &nbsp;No sign-in: example agents, nothing moves money.</p>
       <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
       <div id="passkeyLogin" hidden style="display:grid;gap:8px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
+      <div id="emailLogin" hidden style="display:grid;gap:10px">
+        <div class="or">or with e-mail</div>
+        <form id="emailForm" class="paste"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" aria-label="E-mail address" required><button class="button small" type="submit">Send code</button></form>
+        <form id="emailCodeForm" class="paste" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
+        <p class="note" id="emailNote" style="margin:0">No crypto wallet needed: we mail you a 6-digit code. Your agents get their own wallets after you sign in.</p>
+        <div class="err" id="emailErr"></div>
+      </div>
       <div id="walletLogin">
+        <div class="or" id="walletOr">or with a crypto wallet</div>
         <div class="wallets" id="walletList"></div>
         <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
         <div class="more-wallets" id="morePanel" hidden>
@@ -631,13 +604,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:10px 0 0">One free signature: no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month.</p>
       </div>
       <div class="err" id="walletErr"></div>
-      <div id="emailLogin" hidden style="display:grid;gap:10px">
-        <div class="or">or with e-mail</div>
-        <form id="emailForm" class="paste"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" aria-label="E-mail address" required><button class="button small" type="submit">Send code</button></form>
-        <form id="emailCodeForm" class="paste" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
-        <p class="note" id="emailNote" style="margin:0">No wallet needed: we mail you a 6-digit code. Your agents keep their own wallets.</p>
-        <div class="err" id="emailErr"></div>
-      </div>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
       <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no tracking cookies; with e-mail we keep only a fingerprint of your address, not the address.</p>
@@ -675,7 +641,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <div class="faq" id="faq">
       <h3>Questions <span>agent owners ask.</span></h3>
       <details><summary>How do I give an AI agent a wallet with spending limits?</summary><p>Sign in at https://wallet.fizzl.eu with your wallet (MetaMask, Coinbase Wallet, Phantom, Xaman, Pera or Defly) or a passkey, add an agent, and install the MCP server presign-guard-wallet-mcp in Claude, Cursor or another MCP client. The agent pays on its own up to your limit per purchase and per day, and asks you on your phone (the app or Telegram) above it. No answer means no payment.</p></details>
-      <details><summary>Does Fizzl hold my keys or my money?</summary><p>No. The agent signs with its own key, which stays in your MCP configuration, and the wallet server only says yes or no. Use a separate wallet for the agent with only what it may spend.</p></details>
+      <details><summary>Does Fizzl hold my keys or my money?</summary><p>No. The agent signs with its own key, which stays on your computer (in your MCP configuration or a key file), and the wallet server only says yes or no. Your limits are checked by the wallet program on your computer, not on the blockchain: an agent that can read your files could read the key and pay without them. So use a separate wallet for the agent with only what it may spend.</p></details>
       <details><summary>Can I approve with a signature from my own wallet instead of a tap?</summary><p>Yes, when you run the wallet yourself: with the npm package presign-guard-wallet (0.20 or later) or the MCP server with your own limits and AC2_OWNER, approvals above your limit are signed in AC2 Wallet on your phone over AC2, the Algorand Foundation's protocol for agents to ask their owner. The agent checks that the signature comes from your account, and the signed approval is kept with the payment as proof. The hosted wallet here asks in the app, on Telegram or on this dashboard.</p></details>
       <details><summary>Which payments can the agent make?</summary><p>x402 APIs in USDC on Base, and with the MCP server also on Solana, Algorand and the XRP Ledger (RLUSD), MPP APIs on Tempo, and USDC transfers. presign-guard checks every signature first, so known drainers and sanctioned addresses are never signed.</p></details>
       <details><summary>What does it cost?</summary><p>Free for one agent. Pro is $5 a month for unlimited agents, paid in stablecoins on Base, Algorand or the XRP Ledger.</p></details>
@@ -774,7 +740,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         </div>
         <div class="card">
           <span class="tag">WHAT MAY THEY BUY? IN YOUR OWN WORDS</span>
-          <p class="note" style="margin:10px 0 10px">Optional. Before each purchase an AI check (TypeSafe's Jev) compares what the agent is about to buy with your rule. Outside it, the agent asks you first, or is stopped if you choose so. When the check isn't sure, it always asks.</p>
+          <p class="note" style="margin:10px 0 10px">Optional. Before each purchase an AI check (TypeSafe's Jev) compares what the agent is about to buy with your rule. It gets only your rule and the purchase, nothing that identifies you (<a href="/privacy" style="text-decoration:underline">privacy</a>). Outside it, the agent asks you first, or is stopped if you choose so. When the check isn't sure, it always asks.</p>
           <textarea id="ruleText" maxlength="300" rows="3" style="font:inherit;font-size:15px;min-height:96px" placeholder="e.g. Only crypto market data and token safety checks. No AI text, images or video." aria-label="Your spending rule in your own words"></textarea>
           <div class="save" style="gap:10px;flex-wrap:wrap"><label class="note" for="ruleMode">Outside the rule:</label>
             <select id="ruleMode"><option value="ask">ask me first</option><option value="stop">stop the purchase</option></select>
@@ -815,7 +781,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:0">Ask in your own words, in any language. Your agent finds a paid service in the x402 catalog, pays it within your rules and gives you the answer; the receipt shows up under Purchases. For example:</p>
         <div class="copy"><code>What's the weather in Amsterdam the coming days?</code><button class="button ghost small" type="button" data-copy="What's the weather in Amsterdam the coming days?" data-track="ask_example" data-from="agents">Copy</button></div>
         <div class="copy"><code>What is the Bitcoin price today?</code><button class="button ghost small" type="button" data-copy="What is the Bitcoin price today?" data-track="ask_example" data-from="agents">Copy</button></div>
-        <div class="copy"><code>Is this token safe to buy: 0x…?</code><button class="button ghost small" type="button" data-copy="Is this token safe to buy: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
+        <div class="copy"><code>Any red flags on this token: 0x…?</code><button class="button ghost small" type="button" data-copy="Any red flags on this token: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
         <div class="copy"><code>What does this smart contract do: 0x…?</code><button class="button ghost small" type="button" data-copy="What does this smart contract do: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
         <p class="note" style="margin:0"><b style="color:#fff">Fewest clicks:</b> when Claude asks whether it may use the wallet's tools, choose <b style="color:#fff">Always allow</b>. Your rules here decide what it may spend (the "per payment" limit is its top price), and anything over them still comes to you first. Want to look yourself? The <a href="#/find" style="text-decoration:underline">Find</a> tab searches the same catalog.</p>
       </div>
@@ -865,36 +831,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="eyebrow"><i></i>05 / ACTIVITY</div>
       <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
       <div class="rows" id="events"></div>
-    </section>
-
-    <section class="section" id="statsSec" data-tab="stats">
-      <div class="eyebrow"><i></i>STATS <span style="color:var(--dim)">/</span> ONLY YOU SEE THIS</div>
-      <div class="statsbar"><h2 style="margin:0">YOUR NUMBERS.<br><span>WEBSITE TO PRO.</span></h2>
-        <div class="seg" role="group" aria-label="Period"><button type="button" data-days="7" aria-pressed="false">7 days</button><button type="button" data-days="30" aria-pressed="true">30 days</button></div></div>
-      <div id="statsOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
-      <p class="note" style="margin:14px 0 0">Every Monday morning you get the last 7 days of this on Telegram. <button class="link" type="button" id="digestNow">Send me the weekly summary now</button> <span id="digestMsg" role="status"></span></p>
-      <details id="outreachBox" style="margin-top:18px"><summary><img src="/icons/outreach.png" alt="" width="20" height="20" style="vertical-align:-4px;margin-right:6px;border-radius:5px">Outreach to sellers</summary>
-        <p class="note" style="margin:8px 0">Drafts to sellers with a broken paid endpoint, from x402 Doctor or added here. Nothing is mailed until you press Send (here or on Telegram). One mail per address, ever; a "stop" reply means never again.</p>
-        <div id="outreachOut" role="status" aria-live="polite"><p class="note">Loading…</p></div>
-        <details style="margin-top:10px"><summary>New draft</summary>
-          <form id="outreachNew" style="display:grid;gap:8px;margin-top:8px">
-            <input id="owTo" type="email" placeholder="contact@seller.com (the address the seller publishes)" aria-label="To" maxlength="254" required>
-            <input id="owUrl" type="url" placeholder="https://… the endpoint (optional)" aria-label="Endpoint" maxlength="500">
-            <input id="owSubject" placeholder="Subject" aria-label="Subject" maxlength="200" required>
-            <textarea id="owBody" rows="8" placeholder="Text (the opt-out line is added when it is sent)" aria-label="Text" maxlength="8000" required></textarea>
-            <button class="button small" type="submit">Save draft</button>
-          </form>
-        </details>
-        <details style="margin-top:10px"><summary>Import drafts</summary>
-          <form id="outreachImport" style="display:grid;gap:8px;margin-top:8px">
-            <p class="note" style="margin:0">Paste a list of drafts (JSON: <code>[{"to", "subject", "body", "url"}, …]</code>, at most 20). Each becomes a draft here and on Telegram; nothing is sent until you press Send.</p>
-            <textarea id="owImport" rows="6" placeholder='[{"to": "contact@seller.com", "subject": "…", "body": "…", "url": "https://…"}]' aria-label="Drafts to import" maxlength="200000" required></textarea>
-            <button class="button small" type="submit">Import</button>
-          </form>
-        </details>
-        <form id="outreachStop" class="paste" style="margin-top:10px"><input id="owStop" type="email" placeholder="Someone replied stop: their address" aria-label="Never mail this address" maxlength="254"><button class="button small" type="submit">Never mail</button></form>
-        <div class="msg" id="outreachMsg" role="status"></div>
-      </details>
     </section>
 
     <section class="section" id="accountSec" data-tab="account" hidden>
@@ -1181,6 +1117,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#deviceLogin").hidden = !viaCode;
       $("#emailLogin").hidden = !c.email;
       $("#passkeyLogin").hidden = !PASSKEYS || IN_WALLET_APP;
+      if (IN_WALLET_APP) $("#emailLogin").before($("#walletLogin"));
+      $("#walletOr").hidden = IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden);
       // A device that added or used a passkey here gets the big button; others a quiet one with how to start.
       let known = false; try { known = localStorage.getItem("aw_passkey") === "1"; } catch {}
       $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
@@ -2057,13 +1995,18 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // ---------- fund the agent: USDC on Base from the owner's own wallet, in one click ----------
   const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   let fundTo = null; // the tested agent's wallet address
+  const USDC_HOWTO = `<details class="note"><summary>No USDC on Base yet?</summary><ol class="setup-steps" style="margin:6px 0 0">
+    <li><b>From an exchange.</b> Buy USDC on Coinbase, Kraken, Binance or OKX, then withdraw (send) it to the agent's address and pick <b>Base</b> as the network. On Coinbase: Send → USDC → paste the address → network Base.</li>
+    <li><b>From your own wallet.</b> Have USDC on Ethereum or another network? Coinbase Wallet and MetaMask can swap or bridge it to Base in the app. Then use the buttons above.</li>
+    <li><b>Always Base.</b> USDC sent on another network doesn't reach this wallet's balance here. No ETH needed: x402 payments are signatures, the seller's side pays the fee.</li></ol></details>`;
   function fundHtml(agent, balance) {
     const low = !balance || balance.status !== "ok";
     return `<div class="fund"><span class="tag">${low ? "FUND YOUR AGENT" : "TOP UP"}</span>
       <p class="note" style="margin:0">Send USDC on Base to <b>${esc(agent.name)}</b>'s wallet. ${low ? "Only what it may spend: a few dollars is plenty for x402 calls (no ETH needed)." : ""}</p>
       <div class="btns" style="margin:0">${[1, 5, 10].map((n) => `<button class="button ${n === 5 && low ? "primary" : "ghost"} small" type="button" data-fund="${n}">Send ${n} USDC</button>`).join("")}<button class="button ghost small" type="button" data-copy="${esc(agent.address)}">Copy address</button></div>
       <div class="msg" id="fundMsg" role="status"></div>
-      <p class="note" style="margin:0">Sent from the wallet you have in this browser (MetaMask, Coinbase Wallet, …) to <code>${esc(agent.address.slice(0, 6))}…${esc(agent.address.slice(-4))}</code>. Or copy the address and send from any wallet or exchange, on <b>Base</b>.</p></div>`;
+      <p class="note" style="margin:0">Sent from the wallet you have in this browser (MetaMask, Coinbase Wallet, …) to <code>${esc(agent.address.slice(0, 6))}…${esc(agent.address.slice(-4))}</code>. Or copy the address and send from any wallet or exchange, on <b>Base</b>.</p>
+      ${USDC_HOWTO}</div>`;
   }
   async function fundAgent(amount) {
     const say = (t, cls = "") => { const m = $("#fundMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
@@ -2131,176 +2074,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     } catch (err) { $("#followMsg").textContent = err.message; $("#followMsg").className = "msg bad"; }
   });
 
-  // ---------- Stats (owner only): the website, the wallet and the four services, from the usage log ----------
-  let statsDays = 30, statsBusy = false;
-  const n0 = (v) => (Number(v) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
-  const shortDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString([], { day: "numeric", month: "short" });
-  // A clean axis top: 1, 2, 5 × 10^n at or above the largest value.
-  const niceMax = (m) => { if (m <= 0) return 1; const p = 10 ** Math.floor(Math.log10(m)); for (const f of [1, 2, 5, 10]) if (f * p >= m) return f * p; return 10 * p; };
-  function columnChart(title, values, days, { money = false } = {}) {
-    // The svg is stretched to the card's width (preserveAspectRatio none), so it holds only marks and
-    // hairlines; the axis labels are HTML around it and never get distorted.
-    const W = 600, H = 100, max = niceMax(Math.max(...values)), slot = W / values.length, bw = Math.min(24, Math.max(2, slot - 2));
-    const fmt = (v) => (money ? `$${n0(v)}` : n0(v));
-    const total = values.reduce((a, b) => a + b, 0);
-    const y = (v) => H - (v / max) * (H - 4);
-    const cols = values.map((v, i) => {
-      const x = i * slot + (slot - bw) / 2, top = y(v), h = H - top, r = Math.min(4, h, bw / 2);
-      const d = h <= 0 ? "" : `M${x},${H} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${H} Z`;
-      return `<g class="col" tabindex="0" data-tip="${esc(shortDay(days[i]))}|${esc(fmt(v))}"><rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/>${d ? `<path class="bar" d="${d}"/>` : ""}</g>`;
-    }).join("");
-    return `<article class="card chart"><header><b>${esc(title)}</b><span>${esc(fmt(total))} in ${days.length} days</span></header>
-      <div class="plot"><span class="ymax">${esc(fmt(max))}</span><span class="yzero">0</span>
-      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(title)} per day, ${esc(fmt(total))} in total"><line class="grid" x1="0" x2="${W}" y1="${y(max)}" y2="${y(max)}" vector-effect="non-scaling-stroke"/><line class="grid" x1="0" x2="${W}" y1="${H}" y2="${H}" vector-effect="non-scaling-stroke"/>${cols}</svg></div>
-      <div class="xlab"><span>${esc(shortDay(days[0]))}</span><span>${esc(shortDay(days.at(-1)))}</span></div><div class="tip" hidden></div>
-      <details><summary>Show as table</summary><table>${days.map((d, i) => `<tr><td>${esc(shortDay(d))}</td><td style="text-align:right">${esc(fmt(values[i]))}</td></tr>`).join("")}</table></details></article>`;
+  // The owner's own tab (owner/owner.js): fetched only once the owner is signed in, so the
+  // public page holds none of it.
+  let owner = null;
+  function loadOwner() {
+    owner ??= Promise.all([
+      fetch("/api/admin/owner.html", { credentials: "same-origin" }).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))),
+      import("/api/admin/owner.js"),
+    ]).then(([html, mod]) => {
+      $("#accountSec").insertAdjacentHTML("beforebegin", html);
+      return mod.startOwner({ $, esc, api, post, me: () => me, DEMO });
+    }).catch((err) => { owner = null; throw err; });
+    return owner;
   }
-  // The svg is stretched to the card width, so bars are paths (crisp at any width) and the tooltip follows the pointer.
-  $("#statsOut").addEventListener("pointermove", (e) => {
-    const col = e.target.closest?.("g.col"), card = e.target.closest?.(".chart"); if (!card) return;
-    const tip = card.querySelector(".tip");
-    if (!col) { tip.hidden = true; return; }
-    const [d, v] = col.dataset.tip.split("|"), box = card.getBoundingClientRect(), r = col.getBoundingClientRect();
-    tip.innerHTML = `<small>${esc(d)}</small>${esc(v)}`; tip.hidden = false;
-    tip.style.left = `${Math.min(Math.max(r.left + r.width / 2 - box.left, 50), box.width - 50)}px`; tip.style.top = `${r.top - box.top + 20}px`;
-  });
-  $("#statsOut").addEventListener("pointerleave", () => document.querySelectorAll("#statsOut .tip").forEach((t) => { t.hidden = true; }), true);
-  $("#statsOut").addEventListener("focusin", (e) => { const col = e.target.closest?.("g.col"); if (col) col.dispatchEvent(new PointerEvent("pointermove", { bubbles: true })); });
-  const tableCard = (title, rows, head = "Count", money = false) => `<article class="card stable"><span class="tag">${esc(title)}</span>${rows.length ? `<table><tr><th></th><th>${esc(head)}</th></tr>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(money ? `$${n0(v)}` : n0(v))}</td></tr>`).join("")}</table>` : `<p class="note" style="margin:0">Nothing yet.</p>`}</article>`;
-  function deltaTxt(now, before, money = false) {
-    if (!before && !now) return `<small>no data yet</small>`;
-    const d = now - before;
-    return `<small><span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "="} ${esc(money ? `$${n0(Math.abs(d))}` : n0(Math.abs(d)))}</span> vs the ${statsDays} days before</small>`;
-  }
-  async function loadStats() {
-    if (statsBusy || !me?.admin) return;
-    statsBusy = true;
-    document.querySelectorAll("#statsSec .seg button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.days) === statsDays)));
-    const out = $("#statsOut");
-    if (!out.dataset.loaded) out.innerHTML = `<p class="note">Reading the usage log…</p>`;
-    try {
-      const s = await api("GET", `/api/admin/stats?days=${statsDays}`);
-      const k = s.kpi, p = s.prev, rev = k.serviceUsd + k.proUsd - (k.refundUsd || 0), prevRev = p.serviceUsd + p.proUsd - (p.refundUsd || 0);
-      const notes = [
-        !s.logging.site ? `<b>The website counter hasn't counted anything yet.</b> It is in the pages of fizzl.eu and its subdomains once those are deployed: <code>&lt;script defer src="https://wallet.fizzl.eu/s.js"&gt;&lt;/script&gt;</code>` : "",
-        !s.logging.wallet ? `<b>No wallet events yet.</b> Set <code>USAGE_LOG_TOKEN</code> on fizzl-wallet-server in Render (the same token as the other services).` : "",
-      ].filter(Boolean);
-      const top = s.funnel[0][1] || 0;
-      out.innerHTML = `${notes.length ? `<div class="card snote">${notes.map((n) => `<p class="note" style="margin:0">${n}</p>`).join("")}</div>` : ""}
-        <div class="kpis">
-          <article class="card kpi"><span class="tag">WEBSITE VISITS</span><b>${esc(n0(k.siteViews))}</b>${deltaTxt(k.siteViews, p.siteViews)}</article>
-          <article class="card kpi"><span class="tag">WALLET SIGN-UPS</span><b>${esc(n0(k.signups))}</b>${deltaTxt(k.signups, p.signups)}</article>
-          <article class="card kpi"><span class="tag">PURCHASES BY AGENTS</span><b>${esc(n0(k.purchases))}</b>${deltaTxt(k.purchases, p.purchases)}</article>
-          <article class="card kpi"><span class="tag">REVENUE</span><b>$${esc(n0(rev))}</b>${deltaTxt(rev, prevRev, true)}<small>services $${esc(n0(k.serviceUsd))} · Pro $${esc(n0(k.proUsd))}${k.withdrawals ? ` · ${esc(n0(k.withdrawals))} withdrawal${k.withdrawals === 1 ? "" : "s"}, −$${esc(n0(k.refundUsd))}` : ""}</small></article>
-        </div>
-        <article class="card funnel"><span class="tag">FROM THE WEBSITE TO PRO · ${esc(shortDay(s.from))} – ${esc(shortDay(s.to))}</span>
-          ${s.funnel.map(([label, v]) => `<div class="frow"><span>${esc(label)}</span><span class="track" aria-hidden="true"><i style="width:${top ? Math.max(0.5, (v / top) * 100) : 0}%"></i></span><em>${esc(n0(v))}${top && v !== top ? ` <small>${esc(Math.round((v / top) * 1000) / 10)}%</small>` : ""}</em></div>`).join("")}
-          <p class="note" style="margin:0">A sign-up counts as "from the website" when the visitor came through a link on fizzl.eu or a subdomain. No cookies: the site's name travels in the link, nothing about the person.</p>
-        </article>
-        <div class="charts">
-          ${columnChart("Website visits", s.series.siteViews, s.dayKeys)}
-          ${columnChart("Wallet sign-ups", s.series.signups, s.dayKeys)}
-          ${columnChart("Purchases by agents in the wallet", s.series.purchases, s.dayKeys)}
-          ${columnChart("Paid calls to your 4 services", s.series.paidCalls, s.dayKeys)}
-          ${columnChart("Revenue (services + Pro)", s.series.revenue, s.dayKeys, { money: true })}
-        </div>
-        <article class="card stable" style="margin-bottom:14px"><span class="tag">YOUR 4 SERVICES · OUTSIDE USE</span>
-          <table><tr><th>Service</th><th>Paid calls</th><th>Revenue</th><th>Price shown (402)</th><th>Payers</th><th>Visitors</th></tr>
-          ${s.services.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(n0(x.paid))}</td><td>$${esc(n0(x.usd))}</td><td>${esc(n0(x.quotes))}</td><td>${esc(n0(x.payers))}</td><td>${esc(n0(x.visitors))}</td></tr>`).join("")}</table>
-          <p class="note" style="margin:0">Your own wallets and monitors are left out (scripts/known.json in the usage log).</p></article>
-        <div class="stables">
-          ${tableCard("Top pages", s.tables.pages, "Views")}
-          ${tableCard("Where visitors came from", s.tables.from, "Views")}
-          ${tableCard("Clicks from the website", s.tables.out, "Clicks")}
-          ${tableCard("Where agents bought", s.tables.hosts, "Purchases")}
-          ${tableCard("Searches in the wallet", s.tables.searches, "Searches")}
-          ${tableCard("Searches that found nothing", s.tables.noResults, "Searches")}
-          ${tableCard("Test my setup: what fails", s.tables.setupFails, "Times")}
-        </div>`;
-      out.dataset.loaded = "1";
-    } catch (err) { if (err.message !== "login") out.innerHTML = `<div class="card snote"><p class="note" style="margin:0">${esc(err.message)}</p></div>`; }
-    finally { statsBusy = false; }
-  }
-  $("#statsSec").addEventListener("click", (e) => { const b = e.target.closest(".seg button[data-days]"); if (!b) return; statsDays = Number(b.dataset.days); loadStats(); });
-
-  // ---------- outreach to sellers (owner only) ----------
-  const owSay = (t, bad) => { const m = $("#outreachMsg"); m.textContent = t; m.style.color = bad ? "var(--rose)" : ""; };
-  async function loadOutreach() {
-    if (!me?.admin || DEMO) return;
-    const out = $("#outreachOut");
-    try {
-      const r = await api("GET", "/api/admin/outreach");
-      const head = `<p class="note" style="margin:0 0 8px">${r.enabled ? `From <b style="color:#fff">${esc(r.from)}</b>${r.replyTo ? `, replies to ${esc(r.replyTo)}` : ""} · ${esc(r.sentToday)}/${esc(r.dailyLimit)} sent today` : `<b>Sending is off.</b> Set <code>RESEND_API_KEY</code> and <code>OUTREACH_FROM</code> on this server (and <code>OUTREACH_KEY</code>, the same on x402 Doctor, for drafts from Doctor).`}</p>`;
-      const drafts = r.drafts.map((d) => `<div class="card" style="margin:0 0 10px;padding:12px" data-ow="${esc(d.id)}">
-          <p class="note" style="margin:0 0 6px">${esc(d.source === "doctor" ? "From x402 Doctor" : "Added by you")}${d.host ? ` · ${esc(d.host)}` : ""} · ${esc(new Date(d.createdAt).toLocaleString())}${d.lastError ? ` · <span style="color:var(--rose)">last try: ${esc(d.lastError)}</span>` : ""}</p>
-          <div style="display:grid;gap:6px"><input data-f="to" value="${esc(d.to)}" aria-label="To" maxlength="254"><input data-f="subject" value="${esc(d.subject)}" aria-label="Subject" maxlength="200"><textarea data-f="body" rows="10" aria-label="Text" maxlength="8000">${esc(d.body)}</textarea></div>
-          <p style="margin:8px 0 0"><button class="button small" type="button" data-owact="send">Send</button> <button class="link" type="button" data-owact="save">Save changes</button> · <button class="link" type="button" data-owact="discard">Throw away</button></p></div>`).join("");
-      const sent = r.sent.length ? `<details style="margin-top:6px"><summary>Sent (${esc(r.sent.length)})</summary><div class="paylist">${r.sent.map((d) => `<div><span>${esc(new Date(d.sentAt).toLocaleDateString())} · ${esc(d.to)}${d.host ? ` · ${esc(d.host)}` : ""}</span><span>${esc(d.subject)}</span></div>`).join("")}</div></details>` : "";
-      out.innerHTML = head + (drafts || `<p class="note" style="margin:0">No open drafts.</p>`) + sent;
-    } catch (err) { if (err.message !== "login") out.innerHTML = `<p class="note">${esc(err.message)}</p>`; }
-  }
-  $("#outreachBox").addEventListener("toggle", (e) => { if (e.target.id === "outreachBox" && e.target.open) loadOutreach(); });
-  $("#outreachOut").addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-owact]"); if (!b) return;
-    const card = b.closest("[data-ow]"), id = card.dataset.ow;
-    const val = (f) => card.querySelector(`[data-f="${f}"]`).value;
-    try {
-      if (b.dataset.owact === "discard") { await api("POST", `/api/admin/outreach/${encodeURIComponent(id)}/discard`, {}); owSay("Thrown away."); }
-      else {
-        await api("PUT", `/api/admin/outreach/${encodeURIComponent(id)}`, { to: val("to"), subject: val("subject"), body: val("body") });
-        if (b.dataset.owact === "send") {
-          if (!confirm(`Send this e-mail to ${val("to")}? It goes out once and can't be taken back.`)) return;
-          await api("POST", `/api/admin/outreach/${encodeURIComponent(id)}/send`, {}); owSay(`Sent to ${val("to")}.`);
-        } else owSay("Saved.");
-      }
-      loadOutreach();
-    } catch (err) { if (err.message !== "login") owSay(err.message, true); }
-  });
-  $("#outreachNew").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try {
-      const r = await api("POST", "/api/admin/outreach", { to: $("#owTo").value, url: $("#owUrl").value || null, subject: $("#owSubject").value, body: $("#owBody").value });
-      if (r.skipped) owSay(r.message, true); else { owSay("Draft saved (also on Telegram)."); e.target.reset(); }
-      loadOutreach();
-    } catch (err) { if (err.message !== "login") owSay(err.message, true); }
-  });
-  // Many drafts at once (Claude prepares the list; the owner pastes it): the same rules as one by one.
-  $("#outreachImport").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    let list;
-    try {
-      const parsed = JSON.parse($("#owImport").value);
-      list = Array.isArray(parsed) ? parsed : parsed?.drafts;
-      if (!Array.isArray(list) || !list.length) throw new Error();
-    } catch { owSay("That isn't a JSON list of drafts.", true); return; }
-    if (list.length > 20) { owSay("At most 20 drafts per import.", true); return; }
-    let saved = 0;
-    const skipped = [];
-    for (const d of list) {
-      try {
-        const r = await api("POST", "/api/admin/outreach", { to: d?.to, url: d?.url || null, subject: d?.subject, body: d?.body });
-        if (r.skipped) skipped.push(`${d?.to}: ${r.message}`); else saved++;
-      } catch (err) {
-        if (err.message === "login") return;
-        skipped.push(`${d?.to}: ${err.message}`);
-      }
-    }
-    owSay(`${saved} draft${saved === 1 ? "" : "s"} saved (also on Telegram)${skipped.length ? `; skipped: ${skipped.join("; ")}` : "."}`, skipped.length > 0 && saved === 0);
-    if (saved) e.target.reset();
-    loadOutreach();
-  });
-  $("#outreachStop").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try { const r = await api("POST", "/api/admin/outreach-stop", { email: $("#owStop").value }); owSay(`${r.stopped} will never be mailed.`); e.target.reset(); loadOutreach(); } catch (err) { if (err.message !== "login") owSay(err.message, true); }
-  });
-  $("#digestNow").addEventListener("click", async (e) => {
-    const b = e.currentTarget, m = $("#digestMsg");
-    if (DEMO) { m.textContent = "This is the demo: nothing is sent."; return; }
-    b.disabled = true; m.textContent = "Sending…";
-    try { await post("/api/admin/digest", {}); m.textContent = "Sent: check Telegram."; }
-    catch (err) { m.textContent = err.message; }
-    finally { b.disabled = false; }
-  });
+  function loadStats() { if (me?.admin && !DEMO) loadOwner().then((o) => o.loadStats(), () => {}); }
 
   // Purchases: what the agents bought, newest first, each opening its receipt.
   let buys = [];
@@ -2472,20 +2259,26 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // only the agent wallet's own private key is left for the user (this page never sees it).
   const SETUP_CLIENTS = [["desktop", "Claude Desktop"], ["code", "Claude Code"], ["cursor", "Cursor"], ["env", "Other"]];
   // agentKey: a wallet made for this agent in this browser (agentkey.js); otherwise a placeholder to replace.
+  // The wallet MCP server pinned to one version (the server fills it in): without a version, npx would fetch whatever
+  // is newest on every start, and that code sees the key.
+  const WALLET_MCP = "{{WALLET_MCP}}";
+  // Claude Code and "Other": the key goes into a file only you can read, typed at a prompt, so it is in neither the
+  // shell history nor the app's config (AGENT_KEY_FILE).
+  const KEY_FILE = `mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\\n' "$k" > ~/.fizzl/agent-key)`;
   function setupText(client, key, agentKey = null) {
     const url = /^https:\/\//.test(location.origin) ? location.origin : "https://wallet.fizzl.eu";
     const pk = agentKey?.privateKey ?? "0x…your agent wallet's private key…";
     const env = { AGENT_KEY: pk, WALLET_SERVER_URL: url, WALLET_SERVER_KEY: key };
-    const json = JSON.stringify({ mcpServers: { wallet: { command: "npx", args: ["-y", "presign-guard-wallet-mcp"], env } } }, null, 2);
-    if (client === "code") return `claude mcp add wallet \\\n  -e AGENT_KEY=${agentKey?.privateKey ?? "0x…your-agent-wallet-private-key…"} \\\n  -e WALLET_SERVER_URL=${url} \\\n  -e WALLET_SERVER_KEY=${key} \\\n  -- npx -y presign-guard-wallet-mcp`;
-    if (client === "env") return Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n# then run: npx -y presign-guard-wallet-mcp (an MCP server over stdio)";
+    const json = JSON.stringify({ mcpServers: { wallet: { command: "npx", args: ["-y", WALLET_MCP], env } } }, null, 2);
+    if (client === "code") return `# 1. Save the agent wallet's key in a file only you can read. Paste the key at the prompt:\n#    it isn't shown, and it stays out of your shell history and Claude's config.\n${KEY_FILE}\n\n# 2. Add the wallet to Claude Code\nclaude mcp add wallet \\\n  -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key \\\n  -e WALLET_SERVER_URL=${url} \\\n  -e WALLET_SERVER_KEY=${key} \\\n  -- npx -y ${WALLET_MCP}`;
+    if (client === "env") return `# The agent wallet's key, in a file only you can read (paste it at the prompt):\n${KEY_FILE}\n\nAGENT_KEY_FILE=$HOME/.fizzl/agent-key\nWALLET_SERVER_URL=${url}\nWALLET_SERVER_KEY=${key}\n# then run: npx -y ${WALLET_MCP} (an MCP server over stdio)`;
     return json;
   }
   const SETUP_WHERE = {
-    desktop: "Claude Desktop → Settings → Developer → Edit Config (claude_desktop_config.json). Already have servers there? Add only the \"wallet\" part inside mcpServers. Then quit Claude Desktop fully and open it again.",
-    code: "Run this in a terminal.",
-    cursor: "Cursor → Settings → MCP → Add new global MCP server (~/.cursor/mcp.json).",
-    env: "For any MCP client or your own agent: these environment variables.",
+    desktop: "Claude Desktop → Settings → Developer → Edit Config. That opens claude_desktop_config.json (on a Mac in ~/Library/Application Support/Claude/, on Windows in %APPDATA%\\Claude\\). Already have servers there? Add only the \"wallet\" part inside mcpServers. Then quit Claude Desktop fully and open it again. Rather keep the key out of this file? Put it in a file only you can read and use \"AGENT_KEY_FILE\": \"/full/path/to/that/file\" instead of AGENT_KEY.",
+    code: "Run this in a terminal (macOS or Linux). At the prompt, paste the agent wallet's private key. On Windows: save the key in a file in your user folder and set AGENT_KEY_FILE to its full path.",
+    cursor: "Cursor → Settings → MCP → Add new global MCP server (the file ~/.cursor/mcp.json). Rather keep the key out of this file? Use \"AGENT_KEY_FILE\": \"/full/path/to/a/file\" instead of AGENT_KEY.",
+    env: "For any MCP client or your own agent: the key in a file, and these environment variables.",
   };
   function setupHtml(key) {
     if (DEMO) return "";
@@ -2496,7 +2289,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:0">Made here, in your browser: the key goes straight into the config below. This page doesn't keep it and our server never sees it.</p>
       </div>
       <div id="agentWalletOut"></div>
-      <ol class="note setup-steps" id="ownSteps" hidden><li>Make a <b>separate wallet</b> for this agent (a new account in MetaMask) with only what it may spend: a few dollars of USDC on Base.</li><li>Pick your app, copy, and replace <code>0x…</code> with that wallet's private key. It stays on your computer; this page never sees it.</li><li>Run <b>Test my setup</b> and paste the agent wallet's address (public): you can send it USDC from there in one click.</li></ol>
+      <p class="note" style="margin:0">Why its own wallet: your limits are checked by the wallet program on your computer, not on the blockchain. An agent that can read your files or run commands (Claude Code, Cursor) could read the key and pay without them. So keep only a few dollars on it.</p>
+      <ol class="note setup-steps" id="ownSteps" hidden><li>Make a <b>separate wallet</b> for this agent (a new account in MetaMask) with only what it may spend: a few dollars of USDC on Base. Its private key: in MetaMask, the account menu (⋮) → Account details → Show private key.</li><li>Pick your app, copy, and replace <code>0x…</code> with that wallet's private key. It stays on your computer; this page never sees it.</li><li>Run <b>Test my setup</b> and paste the agent wallet's address (public): you can send it USDC from there in one click.</li></ol>
       <p class="note" style="margin:0"><b style="color:var(--text)">2. Add it to your app:</b></p>
       <div class="setup-tabs" role="tablist">${SETUP_CLIENTS.map(([id, label], i) => `<button type="button" role="tab" class="${i ? "" : "on"}" data-setup="${id}" aria-selected="${i ? "false" : "true"}">${label}</button>`).join("")}</div>
       <p class="note" id="setupWhere" style="margin:0">${esc(SETUP_WHERE.desktop)}</p>
@@ -2550,7 +2344,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         api("PUT", `/api/agents/${encodeURIComponent(agent.id)}/address`, { address: madeKey.address }).catch(() => {}); // public address only: for the balance and Test my setup
         $("#mkWallet").hidden = true;
         $("#agentWalletOut").innerHTML = `<div class="madewallet"><p class="note" style="margin:0"><b style="color:var(--text)">1. ${esc(agent.name)}'s wallet:</b> <code>${esc(madeKey.address)}</code> <button class="link" type="button" data-copy="${esc(madeKey.address)}">copy address</button></p>
-          <p class="warnline">Its private key is now in the config below, and <b>only there</b>: copy it into your app now, and keep a copy somewhere safe (a password manager). Close this card without copying and the key, and any money in that wallet, is gone. <button class="link" type="button" id="copyPk">Copy the private key</button></p>
+          <p class="warnline">Its private key exists <b>only on this page</b>: put it in your app now (step 2), and keep a copy somewhere safe (a password manager). Close this card without copying and the key, and any money in that wallet, is gone. <button class="link" type="button" id="copyPk">Copy the private key</button></p>
           ${fundHtml({ name: agent.name, address: madeKey.address }, null)}</div>`;
         $("#copyPk").onclick = () => navigator.clipboard?.writeText(madeKey.privateKey).then(() => { $("#copyPk").textContent = "Copied"; });
         show();

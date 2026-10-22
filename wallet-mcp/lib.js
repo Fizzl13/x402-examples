@@ -2,7 +2,7 @@
 // presign-guard-wallet, so every payment and transfer a model asks for is
 // checked by presign-guard and kept to the owner's limits, with approval on
 // Telegram or the wallet server above them.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createPublicClient, createWalletClient, erc20Abi, formatEther, formatUnits, http, isAddress, keccak256, parseEther, parseUnits, stringToHex } from "viem";
@@ -178,9 +178,32 @@ export function xrplPayScheme(signer, { network, wsUrl, prepare, maxUsd = Infini
   });
 }
 
+// A secret can come from a file instead of the environment: AGENT_KEY_FILE=~/.fizzl/agent-key (and XRPL_SEED_FILE,
+// ALGORAND_MNEMONIC_FILE, SOLANA_PRIVATE_KEY_FILE). The key is then in neither the MCP client's config nor the shell
+// history. It is still a file on this computer: an agent that can read your files can read it too.
+const SECRETS = ["AGENT_KEY", "XRPL_SEED", "ALGORAND_MNEMONIC", "SOLANA_PRIVATE_KEY"];
+export function withSecretFiles(env = process.env, { warn = (m) => console.error(`[presign-guard-wallet-mcp] ${m}`) } = {}) {
+  const out = { ...env };
+  for (const name of SECRETS) {
+    const file = env[`${name}_FILE`]?.trim();
+    if (!file) continue;
+    if (env[name]?.trim()) throw new Error(`set ${name} or ${name}_FILE, not both`);
+    const path = file === "~" || file.startsWith("~/") ? join(homedir(), file.slice(1)) : file;
+    try {
+      out[name] = readFileSync(path, "utf8").trim();
+      if (process.platform !== "win32" && statSync(path).mode & 0o077) warn(`${path} can be read by other users of this computer: chmod 600 ${path}`);
+    } catch (err) {
+      throw new Error(`${name}_FILE: can't read ${path} (${err.code ?? err.message})`);
+    }
+  }
+  return out;
+}
+
 export function configFromEnv(env = process.env) {
+  const fromFile = Boolean(env.AGENT_KEY_FILE?.trim());
+  env = withSecretFiles(env);
   const key = env.AGENT_KEY?.trim();
-  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error("AGENT_KEY must be the agent wallet's private key (0x + 64 hex). Use a separate wallet with only what the agent may spend.");
+  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw new Error(`${fromFile ? "The file in AGENT_KEY_FILE must hold" : "AGENT_KEY must be"} the agent wallet's private key (0x + 64 hex). Use a separate wallet with only what the agent may spend.`);
   const chainName = (env.CHAIN ?? "base").toLowerCase();
   if (!CHAINS[chainName]) throw new Error(`CHAIN must be one of ${Object.keys(CHAINS).join(", ")}`);
 
@@ -761,7 +784,7 @@ function result(fn) {
   };
 }
 
-export const SETUP_MESSAGE = "No wallet yet: set AGENT_KEY (the agent wallet's private key, 0x + 64 hex, a separate wallet with only what the agent may spend) in this MCP server's environment and restart it. See https://www.npmjs.com/package/presign-guard-wallet-mcp";
+export const SETUP_MESSAGE = "No wallet yet: set AGENT_KEY (the agent wallet's private key, 0x + 64 hex, a separate wallet with only what the agent may spend), or AGENT_KEY_FILE with the path to a file holding it, in this MCP server's environment and restart it. See https://www.npmjs.com/package/presign-guard-wallet-mcp";
 
 /**
  * A stand-in wallet for when AGENT_KEY is not set: the server still starts and

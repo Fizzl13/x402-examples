@@ -16,7 +16,7 @@ The wallet server is at {{ORIGIN}}. It never holds keys or money: you keep your 
 ## Ground rules (read these first)
 
 1. **Never ask your owner to paste a private key, seed phrase or recovery phrase into the chat.** Keys go in your MCP configuration, which your owner edits themselves.
-2. Your wallet must be a **separate agent wallet** with only what you may spend, never your owner's main wallet.
+2. Your wallet must be a **separate agent wallet** with only what you may spend, never your owner's main wallet. Tell your owner why, plainly: the limits are checked by the wallet MCP server on their computer, not on the blockchain, so an agent that can read files (you, perhaps) could read the key and pay without them. Never read the key file or the MCP config yourself.
 3. Pay only what the task needs. Prefer the cheapest service that does the job, and always set `max_price_usd`.
 4. If a payment is refused (over the limit, denied, red verdict), tell your owner why. Do not retry another way around the rules.
 5. If something looks wrong (an API asks far more than expected, an unknown address wants money), call `pause_spending`.
@@ -27,26 +27,33 @@ Do these steps together with your owner. Explain each one in plain words.
 
 ### 1. An account and an agent key (your owner, ~1 minute)
 
-Ask your owner to open {{ORIGIN}}, sign in with their wallet (MetaMask or Phantom: one free signature, no password), go to **Your agents**, type a name for you (for example `claude-desktop`) and click **Add agent**. The dashboard shows a key starting with `awk_` once. Your owner keeps it for step 3; they don't need to show it to you.
+Ask your owner to open {{ORIGIN}}, sign in (with e-mail, no crypto wallet needed; or with a passkey or their wallet: one free signature, no password), go to **Your agents**, type a name for you (for example `claude-desktop`) and click **Add agent**. The dashboard shows a key starting with `awk_` once. Your owner keeps it for step 3; they don't need to show it to you.
 
 The free plan has 1 agent, which is enough to use every service.
 
 ### 2. A separate wallet for you (your owner)
 
-Your owner makes a new wallet just for you (for example a new account in MetaMask), puts a few dollars of USDC on Base in it, and keeps its private key for step 3. That key is yours to sign with; it never leaves their computer.
+The easiest way: on the dashboard, right after adding you, your owner clicks **Make a wallet for this agent**. It is made in their browser; the key goes straight into the setup to copy. Or they make one themselves (a new account in MetaMask; its key is under the account menu → Account details → Show private key). That key is yours to sign with; it never leaves their computer.
+
+Then a few dollars of USDC **on Base** go to your wallet's address:
+- from the dashboard: **Send 5 USDC** from their own wallet, in one click;
+- from an exchange: buy USDC (Coinbase, Kraken, Binance, OKX) and withdraw it to your address with **Base** as the network;
+- USDC on another network: Coinbase Wallet and MetaMask can swap or bridge it to Base.
+
+No ETH is needed: x402 payments are signatures.
 
 ### 3. Install the wallet MCP server (your owner edits the config)
 
 Show your owner the configuration for their client. They fill in the two values themselves.
 
-**Claude Desktop** (`claude_desktop_config.json`):
+**Claude Desktop:** Settings → Developer → Edit Config opens `claude_desktop_config.json` (on a Mac in `~/Library/Application Support/Claude/`, on Windows in `%APPDATA%\Claude\`):
 
 ```json
 {
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp"],
+      "args": ["-y", "{{WALLET_MCP}}"],
       "env": {
         "AGENT_KEY": "0x… the agent wallet's private key (step 2)",
         "WALLET_SERVER_URL": "{{ORIGIN}}",
@@ -57,11 +64,16 @@ Show your owner the configuration for their client. They fill in the two values 
 }
 ```
 
-**Claude Code** (your owner runs this in a terminal):
+Rather keep the key out of that file? Put it in a file only your owner can read and use `"AGENT_KEY_FILE": "/full/path/to/that/file"` instead of `AGENT_KEY`.
+
+**Claude Code** (your owner runs this in a terminal; the key goes into a file at a prompt, so it stays out of the shell history and the config):
 
 ```sh
-claude mcp add wallet -e AGENT_KEY=0x… -e WALLET_SERVER_URL={{ORIGIN}} -e WALLET_SERVER_KEY=awk_… -- npx -y presign-guard-wallet-mcp
+mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e WALLET_SERVER_URL={{ORIGIN}} -e WALLET_SERVER_KEY=awk_… -- npx -y {{WALLET_MCP}}
 ```
+
+The version is pinned on purpose: without it, `npx` fetches the newest release on every start.
 
 **Cursor and other MCP clients:** the same `command`, `args` and `env` as for Claude Desktop, in the client's MCP settings.
 

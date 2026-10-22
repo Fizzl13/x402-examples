@@ -10,6 +10,7 @@ import qrcode from "qrcode-generator";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import indexNow from "./indexnow.cjs";
+import { WALLET_MCP } from "./mcp-package.js";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
@@ -19,6 +20,9 @@ const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
 export const SITEMAP_PATHS = ["/", "/skill.md", "/llms.txt", "/privacy", "/terms"];
 const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const AGENTKEY = fileURLToPath(new URL("../public/agentkey.js", import.meta.url)); // makes an agent wallet in the browser
+// The owner's Stats tab and outreach to sellers: not in the public page, sent only to the signed-in owner.
+const OWNER_HTML = fileURLToPath(new URL("../owner/owner.html", import.meta.url));
+const OWNER_JS = fileURLToPath(new URL("../owner/owner.js", import.meta.url));
 const FONTS = fileURLToPath(new URL("../public/fonts", import.meta.url));
 const ICONS = fileURLToPath(new URL("../public/icons", import.meta.url)); // wallet logos (MetaMask, Phantom) for the sign-in buttons
 const APP = fileURLToPath(new URL("../public/app", import.meta.url)); // the dashboard as an installable app: icons
@@ -363,6 +367,15 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.delete("/monitors/:id", wrap(async (req, res) => res.json(await accounts.removeMonitor(req.account, req.params.id))));
   owner.post("/monitors/:id/check", wrap(async (req, res) => { await accounts.checkMonitor(req.account, req.params.id); res.json(await accounts.monitors(req.account)); }));
   owner.post("/billing/auto/refresh", wrap(async (req, res) => res.json(await accounts.refreshAuto(req.account))));
+  // The Stats tab itself (markup and script), fetched by the dashboard once the owner is signed in.
+  owner.get("/admin/owner.html", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.set("cache-control", "private, no-store").type("html").sendFile(OWNER_HTML);
+  }));
+  owner.get("/admin/owner.js", wrap(async (req, res) => {
+    if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
+    res.set("cache-control", "private, no-store").type("text/javascript").sendFile(OWNER_JS);
+  }));
   // The owner's Stats tab: the website, the wallet and the four services, from the usage log.
   owner.get("/admin/stats", wrap(async (req, res) => {
     if (req.account !== "admin") return res.status(403).json({ error: "forbidden" });
@@ -456,7 +469,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   let page;
   const legal = new Map();
   app.get(["/", "/index.html", "/demo"], (req, res) => {
-    page ??= readFileSync(DASHBOARD, "utf8");
+    page ??= readFileSync(DASHBOARD, "utf8").replaceAll("{{WALLET_MCP}}", WALLET_MCP);
     usage.record("page", { via: req.path === "/demo" ? "demo" : "dashboard", agent: agentOf(req.get("user-agent")), input: { ref: fizzlSite(req.query.ref) } });
     res.set("content-security-policy", CSP);
     res.type("html").send(page);
@@ -484,7 +497,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     skill ??= readFileSync(SKILL, "utf8");
     const host = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(req.host ?? "") ? req.host : "wallet.fizzl.eu";
     const origin = `${req.protocol === "http" && !/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "https" : req.protocol}://${host}`;
-    res.set("cache-control", "public, max-age=300").type("text/markdown; charset=utf-8").send(skill.replaceAll("{{ORIGIN}}", origin));
+    res.set("cache-control", "public, max-age=300").type("text/markdown; charset=utf-8").send(skill.replaceAll("{{ORIGIN}}", origin).replaceAll("{{WALLET_MCP}}", WALLET_MCP));
   });
   // For search engines and AI tools: robots.txt, a sitemap, llms.txt (llmstxt.org), and IndexNow's key check
   // (src/indexnow.cjs). The pages are the public ones; the API and the agent routes stay out of the sitemap.
