@@ -60,7 +60,7 @@ The wallet signs only what these tools need: payment signatures and transfers. I
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp@0.21.0"],
+      "args": ["-y", "presign-guard-wallet-mcp@0.21.1"],
       "env": {
         "AGENT_KEY": "0x…the agent wallet's private key…",
         "LIMIT_USDC_PER_TX": "5",
@@ -79,10 +79,10 @@ For Claude Code, the key goes into a file at a prompt (not shown, not in your sh
 
 ```sh
 mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
-claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.21.0
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.21.1
 ```
 
-**Pin the version** (`@0.21.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
+**Pin the version** (`@0.21.1`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 
@@ -109,7 +109,7 @@ Then use these variables instead of `LIMIT_*` and `TELEGRAM_*`:
 
 | Variable | |
 |---|---|
-| `AGENT_KEY` | **required** to pay: private key of the agent's own wallet. Without it the server starts in setup mode: it lists its tools and each one answers with how to add the key (nothing can be signed) |
+| `AGENT_KEY` | **required** to pay: private key of the agent's own wallet (64 hex characters, with or without 0x). Without it the server starts in setup mode: it lists its tools and each one answers with how to add the key (nothing can be signed) |
 | `AGENT_KEY_FILE` | instead of `AGENT_KEY`: the path to a file holding the key (`~/` works), so it is in neither the client's config nor your shell history. Make it readable only by you (`chmod 600`); the server warns otherwise. The same works for `XRPL_SEED_FILE`, `ALGORAND_MNEMONIC_FILE` and `SOLANA_PRIVATE_KEY_FILE` |
 | `LIMIT_USDC_PER_TX`, `LIMIT_USDC_PER_DAY` | USDC limits (payments and transfers together). Limits or a wallet server are required |
 | `LIMIT_NATIVE_PER_TX`, `LIMIT_NATIVE_PER_DAY` | limits for the native coin; without them, sending it needs approval |

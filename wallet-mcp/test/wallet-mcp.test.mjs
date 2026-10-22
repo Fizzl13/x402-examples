@@ -179,6 +179,7 @@ async function setup(env = {}, opts = {}) {
 test("configuration: a budget is required and conflicting setups are refused", () => {
   assert.throws(() => configFromEnv({}), /AGENT_KEY/);
   assert.throws(() => configFromEnv({ AGENT_KEY: "nope" }), /AGENT_KEY/);
+  assert.equal(configFromEnv({ ...ENV, AGENT_KEY: KEY.slice(2) }).key, KEY); // as MetaMask shows it, without 0x
   assert.throws(() => configFromEnv({ AGENT_KEY: KEY }), /spending limits/);
   assert.throws(() => configFromEnv({ ...ENV, CHAIN: "solana" }), /CHAIN/);
   assert.throws(() => configFromEnv({ ...ENV, LIMIT_USDC_PER_TX: "five" }), /amounts/);
