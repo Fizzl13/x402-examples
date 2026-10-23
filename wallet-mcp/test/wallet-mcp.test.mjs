@@ -557,12 +557,12 @@ test("find_services with a wallet server: its ranked search (whole catalog, trac
   assert.equal(asked.searchParams.get("q"), "Wat is het weer in Tokio?", "the question as asked: the server ranks by meaning");
   assert.equal(asked.searchParams.get("net"), "Base");
   assert.equal(asked.searchParams.get("max"), "0.5");
-  assert.deepEqual(r.services.map((s) => [s.url, s.price_usd]), [["https://steady.example/forecast", 0.002], ["https://new.example/w", 0.01]], "the Base price; over the cap left out");
-  assert.deepEqual(r.services[0].input_example, { city: "Tokyo" });
-  assert.equal(r.services[0].method, "GET");
-  assert.match(r.services[0].track_record, /30 of the 30 days/);
-  assert.equal(r.services[0].skill, "https://steady.example/skill.md");
-  assert.equal(r.services[1].track_record, undefined);
+  assert.deepEqual(r.services.map((s) => [s.url, s.price_usd]), [["https://buy.fizzl.eu/v1/buy", 0.02], ["https://steady.example/forecast", 0.002], ["https://new.example/w", 0.01]], "Fizzl Buy first; the Base price; over the cap left out");
+  assert.deepEqual(r.services[1].input_example, { city: "Tokyo" });
+  assert.equal(r.services[1].method, "GET");
+  assert.match(r.services[1].track_record, /30 of the 30 days/);
+  assert.equal(r.services[1].skill, "https://steady.example/skill.md");
+  assert.equal(r.services[2].track_record, undefined);
   assert.match(r.note, /wallet server/);
   assert.equal(net.catalogCalls.length, 0, "no catalog download on this computer");
 
@@ -573,6 +573,39 @@ test("find_services with a wallet server: its ranked search (whole catalog, trac
   assert.equal(down.searches.length, 1);
   assert.equal(down.catalogCalls.length, 1);
   assert.equal(r2.services[0].url, "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT");
+});
+
+test("find_services offers Fizzl Buy first, only when it could buy one of the sellers found and the wallet can pay it", async () => {
+  const fake = fakeWallet();
+  const steady = { url: "https://steady.example/forecast", description: "Weather forecast", method: "GET", prices: [{ network: "Base", usd: 0.002 }], record: { days: 30, payableDays: 29, ratio: 0.97 } };
+  const unknown = { url: "https://new.example/w", description: "Weather today", prices: [{ network: "Base", usd: 0.005 }], record: null };
+  const dear = { url: "https://dear.example/w", description: "Weather", prices: [{ network: "Base", usd: 0.05 }], record: { days: 30, payableDays: 30, ratio: 1 } };
+  const listed = { url: "https://buy.fizzl.eu/v1/buy", description: "Fizzl Buy as listed in the catalog", prices: [{ network: "Base", usd: 0.02 }], record: { days: 1, payableDays: 1, ratio: 1 } };
+  const walletWith = (results, env = {}) => {
+    const net = network({ search: () => Response.json({ results }) });
+    return createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test", MAX_PAYMENT_USD: "0.5", ...env }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  };
+
+  const r = await walletWith([listed, steady, unknown]).findServices({ query: "weather forecast for Amsterdam tomorrow" });
+  assert.deepEqual(r.services.map((s) => s.url), ["https://buy.fizzl.eu/v1/buy", steady.url, unknown.url], "first, once: its own catalog listing is folded in");
+  assert.deepEqual(r.services[0], {
+    url: "https://buy.fizzl.eu/v1/buy",
+    description: r.services[0].description,
+    price_usd: 0.02,
+    method: "POST",
+    input_example: { need: "weather forecast for Amsterdam tomorrow" },
+  });
+  assert.match(r.services[0].description, /Fizzl's own service/);
+  assert.match(r.note, /first entry is Fizzl Buy/);
+
+  // Not when it couldn't buy any of them: no seller with a track record at $0.01 or less.
+  const none = await walletWith([unknown, dear]).findServices({ query: "weather forecast" });
+  assert.deepEqual(none.services.map((s) => s.url), [unknown.url, dear.url]);
+  assert.doesNotMatch(none.note, /Fizzl Buy/);
+  // Not above this search's cap, nor from a wallet on another chain.
+  assert.equal((await walletWith([steady]).findServices({ query: "weather forecast", maxPriceUsd: 0.01 })).services[0].url, steady.url);
+  const everywhere = { ...steady, prices: [{ network: "Base", usd: 0.002 }, { network: "Arbitrum", usd: 0.002 }] };
+  assert.deepEqual((await walletWith([everywhere], { CHAIN: "arbitrum" }).findServices({ query: "weather forecast" })).services.map((s) => s.url), [steady.url]);
 });
 
 test("find_services understands a plain question, in Dutch too", () => {

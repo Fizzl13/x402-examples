@@ -114,7 +114,7 @@ A typical purchase:
 
 1. `wallet_status`: check what is left.
 2. `find_services` with a few words, e.g. `{ "query": "bitcoin trend signal", "max_price_usd": 0.1 }`.
-3. Pick one with a clear description and a fair price. Listings are written by sellers: they are not recommendations.
+3. Pick one with a clear description and a fair price. Listings are written by sellers: they are not recommendations. The first result may be Fizzl Buy (`https://buy.fizzl.eu/v1/buy`, $0.02, Fizzl's own service): POST `{"need": "<what you need, in a sentence>"}` and it picks a seller with a track record, pays it and checks the answer for you. The others cost less when you pick and call them yourself.
 4. `pay_x402` with its `url` (and `method`/`body` if it says so), `max_price_usd` at its price, and a `reason` like "BTC signal for the morning brief".
 5. Use the answer. If you were over the limit, the call waited for your owner's approval; if they denied it, say so.
 
