@@ -1,7 +1,7 @@
 // Paying from the connector (src/connector-pay.js): the app asks, the owner signs one EIP-3009 authorization in their
 // own wallet, the server sends the paid request to a seller that checks that signature, and the app reads the answer.
-// Also: no, a wrong signer, a signature sent twice, the sanctions list, the balance, the price cap, other networks
-// and a free API.
+// Also: no, a wrong signer, a signature sent twice, the sanctions list, the balance, the price cap, other networks,
+// a free API, and an account without an Ethereum address (the owner picks the wallet on the page).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -72,13 +72,17 @@ async function boot({ balance = 5_000_000n } = {}) {
     connector: { fetch: services, presignUrl: "https://presign.test", doctorUrl: "https://doctor.test", baseRpc: "https://base.test", allowPrivate: true, statusWaitMs: 300 } });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
-  return { base, server, accounts, told };
+  return { base, server, accounts, told, store };
 }
 
 const json = (body, cookie) => ({ method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
 async function signIn(base, account) {
   const m = await (await fetch(`${base}/api/signin/message`, json({ address: account.address }))).json();
   const r = await fetch(`${base}/api/signin`, json({ nonce: m.nonce, signature: await account.signMessage({ message: m.message }) }));
+  return r.headers.get("set-cookie").split(";")[0];
+}
+async function logIn(base) {
+  const r = await fetch(`${base}/api/login`, json({ password: PASSWORD }));
   return r.headers.get("set-cookie").split(";")[0];
 }
 // Registration, consent and the token, as an app would: the agent's key.
@@ -95,8 +99,8 @@ async function connect(base, cookie) {
   return client;
 }
 // What the owner's page does: ask for the typed data, sign it in "their wallet", send the signature.
-async function signOnPage(base, id, wallet) {
-  const t = await (await fetch(`${base}/connector/payments/${id}/typed`, { method: "POST" })).json();
+async function signOnPage(base, id, wallet, from = wallet.address) {
+  const t = await (await fetch(`${base}/connector/payments/${id}/typed`, json({ from }))).json();
   const { EIP712Domain: _d, ...types } = t.typedData.types;
   const m = t.typedData.message;
   const signature = await wallet.signTypedData({ domain: t.typedData.domain, types, primaryType: t.typedData.primaryType, message: { ...m, value: BigInt(m.value), validAfter: BigInt(m.validAfter), validBefore: BigInt(m.validBefore) } });
@@ -222,5 +226,57 @@ test("connector payments: too little USDC in the owner's wallet is said before a
     assert.match(r.content[0].text, /has \$0\.001 USDC on Base, less than the \$0\.002/);
     assert.equal(told.length, 0);
     await client.close();
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: an account without an Ethereum address pays from the wallet picked on the page", async () => {
+  const s = await seller();
+  const { base, server, accounts, told } = await boot();
+  try {
+    const client = await connect(base, await logIn(base));
+    const a = (await call(client, "pay_x402", { url: `${s.url}/weather` })).structuredContent;
+    assert.equal(a.status, "waiting_for_owner");
+    assert.equal(told[0].id, "admin");
+    const v = await (await fetch(`${base}/connector/payments/${a.payment_id}`)).json();
+    assert.deepEqual([v.from, v.pick], [null, true]);
+
+    // The page has to say which wallet pays; a signature from another one is refused.
+    assert.equal((await fetch(`${base}/connector/payments/${a.payment_id}/typed`, { method: "POST" })).status, 400);
+    const payer = privateKeyToAccount(generatePrivateKey());
+    const wrong = await signOnPage(base, a.payment_id, privateKeyToAccount(generatePrivateKey()), payer.address);
+    assert.equal(wrong.status, 400);
+    assert.match((await wrong.json()).message, new RegExp(`isn't from ${payer.address}\\. Sign with that wallet;`));
+    assert.equal((await fetch(`${base}/connector/payments/${a.payment_id}/typed`, json({ from: SANCTIONED }))).status, 403);
+
+    // Another pick is fine while it waits; the wallet that signs pays.
+    const paid = await (await signOnPage(base, a.payment_id, payer)).json();
+    assert.deepEqual([paid.status, paid.from], ["done", payer.address]);
+    assert.equal(s.seen.filter((x) => x.headers["payment-signature"]).length, 1);
+    assert.equal((await call(client, "payment_status", { payment_id: a.payment_id })).structuredContent.status, "paid");
+    const [receipt] = await accounts.walletFor("admin").purchases();
+    assert.deepEqual([receipt.amounts, receipt.approvedBy, receipt.status], [["0.002 USDC"], "your wallet", "signed"]);
+    await client.close();
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: the picked wallet's balance is checked on the page; an e-mail account's linked wallet is the payer", async () => {
+  const s = await seller();
+  const { base, server, accounts, store } = await boot({ balance: 1000n });
+  try {
+    const client = await connect(base, await logIn(base));
+    const a = (await call(client, "pay_x402", { url: `${s.url}/weather` })).structuredContent;
+    assert.equal(a.status, "waiting_for_owner", "asked: the wallet isn't known yet");
+    const low = await fetch(`${base}/connector/payments/${a.payment_id}/typed`, json({ from: privateKeyToAccount(generatePrivateKey()).address }));
+    assert.equal(low.status, 400);
+    assert.match((await low.json()).message, /has \$0\.001 USDC on Base, less than \$0\.002\. Add USDC on Base to it, or pick another wallet\./);
+    await client.close();
+
+    const linked = privateKeyToAccount(generatePrivateKey());
+    await store.global.putAccount({ id: "em:test", chain: "email", address: linked.address, payChain: "ethereum" });
+    await store.global.putAccount({ id: "em:sol", chain: "email", address: "So11111111111111111111111111111111111111112", payChain: "solana" });
+    assert.equal(await accounts.payer("em:test"), linked.address.toLowerCase());
+    assert.equal(await accounts.payer("em:sol"), null);
+    assert.equal(await accounts.payer("admin"), null);
+    assert.equal(await accounts.payer("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"), "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
   } finally { server.close(); s.server.close(); }
 });
