@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Connect an app | Fizzl Agent Wallet</title>
+<meta name="robots" content="noindex">
+<style>
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/lexend-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/unbounded-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/unbounded-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/unbounded-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/unbounded-latin-900-normal.woff2") format("woff2"); }
+:root { --bg: #020708; --mint: #61f5c3; --text: #f4f8f7; --soft: #d1dbd9; --muted: #a8b5b2; --dim: #82918f; --line: rgba(97,245,195,.28); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--soft); font: 400 16px/1.65 "Lexend", Arial, sans-serif; }
+.wrap { width: min(780px, calc(100% - 32px)); margin-inline: auto; }
+header { border-bottom: 1px solid var(--line); }
+header .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.brand { font: 700 22px/1 "Unbounded", Arial, sans-serif; letter-spacing: -1.2px; color: var(--text); text-decoration: none; }
+.brand span { color: var(--mint); }
+main { padding: 40px 0 64px; }
+h1 { font: 700 clamp(34px, 6vw, 52px)/1 "Unbounded", Arial, sans-serif; letter-spacing: -2px; text-transform: uppercase; color: var(--text); margin: 0 0 10px; }
+h2 { font: 700 20px/1.25 "Unbounded", Arial, sans-serif; color: var(--text); margin: 36px 0 10px; }
+p, li { color: var(--soft); }
+.note { color: var(--dim); font-size: 13px; }
+a { color: var(--mint); }
+mark { background: rgba(245,195,97,.18); color: #f5c361; padding: 0 4px; border-radius: 4px; }
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid rgba(97,245,195,.12); }
+th { color: var(--mint); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+ul { padding-left: 20px; }
+footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--dim); font-size: 12px; }
+
+.btn { display: inline-block; border: 1px solid var(--line); background: transparent; color: var(--text); font: 600 15px/1 "Lexend", Arial, sans-serif; padding: 13px 22px; border-radius: 999px; cursor: pointer; text-decoration: none; }
+.btn.pri { background: var(--mint); border-color: var(--mint); color: #021; }
+.btn:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
+.msg { margin-top: 16px; color: var(--text); }
+h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1px; }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a></div></header>
+<main class="wrap">
+  <h1 id="title">Connect an app</h1>
+  <div id="body"><p class="note">Loading…</p></div>
+</main>
+<footer><div class="wrap">Fizzl Agent Wallet · never holds keys or funds · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · © 2026 Fizzl</div></footer>
+<script>
+(() => {
+  const rid = new URLSearchParams(location.search).get("req") || "";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const body = $("body");
+  async function load() {
+    let r, j;
+    try { r = await fetch("/oauth/request?req=" + encodeURIComponent(rid), { credentials: "same-origin" }); j = await r.json(); }
+    catch { body.innerHTML = "<p>The wallet can't be reached right now. Reload this page in a minute.</p>"; return; }
+    if (!j.client) { $("title").textContent = "This link has expired"; body.innerHTML = `<p>${esc(j.message || "Start again in your app.")}</p>`; return; }
+    $("title").textContent = `Connect ${j.client}`;
+    document.title = `Connect ${j.client} | Fizzl Agent Wallet`;
+    const what = `<p><b>${esc(j.client)}</b> wants to use your Fizzl Agent Wallet. It can:</p>
+      <ul><li>see the wallet's status and your spending limits;</li><li>search paid services, with each seller's payout record;</li><li>check texts for traps aimed at your agent.</li></ul>
+      <p>It can't pay anything yet. When paying comes, every payment from ${esc(j.client)} waits until you sign it in your own wallet. Fizzl never holds a key for it.</p>
+      <p class="note">This adds an agent called “${esc(j.agent)}” to your account; remove it on your dashboard to disconnect. Afterwards you go back to ${esc(j.returnsTo)}.</p>`;
+    if (r.status === 401) {
+      body.innerHTML = what + `<p>Sign in to your Fizzl wallet first; you come back here afterwards.</p><div class="row"><a class="btn pri" href="/?connect=${encodeURIComponent(rid)}">Sign in</a></div>`;
+      return;
+    }
+    body.innerHTML = what + `<p class="note">Signed in as ${esc(j.account)}.</p><div class="row"><button class="btn pri" id="allow" type="button">Allow</button><button class="btn" id="deny" type="button">Cancel</button></div><p id="msg" class="msg" role="status"></p>`;
+    $("allow").onclick = () => answer(true);
+    $("deny").onclick = () => answer(false);
+  }
+  async function answer(allow) {
+    const buttons = [...document.querySelectorAll("button")];
+    for (const b of buttons) b.disabled = true;
+    try {
+      const r = await fetch("/oauth/consent", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ req: rid, allow }) });
+      const j = await r.json();
+      if (j.redirect) { $("msg").textContent = allow ? "Connected. Going back…" : "Going back…"; location.assign(j.redirect); return; }
+      $("msg").innerHTML = esc(j.message || "Something went wrong. Try again.") + (r.status === 403 ? ' <a href="/#/agents">Open the dashboard</a>' : "");
+    } catch { $("msg").textContent = "The wallet can't be reached right now. Try again."; }
+    for (const b of buttons) b.disabled = false;
+  }
+  load();
+})();
+</script>
+</body>
+</html>
