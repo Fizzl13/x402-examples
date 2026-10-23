@@ -85,7 +85,7 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
       <dl>
         <dt>API</dt><dd>${esc(v.method)} ${esc(v.url)}</dd>
         <dt>Paid to</dt><dd>${esc(short(v.payTo))}</dd>
-        <dt>From</dt><dd>your wallet ${esc(short(v.from))}</dd>
+        <dt>From</dt><dd>${v.pick && (v.status === "waiting" || v.status === "signing") ? "the wallet you sign with" : `your wallet ${esc(short(v.from))}`}</dd>
         <dt>Sanctions</dt><dd class="${v.screened ? "good" : "warn"}">${v.screened ? "not on the OFAC sanctions list" : "the OFAC list couldn't be read"}</dd>
         <dt>Seller</dt><dd class="${recClass}">${esc(record)}</dd>
       </dl></div>`;
@@ -129,14 +129,15 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     for (const b of document.querySelectorAll("button")) b.disabled = true;
     try {
       const accounts = await eth.request({ method: "eth_requestAccounts" });
-      const me = accounts.find((a) => a.toLowerCase() === view.from.toLowerCase());
-      if (!me) { msg(`Your wallet is on ${short(accounts[0] ?? "?")}. Switch to ${short(view.from)}, the address you sign in to Fizzl with, and try again.`, "warn"); return; }
+      // An account without an Ethereum address pays from the wallet connected here.
+      const me = view.pick ? accounts[0] : accounts.find((a) => a.toLowerCase() === view.from.toLowerCase());
+      if (!me) { msg(view.pick ? "Your wallet didn't share an address." : `Your wallet is on ${short(accounts[0] ?? "?")}. Switch to ${short(view.from)}, the address you sign in to Fizzl with, and try again.`, "warn"); return; }
       try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }); }
       catch (e) {
         if (e?.code !== 4902) throw e;
         await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
       }
-      const t = await api("POST", `/connector/payments/${encodeURIComponent(id)}/typed`);
+      const t = await api("POST", `/connector/payments/${encodeURIComponent(id)}/typed`, { from: me });
       if (!t.typedData) { if (t.view) render(t.view); msg(t.message || "This request can't be signed now.", "warn"); return; }
       const signature = await eth.request({ method: "eth_signTypedData_v4", params: [me, JSON.stringify(t.typedData)] });
       msg("Sending the payment…");

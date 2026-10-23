@@ -2,9 +2,10 @@
 // the server reads the API's 402, takes its USDC-on-Base offer, checks the payout address against the OFAC list,
 // looks the seller up in x402 Doctor's Trust Index and checks the owner's balance, then makes a payment request.
 // The owner gets a link (Telegram, the installed app, and from the agent) to a page where their own wallet signs one
-// EIP-3009 authorization: exactly that amount, to exactly that seller, valid for minutes. The server checks the
-// signature, sends the paid request, checks the answer and keeps a receipt; the app reads the result with
-// payment_status. Fizzl never holds a key: the signature can't pay anything but what the owner saw.
+// EIP-3009 authorization: exactly that amount, to exactly that seller, valid for minutes. It is the Ethereum wallet
+// the account signs in with (or linked to its e-mail); an account without one picks the wallet on that page. The
+// server checks the signature, sends the paid request, checks the answer and keeps a receipt; the app reads the
+// result with payment_status. Fizzl never holds a key: the signature can't pay anything but what the owner saw.
 import express from "express";
 import { randomBytes } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
@@ -30,7 +31,6 @@ const OPEN = new Set(["waiting", "signing"]);
 
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const unb64 = (s) => { try { return JSON.parse(Buffer.from(String(s), "base64").toString("utf8")); } catch { return null; } };
-const evmAccount = (id) => (/^0x[0-9a-f]{40}$/.test(id) ? id : null);
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const usd = (units) => Number(units) / 1e6;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -129,8 +129,6 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
 
   // ---------- the app asks (pay_x402) ----------
   async function request({ account, agent, origin }, { url, method = "GET", body, headers, max_price_usd, reason }) {
-    const owner = evmAccount(account);
-    if (!owner) return { error: "This Fizzl account signed in without an Ethereum wallet, and payments from the connector are signed with one. Ask your user to sign in to wallet.fizzl.eu with MetaMask, Coinbase Wallet or another Ethereum wallet, and to connect this app from that account." };
     if (agent.paused) return { error: `${agent.name} is paused on the owner's dashboard.` };
     const a = asks.get(agent.id);
     if (!a || now() - a.since > 3_600_000) asks.set(agent.id, { n: 1, since: now() });
@@ -157,14 +155,15 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (!offer) return { error: `This API doesn't take USDC on Base, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
     const price = usd(offer.amount);
     if (price > cap) return { error: `This API asks $${price}, above max_price_usd ($${cap}). Ask your user before raising it (at most $${MAX_PRICE_USD}).` };
-    const [onList, record, balance] = await Promise.all([sanctioned(offer.payTo), sellerRecord(url), usdcBalance(owner)]);
+    const owner = await accounts.payer(account);
+    const [onList, record, balance] = await Promise.all([sanctioned(offer.payTo), sellerRecord(url), owner ? usdcBalance(owner) : null]);
     if (onList) return { error: `This API's payout address ${offer.payTo} is on the OFAC sanctions list. Nothing was asked or paid.` };
-    if (balance !== null && balance < BigInt(offer.amount)) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${price} this API asks. They can add USDC on Base to that address and ask again.` };
+    if (owner && balance !== null && balance < BigInt(offer.amount)) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${price} this API asks. They can add USDC on Base to that address and ask again.` };
 
     const r = {
       id: randomBytes(24).toString("base64url"), account, agentId: agent.id, agentName: agent.name, status: "waiting",
       url, method, headers: h, body: sendBody ?? null, reason: typeof reason === "string" ? reason.trim().slice(0, 300) || null : null,
-      offer, price, from: getAddress(owner), screened: onList === false, record, createdAt: now(), expiresAt: now() + WAIT_MS,
+      offer, price, from: owner ? getAddress(owner) : null, pick: !owner, screened: onList === false, record, createdAt: now(), expiresAt: now() + WAIT_MS,
     };
     await putReq(r);
     const host = new URL(url).host;
@@ -207,7 +206,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   // ---------- the owner's page: see, sign or say no ----------
   const ownerView = (r) => ({
     status: r.status, agent: r.agentName, seller: new URL(r.url).host, url: r.url, method: r.method, reason: r.reason,
-    price: r.price, token: "USDC", network: "Base", payTo: r.offer.payTo, from: r.from, screened: r.screened, record: r.record,
+    price: r.price, token: "USDC", network: "Base", payTo: r.offer.payTo, from: r.from, pick: !!r.pick, screened: r.screened, record: r.record,
     expiresAt: r.expiresAt, error: r.error ?? null,
     result: r.result ? { httpStatus: r.result.httpStatus, settlement: r.result.settlement ?? null, receipt: !!r.result.purchaseId, injection: !!r.result.check?.injection, delivered: r.result.check?.delivered ?? null } : null,
   });
@@ -272,9 +271,19 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const r = await getReq(req.params.id);
     if (!r) return res.status(404).json({ error: "not_found", message: "This payment request doesn't exist or has expired." });
     if (!OPEN.has(r.status)) return res.status(409).json({ error: r.status, message: `This payment request is ${r.status}.`, view: ownerView(r) });
-    const typed = typedData(r, Math.floor(now() / 1000));
-    await putReq({ ...r, status: "signing", typed });
-    res.json({ from: r.from, typedData: typed });
+    let from = r.from;
+    if (r.pick) {
+      // No address on the account: the wallet the owner signs with on the page pays, if it can.
+      const picked = typeof req.body?.from === "string" && /^0x[0-9a-fA-F]{40}$/.test(req.body.from) ? getAddress(req.body.from) : null;
+      if (!picked) return res.status(400).json({ error: "no_wallet", message: "Connect the wallet you want to pay with." });
+      const [onList, balance] = await Promise.all([sanctioned(picked), usdcBalance(picked)]);
+      if (onList) return res.status(403).json({ error: "sanctioned", message: `${short(picked)} is on the OFAC sanctions list. Nothing was paid.` });
+      if (balance !== null && balance < BigInt(r.offer.amount)) return res.status(400).json({ error: "low_balance", message: `${short(picked)} has $${usd(balance)} USDC on Base, less than $${r.price}. Add USDC on Base to it, or pick another wallet.` });
+      from = picked;
+    }
+    const typed = typedData({ ...r, from }, Math.floor(now() / 1000));
+    await putReq({ ...r, from, status: "signing", typed });
+    res.json({ from, typedData: typed });
   });
   router.post("/connector/payments/:id/sign", async (req, res) => {
     res.set("cache-control", "no-store");
@@ -284,10 +293,10 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const signature = typeof req.body?.signature === "string" && /^0x[0-9a-fA-F]{130,}$/.test(req.body.signature) ? req.body.signature : null;
     const m = r.typed.message;
     const valid = signature && await verifyTypedData({
-      address: r.from, domain: r.typed.domain, types: { TransferWithAuthorization: AUTHORIZATION }, primaryType: "TransferWithAuthorization",
+      address: m.from, domain: r.typed.domain, types: { TransferWithAuthorization: AUTHORIZATION }, primaryType: "TransferWithAuthorization",
       message: { from: m.from, to: m.to, value: BigInt(m.value), validAfter: BigInt(m.validAfter), validBefore: BigInt(m.validBefore), nonce: m.nonce }, signature,
     }).catch(() => false);
-    if (!valid) return res.status(400).json({ error: "bad_signature", message: `That signature isn't from ${r.from}. Sign with that wallet (the one you sign in to Fizzl with); a smart wallet's signature doesn't work here yet.` });
+    if (!valid) return res.status(400).json({ error: "bad_signature", message: `That signature isn't from ${m.from}. Sign with that wallet${r.pick ? "" : " (the one you sign in to Fizzl with)"}; a smart wallet's signature doesn't work here yet.` });
     // One payment per request, also when the page sends the signature twice.
     if (!(await store.claimTx(`connector:${r.id}`))) return res.status(409).json({ error: "paying", message: "This payment is already being sent.", view: ownerView(r) });
     await putReq({ ...r, status: "paying" });

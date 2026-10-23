@@ -316,6 +316,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   const api = {
     walletFor,
+    // The Ethereum address an account signs in with, or linked to an e-mail account; null: none (the server
+    // owner's account, e-mail without a wallet, Solana, XRPL, Algorand). The connector's payments are signed from
+    // it; without one the owner picks the wallet on the page where they sign.
+    async payer(id) {
+      if (/^0x[0-9a-f]{40}$/.test(id)) return id;
+      const a = await account(id);
+      return a?.payChain === "ethereum" && /^0x[0-9a-fA-F]{40}$/.test(a.address ?? "") ? a.address.toLowerCase() : null;
+    },
     // A message to the owner on their phone (Telegram if linked, and the installed app): the connector's payment
     // requests (src/connector.js), with the link to sign them.
     async tellOwner(id, { title, text, url, tag }) {
