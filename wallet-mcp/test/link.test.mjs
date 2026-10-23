@@ -99,7 +99,7 @@ test("linking end to end: the MCP server without any keys gives a code, switches
     await client.connect(transport);
     try {
       const { tools } = await client.listTools();
-      assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "send_usdc", "send_native", "pause_spending"]);
+      assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "send_usdc", "send_native", "check_text", "pause_spending"]);
       assert.equal(existsSync(dir), false, "listing the tools makes nothing (directories such as Glama only look)");
       const status = await client.callTool({ name: "wallet_status", arguments: {} });
       assert.notEqual(status.isError, true);
