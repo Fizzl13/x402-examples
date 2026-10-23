@@ -46,6 +46,10 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
 .card { border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin: 18px 0; }
 .card dl { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; margin: 0; font-size: 14px; }
 .card dt { color: var(--dim); } .card dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.opt { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
+.opt p { margin: 0 0 10px; }
+.qr { display: none; margin-top: 14px; border-radius: 12px; background: #fff; }
+@media (min-width: 700px) and (hover: hover) { .qr { display: block; } }
 .big { font: 700 34px/1.1 "Unbounded", Arial, sans-serif; color: var(--text); margin: 6px 0 2px; }
 .warn { color: #f5c361; } .bad { color: #ff7a90; } .good { color: var(--mint); }
 </style>
@@ -70,38 +74,54 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     const j = await r.json().catch(() => ({}));
     return { status: r.status, ...j };
   };
-  let view = null, poll = null;
+  let view = null, poll = null, shown = "";
 
   function render(v) {
-    view = v;
     clearTimeout(poll);
+    // Polling while Xaman waits: draw again only when something changed (the QR code stays put).
+    const key = JSON.stringify(v);
+    if (key === shown && v.xaman) { poll = setTimeout(load, 2500); return; }
+    shown = key;
+    view = v;
+    const o = v.options ?? { base: { price: v.price, payTo: v.payTo }, xrpl: null };
+    const open = v.status === "waiting" || v.status === "signing";
     const rec = v.record;
     const record = !rec ? "x402 Doctor didn't answer" : !rec.known ? "not in x402 Doctor's Trust Index yet" : `paid out on ${rec.payableDays} of the ${rec.days} days x402 Doctor checked it${rec.verdict ? ` (last check: ${rec.verdict})` : ""}`;
     const recClass = rec?.verdict === "no_go" ? "bad" : rec?.verdict === "caution" ? "warn" : rec?.known ? "good" : "warn";
     const card = `<div class="card">
       <p style="margin:0"><b>${esc(v.agent)}</b> ${v.status === "done" ? "paid" : v.status === "failed" || v.status === "paying" ? "is paying" : "wants to pay"}</p>
-      <div class="big">$${esc(v.price)} <span style="font-size:18px">USDC on Base</span></div>
+      <div class="big">$${esc(v.price)} <span style="font-size:18px">${open && o.base && o.xrpl ? "USDC on Base or RLUSD on the XRP Ledger" : `${esc(v.token)} on ${v.network === "XRP Ledger" ? "the " : ""}${esc(v.network)}`}</span></div>
       <p style="margin:0 0 12px">to <b>${esc(v.seller)}</b>${v.reason ? ` for “${esc(v.reason)}”` : ""}</p>
       <dl>
         <dt>API</dt><dd>${esc(v.method)} ${esc(v.url)}</dd>
-        <dt>Paid to</dt><dd>${esc(short(v.payTo))}</dd>
-        <dt>From</dt><dd>${v.pick && (v.status === "waiting" || v.status === "signing") ? "the wallet you sign with" : `your wallet ${esc(short(v.from))}`}</dd>
+        <dt>Paid to</dt><dd>${open && o.base && o.xrpl ? `${esc(short(o.base.payTo))} on Base, ${esc(short(o.xrpl.payTo))} on the XRP Ledger` : esc(short(v.payTo))}</dd>
+        <dt>From</dt><dd>${open ? [o.base && (v.pick ? "the Ethereum wallet you sign with" : `your wallet ${esc(short(v.from))}`), o.xrpl && "the account you sign with in Xaman"].filter(Boolean).join(", or ") : v.from ? `your ${v.paidWith === "xrpl" ? "XRPL account" : "wallet"} ${esc(short(v.from))}` : "nothing was signed"}</dd>
         <dt>Sanctions</dt><dd class="${v.screened ? "good" : "warn"}">${v.screened ? "not on the OFAC sanctions list" : "the OFAC list couldn't be read"}</dd>
         <dt>Seller</dt><dd class="${recClass}">${esc(record)}</dd>
       </dl></div>`;
-    const open = v.status === "waiting" || v.status === "signing";
     if (open) {
       $("title").textContent = "Sign a payment";
       const left = Math.max(0, Math.round((v.expiresAt - Date.now()) / 60000));
       const here = encodeURIComponent(location.href);
-      const buttons = window.ethereum
-        ? `<button class="btn pri" id="sign" type="button">Sign with my wallet</button><button class="btn" id="deny" type="button">No</button>`
-        : `<a class="btn pri" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in MetaMask</a><a class="btn" href="https://go.cb-w.com/dapp?cb_url=${here}">Open in Coinbase Wallet</a><button class="btn" id="deny" type="button">No</button>`;
+      const both = o.base && o.xrpl;
+      const baseButtons = window.ethereum
+        ? `<button class="btn pri" id="sign" type="button">Sign with my wallet</button>`
+        : `<a class="btn pri" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in MetaMask</a><a class="btn" href="https://go.cb-w.com/dapp?cb_url=${here}">Open in Coinbase Wallet</a>`;
+      const baseBlock = !o.base ? "" : `<div class="opt">${both ? `<p><b>USDC on Base</b>, $${esc(o.base.price)}, signed in an Ethereum wallet</p>` : ""}
+        ${window.ethereum ? "" : '<p class="note">No Ethereum wallet in this browser. On a phone, open this page in your wallet app.</p>'}<div class="row">${baseButtons}</div></div>`;
+      const x = v.xaman;
+      const secs = x ? Math.max(0, Math.round((x.until - Date.now()) / 1000)) : 0;
+      const xamanBlock = !o.xrpl ? "" : x
+        ? `<div class="opt"><p><b>Waiting for Xaman.</b> ${x.pushed ? "It's in your Xaman app: sign" : "Sign"} it there within ${secs} seconds.</p>
+          <div class="row"><a class="btn pri" href="${esc(x.url)}">Open Xaman</a></div><img class="qr" src="${esc(x.qr)}" alt="QR code to scan with Xaman" width="180" height="180"></div>`
+        : `<div class="opt">${both ? `<p><b>RLUSD on the XRP Ledger</b>, $${esc(o.xrpl.price)}, signed in Xaman</p>` : ""}<div class="row"><button class="btn${o.base ? "" : " pri"}" id="xaman" type="button">Sign in Xaman</button></div></div>`;
       $("body").innerHTML = card + `<p>Nothing is paid until you sign. Your signature allows exactly this amount to exactly this seller, for a few minutes, and nothing else. Fizzl never holds a key.</p>
-        ${window.ethereum ? "" : '<p class="note">No wallet in this browser. On a phone, open this page in your wallet app.</p>'}
-        <div class="row">${buttons}</div><p class="note">Valid for ${left} more minute${left === 1 ? "" : "s"}.</p>`;
+        ${v.note ? `<p class="warn">${esc(v.note)}</p>` : ""}${baseBlock}${xamanBlock}
+        <div class="row" style="margin-top:14px"><button class="btn" id="deny" type="button">No</button></div><p class="note">Valid for ${left} more minute${left === 1 ? "" : "s"}.</p>`;
       if ($("sign")) $("sign").onclick = sign;
+      if ($("xaman")) $("xaman").onclick = xaman;
       $("deny").onclick = deny;
+      if (x) poll = setTimeout(load, 2500);
       return;
     }
     if (v.status === "paying") { $("title").textContent = "Paying…"; $("body").innerHTML = card + "<p>Sending your signed payment to the API.</p>"; poll = setTimeout(load, 2000); return; }
@@ -111,7 +131,7 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
       $("body").innerHTML = card + `<p class="good">Paid. ${esc(v.agent)} got the answer${v.result?.httpStatus ? ` (HTTP ${esc(v.result.httpStatus)})` : ""}.</p>
         ${v.result?.injection ? '<p class="bad">The answer contains instructions aimed at your agent. It was told to treat it as data only.</p>' : ""}
         ${v.result?.delivered === "no" ? '<p class="warn">The answer doesn\'t look like what was paid for. See the receipt.</p>' : ""}
-        <div class="row">${tx ? `<a class="btn" href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">The transaction</a>` : ""}<a class="btn" href="/#/purchases">Your receipts</a></div>`;
+        <div class="row">${tx ? `<a class="btn" href="${String(v.result.settlement.network).startsWith("xrpl") ? "https://livenet.xrpl.org/transactions/" : "https://basescan.org/tx/"}${esc(tx)}" target="_blank" rel="noopener">The transaction</a>` : ""}<a class="btn" href="/#/purchases">Your receipts</a></div>`;
       return;
     }
     $("title").textContent = v.status === "denied" ? "Declined" : v.status === "expired" ? "Expired" : "Not paid";
@@ -147,6 +167,17 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     } catch (e) {
       msg(e?.code === 4001 ? "You didn't sign. Nothing was paid; you can still sign or say no." : `Your wallet said: ${e?.message || e}`, "warn");
     } finally { for (const b of document.querySelectorAll("button")) b.disabled = false; }
+  }
+
+  async function xaman() {
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+    msg("Asking Xaman…");
+    const r = await api("POST", `/connector/payments/${encodeURIComponent(id)}/xaman`).catch(() => ({}));
+    msg("");
+    if (r.agent) return render(r);
+    if (r.view) render(r.view);
+    for (const b of document.querySelectorAll("button")) b.disabled = false;
+    msg(r.message || "That didn't work. Try again.", "warn");
   }
 
   async function deny() {

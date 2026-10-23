@@ -324,6 +324,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(id);
       return a?.payChain === "ethereum" && /^0x[0-9a-fA-F]{40}$/.test(a.address ?? "") ? a.address.toLowerCase() : null;
     },
+    // The Xaman user token from the owner's last signature in Xaman (connector payments): the next sign request
+    // is pushed to their phone with it. Xaman ends it after 30 days without use.
+    async xamanToken(id) { return (await g.getAccount(id))?.xamanToken?.token ?? null; },
+    async setXamanToken(id, token) {
+      if (typeof token !== "string" || !/^[0-9a-f-]{36}$/i.test(token)) return;
+      if (id === ADMIN) { await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), xamanToken: { token, at: now() } }); return; }
+      await serial(id, async () => { const a = await g.getAccount(id); if (a && !a.deletedAt) await g.putAccount({ ...a, xamanToken: { token, at: now() } }); });
+    },
     // A message to the owner on their phone (Telegram if linked, and the installed app): the connector's payment
     // requests (src/connector.js), with the link to sign them.
     async tellOwner(id, { title, text, url, tag }) {

@@ -429,10 +429,10 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     // src/connector.js): the signature is the owner's OK, so no limits or rules stand in between. Booked so the
     // day's totals include it, with a receipt; the outcome and the answer check follow through annotate().
     // amount is in the token's own units (USDC: 6 decimals); the wallet counts in SCALE decimals.
-    async ownerSigned(agent, { chainId, to, amount, decimals = 6, budget = "USDC", purchase, from }) {
+    async ownerSigned(agent, { chainId, to, amount, decimals = 6, budget = "USDC", purchase, from, method = "signTypedData" }) {
       const scaled = (BigInt(amount) * 10n ** BigInt(SCALE - decimals)).toString();
       return locked(async () => {
-        const info = { method: "signTypedData", chainId, to };
+        const info = { method, chainId, to };
         const entries = await book(agent, [{ budget, amount: scaled }], info);
         const clean = cleanPurchase(purchase);
         const short = typeof from === "string" ? `${from.slice(0, 6)}…${from.slice(-4)}` : "your wallet";
