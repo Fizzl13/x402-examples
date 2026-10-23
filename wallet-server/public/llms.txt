@@ -13,6 +13,7 @@ The agent connects by reading the setup instructions in skill.md; the owner sign
 ## For owners
 - [Dashboard](https://wallet.fizzl.eu/): limits, approvals, receipts, agents and mandates
 - [Privacy](https://wallet.fizzl.eu/privacy) and [terms](https://wallet.fizzl.eu/terms)
+- [Fizzl Agent Wallet and Coinbase for Agents](https://wallet.fizzl.eu/compare/coinbase): the difference with the Coinbase MCP and the Coinbase Wallet MCP (who holds the money, approvals, daily budgets, networks, checks), checked 23 October 2026
 
 ## Optional
 - [Fizzl](https://fizzl.eu/llms.txt): the other Fizzl services (x402 Doctor, pre-sign checks, trading signals)
