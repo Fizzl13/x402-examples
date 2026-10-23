@@ -28,6 +28,8 @@ import { z } from "zod";
 
 // The package's own version, so the MCP handshake and the logs never lag behind what npm installed.
 export const VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+// Fizzl's one-call buyer, offered first by find_services (see fizzlBuyOption).
+const FIZZL_BUY = { url: "https://buy.fizzl.eu/v1/buy", price: 0.02, sellerCap: 0.01 };
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -735,6 +737,22 @@ export function createWallet(config, overrides = {}) {
     } catch { return null; }
   }
 
+  // Fizzl Buy (buy.fizzl.eu) as an extra first option: one call that picks a seller with a track record, fills in
+  // its input, pays it and checks the answer. Only when it could buy one of the sellers found (a track record, at
+  // most its own cap), the wallet pays on Base, and this search's cap allows its price.
+  function fizzlBuyOption({ query, cap, sellers }) {
+    const need = String(query).trim().slice(0, 500);
+    if (config.chainName !== "base" || cap < FIZZL_BUY.price || need.length < 3) return null;
+    if (!sellers.some((s) => s.track_record && s.price_usd <= FIZZL_BUY.sellerCap)) return null;
+    return {
+      url: FIZZL_BUY.url,
+      description: `Fizzl Buy, Fizzl's own service: one call instead of choosing yourself. Say what you need; it picks the seller with the best track record (up to $${FIZZL_BUY.sellerCap}), fills in its input, pays it, checks that the answer is what was asked and tries the next seller if one fails. Nothing is charged when no seller delivers.`,
+      price_usd: FIZZL_BUY.price,
+      method: "POST",
+      input_example: { need },
+    };
+  }
+
   async function catalog() {
     if (listed && Date.now() - listedAt < DISCOVERY_TTL_MS) return listed;
     loading ??= (async () => {
@@ -860,11 +878,13 @@ export function createWallet(config, overrides = {}) {
       const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
       const ranked = await serverSearch({ query, cap, limit });
       if (ranked) {
+        const sellers = ranked.filter((s) => s.url !== FIZZL_BUY.url);
+        const buy = fizzlBuyOption({ query, cap, sellers });
         return {
           query,
-          services: ranked,
-          note: ranked.length
-            ? "From the public x402 catalog, searched by your wallet server: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply."
+          services: buy ? [buy, ...sellers] : sellers,
+          note: sellers.length
+            ? `${buy ? `The first entry is Fizzl Buy, Fizzl's own service: for $${FIZZL_BUY.price} it picks one of these sellers, pays it and checks the answer for you. The others you can pay directly at their own price. ` : ""}From the public x402 catalog, searched by your wallet server: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply.`
             : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}).`,
         };
       }
