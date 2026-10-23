@@ -2640,6 +2640,14 @@ test("robots.txt, the sitemap, llms.txt, the IndexNow key and the homepage JSON-
     const sitemap = await (await fetch(`${base}/sitemap.xml`)).text();
     assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/<\/loc>/);
     assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/llms\.txt<\/loc>/);
+    assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/compare\/coinbase<\/loc>/);
+    const compare = await fetch(`${base}/compare/coinbase`);
+    assert.equal(compare.status, 200);
+    assert.match(compare.headers.get("content-type"), /html/);
+    assert.match(compare.headers.get("content-security-policy"), /default-src 'self'/);
+    const page = await compare.text();
+    assert.match(page, /Coinbase Wallet MCP/);
+    assert.match(page, /Checked 23 October 2026/);
     const llms = await fetch(`${base}/llms.txt`);
     assert.equal(llms.status, 200);
     assert.match(await llms.text(), /^# Fizzl Agent Wallet\n\n> /);
