@@ -4,8 +4,9 @@
 // Files are cached by their git sha, so a refresh only downloads days that changed (normally today); only the
 // latest version of each day file is kept (today's changes every few minutes, and old versions used to pile up).
 const API = "https://api.github.com";
-const SERVICES = ["ichimoku", "presign", "doctor", "plaintext"];
-const NAMES = { ichimoku: "Ichimoku Signal", presign: "presign-guard", doctor: "x402 Doctor", plaintext: "PlainText" };
+// Fizzl Buy took PlainText's place on 23 Oct 2026 (PlainText paused since 16 Oct).
+const SERVICES = ["ichimoku", "presign", "doctor", "buy"];
+const NAMES = { ichimoku: "Ichimoku Signal", presign: "presign-guard", doctor: "x402 Doctor", buy: "Fizzl Buy" };
 const DAY = 86_400_000;
 
 // Only the fields the summary needs, so a month of logs stays small in memory.
