@@ -19,6 +19,7 @@ const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url)
 const COMPARE_COINBASE = fileURLToPath(new URL("../public/compare-coinbase.html", import.meta.url));
 // The consent page of the connector for ChatGPT, Grok and other remote MCP apps (src/connector.js).
 const CONNECT = fileURLToPath(new URL("../public/connect.html", import.meta.url));
+const APPROVE = fileURLToPath(new URL("../public/approve.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
@@ -606,7 +607,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   // The wallet as a connector for ChatGPT, Grok and other remote MCP apps: OAuth and /mcp (src/connector.js).
-  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), version: WALLET_MCP_VERSION ?? "0", ...connector }));
+  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", ...connector }));
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
   // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.
