@@ -27,8 +27,8 @@ No keys to copy: the wallet makes its own key on your computer, and you link it 
 
 1. **Install it in your app, without keys.**
    - Claude Desktop: download **[fizzl-wallet.mcpb](https://wallet.fizzl.eu/download/claude-desktop)** and open it; Claude Desktop installs it (it brings its own Node.js).
-   - Claude Code: `claude mcp add wallet -- npx -y presign-guard-wallet-mcp@0.25.0`
-   - Cursor and other MCP clients: `{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "presign-guard-wallet-mcp@0.25.0"] } } }`
+   - Claude Code: `claude mcp add wallet -- npx -y presign-guard-wallet-mcp@0.26.0`
+   - Cursor and other MCP clients: `{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "presign-guard-wallet-mcp@0.26.0"] } } }`
 2. **Ask your agent:** *"what is my wallet status?"* It makes its own wallet (the key goes into `~/.fizzl/agent-key`, readable only by you, and is never sent anywhere) and answers with a link and a code that works for 10 minutes.
 3. **Open the link, sign in at wallet.fizzl.eu** with e-mail, a passkey, Xaman or your wallet, **and enter the code.** Give the agent a name. The wallet picks up its key for the wallet server by itself; no restart.
 4. **Put a few dollars of USDC** in the agent's wallet (the dashboard has buttons for it). Most calls cost a cent or less. Then ask something like *"find a weather API and get the forecast for Amsterdam"*. It finds a paid API, pays within your limits and shows you the receipt.
@@ -46,6 +46,7 @@ Rather paste the keys yourself? On the dashboard, Agents → Add agent shows the
 | `pay_x402` | Call an API that answers 402 Payment Required, pay it in USDC, return the response (with a price cap per call). Pays x402, and MPP (Machine Payments Protocol) charges with the `evm` method in USDC on the wallet's chain: the same EIP-3009 signature, checked by presign-guard and counted toward your limits. On Tempo (method `tempo`) the wallet sends a USDC.e `transferWithMemo` from its own address there and hands over the transaction hash; presign-guard doesn't cover Tempo, so guard-wallet checks that it is exactly that transfer, and it counts toward your USDC limits. Order when an API offers several: x402, MPP evm, Tempo |
 | `send_usdc` | Send USDC to an address |
 | `send_native` | Send ETH / POL / BNB to an address |
+| `check_text` | Before acting on text the agent did not write (a web page, email, tool result, API answer or another agent's message): is it a prompt-injection trap? [presign-guard](https://presign-guard.fizzl.eu)'s check answers green, orange or red. Free for the verdict (texts up to 8,000 characters, 10 an hour); `detailed: true` pays $0.01 from the wallet, within your limits, for the reason codes and probabilities |
 | `pause_spending` | The agent stops itself when something looks wrong; nothing is signed until you restart or resume |
 
 **No paying twice.** A signed x402 payment (an EIP-3009 authorization) can be collected by the seller until it expires, also after the API answered with an error or asked again, perhaps with another payTo. So when a paid call doesn't answer properly, the wallet asks USDC on-chain whether that payment was taken (`authorizationState`) and says so in the result (`charge`, with a warning first). A second payment for the same endpoint is refused until the first one is used or expired, and for an hour after a payment that was taken without an answer, so a retry can't pay twice.
@@ -65,7 +66,7 @@ The wallet signs only what these tools need: payment signatures and transfers. I
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp@0.25.0"],
+      "args": ["-y", "presign-guard-wallet-mcp@0.26.0"],
       "env": {
         "AGENT_KEY": "0x…the agent wallet's private key…",
         "LIMIT_USDC_PER_TX": "5",
@@ -84,10 +85,10 @@ For Claude Code, the key goes into a file at a prompt (not shown, not in your sh
 
 ```sh
 mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
-claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.25.0
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.26.0
 ```
 
-**Pin the version** (`@0.25.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
+**Pin the version** (`@0.26.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 
