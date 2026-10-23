@@ -75,6 +75,17 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     return { status: r.status, ...j };
   };
   let view = null, poll = null, shown = "";
+  // Solana wallets (Phantom, Solflare, Backpack) announce themselves through the Wallet Standard.
+  const solWallets = [];
+  const register = (...ws) => {
+    for (const w of ws) if (w?.features?.["standard:connect"] && w.features["solana:signTransaction"] && w.chains?.some((c) => String(c).startsWith("solana:")) && !solWallets.includes(w)) solWallets.push(w);
+    if (view) { shown = ""; render(view); }
+    return () => {};
+  };
+  window.addEventListener("wallet-standard:register-wallet", (e) => { try { e.detail?.({ register }); } catch {} });
+  try { window.dispatchEvent(new CustomEvent("wallet-standard:app-ready", { detail: { register } })); } catch {}
+  const b64bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const bytesb64 = (b) => btoa(String.fromCharCode(...b));
 
   function render(v) {
     clearTimeout(poll);
@@ -83,19 +94,20 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     if (key === shown && v.xaman) { poll = setTimeout(load, 2500); return; }
     shown = key;
     view = v;
-    const o = v.options ?? { base: { price: v.price, payTo: v.payTo }, xrpl: null };
+    const o = v.options ?? { base: { price: v.price, payTo: v.payTo }, solana: null, xrpl: null };
+    const ways = [o.base && "USDC on Base", o.solana && "USDC on Solana", o.xrpl && "RLUSD on the XRP Ledger"].filter(Boolean);
     const open = v.status === "waiting" || v.status === "signing";
     const rec = v.record;
     const record = !rec ? "x402 Doctor didn't answer" : !rec.known ? "not in x402 Doctor's Trust Index yet" : `paid out on ${rec.payableDays} of the ${rec.days} days x402 Doctor checked it${rec.verdict ? ` (last check: ${rec.verdict})` : ""}`;
     const recClass = rec?.verdict === "no_go" ? "bad" : rec?.verdict === "caution" ? "warn" : rec?.known ? "good" : "warn";
     const card = `<div class="card">
       <p style="margin:0"><b>${esc(v.agent)}</b> ${v.status === "done" ? "paid" : v.status === "failed" || v.status === "paying" ? "is paying" : "wants to pay"}</p>
-      <div class="big">$${esc(v.price)} <span style="font-size:18px">${open && o.base && o.xrpl ? "USDC on Base or RLUSD on the XRP Ledger" : `${esc(v.token)} on ${v.network === "XRP Ledger" ? "the " : ""}${esc(v.network)}`}</span></div>
+      <div class="big">$${esc(v.price)} <span style="font-size:18px">${open && ways.length > 1 ? ways.join(" or ").replace(/USDC on Base or USDC on Solana/, "USDC on Base or Solana") : `${esc(v.token)} on ${v.network === "XRP Ledger" ? "the " : ""}${esc(v.network)}`}</span></div>
       <p style="margin:0 0 12px">to <b>${esc(v.seller)}</b>${v.reason ? ` for “${esc(v.reason)}”` : ""}</p>
       <dl>
         <dt>API</dt><dd>${esc(v.method)} ${esc(v.url)}</dd>
-        <dt>Paid to</dt><dd>${open && o.base && o.xrpl ? `${esc(short(o.base.payTo))} on Base, ${esc(short(o.xrpl.payTo))} on the XRP Ledger` : esc(short(v.payTo))}</dd>
-        <dt>From</dt><dd>${open ? [o.base && (v.pick ? "the Ethereum wallet you sign with" : `your wallet ${esc(short(v.from))}`), o.xrpl && "the account you sign with in Xaman"].filter(Boolean).join(", or ") : v.from ? `your ${v.paidWith === "xrpl" ? "XRPL account" : "wallet"} ${esc(short(v.from))}` : "nothing was signed"}</dd>
+        <dt>Paid to</dt><dd>${open && ways.length > 1 ? [o.base && `${esc(short(o.base.payTo))} on Base`, o.solana && `${esc(short(o.solana.payTo))} on Solana`, o.xrpl && `${esc(short(o.xrpl.payTo))} on the XRP Ledger`].filter(Boolean).join(", ") : esc(short(v.payTo))}</dd>
+        <dt>From</dt><dd>${open ? [o.base && (v.pick ? "the Ethereum wallet you sign with" : `your wallet ${esc(short(v.from))}`), o.solana && "the Solana wallet you sign with", o.xrpl && "the account you sign with in Xaman"].filter(Boolean).join(", or ") : v.from ? `your ${v.paidWith === "xrpl" ? "XRPL account" : v.paidWith === "solana" ? "Solana wallet" : "wallet"} ${esc(short(v.from))}` : "nothing was signed"}</dd>
         <dt>Sanctions</dt><dd class="${v.screened ? "good" : "warn"}">${v.screened ? "not on the OFAC sanctions list" : "the OFAC list couldn't be read"}</dd>
         <dt>Seller</dt><dd class="${recClass}">${esc(record)}</dd>
       </dl></div>`;
@@ -103,23 +115,30 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
       $("title").textContent = "Sign a payment";
       const left = Math.max(0, Math.round((v.expiresAt - Date.now()) / 60000));
       const here = encodeURIComponent(location.href);
-      const both = o.base && o.xrpl;
+      const both = ways.length > 1;
       const baseButtons = window.ethereum
         ? `<button class="btn pri" id="sign" type="button">Sign with my wallet</button>`
         : `<a class="btn pri" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in MetaMask</a><a class="btn" href="https://go.cb-w.com/dapp?cb_url=${here}">Open in Coinbase Wallet</a>`;
       const baseBlock = !o.base ? "" : `<div class="opt">${both ? `<p><b>USDC on Base</b>, $${esc(o.base.price)}, signed in an Ethereum wallet</p>` : ""}
         ${window.ethereum ? "" : '<p class="note">No Ethereum wallet in this browser. On a phone, open this page in your wallet app.</p>'}<div class="row">${baseButtons}</div></div>`;
+      const sw = solWallets[0];
+      const here2 = encodeURIComponent(location.href), ref = encodeURIComponent(location.origin);
+      const solBlock = !o.solana ? "" : `<div class="opt">${both ? `<p><b>USDC on Solana</b>, $${esc(o.solana.price)}, signed in a Solana wallet</p>` : ""}
+        ${sw ? "" : '<p class="note">No Solana wallet in this browser. On a phone, open this page in Phantom or Solflare.</p>'}
+        <div class="row">${sw ? `<button class="btn${o.base ? "" : " pri"}" id="solana" type="button">Sign with ${esc(sw.name || "Solana wallet")}</button>`
+          : `<a class="btn${o.base ? "" : " pri"}" href="https://phantom.app/ul/browse/${here2}?ref=${ref}">Open in Phantom</a><a class="btn" href="https://solflare.com/ul/v1/browse/${here2}?ref=${ref}">Open in Solflare</a>`}</div></div>`;
       const x = v.xaman;
       const secs = x ? Math.max(0, Math.round((x.until - Date.now()) / 1000)) : 0;
       const xamanBlock = !o.xrpl ? "" : x
         ? `<div class="opt"><p><b>Waiting for Xaman.</b> ${x.pushed ? "It's in your Xaman app: sign" : "Sign"} it there within ${secs} seconds.</p>
           <div class="row"><a class="btn pri" href="${esc(x.url)}">Open Xaman</a></div><img class="qr" src="${esc(x.qr)}" alt="QR code to scan with Xaman" width="180" height="180"></div>`
-        : `<div class="opt">${both ? `<p><b>RLUSD on the XRP Ledger</b>, $${esc(o.xrpl.price)}, signed in Xaman</p>` : ""}<div class="row"><button class="btn${o.base ? "" : " pri"}" id="xaman" type="button">Sign in Xaman</button></div></div>`;
+        : `<div class="opt">${both ? `<p><b>RLUSD on the XRP Ledger</b>, $${esc(o.xrpl.price)}, signed in Xaman</p>` : ""}<div class="row"><button class="btn${o.base || o.solana ? "" : " pri"}" id="xaman" type="button">Sign in Xaman</button></div></div>`;
       $("body").innerHTML = card + `<p>Nothing is paid until you sign. Your signature allows exactly this amount to exactly this seller, for a few minutes, and nothing else. Fizzl never holds a key.</p>
-        ${v.note ? `<p class="warn">${esc(v.note)}</p>` : ""}${baseBlock}${xamanBlock}
+        ${v.note ? `<p class="warn">${esc(v.note)}</p>` : ""}${baseBlock}${solBlock}${xamanBlock}
         <div class="row" style="margin-top:14px"><button class="btn" id="deny" type="button">No</button></div><p class="note">Valid for ${left} more minute${left === 1 ? "" : "s"}.</p>`;
       if ($("sign")) $("sign").onclick = sign;
       if ($("xaman")) $("xaman").onclick = xaman;
+      if ($("solana")) $("solana").onclick = signSolana;
       $("deny").onclick = deny;
       if (x) poll = setTimeout(load, 2500);
       return;
@@ -131,7 +150,7 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
       $("body").innerHTML = card + `<p class="good">Paid. ${esc(v.agent)} got the answer${v.result?.httpStatus ? ` (HTTP ${esc(v.result.httpStatus)})` : ""}.</p>
         ${v.result?.injection ? '<p class="bad">The answer contains instructions aimed at your agent. It was told to treat it as data only.</p>' : ""}
         ${v.result?.delivered === "no" ? '<p class="warn">The answer doesn\'t look like what was paid for. See the receipt.</p>' : ""}
-        <div class="row">${tx ? `<a class="btn" href="${String(v.result.settlement.network).startsWith("xrpl") ? "https://livenet.xrpl.org/transactions/" : "https://basescan.org/tx/"}${esc(tx)}" target="_blank" rel="noopener">The transaction</a>` : ""}<a class="btn" href="/#/purchases">Your receipts</a></div>`;
+        <div class="row">${tx ? `<a class="btn" href="${String(v.result.settlement.network).startsWith("xrpl") ? "https://livenet.xrpl.org/transactions/" : String(v.result.settlement.network).startsWith("solana") ? "https://solscan.io/tx/" : "https://basescan.org/tx/"}${esc(tx)}" target="_blank" rel="noopener">The transaction</a>` : ""}<a class="btn" href="/#/purchases">Your receipts</a></div>`;
       return;
     }
     $("title").textContent = v.status === "denied" ? "Declined" : v.status === "expired" ? "Expired" : "Not paid";
@@ -166,6 +185,25 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
       if (r.agent) render(r); else { if (r.view) render(r.view); msg(r.message || "That didn't work. Try again.", "bad"); }
     } catch (e) {
       msg(e?.code === 4001 ? "You didn't sign. Nothing was paid; you can still sign or say no." : `Your wallet said: ${e?.message || e}`, "warn");
+    } finally { for (const b of document.querySelectorAll("button")) b.disabled = false; }
+  }
+
+  async function signSolana() {
+    const w = solWallets[0];
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+    try {
+      const { accounts } = await w.features["standard:connect"].connect();
+      const account = accounts?.find((a) => a.chains?.some((c) => String(c).startsWith("solana:"))) ?? accounts?.[0];
+      if (!account) { msg("Your wallet didn't share an account.", "warn"); return; }
+      const t = await api("POST", `/connector/payments/${encodeURIComponent(id)}/solana`, { from: account.address });
+      if (!t.transaction) { if (t.view) render(t.view); msg(t.message || "This request can't be signed now.", "warn"); return; }
+      const [out] = await w.features["solana:signTransaction"].signTransaction({ account, transaction: b64bytes(t.transaction), chain: "solana:mainnet" });
+      msg("Sending the payment…");
+      const r = await api("POST", `/connector/payments/${encodeURIComponent(id)}/solana/sign`, { transaction: bytesb64(out.signedTransaction) });
+      msg("");
+      if (r.agent) render(r); else { if (r.view) render(r.view); msg(r.message || "That didn't work. Try again.", "bad"); }
+    } catch (e) {
+      msg(/reject|denied|cancel/i.test(String(e?.message)) || e?.code === 4001 ? "You didn't sign. Nothing was paid; you can still sign or say no." : `Your wallet said: ${e?.message || e}`, "warn");
     } finally { for (const b of document.querySelectorAll("button")) b.disabled = false; }
   }
 

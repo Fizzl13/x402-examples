@@ -1,6 +1,7 @@
 // Payments from the connector (src/connector.js), signed by the owner in their own wallet. The app asks (pay_x402);
-// the server reads the API's 402, takes its USDC-on-Base offer (and its RLUSD-on-XRPL one, signed in Xaman: see
-// src/connector-xaman.js), checks the payout address against the OFAC list,
+// the server reads the API's 402, takes its USDC-on-Base offer (and its USDC-on-Solana one, signed in a Solana wallet:
+// see src/connector-solana.js; and its RLUSD-on-XRPL one, signed in Xaman: see src/connector-xaman.js), checks the
+// payout address against the OFAC list,
 // looks the seller up in x402 Doctor's Trust Index and checks the owner's balance, then makes a payment request.
 // The owner gets a link (Telegram, the installed app, and from the agent) to a page where their own wallet signs one
 // EIP-3009 authorization: exactly that amount, to exactly that seller, valid for minutes. It is the Ethereum wallet
@@ -13,6 +14,8 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { verifyTypedData, getAddress } from "viem";
 import { isPrivateAddress } from "./catalog.js";
 import { xrplOffer, signWindow, paymentTx, checkSigned, createXaman, createXrplReader, XRPL_MAINNET } from "./connector-xaman.js";
+import { solanaOffer, paymentMessage, unsignedTransaction, checkSigned as checkSolana, createSolanaReader, SOLANA_MAINNET } from "./connector-solana.js";
+import { isSolanaAddress } from "./solana.js";
 
 export const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_CHAIN_ID = 8453;
@@ -80,12 +83,13 @@ async function readText(res, limit) {
   return text;
 }
 
-export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, version = "0", now = () => Date.now() }) {
+export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, version = "0", now = () => Date.now() }) {
   const UA = `fizzl-wallet-connector/${version}`;
   const asks = new Map(); // agent id -> { n, since }
   // XRPL in Xaman: on when the server has a Xaman app's key and secret.
   const xm = xaman?.apiKey && xaman?.apiSecret ? createXaman({ ...xaman, fetch: xaman.fetch ?? fetchImpl }) : null;
   const xrplLedger = createXrplReader({ rpcUrl: xrplRpc, fetch: fetchImpl });
+  const solana = createSolanaReader({ rpcUrl: solanaRpc, fetch: fetchImpl });
   const checked = new Map(); // request id -> when Xaman was last asked
   // The approve page also shows Xaman's QR code.
   const approveCsp = csp.replace(/img-src ([^;]*)/, "img-src $1 https://xumm.app");
@@ -160,26 +164,31 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
 
     let challenge = first.headers.get("payment-required") ? unb64(first.headers.get("payment-required")) : null;
     if (!challenge) { try { challenge = JSON.parse(text); } catch { /* no challenge in the body either */ } }
-    // USDC on Base (an Ethereum wallet signs) and RLUSD on the XRP Ledger (Xaman signs): the owner picks on the page.
+    // USDC on Base (an Ethereum wallet signs), USDC on Solana (a Solana wallet signs) and RLUSD on the XRP Ledger
+    // (Xaman signs): the owner picks on the page.
     const base = baseOffer(challenge);
+    const sol = solanaOffer(challenge);
     const xrpl = xm ? xrplOffer(challenge) : null;
-    if (!base && !xrpl) return { error: `This API doesn't take USDC on Base${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
+    if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
     let offer = base && usd(base.amount) <= cap ? base : null;
+    const onSol = sol && sol.price <= cap ? sol : null;
     const onXrpl = xrpl && xrpl.price <= cap ? xrpl : null;
-    if (!offer && !onXrpl) return { error: `This API asks $${Math.min(...[base && usd(base.amount), xrpl?.price].filter(Boolean))}, above max_price_usd ($${cap}). Ask your user before raising it (at most $${MAX_PRICE_USD}).` };
+    if (!offer && !onSol && !onXrpl) return { error: `This API asks $${Math.min(...[base && usd(base.amount), sol?.price, xrpl?.price].filter(Boolean))}, above max_price_usd ($${cap}). Ask your user before raising it (at most $${MAX_PRICE_USD}).` };
     const owner = await accounts.payer(account);
-    const [baseListed, xrplListed, record, balance] = await Promise.all([offer ? sanctioned(offer.payTo) : false, onXrpl ? sanctioned(onXrpl.payTo) : false, sellerRecord(url), owner && offer ? usdcBalance(owner) : null]);
-    if (baseListed || xrplListed) return { error: `This API's payout address ${baseListed ? offer.payTo : onXrpl.payTo} is on the OFAC sanctions list. Nothing was asked or paid.` };
+    const payTos = [offer?.payTo, onSol?.payTo, onXrpl?.payTo].filter(Boolean);
+    const [listed, record, balance] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url), owner && offer ? usdcBalance(owner) : null]);
+    const hit = payTos.find((_, i) => listed[i]);
+    if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
     if (owner && offer && balance !== null && balance < BigInt(offer.amount)) {
-      if (!onXrpl) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${usd(offer.amount)} this API asks. They can add USDC on Base to that address and ask again.` };
-      offer = null; // too little USDC: Xaman only
+      if (!onSol && !onXrpl) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${usd(offer.amount)} this API asks. They can add USDC on Base to that address and ask again.` };
+      offer = null; // too little USDC on Base: the other ways only
     }
-    const price = offer ? usd(offer.amount) : onXrpl.price;
+    const price = offer ? usd(offer.amount) : onSol ? onSol.price : onXrpl.price;
 
     let r = {
       id: randomBytes(24).toString("base64url"), account, agentId: agent.id, agentName: agent.name, status: "waiting", origin,
       url, method, headers: h, body: sendBody ?? null, reason: typeof reason === "string" ? reason.trim().slice(0, 300) || null : null,
-      offer, xrpl: onXrpl, price, from: owner && offer ? getAddress(owner) : null, pick: !owner, screened: baseListed === false && xrplListed === false, record, createdAt: now(), expiresAt: now() + WAIT_MS,
+      offer, sol: onSol, xrpl: onXrpl, price, from: owner && offer ? getAddress(owner) : null, pick: !owner, screened: listed.every((x) => x === false), record, createdAt: now(), expiresAt: now() + WAIT_MS,
     };
     await putReq(r);
     const host = new URL(url).host;
@@ -190,7 +199,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       if (token) r = await startXaman(r, token).catch((err) => { console.warn(`[connector] xaman: ${err.message}`); return r; });
       pushed = !!r.xaman?.pushed;
     }
-    await accounts.tellOwner(account, { title: `${agent.name} asks you to sign $${price}`, text: `✍️ ${agent.name} wants to pay $${price} ${offer ? "USDC" : "RLUSD"} to ${host}${r.reason ? ` for "${r.reason}"` : ""}. Nothing is paid until you sign it ${pushed ? "in Xaman (it's in your app now) or " : ""}in your own wallet (valid 15 minutes).`, url: `/approve/${r.id}`, tag: `connector-${r.id}` });
+    await accounts.tellOwner(account, { title: `${agent.name} asks you to sign $${price}`, text: `✍️ ${agent.name} wants to pay $${price} ${offer || onSol ? "USDC" : "RLUSD"} to ${host}${r.reason ? ` for "${r.reason}"` : ""}. Nothing is paid until you sign it ${pushed ? "in Xaman (it's in your app now) or " : ""}in your own wallet (valid 15 minutes).`, url: `/approve/${r.id}`, tag: `connector-${r.id}` });
     usage.record("connector", { account, input: { tool: "pay_x402", host }, usd: price, result: { status: "waiting" } });
     return { ...agentView(r, origin), next: "Give your user the approve_url (it was also sent to their phone if they linked Telegram or the app): they sign the payment in their own wallet. Then call payment_status with payment_id; it waits up to 25 seconds per call." };
   }
@@ -209,7 +218,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   }
   function agentView(r, origin) {
     const base = { payment_id: r.id, price_usd: r.price, seller: new URL(r.url).host };
-    if (OPEN.has(r.status)) return { status: "waiting_for_owner", ...base, approve_url: `${origin}/approve/${r.id}`, expires_in_s: Math.max(0, Math.round((r.expiresAt - now()) / 1000)), pay_with: [...(r.offer ? ["USDC on Base"] : []), ...(r.xrpl ? ["RLUSD on the XRP Ledger (Xaman)"] : [])], ...(r.xaman?.pushed ? { note: "The payment is also in your user's Xaman app." } : {}) };
+    if (OPEN.has(r.status)) return { status: "waiting_for_owner", ...base, approve_url: `${origin}/approve/${r.id}`, expires_in_s: Math.max(0, Math.round((r.expiresAt - now()) / 1000)), pay_with: [...(r.offer ? ["USDC on Base"] : []), ...(r.sol ? ["USDC on Solana (Phantom)"] : []), ...(r.xrpl ? ["RLUSD on the XRP Ledger (Xaman)"] : [])], ...(r.xaman?.pushed ? { note: "The payment is also in your user's Xaman app." } : {}) };
     if (r.status === "paying") return { status: "paying", ...base };
     if (r.status === "expired") return { status: "expired", ...base, note: "Your user didn't sign within 15 minutes. Nothing was paid; ask again if it's still needed." };
     if (r.status === "denied") return { status: "denied", ...base, note: "Your user said no. Nothing was paid." };
@@ -228,11 +237,17 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   }
 
   // ---------- the owner's page: see, sign or say no ----------
+  // How it is (or would first be) paid: what the page shows above the options.
+  const via = (r) => r.paidWith ?? (r.offer ? "base" : r.sol ? "solana" : "xrpl");
+  const VIA = {
+    base: (r) => ({ token: "USDC", network: "Base", payTo: r.offer.payTo }),
+    solana: (r) => ({ token: "USDC", network: "Solana", payTo: r.sol.payTo }),
+    xrpl: (r) => ({ token: "RLUSD", network: "XRP Ledger", payTo: r.xrpl.payTo }),
+  };
   const ownerView = (r) => ({
     status: r.status, agent: r.agentName, seller: new URL(r.url).host, url: r.url, method: r.method, reason: r.reason,
-    price: r.price, token: r.paidWith === "xrpl" || !r.offer ? "RLUSD" : "USDC", network: r.paidWith === "xrpl" || !r.offer ? "XRP Ledger" : "Base",
-    payTo: r.paidWith === "xrpl" || !r.offer ? r.xrpl.payTo : r.offer.payTo, from: r.from, pick: !!r.pick, screened: r.screened, record: r.record,
-    options: { base: r.offer ? { price: usd(r.offer.amount), payTo: r.offer.payTo } : null, xrpl: r.xrpl ? { price: r.xrpl.price, payTo: r.xrpl.payTo, seconds: signWindow(r.xrpl).seconds } : null },
+    price: r.price, ...VIA[via(r)](r), from: r.from, pick: !!r.pick, screened: r.screened, record: r.record,
+    options: { base: r.offer ? { price: usd(r.offer.amount), payTo: r.offer.payTo } : null, solana: r.sol ? { price: r.sol.price, payTo: r.sol.payTo } : null, xrpl: r.xrpl ? { price: r.xrpl.price, payTo: r.xrpl.payTo, seconds: signWindow(r.xrpl).seconds } : null },
     xaman: r.xaman && OPEN.has(r.status) ? { url: r.xaman.url, qr: r.xaman.qr, pushed: r.xaman.pushed, until: r.xaman.until } : null,
     paidWith: r.paidWith ?? null, note: r.note ?? null, expiresAt: r.expiresAt, error: r.error ?? null,
     result: r.result ? { httpStatus: r.result.httpStatus, settlement: r.result.settlement ?? null, receipt: !!r.result.purchaseId, injection: !!r.result.check?.injection, delivered: r.result.check?.delivered ?? null } : null,
@@ -256,6 +271,10 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       ? ["payment-signature", b64({ x402Version: 2, ...(r.offer.resource ? { resource: r.offer.resource } : {}), accepted: r.offer.accepted, payload })]
       : ["x-payment", b64({ x402Version: 1, scheme: "exact", network: "base", payload })];
     return { name, value, network: `eip155:${BASE_CHAIN_ID}`, token: "USDC", payTo: r.offer.payTo, receipt: { chainId: BASE_CHAIN_ID, to: r.offer.payTo, amount: r.offer.amount, from: r.from } };
+  }
+  function solanaPayment(r, transaction, from) {
+    const value = b64({ x402Version: 2, ...(r.sol.resource ? { resource: r.sol.resource } : {}), accepted: r.sol.accepted, payload: { transaction } });
+    return { name: "payment-signature", value, network: SOLANA_MAINNET, token: "USDC", payTo: r.sol.payTo, receipt: { chainId: SOLANA_MAINNET, to: r.sol.payTo, amount: r.sol.amount, from, method: "solanaTransfer" } };
   }
   function xrplPayment(r, blob, signer) {
     const value = b64({ x402Version: 2, ...(r.xrpl.resource ? { resource: r.xrpl.resource } : {}), accepted: r.xrpl.accepted, payload: { signedTxBlob: blob } });
@@ -357,7 +376,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const r = await getReq(req.params.id);
     if (!r) return res.status(404).json({ error: "not_found", message: "This payment request doesn't exist or has expired." });
     if (!OPEN.has(r.status)) return res.status(409).json({ error: r.status, message: `This payment request is ${r.status}.`, view: ownerView(r) });
-    if (!r.offer) return res.status(409).json({ error: "no_base", message: "This one is paid in RLUSD on the XRP Ledger: sign it in Xaman.", view: ownerView(r) });
+    if (!r.offer) return res.status(409).json({ error: "no_base", message: "This API isn't paid in USDC on Base here: pick another way on this page.", view: ownerView(r) });
     let from = r.from;
     if (r.pick) {
       // No address on the account: the wallet the owner signs with on the page pays, if it can.
@@ -392,6 +411,46 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     await putReq(done);
     if (r.xaman?.uuid && xm) xm.cancel(r.xaman.uuid);
     usage.record("connector", { account: r.account, input: { tool: "signed", host: new URL(r.url).host }, usd: r.price, result: { status: out.status, httpStatus: out.result?.httpStatus ?? null } });
+    res.json(ownerView(done));
+  });
+  // A Solana wallet signs: the transaction for the connected account, made now (a blockhash lasts about a minute),
+  // then the signed one back.
+  router.post("/connector/payments/:id/solana", async (req, res) => {
+    res.set("cache-control", "no-store");
+    const r = await getReq(req.params.id);
+    if (!r) return res.status(404).json({ error: "not_found", message: "This payment request doesn't exist or has expired." });
+    if (!OPEN.has(r.status)) return res.status(409).json({ error: r.status, message: `This payment request is ${r.status}.`, view: ownerView(r) });
+    if (!r.sol) return res.status(409).json({ error: "no_solana", message: "This API doesn't take USDC on Solana.", view: ownerView(r) });
+    const from = isSolanaAddress(req.body?.from) ? req.body.from : null;
+    if (!from) return res.status(400).json({ error: "no_wallet", message: "Connect the Solana wallet you want to pay with." });
+    if (from === r.sol.feePayer || from === r.sol.payTo) return res.status(400).json({ error: "wrong_wallet", message: "That account belongs to the seller. Pay from your own wallet." });
+    try {
+      const [onList, balance] = await Promise.all([sanctioned(from), solana.usdc(from)]);
+      if (onList) return res.status(403).json({ error: "sanctioned", message: `${short(from)} is on the OFAC sanctions list. Nothing was paid.` });
+      if (balance !== null && balance < BigInt(r.sol.amount)) return res.status(400).json({ error: "low_balance", message: `${short(from)} has $${usd(balance)} USDC on Solana, less than $${r.sol.price}. Add USDC on Solana to it, or pick another way.` });
+      const message = paymentMessage(r.sol, from, await solana.blockhash());
+      await putReq({ ...r, status: "signing", solTx: { from, message: Buffer.from(message).toString("base64") } });
+      res.json({ from, transaction: Buffer.from(unsignedTransaction(message)).toString("base64") });
+    } catch (err) {
+      console.warn(`[connector] solana: ${err.message}`);
+      res.status(502).json({ error: "solana", message: "Solana can't be read right now. Try again in a minute." });
+    }
+  });
+  router.post("/connector/payments/:id/solana/sign", async (req, res) => {
+    res.set("cache-control", "no-store");
+    const r = await getReq(req.params.id);
+    if (!r) return res.status(404).json({ error: "not_found", message: "This payment request doesn't exist or has expired." });
+    if (r.status !== "signing" || !r.solTx) return res.status(409).json({ error: r.status, message: OPEN.has(r.status) ? "Ask for the transaction to sign first." : `This payment request is ${r.status}.`, view: ownerView(r) });
+    if (typeof req.body?.transaction !== "string" || req.body.transaction.length > 4000) return res.status(400).json({ error: "bad_transaction", message: "That isn't a signed transaction." });
+    const c = checkSolana(req.body.transaction, Buffer.from(r.solTx.message, "base64"), r.solTx.from);
+    if (c.error) return res.status(400).json({ error: "bad_transaction", message: c.error });
+    if (!(await store.claimTx(`connector:${r.id}`))) return res.status(409).json({ error: "paying", message: "This payment is already being sent.", view: ownerView(r) });
+    await putReq({ ...r, status: "paying", from: r.solTx.from, paidWith: "solana" });
+    const out = await pay(r, solanaPayment(r, c.transaction, r.solTx.from));
+    const done = { ...r, ...out, from: r.solTx.from, paidWith: "solana", paidAt: now() };
+    await putReq(done);
+    if (r.xaman?.uuid && xm) xm.cancel(r.xaman.uuid);
+    usage.record("connector", { account: r.account, input: { tool: "signed", host: new URL(r.url).host, via: "solana" }, usd: r.sol.price, result: { status: out.status, httpStatus: out.result?.httpStatus ?? null } });
     res.json(ownerView(done));
   });
   // Sign in Xaman: a sign request for this payment (pushed to the owner's app if they have signed in Xaman here before).
