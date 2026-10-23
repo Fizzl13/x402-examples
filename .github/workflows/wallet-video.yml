@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: "Which video: script.json (the ~90-second intro), short.json (30 seconds, for social media), fizzl.json (the Fizzl ad, ~45 seconds), new.json (what's new, ~70 seconds), short-new.json (what's new in 30 seconds), new-nl.json (what's new, in Dutch) or install.json (the install in Claude Desktop, step by step, ~2 minutes) or buy.json (Fizzl Buy: an agent buys what it needs, ~55 seconds)"
+        description: "Which video: script.json (the ~90-second intro), short.json (30 seconds, for social media), fizzl.json (the Fizzl ad, ~45 seconds), new.json (what's new, ~70 seconds), short-new.json (what's new in 30 seconds), new-nl.json (what's new, in Dutch) or install.json (the install in Claude Desktop, step by step, ~2 minutes) or buy.json (Fizzl Buy: install the wallet in Claude, then the agent buys what it needs, ~75 seconds)"
         type: choice
         options: [script.json, short.json, fizzl.json, new.json, short-new.json, new-nl.json, install.json, buy.json]
         default: script.json

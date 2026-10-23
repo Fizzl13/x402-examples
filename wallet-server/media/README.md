@@ -33,7 +33,8 @@ drawn pointer. The browser download and Claude Desktop are drawn (simplified,
 and labelled so); the wallet is the live demo, which links the example agent
 when you enter a code.
 
-The Fizzl Buy demo: `buy.json` (~55 seconds). Claude Desktop, drawn (simplified, and labelled so), buys
+The Fizzl Buy demo: `buy.json` (~75 seconds). First the one-time install of the wallet in Claude and a spending
+limit (the live demo); then Claude Desktop, drawn (simplified, and labelled so), buys
 tomorrow's forecast for Amsterdam through the wallet, as in the real purchase of 23 Oct 2026; then what Fizzl Buy
 did in that one call, the answer, and the live https://buy.fizzl.eu page.
 

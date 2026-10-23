@@ -1,5 +1,5 @@
 {
-  "title": "Fizzl Buy: an AI agent buys what it needs, on its own (~50 seconds)",
+  "title": "Fizzl Buy: install the wallet in Claude once, then your agent buys what it needs on its own (~75 seconds)",
   "output": "fizzl-buy-demo",
   "segments": [
     {
@@ -12,9 +12,21 @@
       "text": "Your AI agent needs something it doesn't have. Tomorrow's weather, a price, a search result."
     },
     {
+      "id": "b-install",
+      "scene": "install",
+      "text": "First, once: install the Fizzl Agent Wallet in Claude. Download it from wallet.fizzl.eu and open the file. No keys, no config file. On Claude Code or Cursor, it's one line.",
+      "hold": 9
+    },
+    {
+      "id": "b-limit",
+      "scene": "rule",
+      "text": "Put a dollar or two in your agent's wallet, and set how much it may spend on its own, per purchase and per day.",
+      "hold": 7
+    },
+    {
       "id": "b-ask",
       "scene": "buy-ask",
-      "text": "So it buys it. Here, Claude is asked to buy tomorrow's forecast for Amsterdam via buy.fizzl.eu. It pays $0.02 from its own wallet, within the limit its owner set. No click needed.",
+      "text": "Then just ask. Here, Claude is asked to buy tomorrow's forecast for Amsterdam via buy.fizzl.eu. It pays $0.02 from its own wallet, within that limit. No click needed.",
       "hold": 9
     },
     {
@@ -32,7 +44,7 @@
     {
       "id": "b-site",
       "scene": "buy-site",
-      "text": "Let your own agent do the same: connect the Fizzl Agent Wallet, set a limit, and ask.",
+      "text": "That's all it takes: install the wallet in Claude, set a limit, and ask.",
       "hold": 6
     },
     {
@@ -41,9 +53,9 @@
       "card": {
         "title": "Fizzl Buy",
         "sub": "One call buys the right paid API for your agent.",
-        "note": "buy.fizzl.eu · $0.02 a purchase"
+        "note": "Install: wallet.fizzl.eu · Buy: buy.fizzl.eu"
       },
-      "text": "Fizzl Buy. One call buys the right paid API for your agent. At buy.fizzl.eu.",
+      "text": "Fizzl Buy. Install the wallet at wallet.fizzl.eu, and your agent buys what it needs at buy.fizzl.eu.",
       "hold": 5
     }
   ]
