@@ -11,11 +11,14 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { getHeapStatistics } from "node:v8";
 import indexNow from "./indexnow.cjs";
-import { WALLET_MCP, WALLET_MCPB } from "./mcp-package.js";
+import { WALLET_MCP, WALLET_MCPB, WALLET_MCP_VERSION } from "./mcp-package.js";
+import { createConnector } from "./connector.js";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 // A dated comparison with Coinbase for Agents (Coinbase MCP and Coinbase Wallet MCP), with its sources.
 const COMPARE_COINBASE = fileURLToPath(new URL("../public/compare-coinbase.html", import.meta.url));
+// The consent page of the connector for ChatGPT, Grok and other remote MCP apps (src/connector.js).
+const CONNECT = fileURLToPath(new URL("../public/connect.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
@@ -36,7 +39,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null, allowance = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {} }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -602,6 +605,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       .replaceAll("{{ADDRESS_COMMA}}", operator.address ? `, ${escapeHtml(operator.address)}` : "")
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
+  // The wallet as a connector for ChatGPT, Grok and other remote MCP apps: OAuth and /mcp (src/connector.js).
+  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), version: WALLET_MCP_VERSION ?? "0", ...connector }));
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
   // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.
