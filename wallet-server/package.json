@@ -21,6 +21,7 @@
     "redis": "^5.12.1",
     "viem": "^2.56.9",
     "x402-safe-fetch": "^0.4.0",
+    "xrpl": "^4.7.0",
     "zod": "^4.6.7"
   },
   "license": "AGPL-3.0-only",
