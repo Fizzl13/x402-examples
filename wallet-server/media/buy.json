@@ -1,0 +1,50 @@
+{
+  "title": "Fizzl Buy: an AI agent buys what it needs, on its own (~50 seconds)",
+  "output": "fizzl-buy-demo",
+  "segments": [
+    {
+      "id": "b-hook",
+      "scene": "card",
+      "card": {
+        "title": "Your agent needs data it doesn't have.",
+        "sub": "Tomorrow's weather. A price. A search."
+      },
+      "text": "Your AI agent needs something it doesn't have. Tomorrow's weather, a price, a search result."
+    },
+    {
+      "id": "b-ask",
+      "scene": "buy-ask",
+      "text": "So it buys it. Here, Claude is asked to buy tomorrow's forecast for Amsterdam via buy.fizzl.eu. It pays $0.02 from its own wallet, within the limit its owner set. No click needed.",
+      "hold": 9
+    },
+    {
+      "id": "b-flow",
+      "scene": "buy-flow",
+      "text": "Behind that one call, Fizzl Buy does the work. It picks a weather API that x402 Doctor saw paying out on 29 of the last 30 days, fills in the request, checks the seller before paying, pays it $0.001, and checks the answer.",
+      "hold": 13
+    },
+    {
+      "id": "b-answer",
+      "scene": "buy-answer",
+      "text": "Fourteen seconds later, the forecast is back, with the service it came from and a signed receipt. When no seller delivers, nothing is charged.",
+      "hold": 9
+    },
+    {
+      "id": "b-site",
+      "scene": "buy-site",
+      "text": "Let your own agent do the same: connect the Fizzl Agent Wallet, set a limit, and ask.",
+      "hold": 6
+    },
+    {
+      "id": "b-end",
+      "scene": "card",
+      "card": {
+        "title": "Fizzl Buy",
+        "sub": "One call buys the right paid API for your agent.",
+        "note": "buy.fizzl.eu · $0.02 a purchase"
+      },
+      "text": "Fizzl Buy. One call buys the right paid API for your agent. At buy.fizzl.eu.",
+      "hold": 5
+    }
+  ]
+}
