@@ -425,6 +425,25 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       return { updated, check };
     },
 
+    // A payment the owner signed in their own wallet (the connector for ChatGPT and other remote apps,
+    // src/connector.js): the signature is the owner's OK, so no limits or rules stand in between. Booked so the
+    // day's totals include it, with a receipt; the outcome and the answer check follow through annotate().
+    // amount is in the token's own units (USDC: 6 decimals); the wallet counts in SCALE decimals.
+    async ownerSigned(agent, { chainId, to, amount, decimals = 6, budget = "USDC", purchase, from }) {
+      const scaled = (BigInt(amount) * 10n ** BigInt(SCALE - decimals)).toString();
+      return locked(async () => {
+        const info = { method: "signTypedData", chainId, to };
+        const entries = await book(agent, [{ budget, amount: scaled }], info);
+        const clean = cleanPurchase(purchase);
+        const short = typeof from === "string" ? `${from.slice(0, 6)}…${from.slice(-4)}` : "your wallet";
+        const p = await openPurchase(agent, { ...info, entries, verdict: null, purchase: clean, approval: { by: "your wallet", summary: `You signed this payment in your own wallet (${short}).`, at: now() } });
+        const signed = await updatePurchase(agent, p.id, { status: "signed" });
+        await log("signed", { agent: agent.name, method: info.method, amounts: p.amounts, to, verdict: null, purchase: p.id, what: clean?.description ?? clean?.url ?? null });
+        safeTrack("purchase", { usd: usdcOf([{ budget, amount: scaled }]), input: { host: bought(info.method, clean), method: info.method }, result: { outcome: "ok", verdict: "owner" } });
+        return { purchaseId: (signed ?? p).id };
+      });
+    },
+
     async purchase(purchaseId) {
       const p = typeof purchaseId === "string" ? await store.getPurchase(purchaseId) : null;
       if (!p) throw Object.assign(new Error("no such receipt (receipts are kept 90 days)"), { status: 404 });

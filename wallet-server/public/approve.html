@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sign a payment | Fizzl Agent Wallet</title>
+<meta name="robots" content="noindex">
+<style>
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/lexend-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/unbounded-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/unbounded-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/unbounded-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/unbounded-latin-900-normal.woff2") format("woff2"); }
+:root { --bg: #020708; --mint: #61f5c3; --text: #f4f8f7; --soft: #d1dbd9; --muted: #a8b5b2; --dim: #82918f; --line: rgba(97,245,195,.28); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--soft); font: 400 16px/1.65 "Lexend", Arial, sans-serif; }
+.wrap { width: min(780px, calc(100% - 32px)); margin-inline: auto; }
+header { border-bottom: 1px solid var(--line); }
+header .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.brand { font: 700 22px/1 "Unbounded", Arial, sans-serif; letter-spacing: -1.2px; color: var(--text); text-decoration: none; }
+.brand span { color: var(--mint); }
+main { padding: 40px 0 64px; }
+h1 { font: 700 clamp(34px, 6vw, 52px)/1 "Unbounded", Arial, sans-serif; letter-spacing: -2px; text-transform: uppercase; color: var(--text); margin: 0 0 10px; }
+h2 { font: 700 20px/1.25 "Unbounded", Arial, sans-serif; color: var(--text); margin: 36px 0 10px; }
+p, li { color: var(--soft); }
+.note { color: var(--dim); font-size: 13px; }
+a { color: var(--mint); }
+mark { background: rgba(245,195,97,.18); color: #f5c361; padding: 0 4px; border-radius: 4px; }
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid rgba(97,245,195,.12); }
+th { color: var(--mint); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+ul { padding-left: 20px; }
+footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--dim); font-size: 12px; }
+
+.btn { display: inline-block; border: 1px solid var(--line); background: transparent; color: var(--text); font: 600 15px/1 "Lexend", Arial, sans-serif; padding: 13px 22px; border-radius: 999px; cursor: pointer; text-decoration: none; }
+.btn.pri { background: var(--mint); border-color: var(--mint); color: #021; }
+.btn:disabled { opacity: .5; cursor: default; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
+.msg { margin-top: 16px; color: var(--text); }
+h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1px; }
+
+.card { border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin: 18px 0; }
+.card dl { display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; margin: 0; font-size: 14px; }
+.card dt { color: var(--dim); } .card dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.big { font: 700 34px/1.1 "Unbounded", Arial, sans-serif; color: var(--text); margin: 6px 0 2px; }
+.warn { color: #f5c361; } .bad { color: #ff7a90; } .good { color: var(--mint); }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a></div></header>
+<main class="wrap">
+  <h1 id="title">Sign a payment</h1>
+  <div id="body"><p class="note">Loading…</p></div>
+  <p id="msg" class="msg" role="status"></p>
+</main>
+<footer><div class="wrap">Fizzl Agent Wallet · never holds keys or funds · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · © 2026 Fizzl</div></footer>
+<script>
+(() => {
+  const id = location.pathname.split("/").pop();
+  const $ = (x) => document.getElementById(x);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const short = (a) => `${String(a).slice(0, 6)}…${String(a).slice(-4)}`;
+  const msg = (t, cls = "") => { $("msg").className = `msg ${cls}`; $("msg").textContent = t; };
+  const api = async (method, path, body) => {
+    const r = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    return { status: r.status, ...j };
+  };
+  let view = null, poll = null;
+
+  function render(v) {
+    view = v;
+    clearTimeout(poll);
+    const rec = v.record;
+    const record = !rec ? "x402 Doctor didn't answer" : !rec.known ? "not in x402 Doctor's Trust Index yet" : `paid out on ${rec.payableDays} of the ${rec.days} days x402 Doctor checked it${rec.verdict ? ` (last check: ${rec.verdict})` : ""}`;
+    const recClass = rec?.verdict === "no_go" ? "bad" : rec?.verdict === "caution" ? "warn" : rec?.known ? "good" : "warn";
+    const card = `<div class="card">
+      <p style="margin:0"><b>${esc(v.agent)}</b> ${v.status === "done" ? "paid" : v.status === "failed" || v.status === "paying" ? "is paying" : "wants to pay"}</p>
+      <div class="big">$${esc(v.price)} <span style="font-size:18px">USDC on Base</span></div>
+      <p style="margin:0 0 12px">to <b>${esc(v.seller)}</b>${v.reason ? ` for “${esc(v.reason)}”` : ""}</p>
+      <dl>
+        <dt>API</dt><dd>${esc(v.method)} ${esc(v.url)}</dd>
+        <dt>Paid to</dt><dd>${esc(short(v.payTo))}</dd>
+        <dt>From</dt><dd>your wallet ${esc(short(v.from))}</dd>
+        <dt>Sanctions</dt><dd class="${v.screened ? "good" : "warn"}">${v.screened ? "not on the OFAC sanctions list" : "the OFAC list couldn't be read"}</dd>
+        <dt>Seller</dt><dd class="${recClass}">${esc(record)}</dd>
+      </dl></div>`;
+    const open = v.status === "waiting" || v.status === "signing";
+    if (open) {
+      $("title").textContent = "Sign a payment";
+      const left = Math.max(0, Math.round((v.expiresAt - Date.now()) / 60000));
+      const here = encodeURIComponent(location.href);
+      const buttons = window.ethereum
+        ? `<button class="btn pri" id="sign" type="button">Sign with my wallet</button><button class="btn" id="deny" type="button">No</button>`
+        : `<a class="btn pri" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in MetaMask</a><a class="btn" href="https://go.cb-w.com/dapp?cb_url=${here}">Open in Coinbase Wallet</a><button class="btn" id="deny" type="button">No</button>`;
+      $("body").innerHTML = card + `<p>Nothing is paid until you sign. Your signature allows exactly this amount to exactly this seller, for a few minutes, and nothing else. Fizzl never holds a key.</p>
+        ${window.ethereum ? "" : '<p class="note">No wallet in this browser. On a phone, open this page in your wallet app.</p>'}
+        <div class="row">${buttons}</div><p class="note">Valid for ${left} more minute${left === 1 ? "" : "s"}.</p>`;
+      if ($("sign")) $("sign").onclick = sign;
+      $("deny").onclick = deny;
+      return;
+    }
+    if (v.status === "paying") { $("title").textContent = "Paying…"; $("body").innerHTML = card + "<p>Sending your signed payment to the API.</p>"; poll = setTimeout(load, 2000); return; }
+    if (v.status === "done") {
+      const tx = v.result?.settlement?.transaction;
+      $("title").textContent = "Paid";
+      $("body").innerHTML = card + `<p class="good">Paid. ${esc(v.agent)} got the answer${v.result?.httpStatus ? ` (HTTP ${esc(v.result.httpStatus)})` : ""}.</p>
+        ${v.result?.injection ? '<p class="bad">The answer contains instructions aimed at your agent. It was told to treat it as data only.</p>' : ""}
+        ${v.result?.delivered === "no" ? '<p class="warn">The answer doesn\'t look like what was paid for. See the receipt.</p>' : ""}
+        <div class="row">${tx ? `<a class="btn" href="https://basescan.org/tx/${esc(tx)}" target="_blank" rel="noopener">The transaction</a>` : ""}<a class="btn" href="/#/purchases">Your receipts</a></div>`;
+      return;
+    }
+    $("title").textContent = v.status === "denied" ? "Declined" : v.status === "expired" ? "Expired" : "Not paid";
+    $("body").innerHTML = card + `<p class="${v.status === "failed" ? "bad" : ""}">${esc(v.status === "denied" ? "You said no. Nothing was paid." : v.status === "expired" ? "This request expired. Nothing was paid." : v.error || "The payment didn't go through.")}</p>`;
+  }
+
+  async function load() {
+    const v = await api("GET", `/connector/payments/${encodeURIComponent(id)}`).catch(() => null);
+    if (!v || v.status === 404 || !v.agent) { $("title").textContent = "Not found"; $("body").innerHTML = `<p>${esc(v?.message || "This payment request doesn't exist or has expired.")}</p>`; return; }
+    render(v);
+  }
+
+  async function sign() {
+    const eth = window.ethereum;
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+    try {
+      const accounts = await eth.request({ method: "eth_requestAccounts" });
+      const me = accounts.find((a) => a.toLowerCase() === view.from.toLowerCase());
+      if (!me) { msg(`Your wallet is on ${short(accounts[0] ?? "?")}. Switch to ${short(view.from)}, the address you sign in to Fizzl with, and try again.`, "warn"); return; }
+      try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] }); }
+      catch (e) {
+        if (e?.code !== 4902) throw e;
+        await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x2105", chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] }] });
+      }
+      const t = await api("POST", `/connector/payments/${encodeURIComponent(id)}/typed`);
+      if (!t.typedData) { if (t.view) render(t.view); msg(t.message || "This request can't be signed now.", "warn"); return; }
+      const signature = await eth.request({ method: "eth_signTypedData_v4", params: [me, JSON.stringify(t.typedData)] });
+      msg("Sending the payment…");
+      const r = await api("POST", `/connector/payments/${encodeURIComponent(id)}/sign`, { signature });
+      msg("");
+      if (r.agent) render(r); else { if (r.view) render(r.view); msg(r.message || "That didn't work. Try again.", "bad"); }
+    } catch (e) {
+      msg(e?.code === 4001 ? "You didn't sign. Nothing was paid; you can still sign or say no." : `Your wallet said: ${e?.message || e}`, "warn");
+    } finally { for (const b of document.querySelectorAll("button")) b.disabled = false; }
+  }
+
+  async function deny() {
+    const r = await api("POST", `/connector/payments/${encodeURIComponent(id)}/deny`);
+    if (r.agent) render(r); else msg(r.message || "That didn't work. Try again.", "bad");
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

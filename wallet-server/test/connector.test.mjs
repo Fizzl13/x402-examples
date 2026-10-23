@@ -164,14 +164,14 @@ test("connector: sign in, allow, a code for the token, the tools, and disconnect
     assert.equal(again.status, 400);
     assert.equal((await again.json()).error, "invalid_grant");
 
-    // The MCP server: three tools that pay nothing.
+    // The MCP server: its tools.
     const client = await mcp(base, t.access_token);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["check_text", "find_services", "wallet_status"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["check_text", "find_services", "pay_x402", "payment_status", "wallet_status"]);
     const status = (await client.callTool({ name: "wallet_status", arguments: {} })).structuredContent;
     assert.equal(status.connector, "ChatGPT connector");
     assert.equal(status.plan, "free");
-    assert.match(status.payments, /signs it in their own wallet/);
+    assert.match(status.payments, /signs the payment in their own wallet/);
     assert.equal(status.dashboard, `${base}/`);
 
     const found = (await client.callTool({ name: "find_services", arguments: { query: "weather forecast for Amsterdam tomorrow" } })).structuredContent;

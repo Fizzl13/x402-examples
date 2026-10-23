@@ -316,6 +316,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   const api = {
     walletFor,
+    // A message to the owner on their phone (Telegram if linked, and the installed app): the connector's payment
+    // requests (src/connector.js), with the link to sign them.
+    async tellOwner(id, { title, text, url, tag }) {
+      const a = await account(id);
+      const link = new URL(url, site.origin).toString();
+      if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, `${text}\n\n${link}`).catch((err) => console.warn(`[connector] telegram: ${err.message}`));
+      await pushAll(id, { title, body: text, url, tag, requireInteraction: true }).catch((err) => console.warn(`[connector] push: ${err.message}`));
+    },
     emailEnabled: !!mailer,
     solanaEnabled: !!solPayTo,
     xamanEnabled: !!xamanRedirect,
