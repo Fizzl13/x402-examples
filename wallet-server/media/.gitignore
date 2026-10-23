@@ -9,6 +9,7 @@ out-new/
 out-nl/
 out-short/
 out-install/
+out-buy/
 # Piper voices (python -m piper.download_voices <name>)
 nl_*.onnx
 nl_*.onnx.json

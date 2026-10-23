@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: "Which video: script.json (the ~90-second intro), short.json (30 seconds, for social media), fizzl.json (the Fizzl ad, ~45 seconds), new.json (what's new, ~70 seconds), short-new.json (what's new in 30 seconds), new-nl.json (what's new, in Dutch) or install.json (the install in Claude Desktop, step by step, ~2 minutes)"
+        description: "Which video: script.json (the ~90-second intro), short.json (30 seconds, for social media), fizzl.json (the Fizzl ad, ~45 seconds), new.json (what's new, ~70 seconds), short-new.json (what's new in 30 seconds), new-nl.json (what's new, in Dutch) or install.json (the install in Claude Desktop, step by step, ~2 minutes) or buy.json (Fizzl Buy: an agent buys what it needs, ~55 seconds)"
         type: choice
-        options: [script.json, short.json, fizzl.json, new.json, short-new.json, new-nl.json, install.json]
+        options: [script.json, short.json, fizzl.json, new.json, short-new.json, new-nl.json, install.json, buy.json]
         default: script.json
       voice:
         description: "Kokoro voice (e.g. af_heart, af_bella, am_michael, bf_emma, bm_george); a script that names its own voice (new-nl.json) uses that"

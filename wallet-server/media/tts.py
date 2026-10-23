@@ -25,6 +25,9 @@ SAMPLE_RATE = 24000
 PRONUNCIATION = [
     (r"\bx402\b", "ex four oh two"),
     (r"\bwallet\.fizzl\.eu\b", "wallet dot fizzle dot E U"),
+    (r"\bbuy\.fizzl\.eu\b", "buy dot fizzle dot E U"),
+    (r"\$0\.02\b", "two cents"),
+    (r"\$0\.001\b", "a tenth of a cent"),
     (r"\bFizzl\b", "Fizzle"),
     (r"\bfizzl\b", "fizzle"),
     (r"\bpresign-guard\b", "pre-sign guard"),

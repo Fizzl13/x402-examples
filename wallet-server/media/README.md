@@ -33,5 +33,9 @@ drawn pointer. The browser download and Claude Desktop are drawn (simplified,
 and labelled so); the wallet is the live demo, which links the example agent
 when you enter a code.
 
+The Fizzl Buy demo: `buy.json` (~55 seconds). Claude Desktop, drawn (simplified, and labelled so), buys
+tomorrow's forecast for Amsterdam through the wallet, as in the real purchase of 23 Oct 2026; then what Fizzl Buy
+did in that one call, the answer, and the live https://buy.fizzl.eu page.
+
 Local dry run without a voice model (silent narration of the right length),
 against a local server: `python tts.py --engine silent && DEMO_URL=http://127.0.0.1:3000/demo node record.js && python build.py`.
