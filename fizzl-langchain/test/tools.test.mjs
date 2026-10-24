@@ -20,7 +20,7 @@ function standIn(answers) {
 
 test("nine LangChain tools with name, description and schema; `only` picks, unknown names throw", () => {
   const tools = fizzlTools({ fetch: async () => new Response("{}") });
-  assert.deepEqual(tools.map((t) => t.name).sort(), Object.keys(PRICES).sort());
+  assert.deepEqual(tools.map((t) => t.name).sort(), Object.keys(PRICES).filter((n) => n !== "buy_live_data").sort());
   for (const t of tools) { assert.match(t.description, /\$0\.0/); assert.ok(t.schema); assert.equal(typeof t.invoke, "function"); }
   assert.deepEqual(fizzlTools({ only: ["check_token"] }).map((t) => t.name), ["check_token"]);
   assert.throws(() => fizzlTools({ only: ["nope"] }), /unknown Fizzl tool/);
@@ -112,4 +112,17 @@ test("check_solana_transaction and check_message reach presign-guard as type sol
   assert.equal(JSON.parse(await tools.check_solana_transaction.invoke({ transaction })).verdict, "red");
   await tools.check_message.invoke({ message: "hello", method: "eth_sign" });
   assert.deepEqual(s.calls.map((c) => c.body.type), ["solana", "message"]);
+});
+
+test("buy_live_data: only with buy: true; posts the need to Fizzl Buy with fizzl-langchain's user agent", async () => {
+  assert.equal(fizzlTools().some((t) => t.name === "buy_live_data"), false, "spending is opt-in");
+  const s = standIn({ "/v1/buy": [200, { delivered: true, answer: { rate: 1.08 }, service: { url: "https://fx.example/rate" }, paid_usd: 0.001, receipt: {} }] });
+  const tools = fizzlTools({ fetch: s.fetch, buy: true });
+  assert.equal(tools.length, 10);
+  const buy = tools.find((t) => t.name === "buy_live_data");
+  assert.match(buy.description, /\$0\.02/);
+  assert.deepEqual(JSON.parse(await buy.invoke({ need: "EUR to USD rate" })).answer, { rate: 1.08 });
+  assert.equal(s.calls[0].url, "https://buy.fizzl.eu/v1/buy");
+  assert.deepEqual(s.calls[0].body, { need: "EUR to USD rate" });
+  assert.equal(s.calls[0].headers["user-agent"], `fizzl-langchain/${VERSION}`);
 });
