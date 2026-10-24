@@ -40,3 +40,5 @@ did in that one call, the answer, and the live https://buy.fizzl.eu page.
 
 Local dry run without a voice model (silent narration of the right length),
 against a local server: `python tts.py --engine silent && DEMO_URL=http://127.0.0.1:3000/demo node record.js && python build.py`.
+
+The Fizzl ad on fizzl.eu/agents (since 24 Oct 2026): [`ad/`](ad/), Higgsfield footage and voice, cut with ffmpeg.
