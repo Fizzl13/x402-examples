@@ -120,8 +120,10 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .day { padding: 24px; display: grid; gap: 14px; }
 #app .home-h { margin: 0 0 12px; font: 600 20px/1.2 var(--display); letter-spacing: normal; text-transform: none; }
 #needs[hidden] { display: none !important; }
-#app.first-run .overview .day, #app.first-run .overview .home-sum, #app.first-run .overview .actions, #app.first-run #rule { display: none !important; }
+#app.first-run .overview .day, #app.first-run .overview .home-sum, #app.first-run .overview .home-search, #app.first-run .overview .actions, #app.first-run #rule { display: none !important; }
 #app .home-needs { padding-block: 20px 0; }
+.overview .home-search { display: flex; gap: 8px; }
+.overview .home-search input { flex: 1; min-width: 0; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 15px; }
 .overview .home-sum { margin: 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; color: var(--soft); font-size: 15px; }
 .overview .home-sum a { color: inherit; text-decoration: none; }
 .overview .home-sum b { color: var(--text); font-size: 18px; }
@@ -689,7 +691,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   <div id="app" hidden>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Wallet sections">
       <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Home</span><i class="tbadge" id="tabPending" hidden>0</i></button>
-      <button type="button" role="tab" data-go="find" aria-selected="false"><span class="ti" aria-hidden="true">⌕</span><span>Find</span></button>
       <button type="button" role="tab" data-go="agents" aria-selected="false"><span class="ti" aria-hidden="true">◎</span><span>Agents</span></button>
       <button type="button" role="tab" data-go="purchases" aria-selected="false"><span class="ti" aria-hidden="true">≡</span><span>Purchases</span></button>
       <button type="button" role="tab" data-go="account" aria-selected="false"><span class="ti" aria-hidden="true">◐</span><span>Account</span></button>
@@ -720,6 +721,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div id="budgets"></div>
         <span class="note" id="pausedNote"></span>
       </div>
+      <form class="home-search" id="homeSearch" role="search"><input id="homeQ" type="search" placeholder="e.g. weather, bitcoin price" maxlength="200" aria-label="Find a paid service" autocomplete="off"><button class="button small" type="submit">Search</button></form>
       <p class="home-sum"><a href="#agentsSec"><b id="agentsActive">0</b> <span id="agentsNote">active</span></a><span aria-hidden="true">·</span><a href="#needs"><b id="pendingN">0</b> waiting for you</a></p>
       <div class="actions">
         <button class="button stop small" id="pauseAll">Pause all agents</button>
@@ -728,8 +730,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="findSec" data-tab="find">
-      <div class="eyebrow"><i></i>FIND SERVICES</div>
-      <h2>WHAT DO YOUR AGENTS NEED?<br><span>FIND IT HERE.</span></h2>
+      <p class="note" style="margin:0 0 8px"><a href="#/overview" class="link">← Home</a></p>
+      <h3 class="home-h">Find a paid service</h3>
       <div class="finder" id="finder">
         <form class="searchbar" id="searchForm" role="search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -1983,6 +1985,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#newBtn").addEventListener("click", showNew);
   $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; activeCat = null; renderCats(); $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
+  // Home's search box: the same catalog search, on its own page.
+  $("#homeSearch").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#homeQ").value.trim(); $("#searchQ").value = q; showTab("find"); if (q) search(q); $("#homeQ").value = ""; });
   $("#searchMax").addEventListener("change", () => { loadCats(); if ($("#searchQ").value.trim() || activeCat) search($("#searchQ").value); });
   $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });
 
