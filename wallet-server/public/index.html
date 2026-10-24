@@ -118,6 +118,17 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .hero p { font-size: 17px; color: var(--soft); max-width: 600px; margin: 20px 0 0; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
 .day { padding: 24px; display: grid; gap: 14px; }
+#app .home-h { margin: 0 0 12px; font: 600 20px/1.2 var(--display); letter-spacing: normal; text-transform: none; }
+#needs[hidden] { display: none !important; }
+#app.first-run .overview .day, #app.first-run .overview .home-sum, #app.first-run .overview .actions, #app.first-run #rule { display: none !important; }
+#app .home-needs { padding-block: 20px 0; }
+.overview .home-sum { margin: 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; color: var(--soft); font-size: 15px; }
+.overview .home-sum a { color: inherit; text-decoration: none; }
+.overview .home-sum b { color: var(--text); font-size: 18px; }
+#app[data-tab="overview"] section.overview { grid-template-columns: 1fr; }
+details.advanced { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px; }
+details.advanced > summary { cursor: pointer; color: var(--soft); font-size: 14px; }
+details.advanced[open] > summary { margin-bottom: 14px; }
 .budget { display: grid; gap: 6px; }
 .budget .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #c8d2d0; }
 .budget .row em { font-style: normal; font-family: var(--display); color: #fff; }
@@ -389,6 +400,19 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .paste { display: flex; gap: 8px; flex-wrap: wrap; }
 .paste input { flex: 1 1 200px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); font: 12px ui-monospace, Menlo, monospace; }
 .login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
+.login .signin .login-title { font-size: 28px; margin: 0; }
+.login .signin .intro { margin: 0; }
+.signin-label { font-size: 14px; color: var(--text); font-weight: 600; }
+.paste.big input { min-height: 46px; font: 15px var(--body, inherit); }
+.paste.big .button { min-height: 46px; flex: 1 1 100%; }
+.wallet-toggle { width: 100%; min-height: 46px; }
+.signin-foot { margin: 4px 0 0; text-align: center; }
+.signin-foot a { text-decoration: underline; text-underline-offset: 3px; }
+.how-it-works { width: min(760px, 100%); display: grid; gap: 12px; scroll-margin-top: 80px; }
+.how-it-works h3 { margin: 0; font: 700 clamp(22px, 3vw, 30px)/1.1 var(--display); letter-spacing: -1px; }
+.how-it-works h3 span { color: var(--mint); }
+.how-it-works .intro-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--soft); font-size: 15px; line-height: 1.5; }
+.how-it-works .intro-steps b { color: var(--text); }
 .login { gap: 22px; align-content: center; padding-block: 32px; }
 /* Why keys stay with you: shown under the sign-in, and in "How it works" */
 .yourkeys { width: min(760px, 100%); display: grid; gap: 14px; }
@@ -568,24 +592,24 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 <div class="demo-banner" id="demoBanner" hidden><div class="wrap">LIVE DEMO · example agents and example data · nothing here moves money · <a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-server">run your own ↗</a></div></div>
 <main class="wrap">
   <section class="login" id="loginView" hidden>
-    <div class="card">
+    <div class="card signin">
       <span class="tag">Fizzl Agent Wallet</span>
-      <h1 class="login-title">Spending limits and phone approvals for your AI agents</h1>
-      <p class="intro">For anyone whose AI agent (Claude, Cursor or one you built) pays for APIs and data in USDC. The agent keeps its own wallet; you set the limits and say yes or no to the rest on your phone.</p>
-      <ol class="intro-steps"><li><b>Sign in</b> with e-mail, a passkey or a crypto wallet.</li><li><b>Add your agent.</b> It gets its own wallet, made in your browser, and a setup to paste into your app.</li><li><b>Set your limits.</b> Under them it pays by itself; above them it asks you first.</li></ol>
-      <p class="note" style="margin:0 0 4px"><a class="button ghost small" href="/demo">Open the demo</a> &nbsp;No sign-in: example agents, nothing moves money.</p>
-      <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
+      <h1 class="login-title">Sign in</h1>
+      <p class="intro">Spending limits and phone approvals for your AI agents.</p>
+      <p class="note" id="watchHint" hidden style="margin:0"></p>
       <div id="passkeyLogin" hidden style="display:grid;gap:8px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
       <div id="emailLogin" hidden style="display:grid;gap:10px">
-        <div class="or">or with e-mail</div>
-        <form id="emailForm" class="paste"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" aria-label="E-mail address" required><button class="button small" type="submit">Send code</button></form>
-        <form id="emailCodeForm" class="paste" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
-        <p class="note" id="emailNote" style="margin:0">No crypto wallet needed: we mail you a 6-digit code. Your agents get their own wallets after you sign in.</p>
+        <label class="signin-label" for="emailIn">With your e-mail</label>
+        <form id="emailForm" class="paste big"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" required><button class="button primary small" type="submit">Send code</button></form>
+        <form id="emailCodeForm" class="paste big" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
+        <p class="note" id="emailNote" style="margin:0">We mail you a 6-digit code. No password, no crypto wallet needed.</p>
         <div class="err" id="emailErr"></div>
       </div>
       <div id="walletLogin">
-        <div class="or" id="walletOr">or with a crypto wallet</div>
+        <div class="or" id="walletOr">or</div>
+        <button class="button ghost wallet-toggle" type="button" id="walletToggle" aria-expanded="false" aria-controls="walletBox">Sign in with a crypto wallet <span aria-hidden="true">▾</span></button>
+        <div id="walletBox" hidden style="display:grid;gap:8px;margin-top:10px">
         <div class="wallets" id="walletList"></div>
         <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
         <div class="more-wallets" id="morePanel" hidden>
@@ -603,18 +627,25 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
             <a href="https://trustwallet.com/download" target="_blank" rel="noopener noreferrer"><img src="/icons/trust.svg" alt="">Trust Wallet</a>
           </div><p class="note" style="margin:6px 0 0">Install one, reload this page, and it shows up above. Use a separate wallet for your agents, never your savings.</p></div>
         </div>
-        <p class="note" style="margin:10px 0 0">One free signature: no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month.</p>
+          <p class="note" style="margin:4px 0 0">One free signature: no password, no transaction.</p>
+        </div>
       </div>
       <div class="err" id="walletErr"></div>
+      <button class="link" type="button" id="passkeyLink" hidden>Sign in with Face ID or a passkey</button>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
-      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no tracking cookies; with e-mail we keep only a fingerprint of your address, not the address.</p>
       <form id="loginForm" hidden style="display:grid;gap:12px">
         <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
         <input id="password" type="password" autocomplete="current-password" required>
         <button class="button" type="submit">Log in</button>
         <div class="err" id="loginErr"></div>
       </form>
+      <p class="note signin-foot">New here? <a href="#how">How it works</a> · <a href="/demo">Try the demo</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
+    </div>
+    <div class="how-it-works" id="how">
+      <h3>How it works <span>in three steps.</span></h3>
+      <ol class="intro-steps"><li><b>Sign in</b> with e-mail, a passkey or a crypto wallet.</li><li><b>Add your agent.</b> It gets its own wallet, made in your browser, and a setup to paste into Claude, Cursor or your own app.</li><li><b>Set your limits.</b> Under them it pays by itself; above them it asks you first, on your phone.</li></ol>
+      <p class="note" style="margin:0">Free for 1 agent. Pro: unlimited agents, $5 a month. By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no tracking cookies; with e-mail we keep only a fingerprint of your address.</p>
     </div>
     <div class="yourkeys">
       <h3>Your agent's money stays <span>in your agent's wallet.</span></h3>
@@ -655,7 +686,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   <div id="app" hidden>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Wallet sections">
-      <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Overview</span><i class="tbadge" id="tabPending" hidden>0</i></button>
+      <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Home</span><i class="tbadge" id="tabPending" hidden>0</i></button>
       <button type="button" role="tab" data-go="find" aria-selected="false"><span class="ti" aria-hidden="true">⌕</span><span>Find</span></button>
       <button type="button" role="tab" data-go="agents" aria-selected="false"><span class="ti" aria-hidden="true">◎</span><span>Agents</span></button>
       <button type="button" role="tab" data-go="purchases" aria-selected="false"><span class="ti" aria-hidden="true">≡</span><span>Purchases</span></button>
@@ -665,6 +696,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
     <div class="card pushbar" id="linkBar" hidden></div>
     <div class="card pushbar" id="pushBar" hidden><span>📱 Get approvals as a notification on this phone, and approve with one tap.</span><button class="button primary small" type="button" data-push="on">Turn on</button><button class="link" type="button" id="pushBarLater">Later</button></div>
+    <section class="section home-needs" id="needs" data-tab="overview" hidden>
+      <h3 class="home-h">Waiting for you</h3>
+      <div class="list" id="approvals"></div>
+    </section>
     <section class="overview" id="overviewSec" data-tab="overview">
       <div class="card start" id="startCard" hidden>
         <span class="tag">GET STARTED · 3 STEPS, ABOUT 5 MINUTES</span>
@@ -683,8 +718,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div id="budgets"></div>
         <span class="note" id="pausedNote"></span>
       </div>
-      <a class="card stat" href="#needs"><span class="tag">NEEDS YOU</span><b id="pendingN">0</b><span class="note">requests over your rule</span></a>
-      <a class="card stat" href="#agentsSec"><span class="tag">AGENTS</span><b id="agentsActive">0</b><span class="note" id="agentsNote">active</span></a>
+      <p class="home-sum"><a href="#agentsSec"><b id="agentsActive">0</b> <span id="agentsNote">active</span></a><span aria-hidden="true">·</span><a href="#needs"><b id="pendingN">0</b> waiting for you</a></p>
       <div class="actions">
         <button class="button stop small" id="pauseAll">Pause all agents</button>
         <button class="button ghost small" type="button" id="setupTop">Test my setup</button>
@@ -723,15 +757,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
 
-    <section class="section" id="needs" data-tab="overview">
-      <div class="eyebrow"><i></i>01 / NEEDS YOU</div>
-      <h2>YOUR CALL.<br><span>YES OR NO.</span></h2>
-      <div class="list" id="approvals"></div>
-    </section>
 
     <section class="section" id="rule" data-tab="overview">
-      <div class="eyebrow"><i></i>02 / YOUR PRICE RULE</div>
-      <h2>FREE UNDER.<br><span>ASK ABOVE.</span></h2>
+      <h3 class="home-h">Your limits</h3>
       <div class="rule">
         <div class="card">
           <span class="tag">AGENTS PAY USDC ON THEIR OWN UP TO</span>
@@ -741,6 +769,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <div class="slider"><label for="perDay"><span>Daily budget, all agents</span><span id="perDayLbl"></span></label><input id="perDay" type="range" min="1" max="200" step="1"></div>
           <div class="save"><button class="button primary" id="saveRule">Save rule</button><span class="note" id="saveMsg"></span></div>
         </div>
+        <details class="advanced"><summary>More rules: what they may buy, other tokens</summary><div class="rule">
         <div class="card">
           <span class="tag">WHAT MAY THEY BUY? IN YOUR OWN WORDS</span>
           <p class="note" style="margin:10px 0 10px">Optional. Before each purchase an AI check (TypeSafe's Jev) compares what the agent is about to buy with your rule. It gets only your rule and the purchase, nothing that identifies you (<a href="/privacy" style="text-decoration:underline">privacy</a>). Outside it, the agent asks you first, or is stopped if you choose so. When the check isn't sure, it always asks.</p>
@@ -759,6 +788,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           </details>
           <p class="note" style="margin-top:14px">Unlimited token approvals always ask you. A red presign-guard verdict is never signed.</p>
         </div>
+        </div></details>
       </div>
     </section>
 
@@ -1151,19 +1181,25 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#emailLogin").hidden = !c.email;
       $("#passkeyLogin").hidden = !PASSKEYS || IN_WALLET_APP;
       if (IN_WALLET_APP) $("#emailLogin").before($("#walletLogin"));
-      $("#walletOr").hidden = IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden);
-      // A device that added or used a passkey here gets the big button; others a quiet one with how to start.
+      // A device that added or used a passkey here gets the big Face ID button; others a small link at the bottom.
       let known = false; try { known = localStorage.getItem("aw_passkey") === "1"; } catch {}
-      $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
-      $("#passkeyNote").textContent = known ? "Or Touch ID, a fingerprint or your screen lock." : "First time? Sign in another way below, then add Face ID on the Account tab.";
+      const passkeys = !$("#passkeyLogin").hidden;
+      $("#passkeyLogin").hidden = !passkeys || !known;
+      $("#passkeyLink").hidden = !passkeys || known;
+      $("#walletOr").hidden = IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden);
+      // The wallet list opens by itself in a wallet app's browser, or when it is the only way in.
+      walletBox(IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden));
       if (viaCode) deviceLogin();
       solanaOn = !!c.solana; xamanOn = !!c.xaman; algorandOn = !!c.algorand; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
-      $("#orLine").hidden = !c.password || !c.wallet;
+      $("#orLine").hidden = true;
       $("#loginForm").hidden = !c.password || c.wallet;
     }, () => {});
   }
   $("#showPassword").addEventListener("click", () => { $("#loginForm").hidden = false; $("#showPassword").hidden = true; $("#password").focus(); });
+  function walletBox(open) { $("#walletBox").hidden = !open; $("#walletToggle").setAttribute("aria-expanded", String(open)); $("#walletToggle").hidden = open; }
+  $("#walletToggle").addEventListener("click", () => walletBox(true));
+  $("#passkeyLink").addEventListener("click", () => $("#passkeyGo").click());
 
   // ---------- wallets (MetaMask, Phantom, Coinbase Wallet, …) ----------
   // ---------- Solana (Phantom): sign in with a signed message, pay Pro in USDC on Solana ----------
@@ -2677,12 +2713,15 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const pending = s.approvals.filter((a) => a.status === "pending");
     $("#pendingN").textContent = pending.length;
     $("#tabPending").textContent = pending.length; $("#tabPending").hidden = !pending.length;
+    $("#needs").hidden = !pending.length;
     const active = s.agents.filter((a) => !a.paused).length;
     $("#agentsActive").textContent = active;
-    $("#agentsNote").textContent = s.agents.length ? `active of ${s.agents.length}${s.paused ? " · all paused" : ""}` : "none yet: add one";
+    $("#agentsNote").textContent = s.agents.length ? `${s.agents.length === 1 ? "agent" : "agents"} active${active < s.agents.length ? ` of ${s.agents.length}` : ""}${s.paused ? " · all paused" : ""}` : "agents yet: add one";
     // Get started (top of Overview) until an agent has reached the wallet: make a key, connect it, check it.
     const seen = s.agents.some((a) => a.lastSeen);
     $("#startCard").hidden = DEMO || seen;
+    // No agent yet: Home is only the three steps, nothing else to read.
+    $("#app").classList.toggle("first-run", !DEMO && s.agents.length === 0);
     $("#st1").classList.toggle("done", s.agents.length > 0);
     $("#st2").classList.toggle("done", seen);
     // The explanation is open until there is an agent, then folded (the owner can still open it).
