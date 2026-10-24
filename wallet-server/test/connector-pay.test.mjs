@@ -331,12 +331,12 @@ test("connector payments: an API that doesn't answer the paid request gets the s
     used = true;
     const id2 = await ask("/flaky-strict");
     const lost = await (await signOnPage(base, id2, owner)).json();
-    assert.equal(lost.status, "failed");
+    assert.equal(lost.status, "settled_no_answer", "paid without an answer is its own state, not failed");
     assert.match(lost.error, /went through on the first try, but the API's answer got lost/);
     assert.equal(paidTries("/flaky-strict").length, 2);
     assert.equal(JSON.parse(Buffer.from(paidTries("/flaky-strict")[0].headers["payment-signature"], "base64").toString()).extensions, undefined, "no payment-identifier when the seller didn't declare it");
     const st2 = (await call(client, "payment_status", { payment_id: id2 })).structuredContent;
-    assert.equal(st2.status, "failed");
+    assert.equal(st2.status, "settled_no_answer");
     assert.equal(st2.receipt, `${base}/#/purchases`);
     const wallet = accounts.walletFor(owner.address.toLowerCase());
     assert.equal((await wallet.purchases()).length, 2, "one receipt per payment: the dedup one and the lost one");
@@ -352,11 +352,26 @@ test("connector payments: an API that doesn't answer the paid request gets the s
     // Never an answer: at most one charge, and the owner is told to look.
     const id4 = await ask("/flaky-down");
     const down = await (await signOnPage(base, id4, owner)).json();
-    assert.equal(down.status, "failed");
+    assert.equal(down.status, "outcome_unknown");
+    assert.equal((await call(client, "payment_status", { payment_id: id4 })).structuredContent.status, "outcome_unknown");
     assert.match(down.error, /also not when it was sent once more with the same payment/);
     assert.match(down.error, /once at most/);
     assert.equal(paidTries("/flaky-down").length, 2);
     assert.equal((await wallet.purchases()).length, 2);
+
+    // The same request asked again while its outcome is unknown: the agent and the owner's page are warned, nothing is
+    // asked silently. Another request, or one whose payment simply failed, carries no warning.
+    const askedAgain = (await call(client, "pay_x402", { url: `${s.url}/flaky-down` })).structuredContent;
+    assert.equal(askedAgain.status, "waiting_for_owner");
+    assert.equal(askedAgain.previous_payment_id, id4);
+    assert.match(askedAgain.warning, /may have gone through without an answer: check the wallet before paying again/);
+    assert.notEqual(askedAgain.payment_id, id4, "a new request gets its own id: an id is never reused for another payment");
+    const page = await (await fetch(`${base}/connector/payments/${askedAgain.payment_id}`)).json();
+    assert.match(page.warning, /check the wallet before paying again/);
+    const lostAgain = (await call(client, "pay_x402", { url: `${s.url}/flaky-strict` })).structuredContent;
+    assert.match(lostAgain.warning, /paid .* min ago .* answer got lost: paying again pays twice/);
+    assert.equal((await call(client, "pay_x402", { url: `${s.url}/flaky-strict-2` })).structuredContent.warning, undefined, "nothing was paid there");
+    assert.equal((await call(client, "pay_x402", { url: `${s.url}/flaky-down?other=1` })).structuredContent.warning, undefined, "another request");
     await client.close();
   } finally { server.close(); s.server.close(); }
 });

@@ -101,7 +101,7 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     const record = !rec ? "x402 Doctor didn't answer" : !rec.known ? "not in x402 Doctor's Trust Index yet" : `paid out on ${rec.payableDays} of the ${rec.days} days x402 Doctor checked it${rec.verdict ? ` (last check: ${rec.verdict})` : ""}`;
     const recClass = rec?.verdict === "no_go" ? "bad" : rec?.verdict === "caution" ? "warn" : rec?.known ? "good" : "warn";
     const card = `<div class="card">
-      <p style="margin:0"><b>${esc(v.agent)}</b> ${v.status === "done" ? "paid" : v.status === "failed" || v.status === "paying" ? "is paying" : "wants to pay"}</p>
+      <p style="margin:0"><b>${esc(v.agent)}</b> ${v.status === "done" || v.status === "settled_no_answer" ? "paid" : v.status === "outcome_unknown" ? "may have paid" : v.status === "failed" || v.status === "paying" ? "is paying" : "wants to pay"}</p>
       <div class="big">$${esc(v.price)} <span style="font-size:18px">${open && ways.length > 1 ? ways.join(" or ").replace(/USDC on Base or USDC on Solana/, "USDC on Base or Solana") : `${esc(v.token)} on ${v.network === "XRP Ledger" ? "the " : ""}${esc(v.network)}`}</span></div>
       <p style="margin:0 0 12px">to <b>${esc(v.seller)}</b>${v.reason ? ` for “${esc(v.reason)}”` : ""}</p>
       <dl>
@@ -134,7 +134,7 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
           <div class="row"><a class="btn pri" href="${esc(x.url)}">Open Xaman</a></div><img class="qr" src="${esc(x.qr)}" alt="QR code to scan with Xaman" width="180" height="180"></div>`
         : `<div class="opt">${both ? `<p><b>RLUSD on the XRP Ledger</b>, $${esc(o.xrpl.price)}, signed in Xaman</p>` : ""}<div class="row"><button class="btn${o.base || o.solana ? "" : " pri"}" id="xaman" type="button">Sign in Xaman</button></div></div>`;
       $("body").innerHTML = card + `<p>Nothing is paid until you sign. Your signature allows exactly this amount to exactly this seller, for a few minutes, and nothing else. Fizzl never holds a key.</p>
-        ${v.note ? `<p class="warn">${esc(v.note)}</p>` : ""}${baseBlock}${solBlock}${xamanBlock}
+        ${v.warning ? `<p class="bad">⚠️ ${esc(v.warning)}</p>` : ""}${v.note ? `<p class="warn">${esc(v.note)}</p>` : ""}${baseBlock}${solBlock}${xamanBlock}
         <div class="row" style="margin-top:14px"><button class="btn" id="deny" type="button">No</button></div><p class="note">Valid for ${left} more minute${left === 1 ? "" : "s"}.</p>`;
       if ($("sign")) $("sign").onclick = sign;
       if ($("xaman")) $("xaman").onclick = xaman;
@@ -151,6 +151,12 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
         ${v.result?.injection ? '<p class="bad">The answer contains instructions aimed at your agent. It was told to treat it as data only.</p>' : ""}
         ${v.result?.delivered === "no" ? '<p class="warn">The answer doesn\'t look like what was paid for. See the receipt.</p>' : ""}
         <div class="row">${tx ? `<a class="btn" href="${String(v.result.settlement.network).startsWith("xrpl") ? "https://livenet.xrpl.org/transactions/" : String(v.result.settlement.network).startsWith("solana") ? "https://solscan.io/tx/" : "https://basescan.org/tx/"}${esc(tx)}" target="_blank" rel="noopener">The transaction</a>` : ""}<a class="btn" href="/#/purchases">Your receipts</a></div>`;
+      return;
+    }
+    // Paid without an answer, or maybe paid: never shown as "Not paid".
+    if (v.status === "settled_no_answer" || v.status === "outcome_unknown") {
+      $("title").textContent = v.status === "settled_no_answer" ? "Paid, no answer" : "Maybe paid";
+      $("body").innerHTML = card + `<p class="warn">${esc(v.error || "")}</p><div class="row"><a class="btn" href="/#/purchases">Your receipts</a></div>`;
       return;
     }
     $("title").textContent = v.status === "denied" ? "Declined" : v.status === "expired" ? "Expired" : "Not paid";
