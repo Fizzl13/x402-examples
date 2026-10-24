@@ -1,7 +1,7 @@
 """The Fizzl checks as LangChain tools (``langchain-core``), for LangChain and LangGraph agents.
 
     from fizzl.langchain import fizzl_tools
-    tools = fizzl_tools(session=paying_session)   # or credit_keys={...}
+    tools = fizzl_tools(session=paying_session)   # or credit_keys={...}; buy=True adds buy_live_data
     agent = create_react_agent(model, tools)
 """
 from __future__ import annotations
@@ -13,8 +13,8 @@ from . import Fizzl
 TOOL_NAMES = ("check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying")
 
 
-def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, **kwargs) -> list:
-    """LangChain StructuredTools for the checks (all of them, or the names in ``only``)."""
+def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, buy: bool = False, **kwargs) -> list:
+    """LangChain StructuredTools for the checks (all of them, plus buy_live_data with ``buy``, or the names in ``only``)."""
     try:
         from langchain_core.tools import StructuredTool
         from ._schemas import ARGS, pick
@@ -22,5 +22,5 @@ def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: O
         raise ImportError("fizzl.langchain needs langchain-core: pip install 'fizzl[langchain]'") from err
 
     f = Fizzl(session=session, credit_keys=credit_keys, **kwargs)
-    names = pick(only)
+    names = pick(only, buy)
     return [StructuredTool.from_function(func=getattr(f, n), name=n, description=(getattr(f, n).__doc__ or "").strip(), args_schema=ARGS[n]) for n in names]

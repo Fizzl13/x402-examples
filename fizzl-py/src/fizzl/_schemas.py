@@ -66,6 +66,9 @@ class EndpointArgs(BaseModel):
     network: Optional[str] = Field(None, description="CAIP-2 network to pay on, e.g. eip155:8453")
     method: Optional[Literal["GET", "POST"]] = None
 
+class BuyArgs(BaseModel):
+    need: str = Field(min_length=3, max_length=500, description='What you need, in a sentence, with the details (place, symbol, query), e.g. "weather forecast for Amsterdam tomorrow" or "BTC price in USD"')
+
 
 ARGS = {
     "check_before_signing": SignArgs,
@@ -77,13 +80,15 @@ ARGS = {
     "check_wallet_approvals": ApprovalArgs,
     "screen_wallet": ScreenArgs,
     "check_endpoint_before_paying": EndpointArgs,
+    "buy_live_data": BuyArgs,
 }
 TOOL_NAMES = tuple(ARGS)
 
 
-def pick(only):
-    """The tool names to build: all of them, or the ones in ``only`` (unknown names raise)."""
-    names = list(only) if only else list(TOOL_NAMES)
+def pick(only, buy=False):
+    """The tool names to build: the checks (plus buy_live_data with ``buy``, since it spends), or the ones in
+    ``only`` (unknown names raise)."""
+    names = list(only) if only else [n for n in TOOL_NAMES if buy or n != "buy_live_data"]
     unknown = [n for n in names if n not in ARGS]
     if unknown:
         raise ValueError(f"unknown Fizzl tool(s): {', '.join(unknown)}")

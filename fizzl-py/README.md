@@ -21,6 +21,19 @@ For LangChain.js and LangGraph.js: [`fizzl-langchain`](https://www.npmjs.com/pac
 The checks only check. They never sign, pay or move anything themselves. A failed check comes back as
 `{"error": ..., "message": ...}` instead of raising, so the agent can tell its user.
 
+One more, which buys, so the tool sets only include it when you ask (`buy=True`, or in `only`):
+
+| Method | What the agent gets | Service | Price |
+|---|---|---|---|
+| `buy_live_data` | live data it can't get itself (a weather forecast, a crypto or stock price, an exchange rate, web search results, news, a company or address lookup) in one call: say what you need; Fizzl Buy picks the paid x402 API x402 Doctor has seen paying out day after day at a fair price, pays it and returns the answer, checked for hidden instructions. Nothing is charged when no seller delivers | [Fizzl Buy](https://buy.fizzl.eu) | $0.02 |
+
+```python
+fizzl.buy_live_data("weather forecast for Amsterdam tomorrow")
+# {'delivered': True, 'answer': {...}, 'service': {'url': ..., 'track_record': ...}, 'paid_usd': 0.005, 'answer_check': {...}}
+```
+
+Without a paying session it answers with a free preview: the seller Fizzl Buy would buy from, not the data itself.
+
 ## Install
 
 ```sh
@@ -63,7 +76,7 @@ fizzl = Fizzl(credit_keys={"presign": PRESIGN_CREDIT_KEY, "doctor": DOCTOR_CREDI
 from langgraph.prebuilt import create_react_agent
 from fizzl.langchain import fizzl_tools
 
-tools = fizzl_tools(session=session)          # or credit_keys={...}; only=[...] for some of them
+tools = fizzl_tools(session=session)          # or credit_keys={...}; only=[...] for some of them; buy=True adds buy_live_data
 agent = create_react_agent(model, tools + your_tools,
     prompt="Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.")
 ```

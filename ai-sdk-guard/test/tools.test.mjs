@@ -17,9 +17,9 @@ function standIn(answers) {
   return { fetch, calls };
 }
 
-test("five tools, each with a description, a schema and execute; `only` picks, unknown names throw", () => {
+test("the nine checks by default, each with a description, a schema and execute; `only` picks, unknown names throw", () => {
   const t = fizzlTools({ fetch: async () => new Response("{}") });
-  assert.deepEqual(Object.keys(t).sort(), Object.keys(PRICES).sort());
+  assert.deepEqual(Object.keys(t).sort(), Object.keys(PRICES).filter((n) => n !== "buy_live_data").sort());
   for (const v of Object.values(t)) { assert.equal(typeof v.description, "string"); assert.equal(typeof v.execute, "function"); assert.ok(v.inputSchema.safeParse); }
   assert.deepEqual(Object.keys(fizzlTools({ only: ["check_token"] })), ["check_token"]);
   assert.throws(() => fizzlTools({ only: ["nope"] }), /unknown Fizzl tool/);
@@ -201,4 +201,40 @@ test("Solana and messages: check_solana_transaction posts type solana, check_mes
   const free = await u.check_message.execute({ message: "x", method: "eth_sign" });
   assert.equal(free.free, true);
   assert.deepEqual(unpaid.calls.find((c) => c.url.endsWith("/mcp")).body.params.arguments, { type: "message", message: "x", method: "eth_sign" });
+});
+
+test("buy_live_data: only with buy: true or named in only; posts the need to Fizzl Buy and returns the answer", async () => {
+  assert.equal("buy_live_data" in fizzlTools(), false, "spending is opt-in");
+  assert.deepEqual(Object.keys(fizzlTools({ only: ["buy_live_data"] })), ["buy_live_data"]);
+  const s = standIn({ "/v1/buy": [200, { need: "BTC price in USD", delivered: true, answer: { btc: 67000 }, service: { url: "https://prices.example/btc" }, paid_usd: 0.001, answer_check: { injection: { flagged: false } }, receipt: { signature: "0x…" } }] });
+  const t = fizzlTools({ fetch: s.fetch, buy: true });
+  assert.equal(Object.keys(t).length, 10);
+  const r = await t.buy_live_data.execute({ need: "BTC price in USD" });
+  assert.deepEqual(r.answer, { btc: 67000 });
+  assert.equal(r.receipt, undefined);
+  assert.equal(s.calls[0].method, "POST");
+  assert.equal(s.calls[0].url, "https://buy.fizzl.eu/v1/buy");
+  assert.deepEqual(s.calls[0].body, { need: "BTC price in USD" });
+  assert.equal(PRICES.buy_live_data, "$0.02");
+  assert.equal(t.buy_live_data.inputSchema.safeParse({ need: "ab" }).success, false);
+  assert.equal(t.buy_live_data.inputSchema.safeParse({ need: "x".repeat(501) }).success, false);
+});
+
+test("buy_live_data unpaid: the free pick as a preview, marked free, or payment_required with free: false", async () => {
+  const s = standIn({ "/v1/buy": [402, {}], "/v1/pick": [200, { need: "weather in Amsterdam", pick: { url: "https://weather.example/forecast", price_usd: 0.005 }, alternatives: [] }] });
+  const r = await fizzlTools({ fetch: s.fetch, buy: true }).buy_live_data.execute({ need: "weather in Amsterdam" });
+  assert.equal(r.free, true);
+  assert.equal(r.pick.url, "https://weather.example/forecast");
+  assert.match(r.note, /not the data itself/); assert.match(r.payment, /\$0\.02/);
+  assert.equal(s.calls[1].url, "https://buy.fizzl.eu/v1/pick?need=weather+in+Amsterdam");
+  const off = await fizzlTools({ fetch: s.fetch, buy: true, free: false }).buy_live_data.execute({ need: "weather in Amsterdam" });
+  assert.equal(off.error, "payment_required"); assert.match(off.message, /Buying costs \$0\.02/);
+  const none = await fizzlTools({ fetch: standIn({ "/v1/buy": [402, {}] }).fetch, buy: true }).buy_live_data.execute({ need: "weather in Amsterdam" });
+  assert.equal(none.error, "payment_required");
+});
+
+test("buy_live_data: no seller delivered comes back as an error for the model", async () => {
+  const s = standIn({ "/v1/buy": [502, { error: "No seller delivered; nothing was charged.", attempts: [] }] });
+  const r = await fizzlTools({ fetch: s.fetch, buy: true }).buy_live_data.execute({ need: "BTC price in USD" });
+  assert.deepEqual(r, { error: "http_502", message: "No seller delivered; nothing was charged." });
 });
