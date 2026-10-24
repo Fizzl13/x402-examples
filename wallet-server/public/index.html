@@ -129,6 +129,8 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 details.advanced { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px; }
 details.advanced > summary { cursor: pointer; color: var(--soft); font-size: 14px; }
 details.advanced[open] > summary { margin-bottom: 14px; }
+details.connect { margin-top: 16px; }
+details.connect .connect-cards { display: grid; gap: 14px; }
 .budget { display: grid; gap: 6px; }
 .budget .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #c8d2d0; }
 .budget .row em { font-style: normal; font-family: var(--display); color: #fff; }
@@ -794,8 +796,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
 
     <section class="section" id="agentsSec" data-tab="agents">
-      <div class="eyebrow"><i></i>03 / AGENTS</div>
-      <h2>YOUR AGENTS.<br><span>ONE BUDGET.</span></h2>
+      <h3 class="home-h">Your agents</h3>
       <div id="newKey"></div>
       <input class="agentfilter" id="agentFilter" type="search" placeholder="Find an agent" aria-label="Find an agent" hidden>
       <div class="agents" id="agents"></div>
@@ -803,6 +804,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
+      <details class="advanced connect" id="connectBox"><summary>Connect an agent · test it · what to ask</summary><div class="connect-cards">
       <div class="card setup" id="pairCard">
         <span class="tag">EASIEST: LINK AN AGENT WITH A CODE · NO KEYS TO COPY</span>
         <ol class="setup-steps" style="margin:0">
@@ -832,6 +834,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="copy"><code>What does this smart contract do: 0x…?</code><button class="button ghost small" type="button" data-copy="What does this smart contract do: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
         <p class="note" style="margin:0"><b style="color:#fff">Fewest clicks:</b> when Claude asks whether it may use the wallet's tools, choose <b style="color:#fff">Always allow</b>. Your rules here decide what it may spend (the "per payment" limit is its top price), and anything over them still comes to you first. Want to look yourself? The <a href="#/find" style="text-decoration:underline">Find</a> tab searches the same catalog.</p>
       </div>
+      </div></details>
       <p class="note" style="margin:12px 0 0" id="agentPlanNote"></p>
       <details class="howto" id="howto">
         <summary>How it works · connect an agent · Fizzl services</summary>
@@ -864,8 +867,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="buysSec" data-tab="purchases">
-      <div class="eyebrow"><i></i>04 / PURCHASES</div>
-      <h2>WHAT THEY BOUGHT.<br><span>EVERY RECEIPT.</span></h2>
+      <h3 class="home-h">Purchases</h3>
       <div class="buybar">
         <label class="note" for="buyAgent">Agent</label>
         <select id="buyAgent"><option value="">All agents</option></select>
@@ -875,13 +877,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="activitySec" data-tab="purchases">
-      <div class="eyebrow"><i></i>05 / ACTIVITY</div>
-      <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
+      <h3 class="home-h">Activity</h3>
       <div class="rows" id="events"></div>
     </section>
 
     <section class="section" id="accountSec" data-tab="account" hidden>
-      <div class="eyebrow"><i></i>06 / YOUR ACCOUNT</div>
+      <h3 class="home-h">Your account</h3>
       <div class="card addrline" id="addrLine" hidden></div>
       <div class="account">
         <article class="card" id="planCard"></article>
@@ -946,7 +947,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   // Show the tab an element lives in (for links like "Needs you", the plan badge, "Test my setup").
   function reveal(el) { const sec = el?.closest("section[data-tab]"); if (sec) showTab(sec.dataset.tab); }
-  const scrollTo = (el, block = "start") => el?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block });
+  const openParents = (el) => { for (let d = el?.parentElement?.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true; };
+  const scrollTo = (el, block = "start") => { openParents(el); el?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block }); };
   // Which buttons people use (anonymous counts for the owner: the kind of button and the seller's host).
   const trackClick = (el) => {
     try {
@@ -1583,12 +1585,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? esc(big ?? "Pro") : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
-      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you 3 days before it ends, in the app on your phone or on Telegram. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, 90-day receipts and 10 watched endpoints, $${esc(price)} per 30 days in USDC${pro ? "; paying again adds 30 days" : ""}.</p>
+      <details><summary>How paying works</summary>      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you 3 days before it ends, in the app on your phone or on Telegram. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p></details>
       ${netPick}
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
-      <p class="note" style="margin:0">More endpoints to watch? The same as Pro, paid per month or year (automatic payment is for Pro): <b style="color:#fff">Pro 20</b>, up to 20 endpoints, $${esc(price20)} per 30 days; <b style="color:#fff">Pro Unlimited</b>, as many as you need (fair use: 250), $${esc(priceUnl)} per 30 days.</p>
+      <details><summary>More watched endpoints: Pro 20 and Unlimited</summary><p class="note" style="margin:8px 0 0">The same as Pro, paid per month or year (automatic payment is for Pro): <b style="color:#fff">Pro 20</b>, up to 20 endpoints, $${esc(price20)} per 30 days; <b style="color:#fff">Pro Unlimited</b>, as many as you need (fair use: 250), $${esc(priceUnl)} per 30 days.</p>
       <div class="btns"><button class="button small" type="button" data-pay="1" data-tier="pro20">Pro 20 · $${esc(price20)}</button><button class="button small" type="button" data-pay="1" data-tier="unlimited">Unlimited · $${esc(priceUnl)}</button></div>
-      <details><summary>Pay for a year</summary><div class="btns" style="margin-top:8px"><button class="button ghost small" type="button" data-pay="12" data-tier="pro20">Pro 20 · 12 months · $${esc(price20 * 12)}</button><button class="button ghost small" type="button" data-pay="12" data-tier="unlimited">Unlimited · 12 months · $${esc(priceUnl * 12)}</button></div></details>
+      <div class="btns"><button class="button ghost small" type="button" data-pay="12" data-tier="pro20">Pro 20 · 12 months · $${esc(price20 * 12)}</button><button class="button ghost small" type="button" data-pay="12" data-tier="unlimited">Unlimited · 12 months · $${esc(priceUnl * 12)}</button></div></details>
       <div class="msg" id="payMsg" role="status"></div>
       ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
       <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><select id="txTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
@@ -2139,7 +2142,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
     showTab("agents");
-    $("#setupCard").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    scrollTo($("#setupCard"), "center");
     runSetup();
   });
   $("#setupOut").addEventListener("click", async (e) => {
@@ -2725,11 +2728,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#st1").classList.toggle("done", s.agents.length > 0);
     $("#st2").classList.toggle("done", seen);
     // The explanation is open until there is an agent, then folded (the owner can still open it).
-    if (!howtoSet) { $("#howto").open = s.agents.length === 0; howtoSet = true; }
+    if (!howtoSet) { $("#howto").open = s.agents.length === 0; $("#connectBox").open = s.agents.length === 0; howtoSet = true; }
     // No agent yet: connecting is step one, so the how-to sits right under "Add agent", open.
     const howto = $("#howto"), first = s.agents.length === 0;
     if (first && howto.previousElementSibling !== $("#addForm")) $("#addForm").after(howto);
-    if (!first && howto.nextElementSibling === $("#setupCard")) $("#agentPlanNote").after(howto);
+    if (!first && howto.nextElementSibling === $("#connectBox")) $("#agentPlanNote").after(howto);
     howto.querySelector(":scope > summary").textContent = first ? "Start here: connect your first agent ▾" : "How it works · connect an agent · Fizzl services";
     $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
       const v = a.action ? `<span class="verdict v-none">${esc(a.action.kind === "paypal" ? "PayPal" : a.action.kind)}${a.action.customer ? ` · ${esc(a.action.customer)}` : ""}</span>` : a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
