@@ -137,30 +137,36 @@ export function slimListing(item) {
 // `trust` (src/trust.js): x402 Doctor's daily track records per seller, to rank and label results.
 export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null } = {}) {
   let items = null, at = 0, loading = null, firstSeen = {};
-  async function load() {
-    if (items && now() - at < TTL_MS) return items;
-    loading ??= (async () => {
-      const page = async (n) => {
-        const res = await fetchImpl(`${url}?type=http&limit=500&offset=${n * 500}`, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
-        return res.json();
-      };
-      const first = await page(0);
-      const all = (first.items ?? []).map(slimListing);
-      const total = Number(first.pagination?.total);
-      const pages = Number.isFinite(total) && total > 0 ? Math.min(PAGES, Math.ceil(total / 500)) : all.length < 500 ? 1 : PAGES;
-      for (let n = 1; n < pages; n += AT_ONCE) {
-        const batch = await Promise.all(Array.from({ length: Math.min(AT_ONCE, pages - n) }, (_, i) => page(n + i)));
-        let short = false;
-        for (const b of batch) { const items = b.items ?? []; for (const item of items) all.push(slimListing(item)); short ||= items.length < 500; }
-        if (short) break;
-      }
-      items = withoutMovedHosts(all); at = now();
-      const fresh = await track(items).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
-      if (fresh.length && onNew) announce(items, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
-      return items;
-    })().finally(() => { loading = null; });
-    return loading;
+  // A copy older than `maxAgeMs` is loaded again, but a search gets the old copy at once while the new one loads:
+  // the whole catalog is 80+ pages and takes tens of seconds, and a search that waited for it timed out (Fizzl Buy's catalog
+  // search, 24 Oct 2026). Only the first load, and `wait` (the hourly refresh), wait for it.
+  async function load({ wait = false, maxAgeMs = TTL_MS } = {}) {
+    if (items && now() - at < maxAgeMs) return items;
+    if (!loading) {
+      loading = (async () => {
+        const page = async (n) => {
+          const res = await fetchImpl(`${url}?type=http&limit=500&offset=${n * 500}`, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
+          return res.json();
+        };
+        const first = await page(0);
+        const all = (first.items ?? []).map(slimListing);
+        const total = Number(first.pagination?.total);
+        const pages = Number.isFinite(total) && total > 0 ? Math.min(PAGES, Math.ceil(total / 500)) : all.length < 500 ? 1 : PAGES;
+        for (let n = 1; n < pages; n += AT_ONCE) {
+          const batch = await Promise.all(Array.from({ length: Math.min(AT_ONCE, pages - n) }, (_, i) => page(n + i)));
+          let short = false;
+          for (const b of batch) { const items = b.items ?? []; for (const item of items) all.push(slimListing(item)); short ||= items.length < 500; }
+          if (short) break;
+        }
+        items = withoutMovedHosts(all); at = now();
+        const fresh = await track(items).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
+        if (fresh.length && onNew) announce(items, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
+        return items;
+      })().finally(() => { loading = null; });
+      loading.catch((err) => { if (items) console.warn(`[catalog] reload failed, keeping the old copy: ${err.message}`); });
+    }
+    return items && !wait ? items : loading;
   }
 
   async function track(all) {
@@ -207,8 +213,10 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
   const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
 
   return {
-    // Load the catalog now if the cached copy is old (the server does this hourly, so new sellers are noticed).
-    async refresh() { await load(); await trust?.ready({ waitMs: 30_000 }); },
+    // Load the catalog again and wait for it (the server does this hourly, so new sellers are noticed). A copy just
+    // under an hour old counts as old here: with the full hour, every other hourly refresh found it 59 minutes old
+    // and skipped it, and a search had to start the reload.
+    async refresh() { await load({ wait: true, maxAgeMs: TTL_MS - 5 * 60_000 }); await trust?.ready({ waitMs: 30_000 }); },
     // Sellers that appeared in the last `days` days, newest first, with what they offer.
     async newProviders({ days = 7, limit = 30 } = {}) {
       const list = await load();
