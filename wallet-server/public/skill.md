@@ -37,6 +37,10 @@ Do these steps together with your owner. Explain each one in plain words.
 
 The steps below are the other way: your owner makes the key on the dashboard and pastes it into the config.
 
+### In ChatGPT, Claude on the web or phone, or Grok
+
+These apps can't run the MCP server, so they use the remote connector instead: your owner adds a custom connector with the URL `{{ORIGIN}}/mcp`, signs in and allows it (steps per app: {{ORIGIN}}/connector). Then you have `find_services`, `pay_x402`, `payment_status`, `wallet_status` and `check_text`, but you don't pay on your own: `pay_x402` gives an approve link, and your owner signs each payment in their own wallet (USDC on Base or Solana, or RLUSD in Xaman).
+
 ### 1. An account and an agent key (your owner, ~1 minute)
 
 Ask your owner to open {{ORIGIN}}, sign in (with e-mail, no crypto wallet needed; or with a passkey or their wallet: one free signature, no password), go to **Your agents**, type a name for you (for example `claude-desktop`) and click **Add agent**. The dashboard shows a key starting with `awk_` once. Your owner keeps it for step 3; they don't need to show it to you.
