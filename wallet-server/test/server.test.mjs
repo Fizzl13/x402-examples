@@ -1679,6 +1679,10 @@ test("website counter, sign-up source and the owner's Stats tab: from website vi
       { t: new Date().toISOString(), service: "presign", route: "check", paid: true, usd: 0.01, payer: "0xabc", visitor: "v1" },
       { t: new Date().toISOString(), service: "presign", route: "check", paid: true, usd: 0.01, payer: "0x6B0F4651eD42893ab58139938175E4a69f175F25" }, // your own wallet
       { t: new Date().toISOString(), service: "presign", route: "check", quote: true, visitor: "v2" },
+      { t: new Date().toISOString(), service: "presign", route: "check", quote: true, visitor: "v2" }, // the same visitor again
+      { t: new Date().toISOString(), service: "presign", route: "check", quote: true, visitor: "v3", agent: "uptime-monitor/1.0" }, // a monitor
+      { t: new Date().toISOString(), service: "presign", route: "__verifymcp_tools", quote: true, visitor: "v4" },
+      { t: new Date().toISOString(), service: "presign", route: "check", quote: true, visitor: "v5", own: true },
     ].map((e) => JSON.stringify(e)).join("\n") + "\n");
     const walletLog = files.get(`events/wallet/${day}.jsonl`);
     assert.match(walletLog, /"route":"signup"[^\n]*"ref":"fizzl.eu"/);
@@ -1696,7 +1700,7 @@ test("website counter, sign-up source and the owner's Stats tab: from website vi
     assert.deepEqual([s.kpi.siteViews, s.kpi.clicksToWallet, s.kpi.signups, s.kpi.agentsAdded, s.kpi.purchases, s.kpi.paidCalls, s.kpi.serviceUsd], [2, 1, 3, 1, 1, 1, 0.01]);
     assert.deepEqual(s.funnel.map(([, v]) => v), [2, 1, 1, 1, 1, 1, 0]);
     assert.equal(s.series.siteViews.at(-1), 2);
-    assert.deepEqual(s.services.find((x) => x.id === "presign"), { id: "presign", name: "presign-guard", paid: 1, usd: 0.01, quotes: 1, payers: 1, visitors: 2 });
+    assert.deepEqual(s.services.find((x) => x.id === "presign"), { id: "presign", name: "presign-guard", paid: 1, usd: 0.01, quotes: 2, payers: 1, visitors: 2 });
     assert.deepEqual(s.tables.hosts, [["ichimoku-signal.fizzl.eu", 1]]);
     assert.deepEqual(s.tables.sites, [["fizzl.eu", 1], ["ai.fizzl.eu", 1]]);
     // Unchanged days are not downloaded again.
