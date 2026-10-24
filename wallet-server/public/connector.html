@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Use the Fizzl Agent Wallet in ChatGPT, Claude and Grok</title>
+<meta name="description" content="Connect ChatGPT, Claude (web, desktop and phone) or Grok to your Fizzl Agent Wallet with one URL. The app finds paid APIs and asks for payments; you sign each one in your own wallet: USDC on Base or Solana, or RLUSD in Xaman.">
+<link rel="canonical" href="https://wallet.fizzl.eu/connector">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How do I use the Fizzl Agent Wallet in ChatGPT or Claude?", "acceptedAnswer": {"@type": "Answer", "text": "Add a custom connector with the URL https://wallet.fizzl.eu/mcp, sign in to your Fizzl wallet when the app asks, and allow the app. It can then search paid APIs and ask for payments, which you sign yourself in your own wallet."}}, {"@type": "Question", "name": "Can the app pay without me?", "acceptedAnswer": {"@type": "Answer", "text": "No. Through the connector every payment waits for your signature in your own wallet: USDC on Base (MetaMask, Coinbase Wallet or another Ethereum wallet), USDC on Solana (Phantom, Solflare, Backpack) or RLUSD on the XRP Ledger (Xaman). Your signature allows exactly that amount to exactly that seller, for a few minutes. Fizzl never holds a key."}}, {"@type": "Question", "name": "Do I need SOL or ETH for fees?", "acceptedAnswer": {"@type": "Answer", "text": "No ETH on Base and no SOL on Solana: in x402 the seller's facilitator pays the network fee. On the XRP Ledger your Xaman account pays the usual tiny XRP fee."}}, {"@type": "Question", "name": "How do I disconnect an app?", "acceptedAnswer": {"@type": "Answer", "text": "On the dashboard, remove the agent named after the app (for example \"ChatGPT connector\"). Its access ends at once."}}]}</script>
+<style>
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/lexend-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/unbounded-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/unbounded-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/unbounded-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/unbounded-latin-900-normal.woff2") format("woff2"); }
+:root { --bg: #020708; --mint: #61f5c3; --text: #f4f8f7; --soft: #d1dbd9; --muted: #a8b5b2; --dim: #82918f; --line: rgba(97,245,195,.28); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--soft); font: 400 16px/1.65 "Lexend", Arial, sans-serif; }
+.wrap { width: min(780px, calc(100% - 32px)); margin-inline: auto; }
+header { border-bottom: 1px solid var(--line); }
+header .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.brand { font: 700 22px/1 "Unbounded", Arial, sans-serif; letter-spacing: -1.2px; color: var(--text); text-decoration: none; }
+.brand span { color: var(--mint); }
+main { padding: 40px 0 64px; }
+h1 { font: 700 clamp(34px, 6vw, 52px)/1 "Unbounded", Arial, sans-serif; letter-spacing: -2px; text-transform: uppercase; color: var(--text); margin: 0 0 10px; }
+h2 { font: 700 20px/1.25 "Unbounded", Arial, sans-serif; color: var(--text); margin: 36px 0 10px; }
+p, li { color: var(--soft); }
+.note { color: var(--dim); font-size: 13px; }
+a { color: var(--mint); }
+mark { background: rgba(245,195,97,.18); color: #f5c361; padding: 0 4px; border-radius: 4px; }
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid rgba(97,245,195,.12); }
+th { color: var(--mint); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+ul { padding-left: 20px; }
+footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--dim); font-size: 12px; }
+
+td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+.url { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 18px 0; }
+.url code { font: 600 17px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
+.url button { border: 1px solid var(--line); background: transparent; color: var(--mint); font: 600 13px/1 "Lexend", Arial, sans-serif; padding: 9px 14px; border-radius: 999px; cursor: pointer; }
+ol li { margin-bottom: 6px; }
+.steps { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 14px; }
+.steps div { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.steps b { color: var(--text); }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a><a href="/">Back to the dashboard</a></div></header>
+<main class="wrap">
+  <h1>Your wallet in ChatGPT, Claude and Grok</h1>
+  <p>Add one URL to the AI app you use, and it can find paid APIs for you and ask you to pay for them. You sign every payment yourself, in your own wallet. Fizzl never holds a key.</p>
+
+  <div class="url"><code id="mcpUrl">https://wallet.fizzl.eu/mcp</code><button type="button" id="copy">Copy</button></div>
+
+  <h2>Add it to your app</h2>
+  <div class="steps">
+    <div><b>Claude</b> (claude.ai, desktop, iPhone and Android)
+      <ol>
+        <li>Settings → Connectors → <b>Add custom connector</b>.</li>
+        <li>Name it "Fizzl Wallet", paste the URL above, add it, then <b>Connect</b>.</li>
+        <li>Sign in to your Fizzl wallet and tap <b>Allow</b>.</li>
+        <li>In a chat, turn it on under <b>+</b> → Connectors. A connector added on the web also works in the phone app.</li>
+      </ol></div>
+    <div><b>ChatGPT</b>
+      <ol>
+        <li>Settings → Apps &amp; Connectors → Advanced settings → turn on <b>Developer mode</b>.</li>
+        <li>Back in Apps &amp; Connectors: <b>Create</b>, paste the URL, sign-in method OAuth.</li>
+        <li>Sign in to your Fizzl wallet and tap <b>Allow</b>.</li>
+        <li>In a chat, choose the connector under <b>+</b>.</li>
+      </ol></div>
+    <div><b>Grok and other apps</b>
+      <p style="margin:8px 0 0">Wherever an app lets you add a remote MCP server with sign-in, use the same URL. The app's name shows on the page where you allow it.</p></div>
+  </div>
+  <p class="note">The apps rename their menus now and then; look for "custom connector", "developer mode" or "MCP". Not signed in to Fizzl yet? The sign-in page lets you start free.</p>
+
+  <h2>What the app can do</h2>
+  <ul>
+    <li>See your wallet's status and the limits you set.</li>
+    <li>Search the x402 catalog for paid APIs (weather, prices, data, safety checks and more), with each seller's payout record from x402 Doctor. Sellers that take USDC on Base or Solana are listed.</li>
+    <li>Check a text it received for prompt-injection traps, for free.</li>
+    <li>Ask you for a payment, which you sign. The answer then goes to the app.</li>
+  </ul>
+
+  <h2>How a payment works</h2>
+  <ol>
+    <li>The app finds an API and asks to pay it. Before you're asked, the seller's payout address is checked against the OFAC sanctions list and looked up in x402 Doctor, and your balance is checked.</li>
+    <li>You get a link: in the chat, on Telegram if you linked it, and as a notification in the installed app.</li>
+    <li>You see the price, the seller and the checks, and sign in your own wallet, or say no.</li>
+    <li>Fizzl sends the signed payment to the API and gives the answer to the app, checked for hidden instructions. The receipt is on your dashboard.</li>
+  </ol>
+  <div class="table"><table>
+    <thead><tr><th>Pay with</th><th>Sign in</th><th>On a phone</th></tr></thead>
+    <tbody>
+      <tr><td>USDC on Base</td><td>MetaMask, Coinbase Wallet, Rabby, Trust or another Ethereum wallet (a passkey smart wallet doesn't work yet)</td><td>"Open in MetaMask" or "Open in Coinbase Wallet" on the page</td></tr>
+      <tr><td>USDC on Solana</td><td>Phantom, Solflare or Backpack; no SOL needed, the seller pays the fee</td><td>"Open in Phantom" or "Open in Solflare"</td></tr>
+      <tr><td>RLUSD on the XRP Ledger</td><td>Xaman</td><td>"Open Xaman"; after your first payment, requests go straight to the Xaman app</td></tr>
+    </tbody>
+  </table></div>
+  <p>The page shows only the ways the API takes. Your signature allows exactly that amount to exactly that seller, for a few minutes, and nothing else. At most $5 a payment; a request waits 15 minutes for you; an app can ask at most 30 times an hour.</p>
+
+  <h2>Disconnect</h2>
+  <p>Each connected app is an agent on your dashboard, named after the app ("ChatGPT connector", "Claude connector"). Remove it there and its access ends at once.</p>
+
+  <h2>Questions</h2>
+  <p><b>How do I use the Fizzl Agent Wallet in ChatGPT or Claude?</b><br>Add a custom connector with the URL https://wallet.fizzl.eu/mcp, sign in to your Fizzl wallet when the app asks, and allow the app. It can then search paid APIs and ask for payments, which you sign yourself in your own wallet.</p>
+  <p><b>Can the app pay without me?</b><br>No. Through the connector every payment waits for your signature in your own wallet: USDC on Base (MetaMask, Coinbase Wallet or another Ethereum wallet), USDC on Solana (Phantom, Solflare, Backpack) or RLUSD on the XRP Ledger (Xaman). Your signature allows exactly that amount to exactly that seller, for a few minutes. Fizzl never holds a key.</p>
+  <p><b>Do I need SOL or ETH for fees?</b><br>No ETH on Base and no SOL on Solana: in x402 the seller's facilitator pays the network fee. On the XRP Ledger your Xaman account pays the usual tiny XRP fee.</p>
+  <p><b>How do I disconnect an app?</b><br>On the dashboard, remove the agent named after the app (for example "ChatGPT connector"). Its access ends at once.</p>
+  <p class="note">Want an agent that pays on its own within a daily budget instead? Install the MCP server in Claude Desktop, Claude Code or Cursor: see <a href="/skill.md">skill.md</a>.</p>
+</main>
+<footer><div class="wrap">Fizzl Agent Wallet · never holds keys or funds · <a href="/compare/coinbase">vs Coinbase for Agents</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · © 2026 Fizzl</div></footer>
+<script>
+document.getElementById("copy").onclick = async (e) => {
+  try { await navigator.clipboard.writeText(document.getElementById("mcpUrl").textContent); e.target.textContent = "Copied"; }
+  catch { e.target.textContent = "Select and copy"; }
+};
+</script>
+</body>
+</html>

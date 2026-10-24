@@ -7,6 +7,7 @@ The agent connects by reading the setup instructions in skill.md; the owner sign
 ## For agents
 - [Setup and usage instructions (skill.md)](https://wallet.fizzl.eu/skill.md): walk the owner through setup, then pay with `pay_x402`
 - MCP server: [presign-guard-wallet-mcp](https://www.npmjs.com/package/presign-guard-wallet-mcp) on npm, for Claude, Cursor and other MCP clients
+- Remote connector for ChatGPT, Claude (web, desktop, phone) and Grok: https://wallet.fizzl.eu/mcp (OAuth; the app asks for payments, the owner signs each one in their own wallet: USDC on Base or Solana, or RLUSD in Xaman). [How to add it](https://wallet.fizzl.eu/connector)
 - Library: [presign-guard-wallet](https://www.npmjs.com/package/presign-guard-wallet) on npm, with integrations for Coinbase AgentKit, the AI SDK, LangChain and the Solana Agent Kit
 - Agent skill: `npx skills add Fizzl13/fizzl-skills`, or in Claude Code `/plugin marketplace add Fizzl13/x402-doctor` then `/plugin install fizzl-agent-wallet@fizzl`. Every Fizzl skill: https://github.com/Fizzl13/fizzl-skills
 
