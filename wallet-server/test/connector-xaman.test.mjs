@@ -15,7 +15,7 @@ import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
 import { USDC_BASE } from "../src/connector-pay.js";
-import { xrplOffer, paymentTx, checkSigned, decimalUnits, RLUSD_HEX, RLUSD_ISSUER } from "../src/connector-xaman.js";
+import { xrplOffer, paymentTx, checkSigned, decimalUnits, createXrplReader, RLUSD_HEX, RLUSD_ISSUER } from "../src/connector-xaman.js";
 
 const PASSWORD = "correct horse battery staple";
 const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
@@ -275,4 +275,15 @@ test("xaman: no in Xaman, an expired request, too late, too little RLUSD, a blob
     assert.equal(latest().state, "cancelled");
     await client.close();
   } finally { s.server.close(); shop.server.close(); }
+});
+
+test("xrpl: whether a signed Payment was validated", async () => {
+  const reader = (result) => createXrplReader({ rpcUrl: "https://xrpl.test", fetch: async (_u, init) => {
+    assert.deepEqual(JSON.parse(init.body), { method: "tx", params: [{ transaction: "ABC" }] });
+    return Response.json({ result });
+  } });
+  assert.equal(await reader({ validated: true, meta: { TransactionResult: "tesSUCCESS" } }).landed("ABC"), true);
+  assert.equal(await reader({ validated: true, meta: { TransactionResult: "tecPATH_DRY" } }).landed("ABC"), false);
+  assert.equal(await reader({ error: "txnNotFound" }).landed("ABC"), false);
+  assert.equal(await reader({ validated: false }).landed("ABC"), null, "not validated yet");
 });

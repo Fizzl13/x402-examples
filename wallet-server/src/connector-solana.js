@@ -117,6 +117,17 @@ export function checkSigned(signedB64, builtMessage, from) {
 }
 
 // The Solana reads needed: a recent blockhash, and an owner's USDC balance (base units; null: couldn't be read).
+// The signature of a signed wire transaction (base64): its first signature, which is its id on the chain. null when
+// it can't be read.
+export function signatureOf(transaction) {
+  try {
+    const bytes = Buffer.from(String(transaction), "base64");
+    if (bytes.length < 65 || bytes[0] < 1 || bytes[0] > 0x7f) return null;
+    const sig = bytes.subarray(1, 65);
+    return sig.every((b) => b === 0) ? null : b58encode(sig);
+  } catch { return null; }
+}
+
 export function createSolanaReader({ rpcUrl = "https://api.mainnet-beta.solana.com", fetch: fetchImpl = globalThis.fetch } = {}) {
   const rpc = async (method, params) => {
     const j = await (await fetchImpl(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(10_000) })).json();
@@ -132,6 +143,15 @@ export function createSolanaReader({ rpcUrl = "https://api.mainnet-beta.solana.c
     async usdc(owner) {
       try { return BigInt((await rpc("getTokenAccountBalance", [associatedTokenAccount(owner), { commitment: "confirmed" }]))?.value?.amount ?? "x"); }
       catch (err) { return /could not find account|invalid param/i.test(err.message) ? 0n : null; }
+    },
+    // Whether a transaction landed (true), didn't (false), or Solana can't tell right now (null).
+    async landed(signature) {
+      try {
+        const s = (await rpc("getSignatureStatuses", [[signature], { searchTransactionHistory: true }]))?.value?.[0];
+        if (s === null) return false;
+        if (!s) return null;
+        return !s.err && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized");
+      } catch { return null; }
     },
   };
 }

@@ -13,7 +13,7 @@ import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
 import { b58encode, associatedTokenAccount, verifySolanaSignature, USDC_MINT } from "../src/solana.js";
-import { solanaOffer, paymentMessage, unsignedTransaction, parseTransaction, parseMessage, checkSigned, SOLANA_MAINNET } from "../src/connector-solana.js";
+import { solanaOffer, paymentMessage, unsignedTransaction, parseTransaction, parseMessage, checkSigned, signatureOf, createSolanaReader, SOLANA_MAINNET } from "../src/connector-solana.js";
 
 const PASSWORD = "correct horse battery staple";
 const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
@@ -189,4 +189,20 @@ test("solana: the app asks, the owner's wallet signs on the page, the seller is 
 
     await client.close();
   } finally { s.server.close(); shop.server.close(); }
+});
+
+test("solana: a signed transaction's id, and whether it landed", async () => {
+  const sig = randomBytes(64);
+  const wire = Buffer.concat([Buffer.from([1]), sig, randomBytes(100)]).toString("base64");
+  assert.equal(signatureOf(wire), b58encode(sig));
+  assert.equal(signatureOf(Buffer.concat([Buffer.from([1]), Buffer.alloc(64), randomBytes(10)]).toString("base64")), null, "unsigned");
+  assert.equal(signatureOf("not a transaction"), null);
+  const reader = (value, error) => createSolanaReader({ rpcUrl: "https://rpc.test", fetch: async (_u, init) => {
+    assert.deepEqual(JSON.parse(init.body).params, [["sig"], { searchTransactionHistory: true }]);
+    return Response.json(error ? { jsonrpc: "2.0", id: 1, error: { message: error } } : { jsonrpc: "2.0", id: 1, result: { value: [value] } });
+  } });
+  assert.equal(await reader({ confirmationStatus: "finalized", err: null }).landed("sig"), true);
+  assert.equal(await reader({ confirmationStatus: "confirmed", err: { InstructionError: [2, "x"] } }).landed("sig"), false, "landed but failed: nothing moved");
+  assert.equal(await reader(null).landed("sig"), false);
+  assert.equal(await reader(undefined, "busy").landed("sig"), null);
 });

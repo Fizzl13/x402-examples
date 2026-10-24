@@ -8,13 +8,19 @@
 // the account signs in with (or linked to its e-mail); an account without one picks the wallet on that page. The
 // server checks the signature, sends the paid request, checks the answer and keeps a receipt; the app reads the
 // result with payment_status. Fizzl never holds a key: the signature can't pay anything but what the owner saw.
+//
+// When the API doesn't answer the paid request, it is sent once more with the same signed payment: that payment can
+// settle only once (the EIP-3009 nonce, the Solana signature, the XRPL sequence), so a retry can't charge twice. With
+// x402's payment-identifier (the request's id, when the seller declares the extension) a seller that keeps answers
+// returns the one it gave. A retry refused with a 402 doesn't prove nothing was paid, so the chain is asked whether
+// the first try settled; if it did, the owner gets a receipt and the agent is told the answer was lost.
 import express from "express";
 import { randomBytes } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { verifyTypedData, getAddress } from "viem";
+import { verifyTypedData, getAddress, encodeFunctionData } from "viem";
 import { isPrivateAddress } from "./catalog.js";
 import { xrplOffer, signWindow, paymentTx, checkSigned, createXaman, createXrplReader, XRPL_MAINNET } from "./connector-xaman.js";
-import { solanaOffer, paymentMessage, unsignedTransaction, checkSigned as checkSolana, createSolanaReader, SOLANA_MAINNET } from "./connector-solana.js";
+import { solanaOffer, paymentMessage, unsignedTransaction, checkSigned as checkSolana, createSolanaReader, signatureOf, SOLANA_MAINNET } from "./connector-solana.js";
 import { isSolanaAddress } from "./solana.js";
 
 export const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -28,6 +34,9 @@ const ANSWER_LIMIT = 100 * 1024; // what is read of the API's answer
 const SHOWN_LIMIT = 16_000; // what goes back to the agent
 const STATUS_WAIT_MS = 25_000; // payment_status waits this long for a change
 const ASKS_PER_HOUR = 30; // payment requests per connected app: each one reaches the owner's phone
+const PAID_TIMEOUT_MS = 60_000; // how long the paid request may take
+const RETRY_PAUSE_MS = 2000; // before it is sent once more with the same payment
+const AUTHORIZATION_STATE = [{ type: "function", name: "authorizationState", stateMutability: "view", inputs: [{ name: "authorizer", type: "address" }, { name: "nonce", type: "bytes32" }], outputs: [{ type: "bool" }] }];
 const AUTHORIZATION = [
   { name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" },
   { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
@@ -56,6 +65,12 @@ export function baseOffer(challenge) {
 }
 const offered = (c) => [...new Set((c?.accepts ?? []).map((a) => a?.network).filter(Boolean))];
 
+// x402's payment-identifier extension as the seller declared it in its challenge, or null.
+export function paymentIdDeclaration(challenge) {
+  const ext = challenge?.extensions?.["payment-identifier"];
+  return ext && typeof ext === "object" && ext.info && typeof ext.info === "object" ? ext : null;
+}
+
 // Headers the agent may send along: no credentials, cookies, payments or hop-by-hop headers.
 export function cleanHeaders(h) {
   const out = {};
@@ -83,7 +98,7 @@ async function readText(res, limit) {
   return text;
 }
 
-export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, version = "0", now = () => Date.now() }) {
+export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, paidTimeoutMs = PAID_TIMEOUT_MS, retryPauseMs = RETRY_PAUSE_MS, version = "0", now = () => Date.now() }) {
   const UA = `fizzl-wallet-connector/${version}`;
   const asks = new Map(); // agent id -> { n, since }
   // XRPL in Xaman: on when the server has a Xaman app's key and secret.
@@ -119,6 +134,14 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       const data = `0x70a08231${address.slice(2).toLowerCase().padStart(64, "0")}`;
       const j = await (await fetchImpl(baseRpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: USDC_BASE, data }, "latest"] }), signal: AbortSignal.timeout(10_000) })).json();
       return typeof j.result === "string" && /^0x[0-9a-f]*$/i.test(j.result) ? BigInt(j.result === "0x" ? 0 : j.result) : null;
+    } catch { return null; }
+  }
+  // Whether USDC on Base has used this EIP-3009 authorization (true: it settled). null: Base can't be read.
+  async function authorizationUsed(from, nonce) {
+    try {
+      const data = encodeFunctionData({ abi: AUTHORIZATION_STATE, functionName: "authorizationState", args: [from, nonce] });
+      const j = await (await fetchImpl(baseRpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: USDC_BASE, data }, "latest"] }), signal: AbortSignal.timeout(10_000) })).json();
+      return typeof j.result === "string" && /^0x[0-9a-f]{64}$/i.test(j.result) ? BigInt(j.result) === 1n : null;
     } catch { return null; }
   }
   async function urlProblem(raw) {
@@ -188,7 +211,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     let r = {
       id: randomBytes(24).toString("base64url"), account, agentId: agent.id, agentName: agent.name, status: "waiting", origin,
       url, method, headers: h, body: sendBody ?? null, reason: typeof reason === "string" ? reason.trim().slice(0, 300) || null : null,
-      offer, sol: onSol, xrpl: onXrpl, price, from: owner && offer ? getAddress(owner) : null, pick: !owner, screened: listed.every((x) => x === false), record, createdAt: now(), expiresAt: now() + WAIT_MS,
+      offer, sol: onSol, xrpl: onXrpl, idExt: paymentIdDeclaration(challenge), price, from: owner && offer ? getAddress(owner) : null, pick: !owner, screened: listed.every((x) => x === false), record, createdAt: now(), expiresAt: now() + WAIT_MS,
     };
     await putReq(r);
     const host = new URL(url).host;
@@ -263,38 +286,56 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     };
   }
 
-  // The x402 payment from the owner's signature: an EIP-3009 authorization on Base, or a signed XRPL Payment.
+  // The request's id as x402's payment-identifier, when the seller declared the extension (v2 payloads only).
+  const extensions = (r) => (r.idExt ? { extensions: { "payment-identifier": { ...r.idExt, info: { ...r.idExt.info, id: r.id } } } } : {});
+  // The x402 payment from the owner's signature: an EIP-3009 authorization on Base, a signed Solana transaction or a
+  // signed XRPL Payment; landed() asks the chain whether it settled.
   function basePayment(r, signature) {
     const m = r.typed.message;
     const payload = { signature, authorization: { from: m.from, to: m.to, value: m.value, validAfter: m.validAfter, validBefore: m.validBefore, nonce: m.nonce } };
     const [name, value] = r.offer.version === 2
-      ? ["payment-signature", b64({ x402Version: 2, ...(r.offer.resource ? { resource: r.offer.resource } : {}), accepted: r.offer.accepted, payload })]
+      ? ["payment-signature", b64({ x402Version: 2, ...(r.offer.resource ? { resource: r.offer.resource } : {}), accepted: r.offer.accepted, payload, ...extensions(r) })]
       : ["x-payment", b64({ x402Version: 1, scheme: "exact", network: "base", payload })];
-    return { name, value, network: `eip155:${BASE_CHAIN_ID}`, token: "USDC", payTo: r.offer.payTo, receipt: { chainId: BASE_CHAIN_ID, to: r.offer.payTo, amount: r.offer.amount, from: r.from } };
+    return { name, value, network: `eip155:${BASE_CHAIN_ID}`, token: "USDC", payTo: r.offer.payTo, receipt: { chainId: BASE_CHAIN_ID, to: r.offer.payTo, amount: r.offer.amount, from: r.from }, landed: async () => authorizationUsed(m.from, m.nonce) };
   }
   function solanaPayment(r, transaction, from) {
-    const value = b64({ x402Version: 2, ...(r.sol.resource ? { resource: r.sol.resource } : {}), accepted: r.sol.accepted, payload: { transaction } });
-    return { name: "payment-signature", value, network: SOLANA_MAINNET, token: "USDC", payTo: r.sol.payTo, receipt: { chainId: SOLANA_MAINNET, to: r.sol.payTo, amount: r.sol.amount, from, method: "solanaTransfer" } };
+    const value = b64({ x402Version: 2, ...(r.sol.resource ? { resource: r.sol.resource } : {}), accepted: r.sol.accepted, payload: { transaction }, ...extensions(r) });
+    const signature = signatureOf(transaction);
+    return { name: "payment-signature", value, network: SOLANA_MAINNET, token: "USDC", payTo: r.sol.payTo, receipt: { chainId: SOLANA_MAINNET, to: r.sol.payTo, amount: r.sol.amount, from, method: "solanaTransfer" }, landed: async () => (signature ? solana.landed(signature) : null) };
   }
-  function xrplPayment(r, blob, signer) {
-    const value = b64({ x402Version: 2, ...(r.xrpl.resource ? { resource: r.xrpl.resource } : {}), accepted: r.xrpl.accepted, payload: { signedTxBlob: blob } });
-    return { name: "payment-signature", value, network: XRPL_MAINNET, token: "RLUSD", payTo: r.xrpl.payTo, receipt: { chainId: XRPL_MAINNET, to: r.xrpl.payTo, amount: r.xrpl.units, from: signer, method: "xrplPayment" } };
+  function xrplPayment(r, blob, signer, hash) {
+    const value = b64({ x402Version: 2, ...(r.xrpl.resource ? { resource: r.xrpl.resource } : {}), accepted: r.xrpl.accepted, payload: { signedTxBlob: blob }, ...extensions(r) });
+    return { name: "payment-signature", value, network: XRPL_MAINNET, token: "RLUSD", payTo: r.xrpl.payTo, receipt: { chainId: XRPL_MAINNET, to: r.xrpl.payTo, amount: r.xrpl.units, from: signer, method: "xrplPayment" }, landed: async () => (hash ? xrplLedger.landed(hash) : null) };
   }
 
-  // The paid request, with the owner's signature as the x402 payment.
+  // The paid request, with the owner's signature as the x402 payment; sent once more with the same payment when the
+  // API doesn't answer (see the top of this file).
   async function pay(r, p) {
     const { name, value } = p;
-    let res, text;
+    const send = async () => {
+      const res = await sellerFetch(r.url, { method: r.method, headers: { ...r.headers, [name]: value }, body: r.body ?? undefined, redirect: "manual", signal: AbortSignal.timeout(paidTimeoutMs) });
+      return { res, text: await readText(res, ANSWER_LIMIT) };
+    };
+    let res, text, retried = false;
     try {
-      res = await sellerFetch(r.url, { method: r.method, headers: { ...r.headers, [name]: value }, body: r.body ?? undefined, redirect: "manual", signal: AbortSignal.timeout(60_000) });
-      text = await readText(res, ANSWER_LIMIT);
-    } catch (err) {
-      return { status: "failed", error: `The API didn't answer after the payment was signed (${err?.name === "TimeoutError" ? "60 seconds" : "not reachable"}). It may still have taken the payment: look for ${r.price} ${p.token} to ${short(p.payTo)} in your wallet.` };
+      ({ res, text } = await send());
+    } catch {
+      retried = true;
+      await sleep(retryPauseMs);
+      try {
+        ({ res, text } = await send());
+      } catch (err) {
+        return { status: "failed", error: `The API didn't answer after the payment was signed, also not when it was sent once more with the same payment (${err?.name === "TimeoutError" ? `${Math.round(paidTimeoutMs / 1000)} seconds each` : "not reachable"}). It may still have taken the payment, once at most: look for ${r.price} ${p.token} to ${short(p.payTo)} in your wallet.` };
+      }
     }
     const response = unb64(res.headers.get("payment-response") ?? res.headers.get("x-payment-response") ?? "");
     const settlement = response?.transaction ? { transaction: String(response.transaction).slice(0, 100), network: String(response.network ?? p.network).slice(0, 60) } : null;
     if (res.status === 402) {
       const why = response?.errorReason ?? unb64(res.headers.get("payment-required") ?? "")?.error ?? null;
+      // The retry refused: the first try may have settled the payment before its answer got lost.
+      const landed = retried ? await p.landed?.().catch(() => null) ?? null : false;
+      if (landed) return { status: "failed", error: "The payment went through on the first try, but the API's answer got lost, and the API doesn't give it again for the same payment. The receipt is in your Purchases; ask the seller for the answer with it.", result: { httpStatus: null, settlement: null, purchaseId: await receipt(r, p, { error: "paid, but the answer got lost" }) } };
+      if (landed === null) return { status: "failed", error: `The API didn't answer the first try and refused the same payment the second time${why ? ` (${why})` : ""}. The first try may have taken the payment, once at most: look for ${r.price} ${p.token} to ${short(p.payTo)} in your wallet.` };
       return { status: "failed", error: `The API refused the payment${why ? `: ${why}` : ""}. Nothing was paid.` };
     }
     const ok = res.status >= 200 && res.status < 300;
@@ -311,6 +352,15 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       ...(ok ? {} : { error: `The API answered HTTP ${res.status} after the payment went through. See the receipt.` }),
       result: { httpStatus: res.status, contentType, body: text.slice(0, SHOWN_LIMIT), settlement, check, purchaseId },
     };
+  }
+
+  // A receipt in the owner's Purchases for a payment that settled without an answer.
+  async function receipt(r, p, note) {
+    const wallet = accounts.walletFor(r.account);
+    const agent = { id: r.agentId, name: r.agentName };
+    const { purchaseId } = await wallet.ownerSigned(agent, { ...p.receipt, purchase: { url: r.url, ...(r.reason ? { description: r.reason } : {}) } });
+    await wallet.annotate(agent, [purchaseId], note).catch(() => {});
+    return purchaseId;
   }
 
   // ---------- Xaman: a sign request, and what came of it ----------
@@ -356,7 +406,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     // One payment per request, also when the page and the agent ask at the same time or a Base signature came first.
     if (!(await store.claimTx(`connector:${r.id}`))) return (await getReq(r.id)) ?? r;
     await putReq({ ...r, status: "paying", from: signer, paidWith: "xrpl" });
-    const out = await pay(r, xrplPayment(r, s.blob, signer));
+    const out = await pay(r, xrplPayment(r, s.blob, signer, c.hash));
     const done = { ...r, ...out, from: signer, paidWith: "xrpl", xaman: { ...r.xaman, hash: c.hash }, paidAt: now() };
     await putReq(done);
     usage.record("connector", { account: r.account, input: { tool: "signed", host: new URL(r.url).host, via: "xaman" }, usd: r.xrpl.price, result: { status: out.status, httpStatus: out.result?.httpStatus ?? null } });
