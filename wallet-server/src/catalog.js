@@ -110,7 +110,7 @@ export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup
 // The USDC prices of a listing, one per network we know (checked against that network's USDC).
 function pricesOf(item) {
   const prices = [];
-  for (const a of item.accepts ?? []) {
+  for (const a of item?.accepts ?? []) {
     const known = USDC[a?.network];
     if (!known || String(a.asset ?? "").toLowerCase() !== known[1].toLowerCase()) continue;
     const usd = Number(a.amount ?? a.maxAmountRequired ?? NaN) / 1e6;
@@ -121,13 +121,23 @@ function pricesOf(item) {
 const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
 // Only what search, the category tiles and new-seller alerts read from a listing. The full listings (with their
 // output schemas) took ~77 MB for 10,000 in memory, twice while refreshing, on a 512 MB server; this is ~18 MB.
+// Its USDC prices, category and search words are worked out here, once per load: a search went through all 40,000
+// listings word by word and took 2-5 s (24 Oct 2026); now it looks up its words in `words` (" bitcoin price btc ").
+// Keeping the prices instead of the payment options pays for the words: ~71 MB for the whole catalog either way.
 export function slimListing(item) {
   const input = item?.extensions?.bazaar?.info?.input;
+  const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
+  const description = text(item?.description, 400) || text(accepts[0]?.description, 400);
+  const first400 = (v) => (typeof v === "string" ? v.slice(0, 400) : "");
+  let u = null;
+  try { u = new URL(item?.resource); } catch {}
   return {
     resource: item?.resource,
-    description: typeof item?.description === "string" ? item.description.slice(0, 400) : undefined,
-    accepts: (Array.isArray(item?.accepts) ? item.accepts : []).map((a) => ({ network: a?.network, asset: a?.asset, amount: a?.amount, maxAmountRequired: a?.maxAmountRequired, description: typeof a?.description === "string" ? a.description.slice(0, 400) : undefined })),
-    ...(input ? { extensions: { bazaar: { info: { input } } } } : {}),
+    description,
+    prices: pricesOf(item),
+    ...(input ? { input } : {}),
+    category: u ? categorize(`${first400(item?.description)} ${first400(accepts[0]?.description)} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`) : "other",
+    words: u ? ` ${[...new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(input ?? {})}`))].join(" ")} ` : " ",
   };
 }
 
@@ -189,14 +199,14 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     for (const item of all) {
       let u; try { u = new URL(item.resource); } catch { continue; }
       if (!origins.has(u.origin)) continue;
-      const prices = pricesOf(item);
+      const prices = item.prices;
       if (!prices.length) continue;
       const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", cats: new Map() };
       p.listings++;
       p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
       prices.forEach((x) => p.networks.add(x.network));
-      if (!p.description) p.description = text(item.description, 300) || text(item.accepts?.[0]?.description, 300);
-      const c = categoryOf(item, u);
+      if (!p.description) p.description = item.description.slice(0, 300);
+      const c = item.category;
       p.cats.set(c, (p.cats.get(c) ?? 0) + 1);
       by.set(u.origin, p);
     }
@@ -209,7 +219,6 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     if (skills) { await skills.check(providers.map((p) => p.origin)); for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null; }
     await onNew(providers);
   }
-  const categoryOf = (item, u) => categorize(`${item.description ?? ""} ${item.accepts?.[0]?.description ?? ""} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`);
   const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
 
   return {
@@ -224,13 +233,13 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       for (const item of list) {
         let u; try { u = new URL(item.resource); } catch { continue; }
         if (u.protocol !== "https:" || !isNew(u.origin, days)) continue;
-        const prices = pricesOf(item);
+        const prices = item.prices;
         if (!prices.length) continue;
         const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", example: u.href };
         p.listings++;
         p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
         prices.forEach((x) => p.networks.add(x.network));
-        if (!p.description) p.description = text(item.description, 300);
+        if (!p.description) p.description = item.description.slice(0, 300);
         by.set(u.origin, p);
       }
       const providers = [...by.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, limit).map((p) => ({ ...p, networks: [...p.networks] }));
@@ -248,10 +257,10 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       for (const item of await load()) {
         let u; try { u = new URL(item.resource); } catch { continue; }
         if (u.protocol !== "https:" || seenUrl.has(`${u.origin}${u.pathname}`)) continue;
-        const prices = pricesOf(item);
+        const prices = item.prices;
         if (!prices.length || Math.min(...prices.map((p) => p.usd)) > maxUsd) continue;
         seenUrl.add(`${u.origin}${u.pathname}`);
-        const c = counts.get(categoryOf(item, u));
+        const c = counts.get(item.category);
         c.count++;
         c.sellers.add(u.origin);
         if (isNew(u.origin)) c.fresh++;
@@ -273,22 +282,19 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         try { u = new URL(item.resource); } catch { continue; }
         if (u.protocol !== "https:") continue;
         if (fresh && !isNew(u.origin)) continue;
-        const prices = pricesOf(item).filter((p) => !nets || nets.has(p.network));
+        const prices = item.prices.filter((p) => !nets || nets.has(p.network));
         if (!prices.length) continue;
         const cheapest = Math.min(...prices.map((p) => p.usd));
         if (cheapest > maxUsd) continue;
-        const info = item.extensions?.bazaar?.info ?? {};
-        const description = text(item.description, 400) || text(item.accepts?.[0]?.description, 400);
-        const cat = categoryOf(item, u);
-        if (category && cat !== category) continue;
-        const have = new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(info.input ?? {})}`));
+        if (category && item.category !== category) continue;
         // Without words, everything that passes the filters counts; new providers first, then cheapest.
-        const score = terms.length ? terms.filter((t) => have.has(t)).length : 1 + (isNew(u.origin) ? 1 : 0);
+        const score = terms.length ? terms.filter((t) => item.words.includes(` ${t} `)).length : 1 + (isNew(u.origin) ? 1 : 0);
         if (!score) continue;
         const key = `${u.origin}${u.pathname}`;
         if (found.has(key) && found.get(key).score >= score) continue;
         // example: the seller's own example input (query parameters or body), so an agent knows how to call it.
-        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, example: info.input?.queryParams ?? info.input?.body ?? null, prices, cheapest, isNew: isNew(u.origin), category: cat });
+        const input = item.input;
+        found.set(key, { score, url: u.href, host: u.hostname, description: item.description, method: text(String(input?.method ?? ""), 8).toUpperCase() || null, example: input?.queryParams ?? input?.body ?? null, prices, cheapest, isNew: isNew(u.origin), category: item.category });
       }
       let all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
       const origin = (r) => new URL(r.url).origin;
