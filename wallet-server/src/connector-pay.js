@@ -346,6 +346,8 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const c = checkSigned(s.blob, r.xrpl, r.xaman.lastLedger);
     if (c.error) { const n = { ...r, xaman: null, status: "failed", error: c.error }; await putReq(n); return n; }
     const signer = c.tx.Account;
+    // The ledger refuses a Payment from an account to itself, so the seller couldn't settle it.
+    if (signer === r.xrpl.payTo) return again(`You signed with ${short(signer)}, the account this API is paid to, and an XRPL account can't pay itself. Nothing was paid; sign with another account.`);
     const current = await xrplLedger.ledger().catch(() => null);
     if (current !== null && current >= r.xaman.lastLedger) return again("You signed after the time limit, so nothing was paid. Sign again; it takes a few seconds in Xaman.");
     const [listed, balance] = await Promise.all([sanctioned(signer), xrplLedger.rlusd(signer)]);

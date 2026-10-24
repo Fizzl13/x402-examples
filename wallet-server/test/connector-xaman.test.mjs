@@ -25,9 +25,9 @@ const INVOICE = "weather.test GET /forecast";
 const sha = (t) => createHash("sha256").update(t, "utf8").digest("hex").toUpperCase();
 
 // A seller that takes RLUSD on the XRP Ledger (and, on /both, USDC on Base): paid once the signed blob checks out.
-function seller(chain) {
+function seller(chain, payTo = PAY_TO) {
   const seen = [];
-  const xrpl = { scheme: "exact", network: "xrpl:0", amount: "0.01", asset: RLUSD_HEX, payTo: PAY_TO, maxTimeoutSeconds: 300, extra: { issuer: RLUSD_ISSUER, invoiceId: INVOICE, sourceTag: 804681468, areFeesSponsored: false } };
+  const xrpl = { scheme: "exact", network: "xrpl:0", amount: "0.01", asset: RLUSD_HEX, payTo, maxTimeoutSeconds: 300, extra: { issuer: RLUSD_ISSUER, invoiceId: INVOICE, sourceTag: 804681468, areFeesSponsored: false } };
   const base = { scheme: "exact", network: "eip155:8453", amount: "10000", asset: USDC_BASE, payTo: BASE_PAY_TO, maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } };
   const server = http.createServer(async (req, res) => {
     for await (const _ of req) { /* drain */ }
@@ -37,7 +37,7 @@ function seller(chain) {
       const p = JSON.parse(Buffer.from(header, "base64").toString());
       const blob = p.payload?.signedTxBlob;
       const tx = blob ? decode(blob) : null;
-      const ok = tx && p.accepted.network === "xrpl:0" && verifySignature(blob) && tx.Destination === PAY_TO && tx.Amount.value === "0.01" && tx.InvoiceID === sha(INVOICE) && tx.LastLedgerSequence > chain.ledger && !tx.Memos;
+      const ok = tx && p.accepted.network === "xrpl:0" && verifySignature(blob) && tx.Destination === payTo && tx.Amount.value === "0.01" && tx.InvoiceID === sha(INVOICE) && tx.LastLedgerSequence > chain.ledger && !tx.Memos;
       if (ok) {
         res.setHeader("payment-response", Buffer.from(JSON.stringify({ success: true, transaction: hashes.hashSignedTx(blob), network: "xrpl:0", payer: tx.Account })).toString("base64"));
         res.setHeader("content-type", "application/json");
@@ -240,6 +240,18 @@ test("xaman: no in Xaman, an expired request, too late, too little RLUSD, a blob
     v = await view(s.base, id);
     assert.match(v.note, /has \$0\.005 RLUSD, less than \$0\.01\. Nothing was paid/);
     s.chain.rlusd = "5";
+
+    // Signed with the account the API is paid to: an XRPL account can't pay itself, so nothing is sent.
+    const self = Wallet.generate();
+    const own = await seller(s.chain, self.address);
+    const o = await ask(client, `${own.url}/forecast`);
+    await xaman(s.base, o.payment_id);
+    s.sign(self);
+    v = await view(s.base, o.payment_id);
+    assert.deepEqual([v.status, v.xaman], ["waiting", null]);
+    assert.match(v.note, /the account this API is paid to, and an XRPL account can't pay itself\. Nothing was paid/);
+    assert.equal(own.seen.filter((x) => x.headers["payment-signature"]).length, 0);
+    own.server.close();
 
     // A blob that pays someone else is refused.
     id = await started();

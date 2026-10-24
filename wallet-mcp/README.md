@@ -27,8 +27,8 @@ No keys to copy: the wallet makes its own key on your computer, and you link it 
 
 1. **Install it in your app, without keys.**
    - Claude Desktop: download **[fizzl-wallet.mcpb](https://wallet.fizzl.eu/download/claude-desktop)** and open it; Claude Desktop installs it (it brings its own Node.js).
-   - Claude Code: `claude mcp add wallet -- npx -y presign-guard-wallet-mcp@0.27.0`
-   - Cursor and other MCP clients: `{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "presign-guard-wallet-mcp@0.27.0"] } } }`
+   - Claude Code: `claude mcp add wallet -- npx -y presign-guard-wallet-mcp@0.27.1`
+   - Cursor and other MCP clients: `{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "presign-guard-wallet-mcp@0.27.1"] } } }`
 2. **Ask your agent:** *"what is my wallet status?"* It makes its own wallet (the key goes into `~/.fizzl/agent-key`, readable only by you, and is never sent anywhere) and answers with a link and a code that works for 10 minutes.
 3. **Open the link, sign in at wallet.fizzl.eu** with e-mail, a passkey, Xaman or your wallet, **and enter the code.** Give the agent a name. The wallet picks up its key for the wallet server by itself; no restart.
 4. **Put a few dollars of USDC** in the agent's wallet (the dashboard has buttons for it). Most calls cost a cent or less. Then ask something like *"find a weather API and get the forecast for Amsterdam"*. It finds a paid API, pays within your limits and shows you the receipt.
@@ -36,6 +36,10 @@ No keys to copy: the wallet makes its own key on your computer, and you link it 
 Then connect Telegram on the dashboard to approve anything above your limit from your phone, and press **Test my setup** to see what's still missing.
 
 Rather paste the keys yourself? On the dashboard, Agents → Add agent shows the setup for your app with the keys filled in. Prefer to run everything yourself? See [Set up](#set-up) below.
+
+### In ChatGPT, Claude on the web or phone, or Grok
+
+These apps can't run a local MCP server, so they use the remote connector instead: add a custom connector with the URL `https://wallet.fizzl.eu/mcp` and sign in to your Fizzl wallet. The app can then search paid APIs and ask for payments, but it never pays on its own: every payment waits for your signature in your own wallet (USDC on Base or Solana, or RLUSD in Xaman). Steps per app: https://wallet.fizzl.eu/connector
 
 ## Tools
 
@@ -66,7 +70,7 @@ The wallet signs only what these tools need: payment signatures and transfers. I
   "mcpServers": {
     "wallet": {
       "command": "npx",
-      "args": ["-y", "presign-guard-wallet-mcp@0.27.0"],
+      "args": ["-y", "presign-guard-wallet-mcp@0.27.1"],
       "env": {
         "AGENT_KEY": "0x…the agent wallet's private key…",
         "LIMIT_USDC_PER_TX": "5",
@@ -85,10 +89,10 @@ For Claude Code, the key goes into a file at a prompt (not shown, not in your sh
 
 ```sh
 mkdir -p ~/.fizzl && (umask 077; printf 'Agent wallet key: '; stty -echo; read -r k; stty echo; echo; printf '%s\n' "$k" > ~/.fizzl/agent-key)
-claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.27.0
+claude mcp add wallet -e AGENT_KEY_FILE=$HOME/.fizzl/agent-key -e LIMIT_USDC_PER_TX=5 -e LIMIT_USDC_PER_DAY=20 -- npx -y presign-guard-wallet-mcp@0.27.1
 ```
 
-**Pin the version** (`@0.27.0`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
+**Pin the version** (`@0.27.1`), as above: `npx -y` without one fetches the newest release on every start, and that code sees the key. Releases are published from GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements); `npm audit signatures` checks it.
 
 Then ask your agent, for example: *"Check my wallet, then get the BTC signal from https://ichimoku-signal.fizzl.eu/signal/BTC-USDT"*.
 
