@@ -148,6 +148,11 @@ const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: en
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).
 const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null });
 const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png`, recheck: doctorRecheck({ baseUrl: env.DOCTOR_URL?.trim() || undefined, key: env.OUTREACH_KEY?.trim() || null }) });
+// Load the catalog at once rather than with the first hourly run a minute from now: it takes ~40 s on Render (80+
+// pages) and a search waits for the first load, so after a deploy the slow searches end ~40 s after the start
+// instead of ~100 s. (Holding /health at 503 until then was dropped: Render stops routing to an instance after 15 s of
+// failed checks, which after a crash would refuse agents' payment calls too.)
+catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
 const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
