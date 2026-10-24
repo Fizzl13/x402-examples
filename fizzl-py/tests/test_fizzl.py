@@ -87,7 +87,7 @@ def test_screen_wallet():
 
 
 def test_prices_cover_every_check():
-    assert sorted(PRICES) == sorted(["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"])
+    assert sorted(PRICES) == sorted(["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying", "buy_live_data"])
 
 
 def test_langchain_tools_call_the_checks():
@@ -192,3 +192,40 @@ def test_solana_transaction_and_message():
     free = Fizzl(session=unpaid).check_message("x", method="eth_sign")
     assert free["verdict"] == "red" and free["free"] is True
     assert unpaid.calls[-1]["json"]["params"]["arguments"] == {"type": "message", "message": "x", "method": "eth_sign"}
+
+
+def test_buy_live_data_posts_the_need_and_returns_the_answer():
+    s = StandIn({"/v1/buy": (200, {"need": "BTC price in USD", "delivered": True, "answer": {"btc": 67000},
+                                   "service": {"url": "https://prices.example/btc"}, "paid_usd": 0.001, "receipt": {"sig": "0x"}})})
+    out = Fizzl(session=s, credit_keys={"presign": "pk"}).buy_live_data("  BTC price in USD ")
+    assert out["answer"] == {"btc": 67000} and "receipt" not in out
+    assert s.calls[0]["method"] == "POST" and s.calls[0]["url"] == "https://buy.fizzl.eu/v1/buy"
+    assert s.calls[0]["json"] == {"need": "BTC price in USD"} and "x-credit-key" not in s.calls[0]["headers"]
+    assert s.calls[0]["timeout"] == 180
+    assert Fizzl(session=s).buy_live_data("ab")["error"] == "bad_input" and len(s.calls) == 1
+    assert PRICES["buy_live_data"] == "$0.02"
+
+
+def test_buy_live_data_unpaid_gives_the_free_preview_or_payment_required():
+    s = StandIn({"/v1/buy": (402, {}), "/v1/pick": (200, {"need": "weather in Amsterdam", "pick": {"url": "https://weather.example/forecast"}, "alternatives": []})})
+    out = Fizzl(session=s).buy_live_data("weather in Amsterdam")
+    assert out["free"] is True and out["pick"]["url"] == "https://weather.example/forecast"
+    assert "not the data itself" in out["note"] and "$0.02" in out["payment"]
+    assert s.calls[1]["url"] == "https://buy.fizzl.eu/v1/pick?need=weather+in+Amsterdam"
+    off = Fizzl(session=s, free=False).buy_live_data("weather in Amsterdam")
+    assert off["error"] == "payment_required" and "Buying costs $0.02" in off["message"]
+    none = Fizzl(session=StandIn({"/v1/buy": (402, {})})).buy_live_data("weather in Amsterdam")
+    assert none["error"] == "payment_required"
+    failed = Fizzl(session=StandIn({"/v1/buy": (502, {"error": "No seller delivered; nothing was charged."})})).buy_live_data("BTC price")
+    assert failed == {"error": "http_502", "message": "No seller delivered; nothing was charged."}
+
+
+def test_buy_live_data_tool_only_when_asked_for():
+    pytest.importorskip("langchain_core")
+    from fizzl.langchain import fizzl_tools
+    s = StandIn({"/v1/buy": (200, {"delivered": True, "answer": {"rate": 1.08}})})
+    assert "buy_live_data" not in [t.name for t in fizzl_tools(session=s)]
+    tools = fizzl_tools(session=s, buy=True)
+    assert tools[-1].name == "buy_live_data" and len(tools) == 10
+    assert tools[-1].invoke({"need": "EUR to USD rate"})["answer"] == {"rate": 1.08}
+    assert [t.name for t in fizzl_tools(session=s, only=["buy_live_data"])] == ["buy_live_data"]
