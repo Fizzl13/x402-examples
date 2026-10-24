@@ -1865,12 +1865,17 @@ test("catalog listings are kept slim: only what search, the tiles and alerts rea
     accepts: [{ network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "10000", payTo: "0x1", description: "pay", outputSchema: { huge: "x".repeat(5000) } }],
     extensions: { bazaar: { info: { input: { method: "POST", body: { q: "hi" } }, output: { example: "y".repeat(5000) } }, schema: { z: "z".repeat(5000) } } } };
   const s = slimListing(big);
-  assert.deepEqual(Object.keys(s).sort(), ["accepts", "description", "extensions", "resource"]);
+  assert.deepEqual(Object.keys(s).sort(), ["category", "description", "input", "prices", "resource", "words"]);
   assert.equal(s.description.length, 400);
-  assert.deepEqual(s.accepts, [{ network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "10000", maxAmountRequired: undefined, description: "pay" }]);
-  assert.deepEqual(s.extensions, { bazaar: { info: { input: { method: "POST", body: { q: "hi" } } } } });
-  assert.ok(JSON.stringify(s).length < 700);
-  assert.equal(slimListing({ resource: "https://a.example/x" }).extensions, undefined);
+  assert.deepEqual(s.prices, [{ network: "Base", usd: 0.01 }]);
+  assert.deepEqual(s.input, { method: "POST", body: { q: "hi" } });
+  // Worked out once per load: the category and the words a search looks up (description, host, path, example input).
+  assert.equal(s.category, "dev");
+  assert.equal(s.words, ` ${"d".repeat(400)} example method post body `);
+  assert.ok(JSON.stringify(s).length < 1100);
+  const bare = slimListing({ resource: "https://a.example/x", accepts: [{ network: "eip155:8453", asset: USDC, amount: "5000", description: "Crypto price feed" }] });
+  assert.deepEqual([bare.input, bare.description, bare.category, bare.words], [undefined, "Crypto price feed", "crypto", " crypto price feed example "]); // the payment option's description when the listing has none
+  assert.deepEqual(slimListing({ resource: "not a url" }), { resource: "not a url", description: "", prices: [], category: "other", words: " " });
 });
 
 test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {
