@@ -3,6 +3,10 @@
 // and monitors (scripts/known.json in that repo) and your own wallet accounts are left out.
 // Files are cached by their git sha, so a refresh only downloads days that changed (normally today); only the
 // latest version of each day file is kept (today's changes every few minutes, and old versions used to pile up).
+// The four services log every call, nearly all of them free quotes (~17,000 a day in Oct 2026): kept one by one
+// they took 164 MB for a month and, with the catalog, ran this 512 MB server out of memory (exit 134, 24 Oct 2026).
+// The summary only counts them per day, so a service's day is kept as counts per caller (agent, payer, pair) with
+// its visitors; only the paid calls are kept one by one.
 const API = "https://api.github.com";
 // Fizzl Buy took PlainText's place on 23 Oct 2026 (PlainText paused since 16 Oct).
 const SERVICES = ["ichimoku", "presign", "doctor", "buy"];
@@ -23,9 +27,32 @@ const count = (list, key) => {
 };
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// One service's calls in a day file, per UTC day: { day, n, groups, paid }. A group is one caller (agent, payer and
+// pair, what the summary's filter looks at) with its number of calls, quotes and distinct visitors; paid calls are
+// kept whole. Your own calls and MCP verification calls never count and are left out here.
+function daysOf(list) {
+  const days = new Map();
+  for (const e of list) {
+    if (e.own || /^__verifymcp/.test(e.route || "") || typeof e.t !== "string") continue;
+    const day = e.t.slice(0, 10);
+    const d = days.get(day) ?? { day, n: 0, groups: new Map(), paid: [] };
+    const pair = e.input?.pair;
+    const key = `${e.agent ?? ""}|${e.payer ?? ""}|${pair ?? ""}`;
+    const g = d.groups.get(key) ?? { agent: e.agent, payer: e.payer, ...(pair ? { input: { pair } } : {}), n: 0, quotes: 0, visitors: new Set() };
+    g.n++;
+    if (e.quote) g.quotes++;
+    if (e.visitor) g.visitors.add(e.visitor);
+    d.groups.set(key, g);
+    if (e.paid) d.paid.push(e);
+    d.n++;
+    days.set(day, d);
+  }
+  return [...days.values()].map((d) => ({ ...d, groups: [...d.groups.values()] }));
+}
+
 export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), cacheMs = 5 * 60_000 } = {}) {
   const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "fizzl-wallet-stats" };
-  const files = new Map(); // "<service>/<day>.jsonl" -> { sha, events }: the latest version of each day file
+  const files = new Map(); // "<service>/<day>.jsonl" -> { sha, events } or { sha, calls }: the latest version of each day file
   const summaries = new Map(); // days -> { at, value }
   let known = { at: 0, own: new Set(), monitor: /bot|crawl|spider|scan|monitor|health|probe/i, probePairs: new Set() };
 
@@ -43,19 +70,21 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
     } catch { known.at = now(); }
     return known;
   }
-  // Every event of one service from `fromDay` on.
+  // Every event of one service from `fromDay` on; for the four services, their calls per day (see daysOf).
   async function events(service, fromDay) {
     const list = (await get(`events/${service}`)) ?? [];
     const wanted = list.filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f.name) && f.name.slice(0, 10) >= fromDay);
+    const calls = SERVICES.includes(service);
     const out = [];
     for (let i = 0; i < wanted.length; i += 6) {
       await Promise.all(wanted.slice(i, i + 6).map(async (f) => {
         const key = `${service}/${f.name}`;
         if (files.get(key)?.sha !== f.sha) {
           const text = (await get(`events/${service}/${f.name}`, true)) ?? "";
-          files.set(key, { sha: f.sha, events: text.split("\n").filter(Boolean).map((l) => { try { return slim(JSON.parse(l)); } catch { return null; } }).filter(Boolean) });
+          const parsed = text.split("\n").filter(Boolean).map((l) => { try { return slim(JSON.parse(l)); } catch { return null; } }).filter(Boolean);
+          files.set(key, calls ? { sha: f.sha, calls: daysOf(parsed) } : { sha: f.sha, events: parsed });
         }
-        out.push(...files.get(key).events);
+        out.push(...(calls ? files.get(key).calls : files.get(key).events));
       }));
     }
     // Days older than any summary reads (30 days and the 30 before) are dropped.
@@ -72,14 +101,29 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
     const [wallet, site, ...svc] = await Promise.all([events("wallet", new Date(prevFrom).toISOString().slice(0, 10)), events("site", new Date(prevFrom).toISOString().slice(0, 10)), ...SERVICES.map((s) => events(s, new Date(prevFrom).toISOString().slice(0, 10)))]);
     const outside = (e) => !e.own && !(e.payer && k.own.has(String(e.payer).toLowerCase())) && !(e.agent && k.monitor.test(e.agent)) && !(e.input?.pair && k.probePairs.has(String(e.input.pair).toUpperCase())) && !/^__verifymcp/.test(e.route || "");
     const window = (list, a, b) => list.filter((e) => e.t >= new Date(a).toISOString() && e.t < new Date(b).toISOString() && outside(e));
+    // A service's calls in [a, b) (whole days): paid calls, quotes and distinct visitors of the callers that count.
+    const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const callsIn = (days, a, b) => {
+      const out = { n: 0, quotes: 0, visitors: new Set(), paid: [] };
+      for (const d of days) {
+        if (d.day < dayOf(a) || d.day >= dayOf(b)) continue;
+        for (const g of d.groups) {
+          if (!outside(g)) continue;
+          out.n += g.n; out.quotes += g.quotes;
+          for (const v of g.visitors) out.visitors.add(v);
+        }
+        for (const e of d.paid) if (outside(e)) out.paid.push(e);
+      }
+      return out;
+    };
     const perDay = (list, pick = () => 1) => { const m = new Map(dayKeys.map((d) => [d, 0])); for (const e of list) { const d = e.t.slice(0, 10); if (m.has(d)) m.set(d, m.get(d) + pick(e)); } return [...m.values()].map(round2); };
 
     function period(a, b) {
-      const W = window(wallet, a, b), S = window(site, a, b), X = svc.map((list) => window(list, a, b));
+      const W = window(wallet, a, b), S = window(site, a, b), X = svc.map((days) => callsIn(days, a, b));
       const w = (route) => W.filter((e) => e.route === route);
       const views = S.filter((e) => e.route === "view"), outs = S.filter((e) => e.route === "out");
       const ok = w("purchase").filter((e) => e.result?.outcome === "ok");
-      const paid = X.flat().filter((e) => e.paid);
+      const paid = X.flatMap((x) => x.paid);
       const fromSite = (e) => Boolean(e.ref || e.input?.ref);
       return {
         W, S, X, views, outs, ok, paid,
@@ -112,12 +156,12 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
     const cur = period(from, end), prev = period(prevFrom, from);
     const searches = cur.W.filter((e) => e.route === "search");
     const sv = SERVICES.map((s, i) => {
-      const list = cur.X[i], paid = list.filter((e) => e.paid);
-      return { id: s, name: NAMES[s], paid: paid.length, usd: round2(paid.reduce((n, e) => n + (Number(e.usd) || 0), 0)), quotes: list.filter((e) => e.quote).length, payers: new Set(paid.map((e) => e.payer).filter(Boolean)).size, visitors: new Set(list.map((e) => e.visitor).filter(Boolean)).size };
+      const { paid, quotes, visitors } = cur.X[i];
+      return { id: s, name: NAMES[s], paid: paid.length, usd: round2(paid.reduce((n, e) => n + (Number(e.usd) || 0), 0)), quotes, payers: new Set(paid.map((e) => e.payer).filter(Boolean)).size, visitors: visitors.size };
     });
     return {
       days, from: dayKeys[0], to: dayKeys.at(-1), dayKeys,
-      logging: { wallet: wallet.length > 0, site: site.length > 0, services: svc.some((l) => l.length) },
+      logging: { wallet: wallet.length > 0, site: site.length > 0, services: svc.some((days) => days.some((d) => d.n > 0)) },
       kpi: cur.kpi, prev: prev.kpi,
       series: {
         siteViews: perDay(cur.views),
