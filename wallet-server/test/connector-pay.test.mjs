@@ -1,7 +1,8 @@
 // Paying from the connector (src/connector-pay.js): the app asks, the owner signs one EIP-3009 authorization in their
 // own wallet, the server sends the paid request to a seller that checks that signature, and the app reads the answer.
 // Also: no, a wrong signer, a signature sent twice, the sanctions list, the balance, the price cap, other networks,
-// a free API, and an account without an Ethereum address (the owner picks the wallet on the page).
+// a free API, an account without an Ethereum address (the owner picks the wallet on the page), and an API that doesn't
+// answer the paid request (sent once more with the same payment).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -23,8 +24,13 @@ const SANCTIONED = "0x2222222222222222222222222222222222222222";
 const TYPES = { TransferWithAuthorization: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" }] };
 
 // A seller: a 402 on Base (and Solana) until the PAYMENT-SIGNATURE carries a valid authorization for its price.
+// /flaky...: the first paid request settles but gets no answer (the connection hangs); /flaky-dedup declares x402's
+// payment-identifier and answers a retry from what it kept, /flaky-strict refuses the reused authorization with a 402,
+// /flaky-down never answers.
 function seller() {
   const seen = [];
+  const settled = new Map(); // nonce -> the payment-identifier it came with
+  const kept = new Map(); // payment id -> the answer
   const challenge = (req, payTo, amount) => ({ x402Version: 2, resource: { url: `http://${req.headers.host}${req.url}`, description: "weather" }, accepts: [
     { scheme: "exact", network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", amount, asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", payTo: "So11111111111111111111111111111111111111112", maxTimeoutSeconds: 60 },
     { scheme: "exact", network: "eip155:8453", amount, asset: USDC_BASE, payTo, maxTimeoutSeconds: 120, extra: { name: "USD Coin", version: "2" } },
@@ -36,7 +42,18 @@ function seller() {
     const payTo = req.url.startsWith("/bad") ? SANCTIONED : SELLER;
     const amount = req.url.startsWith("/dear") ? "2000000" : "2000";
     const c = req.url.startsWith("/solana") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(0, 1) } : challenge(req, payTo, amount);
+    if (req.url.startsWith("/flaky-dedup")) c.extensions = { "payment-identifier": { info: { required: false }, schema: { type: "object" } } };
     const header = req.headers["payment-signature"];
+    if (header && req.url.startsWith("/flaky")) {
+      const p = JSON.parse(Buffer.from(header, "base64").toString());
+      const nonce = p.payload.authorization.nonce;
+      const id = p.extensions?.["payment-identifier"]?.info?.id ?? null;
+      if (req.url.startsWith("/flaky-down") || !settled.has(nonce)) { settled.set(nonce, id); if (id) kept.set(id, { city: "Amsterdam", temp_c: 11 }); return; } // settles, never answers
+      if (id && kept.has(id)) { res.setHeader("content-type", "application/json"); return res.end(JSON.stringify(kept.get(id))); }
+      res.statusCode = 402;
+      res.setHeader("payment-required", Buffer.from(JSON.stringify({ ...c, error: "authorization already used" })).toString("base64"));
+      return res.end("{}");
+    }
     if (header) {
       const p = JSON.parse(Buffer.from(header, "base64").toString());
       const a = p.payload.authorization;
@@ -53,23 +70,30 @@ function seller() {
     res.setHeader("content-type", "application/json");
     res.end("{}");
   });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, url: `http://127.0.0.1:${server.address().port}`, seen })));
+  const close = server.close.bind(server);
+  server.close = () => { server.closeAllConnections(); return close(); };
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, url: `http://127.0.0.1:${server.address().port}`, seen, settled })));
 }
 
-async function boot({ balance = 5_000_000n } = {}) {
+async function boot({ balance = 5_000_000n, authorizationUsed = () => false } = {}) {
   const store = memoryStore();
   const accounts = createAccounts({ store, publicUrl: "https://wallet.test", billing: { payTo: SELLER, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: async () => Response.json({ jsonrpc: "2.0", id: 1, result: null }) }, walletOptions: { authority: null } });
   const told = [];
   accounts.tellOwner = async (id, m) => { told.push({ id, ...m }); };
-  const services = async (url) => {
+  const services = async (url, init) => {
     const u = String(url);
     if (u === "https://presign.test/v1/sanctions") return Response.json({ addresses: [{ address: SANCTIONED.toLowerCase() }] });
     if (u.startsWith("https://doctor.test/api/trust")) return Response.json({ days_checked: 30, days_payable: 29, last_scan: { verdict: "go" } });
-    if (u === "https://base.test") return Response.json({ jsonrpc: "2.0", id: 1, result: `0x${balance.toString(16)}` });
+    if (u === "https://base.test") {
+      const data = JSON.parse(init.body).params[0].data;
+      // authorizationState(authorizer, nonce): has USDC used this authorization?
+      if (data.startsWith("0xe94a0102")) return Response.json({ jsonrpc: "2.0", id: 1, result: `0x${(authorizationUsed(`0x${data.slice(-64)}`) ? 1 : 0).toString(16).padStart(64, "0")}` });
+      return Response.json({ jsonrpc: "2.0", id: 1, result: `0x${balance.toString(16)}` });
+    }
     throw new Error(`unexpected ${u}`);
   };
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), usage: { record: () => {} }, oauthStore: store.global,
-    connector: { fetch: services, presignUrl: "https://presign.test", doctorUrl: "https://doctor.test", baseRpc: "https://base.test", allowPrivate: true, statusWaitMs: 300 } });
+    connector: { fetch: services, presignUrl: "https://presign.test", doctorUrl: "https://doctor.test", baseRpc: "https://base.test", allowPrivate: true, statusWaitMs: 300, paidTimeoutMs: 400, retryPauseMs: 0 } });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   return { base, server, accounts, told, store };
@@ -278,5 +302,61 @@ test("connector payments: the picked wallet's balance is checked on the page; an
     assert.equal(await accounts.payer("em:sol"), null);
     assert.equal(await accounts.payer("admin"), null);
     assert.equal(await accounts.payer("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"), "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: an API that doesn't answer the paid request gets the same payment once more, never a second charge", async () => {
+  const s = await seller();
+  let used = false; // what USDC on Base says about the authorization
+  const { base, server, accounts } = await boot({ authorizationUsed: () => used });
+  try {
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const cookie = await signIn(base, owner);
+    const client = await connect(base, cookie);
+    const ask = async (path) => (await call(client, "pay_x402", { url: `${s.url}${path}` })).structuredContent.payment_id;
+    const paidTries = (path) => s.seen.filter((x) => x.url === path && x.headers["payment-signature"]);
+
+    // A seller with payment-identifier: the retry carries the same payment and the request's id, and gets the answer it kept.
+    const id = await ask("/flaky-dedup");
+    const done = await (await signOnPage(base, id, owner)).json();
+    assert.equal(done.status, "done");
+    const [first, second] = paidTries("/flaky-dedup");
+    assert.equal(first.headers["payment-signature"], second.headers["payment-signature"], "the same signed payment, not a new one");
+    assert.equal(JSON.parse(Buffer.from(first.headers["payment-signature"], "base64").toString()).extensions["payment-identifier"].info.id, id);
+    const st = (await call(client, "payment_status", { payment_id: id })).structuredContent;
+    assert.equal(st.status, "paid");
+    assert.deepEqual(JSON.parse(st.body), { city: "Amsterdam", temp_c: 11 });
+
+    // Without it, the retry is refused; the chain says the first try settled: a receipt, and the agent is told the answer got lost.
+    used = true;
+    const id2 = await ask("/flaky-strict");
+    const lost = await (await signOnPage(base, id2, owner)).json();
+    assert.equal(lost.status, "failed");
+    assert.match(lost.error, /went through on the first try, but the API's answer got lost/);
+    assert.equal(paidTries("/flaky-strict").length, 2);
+    assert.equal(JSON.parse(Buffer.from(paidTries("/flaky-strict")[0].headers["payment-signature"], "base64").toString()).extensions, undefined, "no payment-identifier when the seller didn't declare it");
+    const st2 = (await call(client, "payment_status", { payment_id: id2 })).structuredContent;
+    assert.equal(st2.status, "failed");
+    assert.equal(st2.receipt, `${base}/#/purchases`);
+    const wallet = accounts.walletFor(owner.address.toLowerCase());
+    assert.equal((await wallet.purchases()).length, 2, "one receipt per payment: the dedup one and the lost one");
+
+    // The chain says it didn't settle: nothing was paid.
+    used = false;
+    const id3 = await ask("/flaky-strict-2");
+    s.settled.clear();
+    const refused = await (await signOnPage(base, id3, owner)).json();
+    assert.equal(refused.status, "failed");
+    assert.match(refused.error, /Nothing was paid/);
+
+    // Never an answer: at most one charge, and the owner is told to look.
+    const id4 = await ask("/flaky-down");
+    const down = await (await signOnPage(base, id4, owner)).json();
+    assert.equal(down.status, "failed");
+    assert.match(down.error, /also not when it was sent once more with the same payment/);
+    assert.match(down.error, /once at most/);
+    assert.equal(paidTries("/flaky-down").length, 2);
+    assert.equal((await wallet.purchases()).length, 2);
+    await client.close();
   } finally { server.close(); s.server.close(); }
 });

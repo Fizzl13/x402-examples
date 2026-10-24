@@ -144,5 +144,14 @@ export function createXrplReader({ rpcUrl = "https://xrplcluster.com", fetch: fe
         return line && !String(line.balance).startsWith("-") ? decimalUnits(line.balance) ?? 0n : 0n;
       } catch { return null; }
     },
+    // Whether a signed Payment was validated (true), isn't on the ledger (false), or it can't tell right now (null).
+    async landed(hash) {
+      try {
+        const r = await rpc("tx", { transaction: hash });
+        if (r?.error === "txnNotFound") return false;
+        if (!r?.validated) return null;
+        return r.meta?.TransactionResult === "tesSUCCESS";
+      } catch { return null; }
+    },
   };
 }

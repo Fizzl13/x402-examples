@@ -65,9 +65,9 @@ export function fizzlBuyOption({ query, cap, sellers }) {
   };
 }
 
-export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, version = "0", now = () => Date.now() }) {
+export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now() }) {
   const router = express.Router();
-  const payments = createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl, baseRpc, xaman, xrplRpc, solanaRpc, fetch: fetchImpl, sellerFetch, lookup, allowPrivate, statusWaitMs, version, now });
+  const payments = createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl, baseRpc, xaman, xrplRpc, solanaRpc, fetch: fetchImpl, sellerFetch, lookup, allowPrivate, statusWaitMs, paidTimeoutMs, retryPauseMs, version, now });
   router.use(payments.router);
   const origin = (req) => (publicUrl ? new URL(publicUrl).origin : `${req.protocol}://${req.get("host")}`);
   const metadataUrl = (req) => `${origin(req)}/.well-known/oauth-protected-resource/mcp`;
