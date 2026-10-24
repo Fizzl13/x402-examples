@@ -1134,6 +1134,34 @@ test("catalog: Fizzl's old onrender.com addresses are left out once the fizzl.eu
   assert.deepEqual(out, ["https://x402-doctor.fizzl.eu/api/v1/preflight", "https://presign-guard.onrender.com/v1/token", "https://plaintext.fizzl.eu/api/check-wallet", "https://other.onrender.com/x", "not a url"]);
 });
 
+test("catalog: a search never waits for a reload, a failed reload keeps the old copy, and the hourly refresh always reloads", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const usdc = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO };
+  let t = Date.parse("2026-10-24T15:23:00Z"), calls = 0, down = false, release = null;
+  const fetch = async () => {
+    calls++;
+    if (down) return new Response("down", { status: 503 });
+    if (calls > 1) await new Promise((ok) => { release = ok; }); // a slow reload: 80+ pages
+    return Response.json({ items: [{ resource: "https://a.example/signal", description: "Crypto trend signal", accepts: [usdc] }] });
+  };
+  const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, fetch });
+  await catalog.refresh();
+  // The hourly refresh 59 minutes later (the first load took a minute) reloads: it no longer waits for the full hour.
+  t += 59 * 60_000;
+  const refreshing = catalog.refresh();
+  await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(calls, 2);
+  // Meanwhile a search gets the old copy at once.
+  assert.equal((await catalog.search("crypto signal")).results.length, 1);
+  release();
+  await refreshing;
+  // Two hours on with the catalog down: the reload fails, searches keep the old copy, the refresh reports it.
+  t += 2 * 3_600_000; down = true;
+  assert.equal((await catalog.search("crypto signal")).results.length, 1);
+  await assert.rejects(catalog.refresh(), /HTTP 503/);
+  assert.equal((await catalog.search("crypto signal")).results.length, 1);
+});
+
 test("search bar: a catalog that can't be reached is a clear 502", async () => {
   const { createCatalog } = await import("../src/catalog.js");
   const { server, owner } = await boot({ catalog: createCatalog({ url: "https://catalog.test/x", fetch: async () => new Response("down", { status: 503 }) }) });
@@ -1156,9 +1184,12 @@ test("new providers: the first catalog is the baseline; sellers that appear late
   assert.equal((await catalog.search("crypto signal")).results[0].isNew, false); // baseline: not new
   assert.equal((await catalog.newProviders()).providers.length, 0);
 
-  // Two hours later the catalog is fetched again with a new seller.
+  // Two hours later the catalog is fetched again with a new seller. A search doesn't wait for that: it gets the old
+  // copy at once, the searches after the reload (here the hourly refresh) the new one.
   t += 2 * 3_600_000;
   items = [...items, { resource: "https://fresh.example/signal", description: "Fresh crypto trend signal", accepts: [usdc("20000")] }, { resource: "https://fresh.example/levels", description: "Support and resistance", accepts: [usdc("50000")] }];
+  assert.deepEqual((await catalog.search("crypto signal")).results.map((h) => h.host), ["old.example"]);
+  await catalog.refresh();
   const hits = (await catalog.search("crypto signal")).results;
   assert.deepEqual(hits.map((h) => [h.host, h.isNew]), [["old.example", false], ["fresh.example", true]]); // same match: cheapest first
   const fresh = (await catalog.newProviders()).providers;
