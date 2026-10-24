@@ -22,6 +22,7 @@ const SELLERS = [
   { url: "https://buy.fizzl.eu/v1/buy", description: "Fizzl Buy as listed in the catalog", prices: [{ network: "Base", usd: 0.02 }], record: { days: 1, payableDays: 1 } },
   { url: "https://new.example/weather", description: "Weather today", prices: [{ network: "Base", usd: 0.005 }], record: null },
   { url: "https://pricey.example/weather", description: "Weather", prices: [{ network: "Base", usd: 3 }], record: null },
+  { url: "https://sol.example/weather", description: "Weather on Solana", prices: [{ network: "Solana", usd: 0.002 }, { network: "Polygon", usd: 0.0001 }], record: null },
 ];
 
 async function boot() {
@@ -175,8 +176,9 @@ test("connector: sign in, allow, a code for the token, the tools, and disconnect
     assert.equal(status.dashboard, `${base}/`);
 
     const found = (await client.callTool({ name: "find_services", arguments: { query: "weather forecast for Amsterdam tomorrow" } })).structuredContent;
-    assert.deepEqual(searches[0].opts, { maxUsd: 1, limit: 20, networks: ["Base"] });
-    assert.deepEqual(found.services.map((s) => s.url), ["https://buy.fizzl.eu/v1/buy", "https://agents.dexl.io/v1/tools/weather", "https://new.example/weather"], "Fizzl Buy first, once; over the cap left out");
+    assert.deepEqual(searches[0].opts, { maxUsd: 1, limit: 20, networks: ["Base", "Solana"] });
+    assert.deepEqual(found.services.map((s) => s.url), ["https://buy.fizzl.eu/v1/buy", "https://agents.dexl.io/v1/tools/weather", "https://new.example/weather", "https://sol.example/weather"], "Fizzl Buy first, once; over the cap left out; Solana-only sellers too");
+    assert.deepEqual([found.services[1].pays_on, found.services[3].pays_on, found.services[3].price_usd], [["Base"], ["Solana"], 0.002], "only the networks the connector pays on");
     assert.deepEqual(found.services[0].input_example, { need: "weather forecast for Amsterdam tomorrow" });
     assert.match(found.services[1].track_record, /29 of the 30 days/);
     assert.match(found.note, /first entry is Fizzl Buy/);
