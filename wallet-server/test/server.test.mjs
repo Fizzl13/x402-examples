@@ -1964,6 +1964,43 @@ test("catalog: kept in a SQLite file; a reload replaces it and removes the old o
   assert.notEqual(now[0], ours[0]);
 });
 
+test("catalog file kept small: no copy of the search words, each example input once; results and ranking unchanged", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { mkdtempSync, readdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = mkdtempSync(join(tmpdir(), "catalog-small-"));
+  const usdc = (amount) => [{ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO }];
+  const get = (queryParams) => ({ bazaar: { info: { input: { type: "http", method: "GET", queryParams } } } });
+  const items = [
+    { resource: "https://feed.example/btc", description: "Bitcoin price", accepts: usdc("20000"), extensions: get({ symbol: "BTC" }) },
+    { resource: "https://feed.example/eth", description: "Ethereum price", accepts: usdc("10000"), extensions: get({ symbol: "BTC" }) },
+    { resource: "https://feed.example/sol", description: "Solana price", accepts: usdc("10000"), extensions: get({ symbol: "BTC" }) },
+    { resource: "https://news.example/btc", description: "Bitcoin news", accepts: usdc("5000"), extensions: get({ topic: "bitcoin" }) },
+    { resource: "https://bare.example/btc", description: "Bitcoin price and news", accepts: usdc("30000") },
+    { resource: "https://x402-doctor.onrender.com/api/v1/preflight", description: "Bitcoin price check", accepts: usdc("1000") },
+    { resource: "https://x402-doctor.fizzl.eu/api/v1/preflight", description: "Preflight", accepts: usdc("1000") },
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/d", dir, fetch: async () => Response.json({ items }) });
+  await catalog.refresh();
+  const db = new DatabaseSync(join(dir, readdirSync(dir)[0]), { readOnly: true });
+  assert.deepEqual(db.prepare("SELECT json FROM examples ORDER BY id").all().map((r) => r.json), ['{"symbol":"BTC"}', '{"topic":"bitcoin"}'], "three listings share one example");
+  assert.equal(db.prepare("SELECT words FROM fts WHERE fts MATCH ?").get('"bitcoin"').words, null, "the index keeps no copy of the words");
+  db.close();
+  // Listings with more of the words first, then the cheapest; each with its own example input (or none). The old
+  // onrender.com address is gone from the index too.
+  const { results } = await catalog.search("bitcoin price news");
+  assert.deepEqual(results.map((r) => [r.url, r.example]), [
+    ["https://bare.example/btc", null],
+    ["https://news.example/btc", { topic: "bitcoin" }],
+    ["https://feed.example/btc", { symbol: "BTC" }],
+    ["https://feed.example/eth", { symbol: "BTC" }],
+    ["https://feed.example/sol", { symbol: "BTC" }],
+  ]);
+  assert.deepEqual((await catalog.search("solana")).results.map((r) => r.url), ["https://feed.example/sol"]);
+});
+
 test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {
   const { newAgentKey, addressOf, keccak256 } = await import("../public/agentkey.js");
   const { privateKeyToAddress } = await import("viem/accounts");

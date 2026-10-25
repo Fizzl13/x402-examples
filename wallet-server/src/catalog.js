@@ -2,7 +2,7 @@
 // search bar: the same catalog presign-guard-wallet-mcp's find_services searches. Listings are
 // what sellers say about themselves, so everything here is shown as data, never as a
 // recommendation, and only USDC prices on networks agents commonly pay on are kept.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { isIP } from "node:net";
@@ -148,16 +148,31 @@ export function slimListing(item) {
 // then only read, and removed when it is closed. (Removing it while open, so a crash would leave nothing, works with
 // Node 22's SQLite but gives "disk I/O error" on the first write with Node 24 and later: 25 Oct 2026, every search
 // on Render failed. Files a crash leaves behind are cleared by removeStale.)
+// The file is kept small, since it grows with the catalog and is there twice during a refresh (75 MB for 51,700
+// listings on 25 Oct 2026, 45 MB since): the full-text index keeps no copy of the words (content=''), so a search
+// counts a listing's matching words with one index lookup per word (see matchCounts); example inputs, the same for
+// many endpoints of a seller (19,800 different ones among 51,700), are kept once in their own table; and there is no
+// index on host, which only the hourly moved-hosts step reads.
 function createListingsFile(file) {
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;
+    CREATE TABLE examples (id INTEGER PRIMARY KEY, hash INTEGER UNIQUE, json TEXT);
     CREATE TABLE listings (id INTEGER PRIMARY KEY, resource TEXT, origin TEXT, host TEXT, path TEXT, https INTEGER,
-      description TEXT, prices TEXT, cheapest REAL, method TEXT, example TEXT, category TEXT);
+      description TEXT, prices TEXT, cheapest REAL, method TEXT, example INTEGER, category TEXT);
     CREATE INDEX listings_origin ON listings (origin);
-    CREATE INDEX listings_host ON listings (host);
-    CREATE VIRTUAL TABLE fts USING fts5(words);`);
+    CREATE VIRTUAL TABLE fts USING fts5(words, content='', contentless_delete=1);`);
   const insert = db.prepare("INSERT INTO listings (resource, origin, host, path, https, description, prices, cheapest, method, example, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   const insertWords = db.prepare("INSERT INTO fts (rowid, words) VALUES (?, ?)");
+  const insertExample = db.prepare("INSERT INTO examples (hash, json) VALUES (?, ?) ON CONFLICT (hash) DO NOTHING");
+  const exampleId = db.prepare("SELECT id FROM examples WHERE hash = ?");
+  // The id of an example input (JSON), stored once; null without one. Keyed by the first 8 bytes of its SHA-1.
+  const exampleOf = (input) => {
+    const json = JSON.stringify(input?.queryParams ?? input?.body ?? null);
+    if (json === "null") return null;
+    const hash = createHash("sha1").update(json).digest().readBigInt64BE(0);
+    insertExample.run(hash, json);
+    return exampleId.get(hash).id;
+  };
   return {
     db,
     add(items) {
@@ -170,7 +185,7 @@ function createListingsFile(file) {
           const cheapest = s.prices.length ? Math.min(...s.prices.map((p) => p.usd)) : null;
           const { lastInsertRowid } = insert.run(u?.href ?? String(s.resource ?? ""), u?.origin ?? null, u?.hostname ?? null, u?.pathname ?? null, u?.protocol === "https:" ? 1 : 0,
             s.description, JSON.stringify(s.prices), cheapest, text(String(s.input?.method ?? ""), 8).toUpperCase() || null,
-            JSON.stringify(s.input?.queryParams ?? s.input?.body ?? null), s.category);
+            exampleOf(s.input), s.category);
           insertWords.run(lastInsertRowid, s.words);
         }
         db.exec("COMMIT");
@@ -188,6 +203,14 @@ function createListingsFile(file) {
   };
 }
 const inList = (values) => JSON.stringify([...values]);
+// How many of the words each listing has: listing id -> count, one index lookup per word (the index keeps no copy of a
+// listing's words to read back).
+function matchCounts(db, terms) {
+  const counts = new Map();
+  const lookup = db.prepare("SELECT rowid FROM fts WHERE fts MATCH ?");
+  for (const t of terms) for (const { rowid } of lookup.iterate(`"${t}"`)) counts.set(rowid, (counts.get(rowid) ?? 0) + 1);
+  return counts;
+}
 // Catalog files of another catalog (another process, or this one before a restart) that weren't touched for two hours:
 // left behind, since a live catalog writes a new file every hour.
 const STALE_MS = 2 * 60 * 60 * 1000;
@@ -346,15 +369,17 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       if (terms.length) { where.push("fts MATCH ?"); params.push(terms.map((t) => `"${t}"`).join(" OR ")); }
       if (category) { where.push("l.category = ?"); params.push(category); }
       if (fresh) { where.push("l.origin IN (SELECT value FROM json_each(?))"); params.push(inList(Object.keys(firstSeen).filter((o) => isNew(o)))); }
-      const rows = db.prepare(`SELECT l.resource, l.origin, l.host, l.path, l.description, l.prices, l.method, l.example, l.category${terms.length ? ", fts.words" : ""}
-        FROM ${terms.length ? "fts JOIN listings l ON l.id = fts.rowid" : "listings l"} WHERE ${where.join(" AND ")} ORDER BY l.id`).iterate(...params);
+      const matched = terms.length ? matchCounts(db, terms) : null;
+      const rows = db.prepare(`SELECT l.id, l.resource, l.origin, l.host, l.path, l.description, l.prices, l.method, e.json AS example, l.category
+        FROM ${terms.length ? "fts JOIN listings l ON l.id = fts.rowid" : "listings l"} LEFT JOIN examples e ON e.id = l.example
+        WHERE ${where.join(" AND ")} ORDER BY l.id`).iterate(...params);
       for (const row of rows) {
         const prices = JSON.parse(row.prices).filter((p) => !nets || nets.has(p.network));
         if (!prices.length) continue;
         const cheapest = Math.min(...prices.map((p) => p.usd));
         if (cheapest > maxUsd) continue;
         // Without words, everything that passes the filters counts; new providers first, then cheapest.
-        const score = terms.length ? terms.filter((t) => row.words.includes(` ${t} `)).length : 1 + (isNew(row.origin) ? 1 : 0);
+        const score = matched ? matched.get(row.id) ?? 0 : 1 + (isNew(row.origin) ? 1 : 0);
         if (!score) continue;
         const key = `${row.origin}${row.path}`;
         if (found.has(key) && found.get(key).score >= score) continue;
