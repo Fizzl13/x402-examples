@@ -9,8 +9,9 @@ export const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/disc
 const TTL_MS = 60 * 60 * 1000;
 // The catalog comes oldest update first (a listing is updated when a payment settles), so its first pages are the
 // sellers nobody has paid lately. Up to 20 pages left out the newest two thirds (1,062 sellers, 22 Oct 2026); now
-// all of it is read (66 pages of 500 then, ~53 MB as slim listings), four pages at a time.
-const PAGES = 100;
+// all of it is read (66 pages of 500 then, ~53 MB as slim listings), four pages at a time. On 25 Oct it was 103 pages,
+// and a cap of 100 left out the newest listings again; the cap is only there against a runaway total.
+const PAGES = 300;
 const AT_ONCE = 4;
 // Marks the first load of the whole catalog in `seen`: the sellers it adds were there before, not new (see track).
 const WHOLE = "#whole-catalog";
@@ -124,20 +125,37 @@ const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().sl
 // Its USDC prices, category and search words are worked out here, once per load: a search went through all 40,000
 // listings word by word and took 2-5 s (24 Oct 2026); now it looks up its words in `words` (" bitcoin price btc ").
 // Keeping the prices instead of the payment options pays for the words: ~71 MB for the whole catalog either way.
-export function slimListing(item) {
+// Of the example input only what a search shows is kept (the method, and the query parameters or body), and `share`
+// (createPool) keeps identical prices and inputs once: 51,000 listings had 1,125 different price lists and 20,000
+// different inputs on 25 Oct 2026, when the refresh, holding the old copy and the new, ran the server out of memory.
+export function slimListing(item, share = (v) => v) {
   const input = item?.extensions?.bazaar?.info?.input;
   const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
   const description = text(item?.description, 400) || text(accepts[0]?.description, 400);
   const first400 = (v) => (typeof v === "string" ? v.slice(0, 400) : "");
   let u = null;
   try { u = new URL(item?.resource); } catch {}
+  const example = input ? Object.fromEntries(["method", "queryParams", "body"].filter((k) => input[k] !== undefined).map((k) => [k, input[k]])) : null;
   return {
     resource: item?.resource,
     description,
-    prices: pricesOf(item),
-    ...(input ? { input } : {}),
+    prices: share(pricesOf(item)),
+    ...(example ? { input: share(example) } : {}),
     category: u ? categorize(`${first400(item?.description)} ${first400(accepts[0]?.description)} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`) : "other",
     words: u ? ` ${[...new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(input ?? {})}`))].join(" ")} ` : " ",
+  };
+}
+
+// One copy of each value seen during a load: the same price list or input again gets the first one back. The values
+// are shared between listings, so nothing may change them.
+export function createPool() {
+  const pool = new Map();
+  return (value) => {
+    const key = JSON.stringify(value);
+    const have = pool.get(key);
+    if (have !== undefined) return have;
+    pool.set(key, value);
+    return value;
   };
 }
 
@@ -159,14 +177,16 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
           if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
           return res.json();
         };
+        const share = createPool();
+        const slim = (item) => slimListing(item, share);
         const first = await page(0);
-        const all = (first.items ?? []).map(slimListing);
+        const all = (first.items ?? []).map(slim);
         const total = Number(first.pagination?.total);
         const pages = Number.isFinite(total) && total > 0 ? Math.min(PAGES, Math.ceil(total / 500)) : all.length < 500 ? 1 : PAGES;
         for (let n = 1; n < pages; n += AT_ONCE) {
           const batch = await Promise.all(Array.from({ length: Math.min(AT_ONCE, pages - n) }, (_, i) => page(n + i)));
           let short = false;
-          for (const b of batch) { const items = b.items ?? []; for (const item of items) all.push(slimListing(item)); short ||= items.length < 500; }
+          for (const b of batch) { const items = b.items ?? []; for (const item of items) all.push(slim(item)); short ||= items.length < 500; }
           if (short) break;
         }
         items = withoutMovedHosts(all); at = now();
