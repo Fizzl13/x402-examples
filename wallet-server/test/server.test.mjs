@@ -1553,21 +1553,35 @@ test("x402 Doctor's track records: summed up per seller; proven sellers first wi
   } finally { server.close(); }
 });
 
-test("track records are read line by line from index.ndjson, also when a line is split across chunks", async () => {
+test("track records are read from the index parts line by line, also when a line is split across chunks; index.ndjson before the parts", async () => {
   const { createTrustIndex, summarizeIndex, TRUST_INDEX_URL } = await import("../src/trust.js");
-  assert.match(TRUST_INDEX_URL, /\/index\.ndjson$/, "not the 34 MB index.json in one piece");
+  assert.match(TRUST_INDEX_URL, /\/trust-data\/index\/meta\.json$/, "not the 42 MB index.json in one piece");
   const resources = { "https://steady.example/a": { h: "----gggggggggg" }, "https://steady.example/b": { h: "ggggggggcg" }, "https://flaky.example/a": { h: "gnnxnngnnx" }, "not a url": { h: "ggg" } };
-  const text = [JSON.stringify({ version: 1, days: [] }), ...Object.entries(resources).map((r) => JSON.stringify(r)), ""].join("\n");
-  const bytes = new TextEncoder().encode(text);
+  const rows = Object.entries(resources).map((r) => JSON.stringify(r));
   // Chunks of 7 bytes: lines (and a multi-byte character, none here but the decoder streams) split anywhere.
-  const body = new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7)); c.close(); } });
-  let asked;
-  const trust = createTrustIndex({ fetch: async (url) => { asked = url; return new Response(body); } });
+  const chunked = (text) => {
+    const bytes = new TextEncoder().encode(text);
+    return new Response(new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7)); c.close(); } }));
+  };
+  const base = TRUST_INDEX_URL.replace("index/meta.json", "");
+  const published = {
+    "index/meta.json": JSON.stringify({ version: 1, days: [], count: 4, parts: ["00.ndjson", "01.ndjson"] }),
+    "index/00.ndjson": `${rows.slice(0, 2).join("\n")}\n`,
+    "index/01.ndjson": `${rows.slice(2).join("\n")}\n`,
+  };
+  const asked = [];
+  const trust = createTrustIndex({ fetch: async (url) => { asked.push(url.replace(base, "")); return published[url.replace(base, "")] ? chunked(published[url.replace(base, "")]) : new Response("not found", { status: 404 }); } });
   await trust.ready();
-  assert.equal(asked, TRUST_INDEX_URL);
+  assert.deepEqual(asked, ["index/meta.json", "index/00.ndjson", "index/01.ndjson"]);
   const whole = summarizeIndex({ resources });
   for (const origin of ["https://steady.example", "https://flaky.example"]) assert.deepEqual(trust.seller(origin), whole.get(origin));
   assert.deepEqual([trust.tier("https://steady.example"), trust.tier("https://flaky.example")], [2, 0]);
+
+  // A branch from before the parts: index.ndjson, a header line and the same rows.
+  const before = { "index.ndjson": [JSON.stringify({ version: 1, days: [] }), ...rows, ""].join("\n") };
+  const old = createTrustIndex({ fetch: async (url) => (before[url.replace(base, "")] ? chunked(before[url.replace(base, "")]) : new Response("not found", { status: 404 })) });
+  await old.ready();
+  assert.deepEqual(old.seller("https://steady.example"), whole.get("https://steady.example"));
 });
 
 test("search filters: network, new, skill.md, reliable, and sorting", async () => {
