@@ -1,5 +1,6 @@
 // Usage statistics for the owner: one JSON line per event in the private usage-log repo
-// (events/wallet/<YYYY-MM-DD>.jsonl), next to the four Fizzl services, so the weekly report can
+// (events/wallet/<YYYY-MM-DD>/<HH>.jsonl, one file per UTC hour since 25 Oct 2026, merged into one file per day each
+// night by the log repo), next to the four Fizzl services, so the weekly report can
 // show how the wallet is used. Anonymous on purpose (see the privacy statement):
 // - an account is a short code (HMAC with a secret, 12 hex characters), never its address;
 // - no agent keys, Telegram ids, wallet or recipient addresses, purchase descriptions or receipts;
@@ -64,7 +65,7 @@ export function createUsage({ token = null, repo = "Fizzl13/usage-log", salt = n
       if (batchMs) await new Promise((ok) => setTimeout(ok, batchMs).unref?.());
       while (queue.length) {
         const byFile = new Map();
-        for (const e of queue.splice(0)) { const p = `events/${e.service}/${e.t.slice(0, 10)}.jsonl`; if (!byFile.has(p)) byFile.set(p, []); byFile.get(p).push(JSON.stringify(e)); }
+        for (const e of queue.splice(0)) { const p = `events/${e.service}/${e.t.slice(0, 10)}/${e.t.slice(11, 13)}.jsonl`; if (!byFile.has(p)) byFile.set(p, []); byFile.get(p).push(JSON.stringify(e)); }
         for (const [p, lines] of byFile) { try { await append(p, lines); } catch (err) { log.error(`[usage] ${err.message}; ${lines.length} event(s) dropped`); } }
       }
     })().finally(() => { flushing = null; if (queue.length) flush(); });
