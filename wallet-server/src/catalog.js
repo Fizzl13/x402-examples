@@ -2,8 +2,9 @@
 // search bar: the same catalog presign-guard-wallet-mcp's find_services searches. Listings are
 // what sellers say about themselves, so everything here is shown as data, never as a
 // recommendation, and only USDC prices on networks agents commonly pay on are kept.
+import { randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { rmSync } from "node:fs";
+import { readdirSync, rmSync, statSync } from "node:fs";
 import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -144,11 +145,11 @@ export function slimListing(item) {
 // 104 MB for 51,000 listings, twice that while refreshing, and ran this 512 MB server out of memory on 25 Oct 2026
 // (exit status 134); the catalog keeps growing. On disk the heap stays ~20 MB whatever its size, and a search looks its
 // words up in a full-text index (fts) instead of going through every listing. The file is written page by page and
-// then only read. It is taken out of the directory as soon as it is open: the open database keeps working, and its
-// space is freed when it is closed or the process ends, so a crash leaves nothing behind.
+// then only read, and removed when it is closed. (Removing it while open, so a crash would leave nothing, works with
+// Node 22's SQLite but gives "disk I/O error" on the first write with Node 24 and later: 25 Oct 2026, every search
+// on Render failed. Files a crash leaves behind are cleared by removeStale.)
 function createListingsFile(file) {
   const db = new DatabaseSync(file);
-  try { rmSync(file); } catch {} // not possible on Windows: the file then goes in close()
   db.exec(`PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;
     CREATE TABLE listings (id INTEGER PRIMARY KEY, resource TEXT, origin TEXT, host TEXT, path TEXT, https INTEGER,
       description TEXT, prices TEXT, cheapest REAL, method TEXT, example TEXT, category TEXT);
@@ -187,14 +188,27 @@ function createListingsFile(file) {
   };
 }
 const inList = (values) => JSON.stringify([...values]);
+// Catalog files of another catalog (another process, or this one before a restart) that weren't touched for two hours:
+// left behind, since a live catalog writes a new file every hour.
+const STALE_MS = 2 * 60 * 60 * 1000;
+function removeStale(dir, mine) {
+  let names = [];
+  try { names = readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    if (!name.startsWith("fizzl-catalog-") || !name.endsWith(".db") || name.startsWith(mine)) continue;
+    try { if (Date.now() - statSync(join(dir, name)).mtimeMs > STALE_MS) rmSync(join(dir, name), { force: true }); } catch {}
+  }
+}
 
 // `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
 // `onNew(providers)` is called once with the sellers that appeared since the last load (never for the baseline).
 // `trust` (src/trust.js): x402 Doctor's daily track records per seller, to rank and label results.
-// `dir`: where the catalog file is written (it leaves the directory as soon as it is open; see createListingsFile).
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null, dir = tmpdir() } = {}) {
+// `dir`: where the catalog files are written (see createListingsFile); `closeOldAfterMs`: how long the previous file
+// stays open after a reload.
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null, dir = tmpdir(), closeOldAfterMs = 60_000 } = {}) {
   let current = null, at = 0, loading = null, firstSeen = {}, loads = 0;
+  const mine = `fizzl-catalog-${randomUUID().slice(0, 8)}-`;
   // A copy older than `maxAgeMs` is loaded again, but a search gets the old copy at once while the new one loads:
   // the whole catalog is 100+ pages and takes tens of seconds, and a search that waited for it timed out (Fizzl Buy's
   // catalog search, 24 Oct 2026). Only the first load, and `wait` (the hourly refresh), wait for it. Resolves to the
@@ -208,7 +222,8 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
           if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
           return res.json();
         };
-        const file = createListingsFile(join(dir, `fizzl-catalog-${process.pid}-${++loads}.db`));
+        removeStale(dir, mine);
+        const file = createListingsFile(join(dir, `${mine}${++loads}.db`));
         try {
           const first = await page(0);
           const items = first.items ?? [];
@@ -226,7 +241,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
         const old = current;
         current = file; at = now();
         // A request that already has the old database still reads it; it is closed a minute later.
-        if (old) setTimeout(() => old.close(), 60_000).unref();
+        if (old) setTimeout(() => old.close(), closeOldAfterMs).unref();
         const fresh = await track(file.db).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
         if (fresh.length && onNew) announce(file.db, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
         return file.db;
