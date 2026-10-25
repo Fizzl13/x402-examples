@@ -1878,6 +1878,22 @@ test("catalog listings are kept slim: only what search, the tiles and alerts rea
   assert.deepEqual(slimListing({ resource: "not a url" }), { resource: "not a url", description: "", prices: [], category: "other", words: " " });
 });
 
+test("catalog: only the example input a search shows is kept, and identical prices and inputs are kept once per load", async () => {
+  const { slimListing, createPool } = await import("../src/catalog.js");
+  const listing = (path) => ({ resource: `https://api.example.com/${path}`, description: "Weather forecast",
+    accepts: [{ network: "eip155:8453", asset: USDC, amount: "10000" }],
+    extensions: { bazaar: { info: { input: { type: "http", method: "GET", queryParams: { city: "Amsterdam" }, headers: { "x-big": "h".repeat(2000) } } } } } });
+  const share = createPool();
+  const [a, b] = [slimListing(listing("a"), share), slimListing(listing("b"), share)];
+  assert.deepEqual(a.input, { method: "GET", queryParams: { city: "Amsterdam" } });
+  assert.equal(a.prices, b.prices, "one price list for both");
+  assert.equal(a.input, b.input, "one input for both");
+  assert.match(a.words, / amsterdam /, "the words still come from the whole input");
+  const other = slimListing({ ...listing("c"), accepts: [{ network: "eip155:8453", asset: USDC, amount: "20000" }] }, share);
+  assert.notEqual(other.prices, a.prices);
+  assert.deepEqual(other.prices, [{ network: "Base", usd: 0.02 }]);
+});
+
 test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {
   const { newAgentKey, addressOf, keccak256 } = await import("../public/agentkey.js");
   const { privateKeyToAddress } = await import("viem/accounts");
