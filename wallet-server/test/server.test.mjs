@@ -1123,15 +1123,17 @@ test("search bar: paid APIs from the x402 catalog, USDC on the networks we know,
 });
 
 test("catalog: Fizzl's old onrender.com addresses are left out once the fizzl.eu address is listed", async () => {
-  const { withoutMovedHosts } = await import("../src/catalog.js");
-  const r = (u) => ({ resource: u });
-  const out = withoutMovedHosts([
+  const { createCatalog } = await import("../src/catalog.js");
+  const r = (u) => ({ resource: u, description: "Moved service", accepts: [{ scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO }] });
+  const items = [
     r("https://x402-doctor.onrender.com/api/v1/preflight"), r("https://x402-doctor.fizzl.eu/api/v1/preflight"),
     r("https://presign-guard.onrender.com/v1/token"), // its fizzl.eu address isn't listed: kept
     r("https://smartcontractexplainer.onrender.com/api/explain"), r("https://plaintext.fizzl.eu/api/check-wallet"),
     r("https://other.onrender.com/x"), r("not a url"),
-  ]).map((i) => i.resource);
-  assert.deepEqual(out, ["https://x402-doctor.fizzl.eu/api/v1/preflight", "https://presign-guard.onrender.com/v1/token", "https://plaintext.fizzl.eu/api/check-wallet", "https://other.onrender.com/x", "not a url"]);
+  ];
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }) });
+  const out = (await catalog.search("moved service")).results.map((x) => x.url);
+  assert.deepEqual(out, ["https://x402-doctor.fizzl.eu/api/v1/preflight", "https://presign-guard.onrender.com/v1/token", "https://plaintext.fizzl.eu/api/check-wallet", "https://other.onrender.com/x"]);
 });
 
 test("catalog: a search never waits for a reload, a failed reload keeps the old copy, and the hourly refresh always reloads", async () => {
@@ -1878,20 +1880,33 @@ test("catalog listings are kept slim: only what search, the tiles and alerts rea
   assert.deepEqual(slimListing({ resource: "not a url" }), { resource: "not a url", description: "", prices: [], category: "other", words: " " });
 });
 
-test("catalog: only the example input a search shows is kept, and identical prices and inputs are kept once per load", async () => {
-  const { slimListing, createPool } = await import("../src/catalog.js");
-  const listing = (path) => ({ resource: `https://api.example.com/${path}`, description: "Weather forecast",
+test("catalog: only the example input a search shows is kept; the search words still come from the whole input", async () => {
+  const { slimListing } = await import("../src/catalog.js");
+  const a = slimListing({ resource: "https://api.example.com/a", description: "Weather forecast",
     accepts: [{ network: "eip155:8453", asset: USDC, amount: "10000" }],
     extensions: { bazaar: { info: { input: { type: "http", method: "GET", queryParams: { city: "Amsterdam" }, headers: { "x-big": "h".repeat(2000) } } } } } });
-  const share = createPool();
-  const [a, b] = [slimListing(listing("a"), share), slimListing(listing("b"), share)];
   assert.deepEqual(a.input, { method: "GET", queryParams: { city: "Amsterdam" } });
-  assert.equal(a.prices, b.prices, "one price list for both");
-  assert.equal(a.input, b.input, "one input for both");
-  assert.match(a.words, / amsterdam /, "the words still come from the whole input");
-  const other = slimListing({ ...listing("c"), accepts: [{ network: "eip155:8453", asset: USDC, amount: "20000" }] }, share);
-  assert.notEqual(other.prices, a.prices);
-  assert.deepEqual(other.prices, [{ network: "Base", usd: 0.02 }]);
+  assert.match(a.words, / amsterdam /);
+});
+
+test("catalog: kept in a SQLite file that leaves the directory at once, and a reload replaces it", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const { mkdtempSync, readdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "catalog-test-"));
+  const usdc = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO };
+  let t = Date.parse("2026-10-25T08:00:00Z"), description = "Bitcoin price feed";
+  const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, dir, fetch: async () => Response.json({ items: [{ resource: "https://a.example/btc", description, accepts: [usdc] }] }) });
+  await catalog.refresh();
+  assert.deepEqual(readdirSync(dir), [], "nothing left on disk");
+  assert.equal((await catalog.search("bitcoin")).results[0].url, "https://a.example/btc");
+  // An hour later the listing changed; the reload's copy answers from then on.
+  t += 3_600_000; description = "Ethereum gas price";
+  await catalog.refresh();
+  assert.equal((await catalog.search("bitcoin")).results.length, 0);
+  assert.equal((await catalog.search("ethereum gas")).results[0].description, "Ethereum gas price");
+  assert.deepEqual(readdirSync(dir), []);
 });
 
 test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {
