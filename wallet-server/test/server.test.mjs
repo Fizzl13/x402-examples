@@ -1889,24 +1889,33 @@ test("catalog: only the example input a search shows is kept; the search words s
   assert.match(a.words, / amsterdam /);
 });
 
-test("catalog: kept in a SQLite file that leaves the directory at once, and a reload replaces it", async () => {
+test("catalog: kept in a SQLite file; a reload replaces it and removes the old one, and files left behind are cleared", async () => {
   const { createCatalog } = await import("../src/catalog.js");
-  const { mkdtempSync, readdirSync } = await import("node:fs");
+  const { mkdtempSync, readdirSync, writeFileSync, utimesSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const dir = mkdtempSync(join(tmpdir(), "catalog-test-"));
+  // Left behind by a crash three hours ago, and one of another catalog that is still alive.
+  writeFileSync(join(dir, "fizzl-catalog-deadbeef-7.db"), "x");
+  utimesSync(join(dir, "fizzl-catalog-deadbeef-7.db"), new Date(Date.now() - 3 * 3_600_000), new Date(Date.now() - 3 * 3_600_000));
+  writeFileSync(join(dir, "fizzl-catalog-0badf00d-1.db"), "x");
   const usdc = { scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO };
   let t = Date.parse("2026-10-25T08:00:00Z"), description = "Bitcoin price feed";
-  const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, dir, fetch: async () => Response.json({ items: [{ resource: "https://a.example/btc", description, accepts: [usdc] }] }) });
+  const catalog = createCatalog({ url: "https://catalog.test/d", now: () => t, dir, closeOldAfterMs: 0, fetch: async () => Response.json({ items: [{ resource: "https://a.example/btc", description, accepts: [usdc] }] }) });
   await catalog.refresh();
-  assert.deepEqual(readdirSync(dir), [], "nothing left on disk");
+  const ours = readdirSync(dir).filter((n) => !n.startsWith("fizzl-catalog-0badf00d"));
+  assert.equal(ours.length, 1, "the stale file is gone, ours is there");
+  assert.ok(readdirSync(dir).includes("fizzl-catalog-0badf00d-1.db"), "a recent file of another catalog stays");
   assert.equal((await catalog.search("bitcoin")).results[0].url, "https://a.example/btc");
-  // An hour later the listing changed; the reload's copy answers from then on.
+  // An hour later the listing changed; the reload's copy answers from then on, and the old file goes.
   t += 3_600_000; description = "Ethereum gas price";
   await catalog.refresh();
+  await new Promise((ok) => setTimeout(ok, 10));
   assert.equal((await catalog.search("bitcoin")).results.length, 0);
   assert.equal((await catalog.search("ethereum gas")).results[0].description, "Ethereum gas price");
-  assert.deepEqual(readdirSync(dir), []);
+  const now = readdirSync(dir).filter((n) => !n.startsWith("fizzl-catalog-0badf00d"));
+  assert.equal(now.length, 1);
+  assert.notEqual(now[0], ours[0]);
 });
 
 test("agent wallet made in the browser (public/agentkey.js): matches viem's address for random keys, served as JS", async () => {
