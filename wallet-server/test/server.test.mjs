@@ -1653,7 +1653,7 @@ test("usage statistics: anonymous events in the usage-log repo; no addresses, ke
     await usage.flush();
 
     const day = new Date().toISOString().slice(0, 10);
-    const text = files.get(`events/wallet/${day}.jsonl`);
+    const text = dayLog(files, "wallet", day);
     const events = text.trim().split("\n").map((l) => JSON.parse(l));
     const by = (route) => events.filter((e) => e.route === route);
     assert.equal(by("signup").length, 2);
@@ -1678,6 +1678,9 @@ test("usage statistics: anonymous events in the usage-log repo; no addresses, ke
 });
 
 // A fake GitHub contents API over a Map of path -> text (directory listings with a sha per file).
+// A day's usage log as one text: the day file and the hour files (events/<service>/<day>/<HH>.jsonl), in order.
+const dayLog = (files, service, day) => [...files].filter(([k]) => k === `events/${service}/${day}.jsonl` || k.startsWith(`events/${service}/${day}/`)).sort(([a], [b]) => (a < b ? -1 : 1)).map(([, v]) => v).join("") || undefined;
+
 function fakeGithub(files) {
   const reads = [];
   const sha = (t) => `sha${t.length}_${t.split("\n").length}`;
@@ -1686,8 +1689,14 @@ function fakeGithub(files) {
     if ((init.method ?? "GET") === "PUT") { files.set(path, Buffer.from(JSON.parse(init.body).content, "base64").toString("utf8")); return Response.json({}, { status: 201 }); }
     reads.push(path);
     if (files.has(path)) return (init.headers?.accept ?? "").includes("raw") ? new Response(files.get(path)) : Response.json({ sha: sha(files.get(path)), content: Buffer.from(files.get(path)).toString("base64") });
-    const dir = [...files.keys()].filter((k) => k.startsWith(`${path}/`)).map((k) => ({ name: k.slice(path.length + 1), sha: sha(files.get(k)) }));
-    return dir.length ? Response.json(dir) : new Response("", { status: 404 });
+    // A folder lists its own entries, like GitHub: files, and folders (an hour-file day) as type "dir".
+    const entries = new Map();
+    for (const k of files.keys()) {
+      if (!k.startsWith(`${path}/`)) continue;
+      const [name, ...deeper] = k.slice(path.length + 1).split("/");
+      entries.set(name, deeper.length ? { name, type: "dir", sha: `dir-${name}` } : { name, type: "file", sha: sha(files.get(k)) });
+    }
+    return entries.size ? Response.json([...entries.values()]) : new Response("", { status: 404 });
   };
   return { fetchImpl, reads };
 }
@@ -1731,12 +1740,12 @@ test("website counter, sign-up source and the owner's Stats tab: from website vi
       { t: new Date().toISOString(), service: "presign", route: "__verifymcp_tools", quote: true, visitor: "v4" },
       { t: new Date().toISOString(), service: "presign", route: "check", quote: true, visitor: "v5", own: true },
     ].map((e) => JSON.stringify(e)).join("\n") + "\n");
-    const walletLog = files.get(`events/wallet/${day}.jsonl`);
+    const walletLog = dayLog(files, "wallet", day);
     assert.match(walletLog, /"route":"signup"[^\n]*"ref":"fizzl.eu"/);
     assert.match(walletLog, /"route":"agent_added"[^\n]*"ref":"fizzl.eu"/);
     assert.doesNotMatch(walletLog, /phishing/);
-    assert.match(files.get(`events/site/${day}.jsonl`), /"site":"ai.fizzl.eu"/);
-    assert.doesNotMatch(files.get(`events/site/${day}.jsonl`), /evil/);
+    assert.match(dayLog(files, "site", day), /"site":"ai.fizzl.eu"/);
+    assert.doesNotMatch(dayLog(files, "site", day), /evil/);
 
     // Only the owner sees the stats.
     const c = await signInAs(base, customer());
@@ -1755,6 +1764,29 @@ test("website counter, sign-up source and the owner's Stats tab: from website vi
     await owner("GET", "/api/admin/stats?days=7");
     assert.equal(gh.reads.filter((r) => r.endsWith(".jsonl")).length, before);
   } finally { server.close(); }
+});
+
+test("Stats tab: a day as one file or as hour files (since 25 Oct 2026); merged hour files are let go; a counted bot line counts as many", async () => {
+  const { createStats } = await import("../src/stats.js");
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  const line = (e) => `${JSON.stringify({ service: "presign", route: "check", ...e })}\n`;
+  const files = new Map([
+    ["scripts/known.json", JSON.stringify({ own_wallets: [], monitor_agents: "monitorxyz", probe_pairs: [] })],
+    ["events/presign/2026-10-24.jsonl", line({ t: "2026-10-24T08:00:00.000Z", paid: true, usd: 0.01, payer: "0xa", visitor: "v1" })],
+    ["events/presign/2026-10-25/09.jsonl", line({ t: "2026-10-25T09:10:00.000Z", paid: true, usd: 0.02, payer: "0xb", visitor: "v2" })],
+    ["events/presign/2026-10-25/10.jsonl", line({ t: "2026-10-25T10:00:00.000Z", quote: true, agent: "crawler", count: 7, visitors: 3 }) + line({ t: "2026-10-25T10:20:00.000Z", quote: true, visitor: "v3" })],
+  ]);
+  const gh = fakeGithub(files);
+  const stats = createStats({ token: "t", fetch: gh.fetchImpl, now: () => now, cacheMs: 0 });
+  const presign = async () => (await stats.summary(7)).services.find((x) => x.id === "presign");
+  assert.deepEqual(await presign(), { id: "presign", name: "presign-guard", paid: 2, usd: 0.03, quotes: 8, payers: 2, visitors: 3 });
+  const held = stats.cachedFiles();
+  // The night's merge: yesterday's hour files become one day file and are removed.
+  files.set("events/presign/2026-10-25.jsonl", files.get("events/presign/2026-10-25/09.jsonl") + files.get("events/presign/2026-10-25/10.jsonl"));
+  files.delete("events/presign/2026-10-25/09.jsonl");
+  files.delete("events/presign/2026-10-25/10.jsonl");
+  assert.deepEqual(await presign(), { id: "presign", name: "presign-guard", paid: 2, usd: 0.03, quotes: 8, payers: 2, visitors: 3 }, "the same numbers from the merged file");
+  assert.ok(stats.cachedFiles() < held, "the merged hour files are no longer held");
 });
 
 test("website counter: the site whose link brought a visitor, by name only, in the Stats tab", async () => {
@@ -1777,7 +1809,7 @@ test("website counter: the site whose link brought a visitor, by name only, in t
     await new Promise((r) => setTimeout(r, 30));
     await usage.flush();
     const day = new Date().toISOString().slice(0, 10);
-    const lines = files.get(`events/site/${day}.jsonl`).trim().split("\n").map((l) => JSON.parse(l));
+    const lines = dayLog(files, "site", day).trim().split("\n").map((l) => JSON.parse(l));
     assert.deepEqual(lines.map((e) => e.input.from ?? null), ["x.com", "x.com", "reddit.com", "linkedin.com", null, null, null]);
     assert.ok(lines.every((e) => e.input.site === "atlas.fizzl.eu"));
     const s = (await owner("GET", "/api/admin/stats?days=7")).body;

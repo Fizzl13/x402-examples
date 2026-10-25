@@ -1,4 +1,5 @@
-// The owner's Stats tab: reads the private usage-log repo (events/<service>/<day>.jsonl, written by
+// The owner's Stats tab: reads the private usage-log repo (events/<service>/<day>.jsonl, and for days its nightly
+// merge hasn't reached yet one file per UTC hour, events/<service>/<day>/<HH>.jsonl (since 25 Oct 2026); written by
 // the wallet, the website counter and the four x402 services) and sums it up per day. Your own wallets
 // and monitors (scripts/known.json in that repo) and your own wallet accounts are left out.
 // Files are cached by their git sha, so a refresh only downloads days that changed (normally today); only the
@@ -18,7 +19,7 @@ const KEEP_INPUT = ["host", "kind", "from", "q", "cat", "chain", "network", "mon
 const KEEP_RESULT = ["outcome", "total", "decision", "via", "seconds", "fail", "ready", "agents"];
 function slim(e) {
   const pick = (o, keys) => (o && typeof o === "object" ? Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]])) : undefined);
-  return { t: e.t, service: e.service, route: e.route, status: e.status, paid: e.paid, quote: e.quote, usd: e.usd, payer: e.payer, agent: e.agent, own: e.own, acct: e.acct, via: e.via, ref: e.ref, visitor: e.visitor, input: pick(e.input, KEEP_INPUT), result: pick(e.result, KEEP_RESULT) };
+  return { t: e.t, service: e.service, route: e.route, status: e.status, paid: e.paid, quote: e.quote, usd: e.usd, payer: e.payer, agent: e.agent, own: e.own, acct: e.acct, via: e.via, ref: e.ref, visitor: e.visitor, count: e.count, input: pick(e.input, KEEP_INPUT), result: pick(e.result, KEEP_RESULT) };
 }
 const count = (list, key) => {
   const m = new Map();
@@ -30,21 +31,23 @@ const round2 = (n) => Math.round(n * 100) / 100;
 // One service's calls in a day file, per UTC day: { day, n, groups, paid }. A group is one caller (agent, payer and
 // pair, what the summary's filter looks at) with its number of calls, quotes and distinct visitors; paid calls are
 // kept whole. Your own calls and MCP verification calls never count and are left out here.
+// A bot's unpaid 402s are one line per hour with a count (since 25 Oct 2026): that line is that many calls.
 function daysOf(list) {
   const days = new Map();
   for (const e of list) {
     if (e.own || /^__verifymcp/.test(e.route || "") || typeof e.t !== "string") continue;
     const day = e.t.slice(0, 10);
+    const n = Number.isInteger(e.count) && e.count > 0 ? e.count : 1;
     const d = days.get(day) ?? { day, n: 0, groups: new Map(), paid: [] };
     const pair = e.input?.pair;
     const key = `${e.agent ?? ""}|${e.payer ?? ""}|${pair ?? ""}`;
     const g = d.groups.get(key) ?? { agent: e.agent, payer: e.payer, ...(pair ? { input: { pair } } : {}), n: 0, quotes: 0, visitors: new Set() };
-    g.n++;
-    if (e.quote) g.quotes++;
+    g.n += n;
+    if (e.quote) g.quotes += n;
     if (e.visitor) g.visitors.add(e.visitor);
     d.groups.set(key, g);
     if (e.paid) d.paid.push(e);
-    d.n++;
+    d.n += n;
     days.set(day, d);
   }
   return [...days.values()].map((d) => ({ ...d, groups: [...d.groups.values()] }));
@@ -52,7 +55,7 @@ function daysOf(list) {
 
 export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), cacheMs = 5 * 60_000 } = {}) {
   const headers = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "fizzl-wallet-stats" };
-  const files = new Map(); // "<service>/<day>.jsonl" -> { sha, events } or { sha, calls }: the latest version of each day file
+  const files = new Map(); // "<service>/<day>.jsonl" or "<service>/<day>/<HH>.jsonl" -> { sha, events } or { sha, calls }: the latest version of each file
   const summaries = new Map(); // days -> { at, value }
   let known = { at: 0, own: new Set(), monitor: /bot|crawl|spider|scan|monitor|health|probe/i, probePairs: new Set() };
 
@@ -73,7 +76,11 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
   // Every event of one service from `fromDay` on; for the four services, their calls per day (see daysOf).
   async function events(service, fromDay) {
     const list = (await get(`events/${service}`)) ?? [];
-    const wanted = list.filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f.name) && f.name.slice(0, 10) >= fromDay);
+    const wanted = list.filter((f) => f.type !== "dir" && /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f.name) && f.name.slice(0, 10) >= fromDay);
+    // Days not merged yet (normally today, and yesterday until the night's merge): one file per hour.
+    for (const dir of list.filter((f) => f.type === "dir" && /^\d{4}-\d{2}-\d{2}$/.test(f.name) && f.name >= fromDay)) {
+      for (const f of ((await get(`events/${service}/${dir.name}`)) ?? []).filter((h) => /^\d{2}\.jsonl$/.test(h.name))) wanted.push({ ...f, name: `${dir.name}/${f.name}` });
+    }
     const calls = SERVICES.includes(service);
     const out = [];
     for (let i = 0; i < wanted.length; i += 6) {
@@ -87,9 +94,15 @@ export function createStats({ token = null, repo = "Fizzl13/usage-log", fetch: f
         out.push(...(calls ? files.get(key).calls : files.get(key).events));
       }));
     }
-    // Days older than any summary reads (30 days and the 30 before) are dropped.
+    // Days older than any summary reads (30 days and the 30 before) are dropped, and so are files that are gone (the
+    // hour files of a day the night's merge put into one file).
     const oldest = new Date(now() - 61 * DAY).toISOString().slice(0, 10);
-    for (const key of files.keys()) if (key.startsWith(`${service}/`) && key.slice(service.length + 1, service.length + 11) < oldest) files.delete(key);
+    const listed = new Set(wanted.map((f) => `${service}/${f.name}`));
+    for (const key of files.keys()) {
+      if (!key.startsWith(`${service}/`)) continue;
+      const day = key.slice(service.length + 1, service.length + 11);
+      if (day < oldest || (day >= fromDay && !listed.has(key))) files.delete(key);
+    }
     return out;
   }
 
