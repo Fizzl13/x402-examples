@@ -87,7 +87,7 @@ def test_screen_wallet():
 
 
 def test_prices_cover_every_check():
-    assert sorted(PRICES) == sorted(["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying", "buy_live_data"])
+    assert sorted(PRICES) == sorted(["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_stellar_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying", "buy_live_data"])
 
 
 def test_langchain_tools_call_the_checks():
@@ -95,7 +95,7 @@ def test_langchain_tools_call_the_checks():
     from fizzl.langchain import fizzl_tools
     s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
     tools = fizzl_tools(session=s)
-    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"]
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_stellar_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"]
     pre = next(t for t in tools if t.name == "check_endpoint_before_paying")
     assert "BEFORE paying" in pre.description
     assert pre.invoke({"url": "https://api.example.com/x", "max_usd": 0.01})["verdict"] == "no_go"
@@ -111,7 +111,7 @@ def test_openai_agents_tools_call_the_checks():
     from fizzl.openai_agents import fizzl_tools
     s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
     tools = fizzl_tools(session=s)
-    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"]
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_stellar_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"]
     by = {t.name: t for t in tools}
     pre = by["check_endpoint_before_paying"]
     assert "BEFORE paying" in pre.description and pre.params_json_schema["required"] == ["url"]
@@ -226,7 +226,7 @@ def test_buy_live_data_tool_only_when_asked_for():
     s = StandIn({"/v1/buy": (200, {"delivered": True, "answer": {"rate": 1.08}})})
     assert "buy_live_data" not in [t.name for t in fizzl_tools(session=s)]
     tools = fizzl_tools(session=s, buy=True)
-    assert tools[-1].name == "buy_live_data" and len(tools) == 10
+    assert tools[-1].name == "buy_live_data" and len(tools) == 11
     assert tools[-1].invoke({"need": "EUR to USD rate"})["answer"] == {"rate": 1.08}
     assert [t.name for t in fizzl_tools(session=s, only=["buy_live_data"])] == ["buy_live_data"]
 
@@ -237,3 +237,17 @@ def test_robinhood_chain():
     assert f.check_before_signing(type="transaction", chainId=4663, to="0x" + "1" * 40, data="0x")["verdict"] == "green"
     assert f.check_token("robinhood", "0x" + "2" * 40)["verdict"] == "orange"
     assert f.check_before_signing(type="transaction", chainId=999, to="0x" + "1" * 40)["error"] == "bad_input"
+
+
+def test_stellar_transaction():
+    s = StandIn({"/v1/check": (200, {"verdict": "red", "reasons": [{"code": "ADDRESS_POISONING"}]})})
+    f = Fizzl(session=s)
+    tx = "AAAAAgAAAAA" + "B" * 40 + "=="
+    account = "GCKTH26VNR4H4WLCXS5DX6563XRQQXWP5QKQWFD6CHOGTZJ2N5GKBU2L"
+    assert f.check_stellar_transaction(tx, from_address=account, intent="pay 0.01 USDC")["verdict"] == "red"
+    assert s.calls[0]["json"] == {"type": "stellar", "transaction": tx, "from": account, "intent": "pay 0.01 USDC"}
+    f.check_stellar_transaction(tx, network="stellar:testnet")
+    assert s.calls[1]["json"] == {"type": "stellar", "transaction": tx, "network": "stellar:testnet"}
+    assert f.check_stellar_transaction("not base64!")["error"] == "bad_input"
+    assert f.check_stellar_transaction(tx, network="futurenet")["error"] == "bad_input"
+    assert f.check_stellar_transaction(tx, from_address="0x12")["error"] == "bad_input"

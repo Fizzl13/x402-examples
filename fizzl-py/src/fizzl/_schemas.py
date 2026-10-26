@@ -40,6 +40,13 @@ class AlgorandArgs(BaseModel):
     origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
     intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
 
+class StellarArgs(BaseModel):
+    transaction: str = Field(max_length=12000, description="The base64 XDR transaction envelope about to be signed (unsigned, signed or a fee bump; for an x402 payment the transaction your authorization is in)")
+    network: Optional[Literal["stellar:pubnet", "stellar:testnet"]] = Field(None, description="stellar:pubnet mainnet (default) or stellar:testnet")
+    from_address: Optional[str] = Field(None, description="your account (G…), when it isn't the one authorizing or the transaction's source")
+    origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
+    intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
+
 class MessageArgs(BaseModel):
     message: str = Field(max_length=16384, description="The text, or 0x-hex bytes, about to be signed")
     method: Optional[Literal["personal_sign", "eth_sign"]] = Field(None, description="How it is signed (default personal_sign)")
@@ -75,6 +82,7 @@ ARGS = {
     "check_xrpl_transaction": XrplArgs,
     "check_solana_transaction": SolanaArgs,
     "check_algorand_transaction": AlgorandArgs,
+    "check_stellar_transaction": StellarArgs,
     "check_message": MessageArgs,
     "check_token": TokenArgs,
     "check_wallet_approvals": ApprovalArgs,
