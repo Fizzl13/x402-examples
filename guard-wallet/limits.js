@@ -40,11 +40,14 @@ const USDC = {
   137: [["0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", 6], ["0x2791bca1f2de4661ed88a30c99a7a9449aa84174", 6]],
   8453: [["0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", 6]],
   42161: [["0xaf88d065e77c8cc2239327c5edb3a432268e5831", 6], ["0xff970a61a04b1ca14834a43f5de4533ebddb5cc8", 6]],
+  // Robinhood Chain has no Circle USDC: its dollar is Paxos' USDG (Global Dollar), counted like RLUSD (a dollar is a
+  // dollar). A token there called "USDC" (0x11d0…991e, 18 decimals) is a copy and stays outside the budget.
+  4663: [["0x5fc5360d0400a0fd4f2af552add042d716f1d168", 6]],
   // Tempo: USDC.e (bridged USDC, what MPP charges in), and pathUSD on the Moderato testnet.
   4217: [["0x20c000000000000000000000b9537d11c60e8b50", 6]],
   42431: [["0x20c0000000000000000000000000000000000000", 6]],
 };
-const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])), ...Object.fromEntries(Object.keys(ALGORAND_USDC).map((n) => [n, "ALGO"])) };
+const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 4663: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])), ...Object.fromEntries(Object.keys(ALGORAND_USDC).map((n) => [n, "ALGO"])) };
 export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP", "SOL", "ALGO"];
 
 // XRP Ledger networks and the RLUSD issuer on each (Ripple's).

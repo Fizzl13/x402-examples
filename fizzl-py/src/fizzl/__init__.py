@@ -23,7 +23,7 @@ import re
 from typing import Any, List, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "BUY_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -42,8 +42,8 @@ PRICES = {
     "buy_live_data": "$0.02",
 }
 BUY_TIMEOUT = 180  # a purchase may try three sellers
-EVM_CHAIN_IDS = (1, 10, 56, 137, 8453, 42161)
-TOKEN_CHAINS = ("solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl", "algorand")
+EVM_CHAIN_IDS = (1, 10, 56, 137, 8453, 42161, 4663)
+TOKEN_CHAINS = ("solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "xrpl", "algorand")
 APPROVAL_CHAINS = ("base", "ethereum", "arbitrum", "optimism", "polygon", "bsc")
 
 

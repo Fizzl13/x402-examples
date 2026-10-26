@@ -238,3 +238,10 @@ test("buy_live_data: no seller delivered comes back as an error for the model", 
   const r = await fizzlTools({ fetch: s.fetch, buy: true }).buy_live_data.execute({ need: "BTC price in USD" });
   assert.deepEqual(r, { error: "http_502", message: "No seller delivered; nothing was charged." });
 });
+
+test("Robinhood Chain (4663) is an accepted chainId, and robinhood a token chain", () => {
+  const t = fizzlTools({ fetch: async () => Response.json({}) });
+  assert.ok(t.check_before_signing.inputSchema.safeParse({ type: "transaction", chainId: 4663, to: "0x" + "1".repeat(40) }).success);
+  assert.ok(!t.check_before_signing.inputSchema.safeParse({ type: "transaction", chainId: 999, to: "0x" + "1".repeat(40) }).success);
+  assert.ok(t.check_token.inputSchema.safeParse({ chain: "robinhood", address: "0x" + "2".repeat(40) }).success);
+});

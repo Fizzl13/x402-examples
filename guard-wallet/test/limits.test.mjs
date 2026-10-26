@@ -258,3 +258,10 @@ test("allow list: Algorand addresses are accepted only with a valid checksum", a
   assert.throws(() => normalizeLimits({ allow: [typo] }), /Algorand/);
   assert.throws(() => normalizeLimits({ allow: [good.toLowerCase()] }), /allow/);
 });
+
+test("Robinhood Chain (4663): USDG counts toward the USDC limit, ETH toward ETH; the copy called USDC does not", () => {
+  const p = normalizeLimits({ tokens: { USDC: { perTx: "5" }, ETH: { perDay: "0.01" } } });
+  assert.equal(p.index.get("4663:0x5fc5360d0400a0fd4f2af552add042d716f1d168").decimals, 6);
+  assert.equal(p.index.get("4663:native").budget, "ETH");
+  assert.equal(p.index.get("4663:0x11d04a2491ab485a54da3817c10c2a9178c7991e"), undefined);
+});
