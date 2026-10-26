@@ -57,6 +57,9 @@ const safeFetch = createSafeFetch({
 });
 // XRP Ledger: network: "xrpl" and an ExactXrplScheme from @x402/xrpl/exact/client
 // (createXrplWalletSigner(Wallet.fromSeed(process.env.XRPL_SEED))); needs an RLUSD trust line.
+// Stellar: network: "stellar" and an ExactStellarScheme from @x402/stellar/exact/client
+// (createEd25519Signer(process.env.STELLAR_SECRET, "stellar:pubnet")); needs a USDC trustline.
+// Only Circle's USDC contract is paid, never XLM; the facilitator pays the network fee.
 ```
 
 ## Options

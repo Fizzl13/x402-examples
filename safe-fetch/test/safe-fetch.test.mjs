@@ -376,7 +376,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.6\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.7\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -410,6 +410,14 @@ test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD wi
   assert.equal(payableOption([xrpl("0.01", { issuer: "rFakeIssuer" })], XRPL, 0.05), null, "an RLUSD look-alike");
   assert.equal(payableOption([xrpl("1000", {}, "XRP")], XRPL, 0.05), null, "never XRP");
   assert.equal(payableOption([xrpl("0.02")], XRPL, 0.05).amount, "0.02");
+  // Stellar: only Circle's USDC contract, within the budget (7 decimals: 100000 is $0.01).
+  const { STELLAR } = await import("../index.js");
+  const USDC_SAC = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
+  const st = (amount, asset = USDC_SAC) => ({ scheme: "exact", network: STELLAR, asset, amount, extra: { areFeesSponsored: true } });
+  assert.equal(payableOption([st("100000", "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"), st("100000")], STELLAR, 0.05).asset, USDC_SAC, "USDC, not another contract");
+  assert.ok(payableOption([st("10000")], STELLAR, "$0.002"), "the $0.001 preflight");
+  assert.equal(payableOption([st("10000000")], STELLAR, 0.05), null, "$1 is over a $0.05 budget");
+  assert.equal(payableOption([st("1.5")], STELLAR, 0.05), null, "an atomic amount only");
   // Base and Solana keep the first option on the network (x402's spend controls cap USDC there).
   assert.equal(payableOption([{ network: "eip155:8453", asset: "0xA" }], "eip155:8453", 0.05).asset, "0xA");
 });

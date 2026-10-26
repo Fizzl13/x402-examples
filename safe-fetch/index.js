@@ -23,7 +23,7 @@
 //
 // Payments use @x402/fetch with the schemes you register (your keys stay in
 // your code): register: (client) => client.register("eip155:8453", new ExactEvmScheme(account))
-// On Algorand (USDC) and the XRP Ledger (RLUSD) only the dollar stablecoin is paid.
+// On Algorand (USDC), the XRP Ledger (RLUSD) and Stellar (USDC) only the dollar stablecoin is paid.
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
@@ -33,7 +33,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.6.0";
+export const VERSION = "0.7.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -42,13 +42,17 @@ export const ALGORAND = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=";
 export const ALGORAND_TESTNET = "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=";
 export const XRPL = "xrpl:0";
 export const XRPL_TESTNET = "xrpl:1";
-const NETWORK_ALIASES = { base: BASE, solana: SOLANA, algorand: ALGORAND, "algorand-testnet": ALGORAND_TESTNET, xrpl: XRPL, "xrpl-testnet": XRPL_TESTNET };
+export const STELLAR = "stellar:pubnet";
+export const STELLAR_TESTNET = "stellar:testnet";
+const NETWORK_ALIASES = { base: BASE, solana: SOLANA, algorand: ALGORAND, "algorand-testnet": ALGORAND_TESTNET, xrpl: XRPL, "xrpl-testnet": XRPL_TESTNET, stellar: STELLAR, "stellar-testnet": STELLAR_TESTNET };
 
 // On Algorand and the XRP Ledger only the dollar stablecoin is paid: USDC (an ASA) on Algorand, RLUSD from
 // Ripple's issuer on the XRP Ledger. Never ALGO, XRP or another token, so the dollar budget always holds.
 const ALGORAND_USDC = { [ALGORAND]: "31566704", [ALGORAND_TESTNET]: "10458941" };
 const RLUSD_HEX = "524C555344000000000000000000000000000000";
 const RLUSD_ISSUER = { [XRPL]: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", [XRPL_TESTNET]: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
+// On Stellar only Circle's USDC token contract (7 decimals), never XLM or another token named USDC.
+const STELLAR_USDC = { [STELLAR]: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75", [STELLAR_TESTNET]: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA" };
 
 // The option to pay on `network`, or null. RLUSD prices are decimal dollars ("0.001", and "2" is two dollars),
 // which x402's spend controls would read as base units, so the budget is checked here in dollars.
@@ -75,6 +79,10 @@ export function payableOption(accepts, network, maxUsd) {
   const cap = Number(String(maxUsd).replace(/^\$/, ""));
   const on = (accepts ?? []).filter((a) => a?.network === network);
   if (ALGORAND_USDC[network]) return on.find((a) => String(a.asset) === ALGORAND_USDC[network]) ?? null;
+  // x402's spend controls cap Stellar USDC too; the budget is checked here as well, in dollars.
+  if (STELLAR_USDC[network]) {
+    return on.find((a) => a.asset === STELLAR_USDC[network] && /^\d+$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) / 1e7 <= cap) ?? null;
+  }
   if (RLUSD_ISSUER[network]) {
     return on.find((a) => String(a.asset ?? "").toUpperCase() === RLUSD_HEX && a.extra?.issuer === RLUSD_ISSUER[network]
       && /^\d+(\.\d+)?$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) <= cap) ?? null;
@@ -151,7 +159,7 @@ function requestOf(input, init) {
 /**
  * @param {object} options
  * @param {(client: x402Client) => unknown} options.register  registers your payment schemes on a client
- * @param {string} [options.network]  the network you pay on: "base", "solana", "algorand", "xrpl" or a CAIP-2 id (default Base)
+ * @param {string} [options.network]  the network you pay on: "base", "solana", "algorand", "xrpl", "stellar" or a CAIP-2 id (default Base)
  * @param {number|string} [options.maxUsd]  budget per endpoint call (default 0.05)
  * @param {"stop"|"pay"|((preflight: object) => boolean|Promise<boolean>)} [options.onCaution]
  * @param {string[]} [options.trusted]  hosts you already trust: paid without a preflight
@@ -201,7 +209,7 @@ export function createSafeFetch({
   const makePayingFetch = createPayingFetch ?? ((cap) => {
     const client = new x402Client((_version, accepts) => {
       const pick = payableOption(accepts, payNetwork, cap);
-      if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[payNetwork] ? " in USDC" : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
+      if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[payNetwork] ? " in USDC" : STELLAR_USDC[payNetwork] ? ` in USDC within ${cap}` : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
       return pick;
     }).setSpendControls({ maxAmountPerPayment: cap });
     register(client);
