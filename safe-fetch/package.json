@@ -1,6 +1,6 @@
 {
   "name": "x402-safe-fetch",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A fetch for AI agents that checks an unknown x402 endpoint ($0.001 x402 Doctor preflight) before paying it, and never pays above your budget.",
   "type": "module",
   "exports": {
@@ -32,6 +32,7 @@
     "@x402/avm": "^2.28.0",
     "@x402/evm": "^2.27.0",
     "@x402/fetch": "^2.27.0",
+    "@x402/stellar": "^2.28.0",
     "@x402/xrpl": "^2.28.0",
     "viem": "^2.56.9"
   },
@@ -47,7 +48,8 @@
     "algorand",
     "xrpl",
     "rlusd",
-    "signed-receipts"
+    "signed-receipts",
+    "stellar"
   ],
   "repository": {
     "type": "git",
