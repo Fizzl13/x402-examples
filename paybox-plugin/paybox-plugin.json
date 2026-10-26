@@ -1,0 +1,6 @@
+{
+  "tool": "buy_answer",
+  "arguments": {
+    "need": "bitcoin price in usd"
+  }
+}
