@@ -23,7 +23,7 @@ import re
 from typing import Any, List, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "BUY_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
@@ -34,6 +34,7 @@ PRICES = {
     "check_xrpl_transaction": "$0.01",
     "check_solana_transaction": "$0.01",
     "check_algorand_transaction": "$0.01",
+    "check_stellar_transaction": "$0.01",
     "check_message": "$0.01",
     "check_token": "$0.01",
     "check_wallet_approvals": "$0.02",
@@ -223,6 +224,30 @@ class Fizzl:
             return _error("bad_input", "intent must be one sentence (up to 500 characters)")
         body.update({k: v for k, v in dict(origin=origin, intent=intent).items() if v is not None})
         return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_algorand_transaction",
+                             lambda: self._free_signing(body))
+
+    def check_stellar_transaction(self, transaction: str, network: Optional[str] = None, from_address: Optional[str] = None,
+                                  origin: Optional[str] = None, intent: Optional[str] = None) -> dict:
+        """Check a Stellar transaction BEFORE signing it (presign-guard, $0.01), also an x402 payment, where you sign
+        a Soroban authorization the facilitator sends: every operation your account makes and every call it
+        authorizes is read, and the call is simulated. Red: merging your account into another, adding a signer,
+        switching off your master key, a fake USDC or EURC, a payment to a look-alike of an address you dealt with
+        before (address poisoning). Orange: token approvals (also hidden in a sub-call), a missing memo an exchange
+        requires, a destination that doesn't exist, a call that would fail. Pass the base64 XDR envelope (unsigned,
+        signed or a fee bump). Never sign on red; ask the user on orange."""
+        if not isinstance(transaction, str) or not 0 < len(transaction.strip()) <= 12000 or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", transaction.strip()):
+            return _error("bad_input", "transaction must be a base64 XDR Stellar transaction envelope")
+        if network is not None and network not in ("stellar:pubnet", "stellar:testnet"):
+            return _error("bad_input", 'network must be "stellar:pubnet" (mainnet) or "stellar:testnet"')
+        body = {"type": "stellar", "transaction": transaction.strip(), **({"network": network} if network else {})}
+        if from_address is not None:
+            if not isinstance(from_address, str) or not re.fullmatch(r"G[A-Z2-7]{55}", from_address):
+                return _error("bad_input", "from_address must be a Stellar account (G…)")
+            body["from"] = from_address
+        if intent is not None and len(intent) > 500:
+            return _error("bad_input", "intent must be one sentence (up to 500 characters)")
+        body.update({k: v for k, v in dict(origin=origin, intent=intent).items() if v is not None})
+        return self._or_free(self._call("presign", "POST", f"{self.presign_url}/v1/check", body), "check_stellar_transaction",
                              lambda: self._free_signing(body))
 
     def check_message(self, message: str, method: Optional[str] = None, origin: Optional[str] = None,
