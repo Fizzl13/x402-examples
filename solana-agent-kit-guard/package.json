@@ -1,6 +1,6 @@
 {
   "name": "presign-guard-solana-agent-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Spending limits and phone approvals for Solana Agent Kit agents: wraps the wallet so every transfer, swap and token action is checked by presign-guard (instructions decoded and simulated), kept to per-token limits, and sent to you for approval over the limit.",
   "type": "module",
   "exports": {
@@ -14,7 +14,7 @@
   "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "scripts": { "test": "node --test test/*.test.mjs" },
-  "dependencies": { "presign-guard-wallet": "^0.17.0" },
+  "dependencies": { "presign-guard-wallet": "^0.25.0" },
   "peerDependencies": { "solana-agent-kit": ">=2.0.0", "@solana/web3.js": "^1.98.0", "zod": "^3.22.0 || ^4.0.0" },
   "devDependencies": { "solana-agent-kit": "^2.0.10", "@solana/web3.js": "^1.98.2", "zod": "^3.25.0" },
   "keywords": ["solana-agent-kit", "sendai", "solana", "x402", "agents", "wallet", "security", "presign", "spending-limits", "budget", "approvals", "telegram", "human-in-the-loop", "usdc", "jupiter"],
