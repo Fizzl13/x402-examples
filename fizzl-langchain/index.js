@@ -10,7 +10,7 @@
 import { tool } from "@langchain/core/tools";
 import { fizzlTools as checks, PRICES, PRESIGN_URL, DOCTOR_URL, BUY_URL } from "presign-guard-ai-sdk";
 
-export const VERSION = "0.6.0";
+export const VERSION = "0.7.0";
 export { PRICES, PRESIGN_URL, DOCTOR_URL, BUY_URL };
 
 // The same checks as presign-guard-ai-sdk; only the user agent says where the call came from.
