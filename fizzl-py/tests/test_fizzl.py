@@ -229,3 +229,11 @@ def test_buy_live_data_tool_only_when_asked_for():
     assert tools[-1].name == "buy_live_data" and len(tools) == 10
     assert tools[-1].invoke({"need": "EUR to USD rate"})["answer"] == {"rate": 1.08}
     assert [t.name for t in fizzl_tools(session=s, only=["buy_live_data"])] == ["buy_live_data"]
+
+
+def test_robinhood_chain():
+    s = StandIn({"/v1/check": (200, {"verdict": "green"}), "/v1/token": (200, {"verdict": "orange"})})
+    f = Fizzl(session=s)
+    assert f.check_before_signing(type="transaction", chainId=4663, to="0x" + "1" * 40, data="0x")["verdict"] == "green"
+    assert f.check_token("robinhood", "0x" + "2" * 40)["verdict"] == "orange"
+    assert f.check_before_signing(type="transaction", chainId=999, to="0x" + "1" * 40)["error"] == "bad_input"
