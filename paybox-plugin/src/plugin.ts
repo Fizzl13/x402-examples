@@ -92,7 +92,7 @@ function createServer() {
       title: "Check an EVM transaction before signing ($0.01)",
       description: "Proposes a paid pre-sign check by presign-guard ($0.01 in USDC) of an EVM transaction your agent is about to sign: green, orange or red with reason codes. It checks the contract and every party (including OFAC sanctions), decodes the call, and with the sender's address simulates it to show every asset that would leave or arrive, including hidden approvals. Run it on a transaction before you approve it in PayBox.",
       inputSchema: z.object({
-        chainId: z.union([z.literal(1), z.literal(10), z.literal(56), z.literal(137), z.literal(8453), z.literal(42161)]).describe("EVM chain id: 1, 10, 56, 137, 8453 (Base) or 42161."),
+        chainId: z.union([z.literal(1), z.literal(10), z.literal(56), z.literal(137), z.literal(8453), z.literal(42161), z.literal(4663)]).describe("EVM chain id: 1, 10, 56, 137, 8453 (Base), 42161 or 4663 (Robinhood Chain)."),
         to: evmAddress.describe("The contract or recipient the transaction calls."),
         value: z.string().regex(/^(0|[1-9][0-9]{0,77})$/).default("0").describe("Native value in wei."),
         data: z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/).max(24002).default("0x").describe("0x-prefixed calldata."),
@@ -130,7 +130,7 @@ function createServer() {
       title: "Check a token before buying or accepting it ($0.01)",
       description: "Proposes a paid token verdict by presign-guard ($0.01 in USDC): honeypot, impersonation of a known token, high tax, mint or freeze authority and more, on EVM chains, Solana, the XRP Ledger and Algorand.",
       inputSchema: z.object({
-        tokenChain: z.enum(["base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "solana", "xrpl", "algorand"]).describe("The chain the token lives on."),
+        tokenChain: z.enum(["base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "solana", "xrpl", "algorand"]).describe("The chain the token lives on."),
         address: z.string().min(1).max(80).describe("The token contract, Solana mint, XRPL CURRENCY.rIssuer or Algorand asset id."),
         chain: chainInput,
       }).strict(),

@@ -16,6 +16,8 @@ const CASES = [
   ["check_transaction", { chainId: 8453, to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", data: "0x095ea7b3000000000000000000000000000000000022d473030f116ddee9f6b43ac78ba30000000000000000000000000000000000000000000000000000000000000001" }],
   ["check_solana_transaction", { transaction: "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB" }],
   ["check_token", { tokenChain: "base", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }],
+  ["check_token", { tokenChain: "robinhood", address: "0x45C83b37C5BAF4dad26f3845C28295e2DE010962" }],
+  ["check_transaction", { chainId: 4663, to: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73", data: "0x" }],
   ["screen_address", { address: "0x6B0F4651eD42893ab58139938175E4a69f175F25" }],
   ["buy_answer", { need: "bitcoin price in usd", chain: "solana" }],
 ];
