@@ -23,7 +23,8 @@
 //
 // Payments use @x402/fetch with the schemes you register (your keys stay in
 // your code): register: (client) => client.register("eip155:8453", new ExactEvmScheme(account))
-// On Algorand (USDC), the XRP Ledger (RLUSD) and Stellar (USDC) only the dollar stablecoin is paid.
+// On Algorand (USDC), the XRP Ledger (RLUSD), Stellar (USDC) and X Layer (USD₮0 or USDC) only the dollar
+// stablecoin is paid.
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
@@ -33,7 +34,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.7.0";
+export const VERSION = "0.8.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -44,7 +45,8 @@ export const XRPL = "xrpl:0";
 export const XRPL_TESTNET = "xrpl:1";
 export const STELLAR = "stellar:pubnet";
 export const STELLAR_TESTNET = "stellar:testnet";
-const NETWORK_ALIASES = { base: BASE, solana: SOLANA, algorand: ALGORAND, "algorand-testnet": ALGORAND_TESTNET, xrpl: XRPL, "xrpl-testnet": XRPL_TESTNET, stellar: STELLAR, "stellar-testnet": STELLAR_TESTNET };
+export const XLAYER = "eip155:196";
+const NETWORK_ALIASES = { base: BASE, solana: SOLANA, algorand: ALGORAND, "algorand-testnet": ALGORAND_TESTNET, xrpl: XRPL, "xrpl-testnet": XRPL_TESTNET, stellar: STELLAR, "stellar-testnet": STELLAR_TESTNET, xlayer: XLAYER };
 
 // On Algorand and the XRP Ledger only the dollar stablecoin is paid: USDC (an ASA) on Algorand, RLUSD from
 // Ripple's issuer on the XRP Ledger. Never ALGO, XRP or another token, so the dollar budget always holds.
@@ -53,6 +55,12 @@ const RLUSD_HEX = "524C555344000000000000000000000000000000";
 const RLUSD_ISSUER = { [XRPL]: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", [XRPL_TESTNET]: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
 // On Stellar only Circle's USDC token contract (7 decimals), never XLM or another token named USDC.
 const STELLAR_USDC = { [STELLAR]: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75", [STELLAR_TESTNET]: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA" };
+// On X Layer only USD₮0 (what most sellers there ask for) and the USDC x402 Doctor checks against (both 6 decimals,
+// EIP-3009), never OKB or another token that calls itself USDC. @x402/evm has no default asset there, so x402's
+// spend controls only let these through with an allowedAssets entry, capped at the budget (see safeFetch).
+const XLAYER_DOLLARS = {
+  [XLAYER]: ["0x779ded0c9e1022225f8e0630b35a9b54be713736", "0x74b7f16337b8972027f6196a17a631ac6de26d22"],
+};
 
 // The option to pay on `network`, or null. RLUSD prices are decimal dollars ("0.001", and "2" is two dollars),
 // which x402's spend controls would read as base units, so the budget is checked here in dollars.
@@ -83,6 +91,10 @@ export function payableOption(accepts, network, maxUsd) {
   if (STELLAR_USDC[network]) {
     return on.find((a) => a.asset === STELLAR_USDC[network] && /^\d+$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) / 1e7 <= cap) ?? null;
   }
+  if (XLAYER_DOLLARS[network]) {
+    return on.find((a) => XLAYER_DOLLARS[network].includes(String(a.asset ?? "").toLowerCase())
+      && /^\d+$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) / 1e6 <= cap) ?? null;
+  }
   if (RLUSD_ISSUER[network]) {
     return on.find((a) => String(a.asset ?? "").toUpperCase() === RLUSD_HEX && a.extra?.issuer === RLUSD_ISSUER[network]
       && /^\d+(\.\d+)?$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) <= cap) ?? null;
@@ -106,6 +118,13 @@ export function usdCap(maxUsd) {
   const n = Number(String(maxUsd).replace(/^\$/, ""));
   if (!(n > 0) || !Number.isFinite(n)) throw new TypeError("maxUsd must be a positive number of US dollars, e.g. 0.05");
   return `$${Number(n.toFixed(6))}`;
+}
+
+// x402 spend controls for X Layer's dollars: each one allowed up to the budget in atomic units (6 decimals).
+function xlayerAllowance(network, cap) {
+  if (!XLAYER_DOLLARS[network]) return {};
+  const atomic = String(Math.round(Number(String(cap).replace(/^\$/, "")) * 1e6));
+  return { allowedAssets: XLAYER_DOLLARS[network].map((asset) => ({ network, asset, maxAmountPerPayment: atomic })) };
 }
 
 export function diagnoseUrl(target, { method = "GET", doctorUrl = DOCTOR_URL } = {}) {
@@ -209,9 +228,9 @@ export function createSafeFetch({
   const makePayingFetch = createPayingFetch ?? ((cap) => {
     const client = new x402Client((_version, accepts) => {
       const pick = payableOption(accepts, payNetwork, cap);
-      if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[payNetwork] ? " in USDC" : STELLAR_USDC[payNetwork] ? ` in USDC within ${cap}` : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
+      if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[payNetwork] ? " in USDC" : STELLAR_USDC[payNetwork] ? ` in USDC within ${cap}` : XLAYER_DOLLARS[payNetwork] ? ` in USD₮0 or USDC within ${cap}` : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
       return pick;
-    }).setSpendControls({ maxAmountPerPayment: cap });
+    }).setSpendControls({ maxAmountPerPayment: cap, ...xlayerAllowance(payNetwork, cap) });
     register(client);
     return wrapFetchWithPayment(baseFetch, client);
   });

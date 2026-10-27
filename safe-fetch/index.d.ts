@@ -12,7 +12,8 @@ export declare const XRPL: "xrpl:0";
 export declare const XRPL_TESTNET: "xrpl:1";
 export declare const STELLAR: "stellar:pubnet";
 export declare const STELLAR_TESTNET: "stellar:testnet";
-/** The option paid on `network`: on Algorand only USDC, on Stellar only Circle's USDC contract within maxUsd, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
+export declare const XLAYER: "eip155:196";
+/** The option paid on `network`: on Algorand only USDC, on Stellar only Circle's USDC contract within maxUsd, on X Layer only USD₮0 or USDC within maxUsd, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
 /** What a 402 offers (per x402 option: scheme, network, asset, amount, payTo) as a stable string; null without a readable x402 challenge. Consumes the body. */
 export declare function offerFingerprint(res: Response): Promise<string | null>;
 export declare function payableOption<A extends { network: string; asset?: unknown; amount?: unknown; extra?: Record<string, unknown> }>(accepts: A[], network: string, maxUsd: number | string): A | null;
@@ -44,7 +45,7 @@ export declare class SafePayError extends Error {
 export interface SafeFetchOptions {
   /** Registers your payment schemes, e.g. (c) => c.register("eip155:8453", new ExactEvmScheme(account)). */
   register: (client: x402Client) => unknown;
-  /** The network you pay on: "base", "solana", "algorand" (USDC), "xrpl" (RLUSD), "stellar" (USDC), their "-testnet" forms, or a CAIP-2 id. Default Base. */
+  /** The network you pay on: "base", "solana", "algorand" (USDC), "xrpl" (RLUSD), "stellar" (USDC), "xlayer" (USD₮0 or USDC), their "-testnet" forms, or a CAIP-2 id. Default Base. */
   network?: string;
   /** Budget per endpoint call in USD. Default 0.05. */
   maxUsd?: number | string;

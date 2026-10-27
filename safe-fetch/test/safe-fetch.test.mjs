@@ -376,7 +376,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.7\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.8\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -418,12 +418,19 @@ test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD wi
   assert.ok(payableOption([st("10000")], STELLAR, "$0.002"), "the $0.001 preflight");
   assert.equal(payableOption([st("10000000")], STELLAR, 0.05), null, "$1 is over a $0.05 budget");
   assert.equal(payableOption([st("1.5")], STELLAR, 0.05), null, "an atomic amount only");
+  // X Layer: only USD₮0 or the USDC Doctor knows, within the budget (6 decimals: 10000 is $0.01).
+  const { XLAYER } = await import("../index.js");
+  const xl = (amount, asset = "0x779ded0c9e1022225f8e0630b35a9b54be713736") => ({ scheme: "exact", network: XLAYER, asset, amount, extra: { name: "USD₮0", version: "1" } });
+  assert.equal(payableOption([xl("10000", "0xb6ceceab302e2e4948951ee7843fc24e92933061"), xl("10000")], XLAYER, 0.05).asset, "0x779ded0c9e1022225f8e0630b35a9b54be713736", "not another token called USDC");
+  assert.ok(payableOption([xl("10000", "0x74B7F16337B8972027F6196A17A631AC6DE26D22")], XLAYER, 0.05), "USDC, any case");
+  assert.ok(payableOption([xl("1000")], XLAYER, "$0.002"), "the $0.001 preflight");
+  assert.equal(payableOption([xl("1000000")], XLAYER, 0.05), null, "$1 is over a $0.05 budget");
   // Base and Solana keep the first option on the network (x402's spend controls cap USDC there).
   assert.equal(payableOption([{ network: "eip155:8453", asset: "0xA" }], "eip155:8453", 0.05).asset, "0xA");
 });
 
 test("network aliases: 'algorand' and 'xrpl' become their CAIP-2 ids in the preflight", async () => {
-  for (const [alias, id] of [["algorand", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], ["xrpl", "xrpl:0"], ["xrpl-testnet", "xrpl:1"]]) {
+  for (const [alias, id] of [["algorand", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], ["xrpl", "xrpl:0"], ["xrpl-testnet", "xrpl:1"], ["xlayer", "eip155:196"]]) {
     const w = world();
     await make(w, { network: alias })(PAID);
     assert.equal(w.log.preflights[0].url.searchParams.get("network"), id);
