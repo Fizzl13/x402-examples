@@ -60,6 +60,9 @@ const safeFetch = createSafeFetch({
 // Stellar: network: "stellar" and an ExactStellarScheme from @x402/stellar/exact/client
 // (createEd25519Signer(process.env.STELLAR_SECRET, "stellar:pubnet")); needs a USDC trustline.
 // Only Circle's USDC contract is paid, never XLM; the facilitator pays the network fee.
+// X Layer (OKX): network: "xlayer" and an ExactEvmScheme from @x402/evm/exact/client with your viem account.
+// Only USD₮0 (0x779d…3736) or USDC (0x74b7…6d22) is paid, never OKB or another token named USDC; the
+// facilitator (PayAI) pays the gas.
 ```
 
 ## Options
@@ -67,7 +70,7 @@ const safeFetch = createSafeFetch({
 | Option | Default | |
 |---|---|---|
 | `register` | required | `(client) => client.register(network, scheme)`: your payment schemes; your keys stay in your code |
-| `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
+| `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), `"stellar"` (USDC), `"xlayer"` (USD₮0 or USDC), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
 | `maxUsd` | `0.05` | Budget per endpoint call; the payment is capped at it and the preflight says `no_go` above it |
 | `onCaution` | `"stop"` | `"stop"`, `"pay"` or `async (preflight) => boolean` |
 | `trusted` | `[]` | Hosts paid without a preflight |

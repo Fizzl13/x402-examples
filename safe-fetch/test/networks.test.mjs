@@ -81,3 +81,28 @@ test("XRP Ledger: RLUSD within the budget is paid; '2' (two dollars) over a $0.0
   const { res } = await pay([offer("2")]);
   assert.match(String(res.message ?? res), /RLUSD within \$0\.05|spendControls/);
 });
+
+test("X Layer: pays USD₮0 within the budget (an EIP-3009 signature, spend controls allowing it); OKB-like tokens and over-budget offers are not paid", async () => {
+  const { ExactEvmScheme } = await import("@x402/evm/exact/client");
+  const { privateKeyToAccount, generatePrivateKey } = await import("viem/accounts");
+  const { XLAYER } = await import("../index.js");
+  const USDT0 = "0x779ded0c9e1022225f8e0630b35a9b54be713736";
+  const account = privateKeyToAccount(generatePrivateKey());
+  const offer = (amount, asset = USDT0, extra = { name: "USD₮0", version: "1" }) => ({ scheme: "exact", network: XLAYER, amount, asset, payTo: "0x6B0F4651eD42893ab58139938175E4a69f175F25", maxTimeoutSeconds: 300, extra });
+  const pay = async (accepts) => {
+    const s = seller(accepts);
+    const safeFetch = createSafeFetch({ network: "xlayer", maxUsd: 0.05, trusted: ["seller.example"], fetch: s.fetch, register: (c) => c.register("eip155:196", new ExactEvmScheme(account)) });
+    return { res: await safeFetch(URL_).catch((e) => e), s };
+  };
+  const ok = await pay([offer("10000", "0xe538905cf8410324e03a5a23c1c177a474d59b2b", { name: "Wrapped OKB", version: "1" }), offer("10000")]);
+  assert.equal(ok.res.status, 200, String(ok.res));
+  assert.equal(ok.s.paid.length, 1);
+  assert.equal(ok.s.paid[0].accepted.asset, USDT0);
+  assert.equal(ok.s.paid[0].payload.authorization.from.toLowerCase(), account.address.toLowerCase());
+  assert.equal(ok.s.paid[0].payload.authorization.value, "10000");
+  for (const accepts of [[offer("60000")], [offer("10000", "0xe538905cf8410324e03a5a23c1c177a474d59b2b")]]) {
+    const { res, s } = await pay(accepts);
+    assert.ok(res instanceof Error, JSON.stringify(accepts));
+    assert.equal(s.paid.length, 0);
+  }
+});
