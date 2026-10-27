@@ -25,7 +25,7 @@ import { z } from "zod";
 import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
 
 export { PresignBlockedError };
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 const NETWORKS = { mainnet: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", devnet: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" };
 const isLegacy = (tx) => typeof tx?.serializeMessage === "function";

@@ -34,7 +34,7 @@ import { z } from "zod";
 import { guardWallet, PresignBlockedError } from "presign-guard-wallet";
 
 export { PresignBlockedError };
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
 
 // AgentKit's Solana network ids and the x402 (CAIP-2) ids presign-guard-wallet uses.
 const SOLANA_NETWORKS = { "solana-mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "solana-devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" };
