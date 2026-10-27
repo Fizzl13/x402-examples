@@ -82,6 +82,12 @@ test("compose caps the findings at four", () => {
   assert.match(body, /4\. m3\n\(and 2 more in the report\)/);
 });
 
+test("compose offers the seller's badge, linking its Trust Index record", () => {
+  const { body } = composeFromFindings({ host: "h.test", url: "https://h.test/paid?a=1", findings: [{ message: "m" }], reportUrl: "https://r" });
+  assert.match(body, /free badge that updates daily: https:\/\/x402-doctor\.fizzl\.eu\/trust\?url=https%3A%2F%2Fh\.test%2Fpaid%3Fa%3D1\n/);
+  assert.ok(body.indexOf("badge") > body.indexOf("Full report") && body.indexOf("badge") < body.indexOf("gateway"), "after the report, before the gateway offer");
+});
+
 test("the Doctor hook needs OUTREACH_KEY and only makes drafts", async () => {
   const s = setup();
   const accounts = new Proxy({}, { get: () => async () => null });

@@ -46,6 +46,8 @@ export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl
   const list = findings.slice(0, MAX_FINDINGS);
   const items = list.map((f, i) => `${i + 1}. ${clean(f.message, 400)}${f.hint ? `\n   Fix: ${clean(f.hint, 300)}` : ""}`).join("\n");
   const more = findings.length > list.length ? `\n(and ${findings.length - list.length} more in the report)` : "";
+  // The seller's Trust Index record, where its badge snippet is (x402 Doctor's /trust).
+  const trustUrl = `https://x402-doctor.fizzl.eu/trust?url=${encodeURIComponent(url)}`;
   return {
     subject: `x402 Doctor found ${findings.length === 1 ? "an issue" : `${findings.length} issues`} on ${host}`,
     body: [
@@ -58,6 +60,8 @@ export function composeFromFindings({ host, url, findings, reportUrl, gatewayUrl
       `${items}${more}`,
       "",
       `Full report (free): ${reportUrl}`,
+      "",
+      `Once it's fixed, the x402 Trust Index that agents check before paying shows it within a day, and you can show that track record on your README or site with a free badge that updates daily: ${trustUrl}`,
       "",
       `If you'd rather not maintain the payment side yourself: we're piloting a gateway that puts x402 (Base, Solana) and MPP (Base, Tempo) in front of an API, with payouts straight to your own wallets. Free during the pilot: ${gatewayUrl}?ref=${encodeURIComponent(host)}`,
       "",
