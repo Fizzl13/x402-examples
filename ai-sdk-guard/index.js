@@ -8,7 +8,7 @@
 // buy_live_data (with `buy: true`) has Fizzl Buy buy live data for the agent, paid through the same fetch.
 import { z } from "zod";
 
-export const VERSION = "0.9.0";
+export const VERSION = "0.10.0";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const BUY_URL = "https://buy.fizzl.eu";
@@ -16,7 +16,7 @@ export const PRICES = { check_before_signing: "$0.01", check_xrpl_transaction: "
 // A purchase may try up to three sellers, so it gets more time than a check.
 const BUY_TIMEOUT_MS = 180000;
 
-const EVM_CHAIN_IDS = [1, 10, 56, 137, 8453, 42161, 4663];
+const EVM_CHAIN_IDS = [1, 10, 56, 137, 8453, 42161, 4663, 43114];
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
 
 async function call(fetchImpl, url, { method = "GET", body, creditKey, timeoutMs }) {
@@ -118,7 +118,7 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
       description: `Check a transaction, token approval or signature BEFORE signing it (presign-guard, ${PRICES.check_before_signing}). Returns verdict green/orange/red with reason codes: known drainers, unlimited approvals to unknown spenders, look-alike tokens, Permit/Permit2/Seaport signatures that hand over tokens, x402 payments to the wrong place. Pass from (your wallet) with a transaction to simulate it, intent to catch signing something else than you meant, and x402 (the accepts entry) when paying an x402 challenge. Never sign on red; ask the user on orange.`,
       inputSchema: z.object({
         type: z.enum(["approval", "transaction", "signature"]).describe("What is about to be signed"),
-        chainId: z.number().int().refine((n) => EVM_CHAIN_IDS.includes(n), "supported: 1, 10, 56, 137, 8453, 42161, 4663").describe("EVM chain id, e.g. 8453 for Base"),
+        chainId: z.number().int().refine((n) => EVM_CHAIN_IDS.includes(n), "supported: 1, 10, 56, 137, 8453, 42161, 4663, 43114").describe("EVM chain id, e.g. 8453 for Base"),
         token: z.string().optional().describe("approval: token contract"),
         spender: z.string().optional().describe("approval: who gets the allowance"),
         amount: z.string().optional().describe("approval: amount in base units (0 = revoke)"),
@@ -187,7 +187,7 @@ export function fizzlTools({ fetch: fetchImpl = globalThis.fetch, creditKeys = {
     check_token: {
       description: `Check a token BEFORE buying, holding or accepting it (presign-guard, ${PRICES.check_token}): honeypot, rug-pull signs (mint or freeze authority, unlocked liquidity, buy/sell tax), look-alikes of known tokens. Solana, EVM chains, the XRP Ledger (issuer clawback, freeze, transfer fee, fake RLUSD) and Algorand (fake USDC, clawback, default-frozen, holders).`,
       inputSchema: z.object({
-        chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "xrpl", "algorand"]),
+        chain: z.enum(["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "avalanche", "xrpl", "algorand"]),
         address: z.string().min(1).max(80).describe("Solana mint (base58), EVM token contract (0x…), an XRPL token as CURRENCY.rIssuer (e.g. RLUSD.rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De), or an Algorand asset id (e.g. 31566704)"),
       }).refine(({ chain, address }) => (chain === "algorand" ? /^[1-9]\d{0,19}$/.test(address) : address.length >= 20), "address doesn't fit the chain (Algorand: the asset id; elsewhere a full address)"),
       execute: async ({ chain, address }) => orFree(await presign(`/v1/token?${new URLSearchParams({ chain, address })}`, {}), PRICES.check_token, () => freeTokenCheck(fetchImpl, presignUrl, { chain, address }, timeoutMs)),

@@ -245,3 +245,9 @@ test("Robinhood Chain (4663) is an accepted chainId, and robinhood a token chain
   assert.ok(!t.check_before_signing.inputSchema.safeParse({ type: "transaction", chainId: 999, to: "0x" + "1".repeat(40) }).success);
   assert.ok(t.check_token.inputSchema.safeParse({ chain: "robinhood", address: "0x" + "2".repeat(40) }).success);
 });
+
+test("Avalanche C-Chain (43114) is an accepted chainId, and avalanche a token chain", () => {
+  const t = fizzlTools({ fetch: async () => Response.json({}) });
+  assert.ok(t.check_before_signing.inputSchema.safeParse({ type: "transaction", chainId: 43114, to: "0x" + "1".repeat(40) }).success);
+  assert.ok(t.check_token.inputSchema.safeParse({ chain: "avalanche", address: "0x" + "2".repeat(40) }).success);
+});

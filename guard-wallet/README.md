@@ -85,7 +85,7 @@ Every other method (`getAddresses`, `extend`, `sendRawTransaction` for a transac
 | `onSpend` | | `(entry) => void` after each signed spend, e.g. for a log |
 | `store` | in memory | Where spending is kept; `fileStore(path)` from `presign-guard-wallet/file-store`, or your own |
 
-Chains: Ethereum (1), Optimism (10), BNB Chain (56), Polygon (137), Base (8453), Arbitrum (42161), Robinhood Chain (4663).
+Chains: Ethereum (1), Optimism (10), BNB Chain (56), Polygon (137), Base (8453), Arbitrum (42161), Robinhood Chain (4663), Avalanche C-Chain (43114).
 
 **Tempo** (4217, and the Moderato testnet 42431) is not covered by presign-guard. There the wallet signs exactly one thing, checked locally: a TIP-20 `transfer` or `transferWithMemo` of USDC.e (pathUSD on the testnet), with no value attached, counted toward your `USDC` limits. Anything else on Tempo is refused (`unsupported_chain`). Guard a Tempo wallet client next to your main one with `guarded.wrap(tempoWalletClient)`: both share the same limits, pause and purchase records.
 

@@ -259,6 +259,13 @@ test("allow list: Algorand addresses are accepted only with a valid checksum", a
   assert.throws(() => normalizeLimits({ allow: [good.toLowerCase()] }), /allow/);
 });
 
+test("Avalanche C-Chain (43114): USDC and USDC.e count toward the USDC limit, AVAX has its own", () => {
+  const p = normalizeLimits({ tokens: { USDC: { perTx: "5" }, AVAX: { perDay: "1" } } });
+  assert.equal(p.index.get("43114:0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e").budget, "USDC");
+  assert.equal(p.index.get("43114:0xa7d7079b0fead91f3e65f86e8915cb59c1a4c664").decimals, 6);
+  assert.equal(p.index.get("43114:native").budget, "AVAX");
+});
+
 test("Robinhood Chain (4663): USDG counts toward the USDC limit, ETH toward ETH; the copy called USDC does not", () => {
   const p = normalizeLimits({ tokens: { USDC: { perTx: "5" }, ETH: { perDay: "0.01" } } });
   assert.equal(p.index.get("4663:0x5fc5360d0400a0fd4f2af552add042d716f1d168").decimals, 6);

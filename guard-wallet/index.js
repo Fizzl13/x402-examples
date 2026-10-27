@@ -75,7 +75,7 @@ export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
-export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161, 4663];
+export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161, 4663, 43114];
 // Tempo: the stablecoins the wallet may send there (the ones the USDC limit covers).
 export const TEMPO_TOKENS = {
   4217: ["0x20c000000000000000000000b9537d11c60e8b50"],

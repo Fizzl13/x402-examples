@@ -43,12 +43,14 @@ const USDC = {
   // Robinhood Chain has no Circle USDC: its dollar is Paxos' USDG (Global Dollar), counted like RLUSD (a dollar is a
   // dollar). A token there called "USDC" (0x11d0…991e, 18 decimals) is a copy and stays outside the budget.
   4663: [["0x5fc5360d0400a0fd4f2af552add042d716f1d168", 6]],
+  // Avalanche C-Chain: Circle's USDC, and the bridged USDC.e.
+  43114: [["0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e", 6], ["0xa7d7079b0fead91f3e65f86e8915cb59c1a4c664", 6]],
   // Tempo: USDC.e (bridged USDC, what MPP charges in), and pathUSD on the Moderato testnet.
   4217: [["0x20c000000000000000000000b9537d11c60e8b50", 6]],
   42431: [["0x20c0000000000000000000000000000000000000", 6]],
 };
-const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 4663: "ETH", 56: "BNB", 137: "POL", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])), ...Object.fromEntries(Object.keys(ALGORAND_USDC).map((n) => [n, "ALGO"])) };
-export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "XRP", "SOL", "ALGO"];
+const NATIVE_SYMBOL = { 1: "ETH", 10: "ETH", 8453: "ETH", 42161: "ETH", 4663: "ETH", 56: "BNB", 137: "POL", 43114: "AVAX", "xrpl:0": "XRP", "xrpl:1": "XRP", ...Object.fromEntries(Object.keys(SOLANA_USDC).map((n) => [n, "SOL"])), ...Object.fromEntries(Object.keys(ALGORAND_USDC).map((n) => [n, "ALGO"])) };
+export const KNOWN_TOKENS = ["USDC", "ETH", "BNB", "POL", "AVAX", "XRP", "SOL", "ALGO"];
 
 // XRP Ledger networks and the RLUSD issuer on each (Ripple's).
 export const XRPL_RLUSD_ISSUERS = { "xrpl:0": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", "xrpl:1": "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
@@ -109,7 +111,7 @@ export function normalizeLimits(limits) {
       for (const net of Object.keys(SOLANA_USDC)) put(`${net}:${NATIVE}`, { budget: name, decimals: 9 });
     } else if (symbol === "ALGO") {
       for (const net of Object.keys(ALGORAND_USDC)) put(`${net}:${NATIVE}`, { budget: name, decimals: 6 });
-    } else if (["ETH", "BNB", "POL"].includes(symbol)) {
+    } else if (["ETH", "BNB", "POL", "AVAX"].includes(symbol)) {
       for (const [chain, s] of Object.entries(NATIVE_SYMBOL)) if (s === symbol) put(`${chain}:${NATIVE}`, { budget: name, decimals: 18 });
     } else {
       const m = /^(?:(\d+):)?(0x[0-9a-fA-F]{40})$/.exec(name);
