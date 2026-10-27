@@ -251,3 +251,10 @@ def test_stellar_transaction():
     assert f.check_stellar_transaction("not base64!")["error"] == "bad_input"
     assert f.check_stellar_transaction(tx, network="futurenet")["error"] == "bad_input"
     assert f.check_stellar_transaction(tx, from_address="0x12")["error"] == "bad_input"
+
+
+def test_avalanche_chain():
+    s = StandIn({"/v1/check": (200, {"verdict": "green"}), "/v1/token": (200, {"verdict": "green"})})
+    f = Fizzl(session=s)
+    assert f.check_before_signing(type="transaction", chainId=43114, to="0x" + "1" * 40, data="0x")["verdict"] == "green"
+    assert f.check_token("avalanche", "0x" + "2" * 40)["verdict"] == "green"

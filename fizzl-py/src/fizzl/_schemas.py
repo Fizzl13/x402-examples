@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class SignArgs(BaseModel):
     type: Literal["approval", "transaction", "signature"] = Field(description="What is about to be signed")
-    chainId: int = Field(description="EVM chain id: 1, 10, 56, 137, 8453 (Base), 42161 or 4663 (Robinhood Chain)")
+    chainId: int = Field(description="EVM chain id: 1, 10, 56, 137, 8453 (Base), 42161, 4663 (Robinhood Chain) or 43114 (Avalanche)")
     token: Optional[str] = Field(None, description="approval: token contract")
     spender: Optional[str] = Field(None, description="approval: who gets the allowance")
     amount: Optional[str] = Field(None, description="approval: amount in base units (0 = revoke)")
@@ -57,7 +57,7 @@ class MessageArgs(BaseModel):
 
 
 class TokenArgs(BaseModel):
-    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "xrpl", "algorand"]
+    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "avalanche", "xrpl", "algorand"]
     address: str = Field(description="Solana mint (base58), EVM token contract (0x…), an XRPL token as CURRENCY.rIssuer, or an Algorand asset id (e.g. 31566704)")
 
 class ApprovalArgs(BaseModel):
