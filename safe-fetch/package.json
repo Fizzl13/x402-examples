@@ -1,6 +1,6 @@
 {
   "name": "x402-safe-fetch",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "A fetch for AI agents that checks an unknown x402 endpoint ($0.001 x402 Doctor preflight) before paying it, and never pays above your budget.",
   "type": "module",
   "exports": {
@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@algorandfoundation/algokit-utils": "^10.0.0-alpha.46",
-    "@x402/avm": "^2.28.0",
+    "@x402/avm": "^2.29.0",
     "@x402/evm": "^2.27.0",
     "@x402/fetch": "^2.27.0",
     "@x402/stellar": "^2.28.0",
