@@ -34,7 +34,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.8.0";
+export const VERSION = "0.9.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -99,7 +99,11 @@ export function payableOption(accepts, network, maxUsd) {
     return on.find((a) => String(a.asset ?? "").toUpperCase() === RLUSD_HEX && a.extra?.issuer === RLUSD_ISSUER[network]
       && /^\d+(\.\d+)?$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) <= cap) ?? null;
   }
-  return on[0] ?? null;
+  // Base and other EVM chains: "exact" first (what most clients register), then "auth-capture" (Coinbase's escrow:
+  // the buyer signs once, the USDC is held and only captured when the seller delivers, e.g. Atom's domain checkout).
+  // Either is paid only if your register() added its scheme, and both stay within the budget (x402's spend controls
+  // read the amount, which for auth-capture is the most that can be captured).
+  return on.find((a) => a?.scheme === "exact") ?? on.find((a) => a?.scheme === "auth-capture") ?? on[0] ?? null;
 }
 
 export class SafePayError extends Error {

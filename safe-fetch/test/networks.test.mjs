@@ -106,3 +106,49 @@ test("X Layer: pays USD₮0 within the budget (an EIP-3009 signature, spend cont
     assert.equal(s.paid.length, 0);
   }
 });
+
+test("Base auth-capture (Coinbase escrow): with the scheme registered, a ReceiveWithAuthorization to the escrow's collector for at most the budget; exact preferred when both are offered", async () => {
+  const { ExactEvmScheme } = await import("@x402/evm/exact/client");
+  const { AuthCaptureEvmScheme } = await import("@x402/evm/auth-capture/client");
+  const { privateKeyToAccount, generatePrivateKey } = await import("viem/accounts");
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const COLLECTOR_V1_1 = "0x8612dfdc421f80336cd14E8EF9cb1E765dB5ab88";
+  const account = privateKeyToAccount(generatePrivateKey());
+  const now = Math.floor(Date.now() / 1000);
+  const escrowed = (amount) => ({
+    scheme: "auth-capture", network: "eip155:8453", amount, asset: USDC, payTo: "0x6B0F4651eD42893ab58139938175E4a69f175F25", maxTimeoutSeconds: 300,
+    extra: { name: "USD Coin", version: "2", captureAuthorizer: "0x1111111111111111111111111111111111111111", feeRecipient: "0x2222222222222222222222222222222222222222", captureDeadline: now + 86400, refundDeadline: now + 86400 * 30, minFeeBps: 0, maxFeeBps: 100 },
+  });
+  const exact = (amount) => ({ scheme: "exact", network: "eip155:8453", amount, asset: USDC, payTo: "0x6B0F4651eD42893ab58139938175E4a69f175F25", maxTimeoutSeconds: 300, extra: { name: "USD Coin", version: "2" } });
+  const pay = async (accepts, { schemes = ["exact", "auth-capture"], maxUsd = 25 } = {}) => {
+    const s = seller(accepts);
+    const safeFetch = createSafeFetch({
+      maxUsd, trusted: ["seller.example"], fetch: s.fetch,
+      register: (c) => {
+        if (schemes.includes("exact")) c.register("eip155:8453", new ExactEvmScheme(account));
+        if (schemes.includes("auth-capture")) c.register("eip155:8453", new AuthCaptureEvmScheme(account));
+      },
+    });
+    return { res: await safeFetch(URL_).catch((e) => e), s };
+  };
+  // A $12 domain, escrowed: signed once, to the escrow's EIP-3009 collector, for exactly the amount.
+  const ok = await pay([escrowed("12000000")]);
+  assert.equal(ok.res.status, 200, String(ok.res));
+  assert.equal(ok.s.paid.length, 1);
+  const p = ok.s.paid[0];
+  assert.equal(p.accepted.scheme, "auth-capture");
+  assert.equal(p.payload.authorization.from.toLowerCase(), account.address.toLowerCase());
+  assert.equal(p.payload.authorization.to.toLowerCase(), COLLECTOR_V1_1.toLowerCase());
+  assert.equal(p.payload.authorization.value, "12000000");
+  assert.match(p.payload.signature, /^0x[0-9a-f]{130}$/i);
+  // Both offered: the exact one is paid.
+  const both = await pay([escrowed("12000000"), exact("12000000")]);
+  assert.equal(both.s.paid[0].accepted.scheme, "exact");
+  // Over the budget, or without the scheme registered: nothing is paid.
+  for (const [accepts, opts] of [[[escrowed("30000000")], {}], [[escrowed("12000000")], { schemes: ["exact"] }]]) {
+    const { res, s } = await pay(accepts, opts);
+    assert.ok(res instanceof Error, JSON.stringify(opts));
+    assert.equal(s.paid.length, 0);
+  }
+});
+

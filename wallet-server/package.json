@@ -15,6 +15,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@noble/curves": "^1.9.7",
+    "@x402/evm": "^2.28.0",
     "express": "^5.2.1",
     "presign-guard-wallet": "file:../guard-wallet",
     "qrcode-generator": "^1.5.2",

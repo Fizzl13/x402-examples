@@ -65,6 +65,27 @@ const safeFetch = createSafeFetch({
 // facilitator (PayAI) pays the gas.
 ```
 
+### Escrowed payments (auth-capture)
+
+Some sellers on Base take payment through Coinbase's escrow instead of a direct transfer: the x402 scheme
+`auth-capture`. Your wallet signs once, the USDC is held, and the seller captures it only after it has delivered
+(Atom's domain checkout, for instance, captures once the domain is registered, and releases it if registration
+fails). Register that scheme next to the exact one to pay such sellers (`@x402/evm` 2.27 or later):
+
+```js
+import { AuthCaptureEvmScheme } from "@x402/evm/auth-capture/client";
+
+const safeFetch = createSafeFetch({
+  register: (client) => {
+    client.register("eip155:8453", new ExactEvmScheme(account));
+    client.register("eip155:8453", new AuthCaptureEvmScheme(account));
+  },
+  maxUsd: 25, // the budget caps the most that can be captured
+});
+```
+
+When a seller offers both, the exact option is paid. The preflight and the budget apply the same way.
+
 ## Options
 
 | Option | Default | |
