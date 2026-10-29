@@ -234,7 +234,7 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
   // ---------- the MCP server ----------
   function buildServer({ account, agent, wallet, o }) {
     const ctx = { account, agent, origin: o };
-    const server = new McpServer({ name: "fizzl-agent-wallet", version });
+    const server = new McpServer({ name: "fizzl-agent-wallet", version, title: "Fizzl Wallet", websiteUrl: "https://wallet.fizzl.eu", icons: [{ src: "https://wallet.fizzl.eu/app/icon-512.png", mimeType: "image/png", sizes: ["512x512"] }] });
     const track = (tool, fields = {}) => usage.record("connector", { account, input: { tool }, ...fields });
     server.registerTool("wallet_status", {
       title: "Wallet status",

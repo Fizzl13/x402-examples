@@ -555,6 +555,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.use("/icons", express.static(ICONS, { maxAge: "30d", fallthrough: false }));
   app.use("/app", express.static(APP, { maxAge: "30d", fallthrough: false }));
   app.get("/apple-touch-icon.png", (_req, res) => res.set("cache-control", "public, max-age=2592000").sendFile(`${APP}/icon-180.png`));
+  // Connector lists (Grok, ChatGPT, Claude) and browsers ask for the site's favicon; a PNG under that name works in all.
+  app.get("/favicon.ico", (_req, res) => res.set("cache-control", "public, max-age=2592000").type("image/png").sendFile(`${APP}/icon-192.png`));
   app.get("/manifest.webmanifest", (_req, res) => res.set("cache-control", "public, max-age=3600").type("application/manifest+json").sendFile(MANIFEST));
   // Never cached long, so a new version of the worker reaches phones quickly.
   app.get("/sw.js", (_req, res) => res.set({ "cache-control": "no-cache", "content-security-policy": CSP }).type("text/javascript").sendFile(WORKER));
