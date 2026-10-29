@@ -68,6 +68,24 @@ const accountLabel = (id) => {
 
 // Fizzl Buy as an extra first option: only when it could buy one of the sellers found (a track record, at most its
 // own cap) and this search's cap allows its price.
+// presign-guard's injection check takes one of a few source kinds; agents describe the source in their own words
+// ("web page", "X post", "e-mail"), and presign-guard refuses anything else with a 400.
+const SOURCE_KINDS = [
+  ["email", /e-?mail|inbox|newsletter/],
+  ["api", /\bapi\b|endpoint|json|http/],
+  ["agent", /agent|\bbot\b|assistant/],
+  ["tool", /\btool\b|function|plugin|mcp/],
+  ["document", /doc|pdf|file|readme|paper/],
+  ["chat", /chat|message|dm\b|telegram|discord|slack|whatsapp|comment|reply/],
+  ["web", /web|page|site|url|link|browser|post|tweet|\bx\b|twitter|forum|reddit|blog|article/],
+];
+export function presignSource(source) {
+  const s = String(source ?? "").toLowerCase().trim();
+  if (!s) return undefined;
+  if (SOURCE_KINDS.some(([kind]) => kind === s) || s === "other") return s;
+  return SOURCE_KINDS.find(([, re]) => re.test(s))?.[0] ?? "other";
+}
+
 export function fizzlBuyOption({ query, cap, sellers }) {
   const need = String(query).trim().slice(0, 500);
   if (cap < FIZZL_BUY.price || need.length < 3) return null;
@@ -305,7 +323,7 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
         const res = await fetchImpl(`${presignUrl}/v1/injection/quick`, {
           method: "POST",
           headers: { "content-type": "application/json", "user-agent": `fizzl-wallet-connector/${version}` },
-          body: JSON.stringify({ text, ...(source ? { source } : {}), ...(task ? { task } : {}) }),
+          body: JSON.stringify({ text, ...(presignSource(source) ? { source: presignSource(source) } : {}), ...(task ? { task } : {}) }),
           signal: AbortSignal.timeout(20_000),
         });
         const j = await res.json().catch(() => ({}));
