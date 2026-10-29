@@ -42,7 +42,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {} }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {} }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -531,6 +531,24 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     const out = await outreach.add({ to: b.to, subject: b.subject, body: b.body, url: typeof b.url === "string" ? b.url : null, host: typeof b.host === "string" ? b.host : null, source: "claude" });
     console.log(`[outreach] from Claude: ${out.draft ? `draft ${out.draft.id} to ${out.draft.to}` : `no draft (${out.skipped})`}`);
     res.json(out);
+  }));
+
+  // A scheduled report for the owner (the Grok tasks of .github/workflows/grok-tasks.yml), as plain Telegram messages.
+  // Needs DRAFT_KEY, like the message hook; sends nothing to anyone else and has no buttons.
+  const REPORT_PART = 3900; // Telegram allows 4,096 characters a message
+  app.post("/hooks/owner-report", wrap(async (req, res) => {
+    if (!telegram || !ownerChatId || !draftKeyHash) return res.status(404).json({ error: "not_found" });
+    const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
+    if (!timingSafeEqual(given, draftKeyHash)) { console.warn("[report] a report with a wrong DRAFT_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
+    const title = typeof req.body?.title === "string" ? req.body.title.trim().slice(0, 200) : "";
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text) return res.status(400).json({ error: "text is required" });
+    const whole = title ? `${title}\n\n${text}` : text;
+    const parts = [];
+    for (let i = 0; i < whole.length && parts.length < 5; i += REPORT_PART) parts.push(whole.slice(i, i + REPORT_PART));
+    for (const part of parts) await telegram.send(ownerChatId, part);
+    console.log(`[report] ${title || "report"}: ${parts.length} message(s)`);
+    res.json({ sent: parts.length });
   }));
 
   // ---------- Telegram ----------

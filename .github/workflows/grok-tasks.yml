@@ -1,0 +1,78 @@
+# Frits's Grok tasks (grok-tasks/tasks/<id>.md) on a schedule: Grok searches X through xAI's API and uses Fizzl's free
+# MCP checks, never a paid tool or a wallet. The report goes to Frits's Telegram (the wallet's /hooks/owner-report).
+# Needs the secrets XAI_API_KEY (console.x.ai) and DRAFT_KEY (already set for outreach-draft). Without XAI_API_KEY
+# the run does nothing. A on push tests only the script.
+name: grok-tasks
+
+on:
+  schedule:
+    - cron: "41 17 * * *"    # A: x402 scan, daily
+    - cron: "13 18 * * *"    # B: scam watch, daily
+    - cron: "37 18 */3 * *"  # D: help desk, every third day
+  workflow_dispatch:
+    inputs:
+      task: { description: "Task: A (x402 scan), B (scam watch) or D (help desk)", required: true, default: "A" }
+      model: { description: "xAI model", required: false, default: "grok-4.7" }
+      send: { description: "Send the report to Telegram", type: boolean, default: true }
+  push:
+    branches: [main]
+    paths: ["grok-tasks/**", ".github/workflows/grok-tasks.yml"]
+  pull_request:
+    paths: ["grok-tasks/**", ".github/workflows/grok-tasks.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grok-tasks
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 24 }
+      - run: node --test grok-tasks/run-task.test.mjs
+
+  run:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      DRAFT_KEY: ${{ secrets.DRAFT_KEY }}
+    steps:
+      - name: Which task
+        id: pick
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_TASK: ${{ inputs.task }}
+        run: |
+          case "$SCHEDULE" in
+            "41 17 * * *") task=A ;;
+            "13 18 * * *") task=B ;;
+            "37 18 */3 * *") task=D ;;
+            *) task=$(printf '%s' "$INPUT_TASK" | tr '[:lower:]' '[:upper:]') ;;
+          esac
+          case "$task" in A|B|D) ;; *) echo "::error::Unknown task $task"; exit 1 ;; esac
+          echo "task=$task" >> "$GITHUB_OUTPUT"
+          if [ -z "$XAI_API_KEY" ]; then echo "No XAI_API_KEY secret, nothing to run." >> "$GITHUB_STEP_SUMMARY"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v5
+        if: steps.pick.outputs.skip != '1'
+      - uses: actions/setup-node@v5
+        if: steps.pick.outputs.skip != '1'
+        with: { node-version: 24 }
+      - name: Run task ${{ steps.pick.outputs.task }}
+        if: steps.pick.outputs.skip != '1'
+        env:
+          TASK: ${{ steps.pick.outputs.task }}
+          MODEL: ${{ inputs.model || 'grok-4.7' }}
+          SEND: ${{ github.event_name == 'schedule' || inputs.send }}
+        run: |
+          args=("$TASK" --model "$MODEL")
+          [ "$SEND" = "true" ] && args+=(--send)
+          node grok-tasks/run-task.mjs "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

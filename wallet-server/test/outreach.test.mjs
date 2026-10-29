@@ -200,3 +200,26 @@ test("doctorRecheck: asks Doctor with the outreach key; no key, no recheck", asy
   const bad = doctorRecheck({ key: "k1", fetchImpl: async () => new Response("no", { status: 401 }) });
   await assert.rejects(bad("https://a.test", ["x"]), /401/);
 });
+
+test("the owner-report hook: DRAFT_KEY only, plain Telegram messages to the owner's chat, split under 4,096 characters", async () => {
+  const sent = [];
+  const telegram = { async send(chatId, text) { sent.push({ chatId, text }); } };
+  const accounts = new Proxy({}, { get: () => async () => null });
+  const app = createApp({ accounts, auth: { middleware: () => (_q, _s, n) => n() }, telegram, draftKey: "draft-key-456", outreachKey: "doctor-key", ownerChatId: "777" });
+  const server = await new Promise((r) => { const sv = app.listen(0, () => r(sv)); });
+  const post = (auth, body) => fetch(`http://127.0.0.1:${server.address().port}/hooks/owner-report`, { method: "POST", headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify(body) });
+  try {
+    assert.equal((await post(null, { text: "x" })).status, 401);
+    assert.equal((await post("Bearer doctor-key", { text: "x" })).status, 401);
+    assert.equal((await post("Bearer draft-key-456", { title: "Grok taak A" })).status, 400);
+    const ok = await post("Bearer draft-key-456", { title: "Grok taak A", text: "Niets nieuws vandaag." });
+    assert.deepEqual(await ok.json(), { sent: 1 });
+    assert.deepEqual(sent[0], { chatId: "777", text: "Grok taak A\n\nNiets nieuws vandaag." });
+    const long = await post("Bearer draft-key-456", { title: "Lang", text: "a".repeat(9000) });
+    assert.equal((await long.json()).sent, 3);
+    assert.ok(sent.slice(1).every((m) => m.text.length <= 3900));
+  } finally { server.close(); }
+  const noChat = createApp({ accounts: new Proxy({}, { get: () => async () => null }), auth: { middleware: () => (_q, _s, n) => n() }, telegram, draftKey: "draft-key-456" });
+  const sv2 = await new Promise((r) => { const sv = noChat.listen(0, () => r(sv)); });
+  try { assert.equal((await fetch(`http://127.0.0.1:${sv2.address().port}/hooks/owner-report`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer draft-key-456" }, body: "{\"text\":\"x\"}" })).status, 404); } finally { sv2.close(); }
+});
