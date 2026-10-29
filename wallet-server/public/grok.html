@@ -46,6 +46,7 @@ ol li { margin-bottom: 6px; }
 .steps { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 14px; }
 .steps div { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
 .steps b { color: var(--text); }
+.steps code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -73,6 +74,15 @@ ol li { margin-bottom: 6px; }
       </ol></div>
   </div>
   <p class="note">Grok's connector menus are new and change often; look for "Connectors", "Custom" or "MCP". If Grok says connected but shows no Fizzl tools, the sign-in didn't finish: remove the connector and add it again. Still stuck? Mail <a href="mailto:Fizzl13@protonmail.com">Fizzl13@protonmail.com</a> with what Grok showed.</p>
+
+  <h2>Or add one service on its own</h2>
+  <p>Each Fizzl service is also its own connector, with free checks and no sign-in. Add it the same way (Custom connector) with its URL. Its paid tools need a wallet that can pay; through the Fizzl Wallet above, you sign each payment.</p>
+  <div class="steps">
+    <div><b>x402 Doctor</b><br><code>https://x402-doctor.fizzl.eu/mcp</code><br><span class="note">Free: is this x402 endpoint payable, and what's wrong with it.</span></div>
+    <div><b>presign-guard</b><br><code>https://presign-guard.fizzl.eu/mcp</code><br><span class="note">Free: quick check of a transaction or signature, a token verdict, a prompt-injection check.</span></div>
+    <div><b>Ichimoku Signal</b><br><code>https://ichimoku-signal.fizzl.eu/mcp</code><br><span class="note">Free: the Ichimoku trend of a crypto pair.</span></div>
+    <div><b>Fizzl Buy</b><br><code>https://buy.fizzl.eu/mcp</code><br><span class="note">Free: which seller it would pick for what you need.</span></div>
+  </div>
 
   <h2>What Grok can do, and what it can't</h2>
   <div class="steps">
