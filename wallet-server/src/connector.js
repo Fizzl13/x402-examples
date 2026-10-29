@@ -171,7 +171,8 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
     const id = auth.subject(req.get("cookie"));
     const about = { client: r.client, agent: agentName(r.client), returnsTo: new URL(r.redirect).host };
     if (!id) return res.status(401).json({ error: "login_required", ...about });
-    res.json({ ...about, account: accountLabel(id) });
+    const replaces = (await accounts.walletFor(id).agents().catch(() => [])).some((a) => a.name === about.agent);
+    res.json({ ...about, account: accountLabel(id), replaces });
   });
   router.post("/oauth/consent", async (req, res) => {
     res.set("cache-control", "no-store");
@@ -182,8 +183,13 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
     const r = rid ? await store.takeOnce("oauthreq", rid) : null;
     if (!r) return res.status(404).json({ error: "expired", message: "This request has expired. Start again in your app." });
     if (req.body?.allow !== true) return res.json({ redirect: withParams(r.redirect, { error: "access_denied", error_description: "The owner said no", state: r.state }) });
+    // Connecting the same app again replaces its earlier agent (and so its old token): an attempt that failed after
+    // "Allow" left one behind, and on the free plan (one agent) it blocked the next try (Grok, 29 Oct 2026).
+    const wallet = accounts.walletFor(id);
+    const earlier = (await wallet.agents().catch(() => [])).filter((a) => a.name === agentName(r.client));
+    for (const a of earlier) await wallet.removeAgent(a.id).catch(() => {});
     let added;
-    try { added = await accounts.walletFor(id).addAgent(agentName(r.client)); }
+    try { added = await wallet.addAgent(agentName(r.client)); }
     catch (err) {
       // The plan's agent limit: the request stays, so the person can make room on the dashboard and allow again.
       await store.putOnce("oauthreq", rid, r, REQUEST_TTL_S);
@@ -191,7 +197,7 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
     }
     const code = rand(24);
     await store.putOnce("oauthcode", code, { clientId: r.clientId, clientName: r.client, redirect: r.redirect, challenge: r.challenge, key: added.key, account: id, agentId: added.agent.id }, CODE_TTL_S);
-    usage.record("connector", { account: id, input: { step: "allowed", client: r.client } });
+    usage.record("connector", { account: id, input: { step: "allowed", client: r.client, ...(earlier.length ? { replaced: earlier.length } : {}) } });
     res.json({ redirect: withParams(r.redirect, { code, state: r.state }) });
   });
 
