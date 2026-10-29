@@ -987,7 +987,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       events: [
         { at: t0 - min, type: "asked", agent: "research-agent", summary: "8 USDC is over the limit of 5 per transaction" },
         { at: t0 - 2 * min, type: "signed", agent: "research-agent", method: "signTypedData", amounts: ["0.1 USDC"], to: "ichimoku-signal.fizzl.eu", verdict: "green" },
-        { at: t0 - 4 * min, type: "signed", agent: "support-agent", method: "signTypedData", amounts: ["0.03 USDC"], to: "plaintext.fizzl.eu", verdict: "green" },
+        { at: t0 - 4 * min, type: "signed", agent: "support-agent", method: "signTypedData", amounts: ["0.02 USDC"], to: "buy.fizzl.eu", verdict: "green" },
         { at: t0 - 9 * min, type: "blocked", agent: "trading-bot", summary: "presign-guard: red (KNOWN_DRAINER) · never signed" },
         { at: t0 - 12 * min, type: "signed", agent: "trading-bot", method: "sendTransaction", amounts: ["2 USDC"], to: "Uniswap router", verdict: "green" },
       ],
@@ -997,7 +997,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const hex = (n) => "0x" + Array.from({ length: n }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
     const WHAT = {
       "ichimoku-signal.fizzl.eu": ["https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", "BTC-USDT Ichimoku signal for the morning brief"],
-      "plaintext.fizzl.eu": ["https://plaintext.fizzl.eu/api/check-wallet", "Plain-English check of a customer's wallet"],
+      "buy.fizzl.eu": ["https://buy.fizzl.eu/v1/buy", "Fizzl Buy: tomorrow's weather for a customer's delivery"],
       "presign-guard.fizzl.eu": ["https://presign-guard.fizzl.eu/v1/token?chain=base", "Token safety check before a swap"],
       "x402-doctor.fizzl.eu": ["https://x402-doctor.fizzl.eu/api/v1/preflight", "Pre-payment check of a new API"],
       "api.marketdepth.io": ["https://api.marketdepth.io/v2/orderbook/full", "Full order-book snapshot for the weekly report"],
@@ -1008,7 +1008,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     // What the demo agents got back: example answers, shaped like the real services'.
     const GOT = {
       "ichimoku-signal.fizzl.eu": { pair: "BTC-USDT", interval: "1d", timestamp: new Date().toISOString(), signal: "bullish", price: 64210.5, cloud_position: "above_cloud", tenkan_kijun_cross: "bullish_cross", tenkan_sen: 63480.2, kijun_sen: 61920.75, exchange: "Kraken" },
-      "plaintext.fizzl.eu": { summary: "2 of 5 approvals are risky: revoke the unlimited USDC approval to an unknown contract.", risk: "high", approvals: [{ token: "USDC", spender: "Unknown contract 0x9f3c…b21e", amount: "unlimited", risk: "high" }, { token: "WETH", spender: "Uniswap Permit2", amount: "unlimited", risk: "low" }, { token: "PEPE", spender: "Unverified router", amount: "1,000,000", risk: "medium" }] },
+      "buy.fizzl.eu": { need: "weather in Amsterdam tomorrow", delivered: true, answer: { place: "Amsterdam", daily: [{ date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), min_c: 8, max_c: 13, condition: "light rain" }] }, service: { url: "https://weather.example/forecast?place=Amsterdam&days=2", method: "GET" }, paid_usd: 0.002, tried: 1 },
       "presign-guard.fizzl.eu": { verdict: "green", grade: "A", summary: "Known token with deep liquidity; no honeypot or tax found.", token: { symbol: "AERO", name: "Aerodrome", chain: "base" }, liquidity_usd: 48200000, holders: 182340 },
       "x402-doctor.fizzl.eu": { verdict: "go", safe_to_pay: true, summary: "OK to pay: $0.02 on Base.", reasons: [] },
       "api.marketdepth.io": { symbol: "ETH-USDC", bids: 500, asks: 500, best_bid: 3120.4, best_ask: 3120.9, spread_bps: 1.6, snapshot_at: new Date().toISOString() },
@@ -1026,7 +1026,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     };
     D.events.forEach((e) => { if (e.type === "signed") { const a = D.agents.find((x) => x.name === e.agent); e.purchase = receipt({ agentName: e.agent, agentId: a?.id, amt: parseFloat(e.amounts[0]), to: e.to, method: e.method, at: e.at }); e.what = D.receipts[e.purchase].what?.description ?? null; } });
     D.approvals.forEach((a) => { a.purchase = { url: WHAT[a.to]?.[0], description: WHAT[a.to]?.[1] }; });
-    const BUYS = [["research-agent", "ag_r", 0.10, "ichimoku-signal.fizzl.eu"], ["support-agent", "ag_s", 0.03, "plaintext.fizzl.eu"], ["trading-bot", "ag_t", 0.01, "presign-guard.fizzl.eu"], ["research-agent", "ag_r", 0.05, "x402-doctor.fizzl.eu"]];
+    const BUYS = [["research-agent", "ag_r", 0.10, "ichimoku-signal.fizzl.eu"], ["support-agent", "ag_s", 0.02, "buy.fizzl.eu"], ["trading-bot", "ag_t", 0.01, "presign-guard.fizzl.eu"], ["research-agent", "ag_r", 0.05, "x402-doctor.fizzl.eu"]];
     const BIG = [["trading-bot", "ag_t", 6, "Jupiter", "sendTransaction"], ["research-agent", "ag_r", 12.5, "sentiment.example", "signTypedData"], ["support-agent", "ag_s", 7.5, "translate.example", "signTypedData"]];
     let tick = 0;
     const limit = () => Number(D.policy.tokens?.USDC?.perTx ?? Infinity), dayCap = () => Number(D.policy.tokens?.USDC?.perDay ?? Infinity);
@@ -1086,7 +1086,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           { url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "Ichimoku cloud trend signal for a crypto pair: bullish, bearish or neutral, with price and cloud position.", method: "GET", prices: [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }] },
           { url: "https://ichimoku-signal.fizzl.eu/setups", description: "Ranked crypto trade setups with entry, stop and targets.", method: "GET", prices: [{ network: "Base", usd: 0.5 }] },
           { url: "https://presign-guard.fizzl.eu/v1/token", description: "Token safety check before buying: grade, reasons and market data, for Base and Solana tokens.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Solana", usd: 0.01 }] },
-          { url: "https://plaintext.fizzl.eu/api/check-wallet", description: "A wallet's token and NFT approvals, explained in plain language with which ones to revoke.", method: "POST", prices: [{ network: "Base", usd: 0.04 }] },
+          { url: "https://buy.fizzl.eu/v1/buy", description: "Fizzl Buy: say what you need; it picks a seller with a good track record, pays it and checks the answer.", method: "POST", prices: [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }] },
           { url: "https://x402-doctor.fizzl.eu/api/v1/preflight", description: "Check an x402 endpoint before paying it: safe to pay or not, and the cheapest option.", method: "GET", prices: [{ network: "Base", usd: 0.001 }, { network: "Solana", usd: 0.001 }] },
           { url: "https://weather.example/v1/forecast", description: "Example listing: weather forecast for a city, hourly for 7 days.", method: "GET", prices: [{ network: "Base", usd: 0.005 }] },
           { url: "https://search.example/v1/web", description: "Example listing: web search results as JSON.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Polygon", usd: 0.01 }] },
