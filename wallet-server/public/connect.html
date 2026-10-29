@@ -67,7 +67,7 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
     const what = `<p><b>${esc(j.client)}</b> wants to use your Fizzl Agent Wallet. It can:</p>
       <ul><li>see the wallet's status and your spending limits;</li><li>search paid services, with each seller's payout record;</li><li>check texts for traps aimed at your agent;</li><li>ask for payments, which you sign yourself.</li></ul>
       <p>Every payment from ${esc(j.client)} waits until you sign it in your own wallet (USDC on Base). Fizzl never holds a key for it.</p>
-      <p class="note">This adds an agent called “${esc(j.agent)}” to your account; remove it on your dashboard to disconnect. Afterwards you go back to ${esc(j.returnsTo)}.</p>`;
+      <p class="note">${j.replaces ? `This replaces the agent “${esc(j.agent)}” already on your account (an earlier connection of this app stops working)` : `This adds an agent called “${esc(j.agent)}” to your account`}; remove it on your dashboard to disconnect. Afterwards you go back to ${esc(j.returnsTo)}.</p>`;
     if (r.status === 401) {
       body.innerHTML = what + `<p>Sign in to your Fizzl wallet first; you come back here afterwards.</p><div class="row"><a class="btn pri" href="/?connect=${encodeURIComponent(rid)}">Sign in</a></div>`;
       return;

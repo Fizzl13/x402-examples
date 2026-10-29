@@ -229,12 +229,24 @@ test("connector: a wrong verifier spends the code and removes its agent; no; the
     assert.deepEqual((await accounts.walletFor(acct).state()).agents, []);
 
     // The free plan has one agent: the second app is refused with the reason, and its request stays for a retry.
-    assert.match(await connect(base, cookie), /^awk_/);
+    const first = await connect(base, cookie);
+    assert.match(first, /^awk_/);
     const c = await startAuthorize(base, { client_name: "Grok" });
     const full = await fetch(`${base}/oauth/consent`, json({ req: c.rid, allow: true }, cookie));
     assert.equal(full.status, 403);
     assert.match((await full.json()).message, /free plan has 1 agent/);
     assert.equal((await fetch(`${base}/oauth/request?req=${c.rid}`, { headers: { cookie } })).status, 200);
+
+    // The same app again (its earlier attempt left its agent behind): the old agent is replaced, not refused, and
+    // the consent page says so; the old token stops working.
+    const d = await startAuthorize(base, { client_name: "ChatGPT" });
+    assert.equal((await (await fetch(`${base}/oauth/request?req=${d.rid}`, { headers: { cookie } })).json()).replaces, true);
+    const ok = await fetch(`${base}/oauth/consent`, json({ req: d.rid, allow: true }, cookie));
+    assert.equal(ok.status, 200);
+    const agents = (await accounts.walletFor(acct).state()).agents;
+    assert.deepEqual(agents.map((x) => x.name), ["ChatGPT connector"]);
+    const stale = await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${first}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
+    assert.equal(stale.status, 401);
   } finally { server.close(); }
 });
 
