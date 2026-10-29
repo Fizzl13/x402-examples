@@ -1662,6 +1662,19 @@ test("track records are read from the index parts line by line, also when a line
   assert.deepEqual(old.seller("https://steady.example"), whole.get("https://steady.example"));
 });
 
+test("search: word forms meet (paying / pays / pay, checks / check), so a listing isn't missed for its wording", async () => {
+  const { createCatalog, words, stem } = await import("../src/catalog.js");
+  assert.deepEqual(["paying", "pays", "checks", "checking", "prices", "honeypots", "addresses", "x402", "gas", "status"].map(stem), ["pay", "pay", "check", "check", "price", "honeypot", "address", "x402", "gas", "status"]);
+  assert.deepEqual(words("Check x402 endpoint before paying"), ["check", "x402", "endpoint", "before", "pay"]);
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items: [
+    { resource: "https://doctor.example/preflight", description: "Is this x402 endpoint safe to pay? Call it before your agent pays; checks the payment request.", accepts: [usdc("1000")] },
+    { resource: "https://other.example/weather", description: "Weather forecast for a city.", accepts: [usdc("1000")] },
+  ] }) });
+  const r = await catalog.search("check x402 endpoint before paying");
+  assert.deepEqual(r.results.map((x) => x.host), ["doctor.example"]);
+});
+
 test("search filters: network, new, skill.md, reliable, and sorting", async () => {
   const { createCatalog } = await import("../src/catalog.js");
   const { createTrustIndex } = await import("../src/trust.js");
