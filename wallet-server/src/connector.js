@@ -33,11 +33,18 @@ const withParams = (url, params) => { const u = new URL(url); for (const [k, v] 
 const result = (out) => ({ content: [{ type: "text", text: JSON.stringify(out, null, 2) }], structuredContent: out });
 const failure = (message) => ({ content: [{ type: "text", text: message }], isError: true });
 
-// A redirect URI an app may register: https, or http on this computer (for testing), without a fragment.
+// A redirect URI an app may register, without a fragment: https; http on this computer (for testing); or an app's
+// own scheme (RFC 8252 "private-use URI scheme", e.g. com.example.app:/cb or someapp://cb), which apps that sign in
+// outside a browser register (Grok Bot and Cursor among them). PKCE with S256 is required at /oauth/authorize, so a
+// code caught by another app on the device can't be exchanged. Schemes a browser would run or open itself are refused.
+const NOT_APP_SCHEMES = new Set(["http:", "https:", "javascript:", "data:", "file:", "vbscript:", "about:", "blob:", "filesystem:", "view-source:", "ftp:", "ws:", "wss:", "mailto:", "tel:", "sms:", "intent:", "chrome:", "edge:"]);
 export function okRedirect(u) {
   try {
     const url = new URL(u);
-    return !url.hash && (url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)));
+    if (url.hash) return false;
+    if (url.protocol === "https:") return true;
+    if (url.protocol === "http:") return ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    return /^[a-z][a-z0-9+.-]{1,60}:$/.test(url.protocol) && !NOT_APP_SCHEMES.has(url.protocol);
   } catch { return false; }
 }
 // The agent the app becomes on the dashboard (the dashboard's agent names: 1-40 of letters, digits, space . _ -).
@@ -116,7 +123,10 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
     const b = req.body ?? {};
     const uris = Array.isArray(b.redirect_uris) ? b.redirect_uris : [];
     if (!uris.length || uris.length > 5 || !uris.every((u) => typeof u === "string" && u.length <= 500 && okRedirect(u))) {
-      return res.status(400).json({ error: "invalid_redirect_uri", error_description: "redirect_uris: 1 to 5 https URLs without a fragment (http only on localhost)" });
+      // Which kind of callback was refused (its scheme only), so an app that can't connect shows up in the stats.
+      const scheme = (u) => { try { return new URL(u).protocol; } catch { return "unparsable"; } };
+      usage.record("connector", { input: { step: "register_refused", client: String(b.client_name ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60) || null, schemes: [...new Set(uris.slice(0, 5).map(scheme))].join(",") || "none" } });
+      return res.status(400).json({ error: "invalid_redirect_uri", error_description: "redirect_uris: 1 to 5 URLs without a fragment: https, http only on localhost, or an app's own scheme" });
     }
     const name = String(b.client_name ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60) || "MCP app";
     const id = `fzc_${rand(18)}`;

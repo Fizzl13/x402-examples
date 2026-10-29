@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Fizzl Agent Wallet in Grok</title>
+<meta name="description" content="Let Grok and Grok Bot find and pay for APIs with a check outside the agent: you sign every payment in your own wallet, within limits Grok can't change. One URL, about two minutes.">
+<link rel="canonical" href="https://wallet.fizzl.eu/grok">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "How do I add the Fizzl Agent Wallet to Grok?", "acceptedAnswer": {"@type": "Answer", "text": "On grok.com open Connectors, choose New Connector, then Custom, name it Fizzl Wallet and paste https://wallet.fizzl.eu/mcp. Grok then sends you to Fizzl to sign in and allow it. In Grok Bot, ask the Bot in chat to add a custom MCP connector with that URL and sign in when it asks."}}, {"@type": "Question", "name": "Can Grok pay without me?", "acceptedAnswer": {"@type": "Answer", "text": "No. Grok can ask for a payment, but every payment waits for your signature in your own wallet: USDC on Base or Solana, or RLUSD in Xaman. Your signature allows exactly that amount to exactly that seller, for a few minutes. Grok can't change your limits, and Fizzl never holds a key."}}, {"@type": "Question", "name": "Does Fizzl check Grok's trades on Coinbase?", "acceptedAnswer": {"@type": "Answer", "text": "No. Trades Grok makes on an exchange such as Coinbase for Agents run on that exchange's own keys, and Fizzl does not sit in between. Fizzl covers what Grok pays for per call with x402: data and tools such as a trend signal or a token safety check before a trade."}}, {"@type": "Question", "name": "Grok says connected but shows no Fizzl tools. What now?", "acceptedAnswer": {"@type": "Answer", "text": "Remove the connector in Grok and add it again, and make sure the Fizzl sign-in page opened and you tapped Allow. Without that sign-in Fizzl answers nothing, so Grok has no tools to show."}}]}</script>
+<style>
+@font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/lexend-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/unbounded-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/unbounded-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/unbounded-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 800; font-display: swap; src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-style: normal; font-weight: 900; font-display: swap; src: url("/fonts/unbounded-latin-900-normal.woff2") format("woff2"); }
+:root { --bg: #020708; --mint: #61f5c3; --text: #f4f8f7; --soft: #d1dbd9; --muted: #a8b5b2; --dim: #82918f; --line: rgba(97,245,195,.28); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--soft); font: 400 16px/1.65 "Lexend", Arial, sans-serif; }
+.wrap { width: min(780px, calc(100% - 32px)); margin-inline: auto; }
+header { border-bottom: 1px solid var(--line); }
+header .wrap { height: 64px; display: flex; align-items: center; justify-content: space-between; }
+.brand { font: 700 22px/1 "Unbounded", Arial, sans-serif; letter-spacing: -1.2px; color: var(--text); text-decoration: none; }
+.brand span { color: var(--mint); }
+main { padding: 40px 0 64px; }
+h1 { font: 700 clamp(34px, 6vw, 52px)/1 "Unbounded", Arial, sans-serif; letter-spacing: -2px; text-transform: uppercase; color: var(--text); margin: 0 0 10px; }
+h2 { font: 700 20px/1.25 "Unbounded", Arial, sans-serif; color: var(--text); margin: 36px 0 10px; }
+p, li { color: var(--soft); }
+.note { color: var(--dim); font-size: 13px; }
+a { color: var(--mint); }
+mark { background: rgba(245,195,97,.18); color: #f5c361; padding: 0 4px; border-radius: 4px; }
+.table { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid rgba(97,245,195,.12); }
+th { color: var(--mint); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+ul { padding-left: 20px; }
+footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--dim); font-size: 12px; }
+
+td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+.url { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 18px 0; }
+.url code { font: 600 17px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
+.url button { border: 1px solid var(--line); background: transparent; color: var(--mint); font: 600 13px/1 "Lexend", Arial, sans-serif; padding: 9px 14px; border-radius: 999px; cursor: pointer; }
+ol li { margin-bottom: 6px; }
+.steps { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 14px; }
+.steps div { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.steps b { color: var(--text); }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a><a href="/">Back to the dashboard</a></div></header>
+<main class="wrap">
+  <h1>Fizzl in Grok</h1>
+  <p>Grok and Grok Bot now do a lot of agent work, trading included. When Grok pays for something, the check should sit outside Grok, where a prompt can't switch it off. Add one URL, and Grok can find paid APIs and ask you to pay for them. You sign every payment yourself, in your own wallet, and Grok can't change your limits. Fizzl never holds a key.</p>
+
+  <div class="url"><code id="mcpUrl">https://wallet.fizzl.eu/mcp</code><button type="button" id="copy">Copy</button></div>
+
+  <h2>Add it</h2>
+  <div class="steps">
+    <div><b>Grok</b> (grok.com)
+      <ol>
+        <li>Open <b>grok.com/connectors</b> → <b>New Connector</b> → <b>Custom</b>.</li>
+        <li>Name it "Fizzl Wallet", paste the URL above, then <b>Add Connector</b>.</li>
+        <li>Grok sends you to Fizzl: sign in (e-mail, passkey or your wallet; free to start) and tap <b>Allow</b>.</li>
+        <li>In a chat, ask for something that needs a paid API, for example "today's BTC trend signal".</li>
+      </ol></div>
+    <div><b>Grok Bot</b>
+      <ol>
+        <li>Tell your Bot in chat: "Add a custom MCP connector named Fizzl Wallet, streamable HTTP, at https://wallet.fizzl.eu/mcp".</li>
+        <li>Open the sign-in link it gives you, sign in to Fizzl and tap <b>Allow</b>.</li>
+        <li>Ask the Bot to list the Fizzl Wallet tools, then try a free one: "check the status of my Fizzl wallet".</li>
+      </ol></div>
+  </div>
+  <p class="note">Grok's connector menus are new and change often; look for "Connectors", "Custom" or "MCP". If Grok says connected but shows no Fizzl tools, the sign-in didn't finish: remove the connector and add it again. Still stuck? Mail <a href="mailto:Fizzl13@protonmail.com">Fizzl13@protonmail.com</a> with what Grok showed.</p>
+
+  <h2>What Grok can do, and what it can't</h2>
+  <div class="steps">
+    <div><b>Grok can</b>
+      <ul>
+        <li>Search the x402 catalog for paid APIs (prices, signals, weather, data, safety checks), with each seller's payout record from x402 Doctor.</li>
+        <li>Ask you for a payment, which comes to you as a link (and on Telegram, if you linked it).</li>
+        <li>Check a text it received for prompt-injection traps, for free.</li>
+      </ul></div>
+    <div><b>Grok can't</b>
+      <ul>
+        <li>Sign a payment: you sign each one in your own wallet.</li>
+        <li>Change your limits or turn the checks off.</li>
+        <li>Pay more than $5 at once, or ask more than 30 times an hour.</li>
+      </ul></div>
+  </div>
+
+  <h2>Before you're asked to sign</h2>
+  <ul>
+    <li>The seller's payout address is checked against the OFAC sanctions list and looked up in x402 Doctor's daily payout record.</li>
+    <li>Your balance is checked, so you aren't asked for a payment that would fail.</li>
+    <li>After you sign, the answer goes back to Grok checked for hidden instructions, and the receipt is on your dashboard.</li>
+  </ul>
+  <p>Pay with USDC on Base (MetaMask, Coinbase Wallet and other Ethereum wallets), USDC on Solana (Phantom, Solflare, Backpack; no SOL needed) or RLUSD on the XRP Ledger (Xaman). Each step is described on the <a href="/connector">connector guide</a>.</p>
+
+  <h2>Trading with Grok?</h2>
+  <p>Trades Grok makes on an exchange, such as Coinbase for Agents, run on that exchange's own keys; Fizzl doesn't sit in between. What Fizzl covers is what Grok pays for per call: a <a href="https://ichimoku-signal.fizzl.eu">trend signal</a> before a trade ($0.01), a <a href="https://presign-guard.fizzl.eu">token safety check</a> before a buy, or any other x402 API, each paid only after you sign.</p>
+
+  <h2>Disconnect</h2>
+  <p>Grok shows up as an agent on your dashboard, named after the app. Remove it there and its access ends at once.</p>
+
+  <h2>Questions</h2>
+  <p><b>How do I add the Fizzl Agent Wallet to Grok?</b><br>On grok.com open Connectors, choose New Connector, then Custom, name it Fizzl Wallet and paste https://wallet.fizzl.eu/mcp. Grok then sends you to Fizzl to sign in and allow it. In Grok Bot, ask the Bot in chat to add a custom MCP connector with that URL and sign in when it asks.</p>
+  <p><b>Can Grok pay without me?</b><br>No. Grok can ask for a payment, but every payment waits for your signature in your own wallet: USDC on Base or Solana, or RLUSD in Xaman. Your signature allows exactly that amount to exactly that seller, for a few minutes. Grok can't change your limits, and Fizzl never holds a key.</p>
+  <p><b>Does Fizzl check Grok's trades on Coinbase?</b><br>No. Trades Grok makes on an exchange such as Coinbase for Agents run on that exchange's own keys, and Fizzl does not sit in between. Fizzl covers what Grok pays for per call with x402: data and tools such as a trend signal or a token safety check before a trade.</p>
+  <p><b>Grok says connected but shows no Fizzl tools. What now?</b><br>Remove the connector in Grok and add it again, and make sure the Fizzl sign-in page opened and you tapped Allow. Without that sign-in Fizzl answers nothing, so Grok has no tools to show.</p>
+</main>
+<footer><div class="wrap">Fizzl Agent Wallet · never holds keys or funds · <a href="/connector">ChatGPT and Claude</a> · <a href="/compare/coinbase">vs Coinbase for Agents</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a> · © 2026 Fizzl</div></footer>
+<script>
+document.getElementById("copy").onclick = async (e) => {
+  try { await navigator.clipboard.writeText(document.getElementById("mcpUrl").textContent); e.target.textContent = "Copied"; }
+  catch { e.target.textContent = "Select and copy"; }
+};
+</script>
+</body>
+</html>
