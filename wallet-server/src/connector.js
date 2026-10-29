@@ -282,13 +282,13 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
     });
     server.registerTool("pay_x402", {
       title: "Pay for an x402 API (your user signs)",
-      description: "Call a paid API that answers 402 Payment Required, paid from your user's own wallet: USDC on Base or Solana, or RLUSD on the XRP Ledger signed in Xaman (pushed to their phone). It doesn't pay by itself: it reads the price, checks the seller (OFAC sanctions list, x402 Doctor's payout record) and your user's balance, and returns an approve_url where your user signs this one payment in their own wallet (also sent to their phone). Give them that link, then call payment_status. An API that doesn't ask for payment is just called, and its answer comes back. Use find_services first to pick a seller with a good record; don't pay more than the task needs.",
+      description: "Call a paid API that answers 402 Payment Required, paid from your user's own wallet: USDC on Base or Solana, or RLUSD on the XRP Ledger signed in Xaman (pushed to their phone). Escrowed offers on Base (x402 auth-capture, e.g. buying a domain on Atom) are paid too: the USDC is held and only captured when the seller delivers. It doesn't pay by itself: it reads the price, checks the seller (OFAC sanctions list, x402 Doctor's payout record) and your user's balance, and returns an approve_url where your user signs this one payment in their own wallet (also sent to their phone). Give them that link, then call payment_status. An API that doesn't ask for payment is just called, and its answer comes back. Use find_services first to pick a seller with a good record; don't pay more than the task needs.",
       inputSchema: {
         url: z.string().url().max(2000).describe("The API URL (https)"),
         method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),
         body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Request body: a string, or an object sent as JSON"),
         headers: z.record(z.string(), z.string()).optional().describe("Extra request headers, e.g. content-type"),
-        max_price_usd: z.number().positive().max(5).optional().describe("The most this call may cost, in dollars (default 1, at most 5)"),
+        max_price_usd: z.number().positive().max(100).optional().describe("The most this call may cost, in dollars (default 1; at most 5, or 100 for an escrowed payment that is only captured when the seller delivers, such as a domain)"),
         reason: z.string().max(300).optional().describe("What this is for, in a few words: shown to your user when they sign, and on the receipt"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },

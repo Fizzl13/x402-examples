@@ -17,6 +17,12 @@
 // Those outcomes have their own statuses, settled_no_answer and outcome_unknown, not failed. While one is fresh, the
 // same request asked again (same method, URL and body, any of the account's apps) carries a warning to the agent
 // and on the owner's page, so a second signature is never asked for without saying the first may have paid.
+//
+// Escrowed offers (x402's "auth-capture" scheme, Coinbase's commerce escrow, e.g. Atom's domain checkout): the owner
+// signs one ReceiveWithAuthorization for at most the price, to the escrow's collector instead of the seller. The
+// USDC is held there and the seller can only capture it once it delivers (the capture deadline), with refunds until
+// the refund deadline. @x402/evm's AuthCaptureEvmScheme builds what is signed, so it matches what the escrow checks.
+// Such an offer may cost more than an exact one (up to MAX_ESCROW_USD): the owner signs it in their own wallet.
 import express from "express";
 import { createHash, randomBytes } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
@@ -25,12 +31,15 @@ import { isPrivateAddress } from "./catalog.js";
 import { xrplOffer, signWindow, paymentTx, checkSigned, createXaman, createXrplReader, XRPL_MAINNET } from "./connector-xaman.js";
 import { solanaOffer, paymentMessage, unsignedTransaction, checkSigned as checkSolana, createSolanaReader, signatureOf, SOLANA_MAINNET } from "./connector-solana.js";
 import { isSolanaAddress } from "./solana.js";
+import { AuthCaptureEvmScheme } from "@x402/evm/auth-capture/client";
 
 export const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_CHAIN_ID = 8453;
 const WAIT_MS = 15 * 60_000; // a request waits 15 minutes for the owner
 const KEEP_TTL_S = 3600; // and stays readable for an hour
 const MAX_PRICE_USD = 5;
+const MAX_ESCROW_USD = 100; // an escrowed offer: held until the seller delivers, refundable (see the top of this file)
+const ESCROWS = ["0xf96815976523e00e65be8f34ca5e64b4f41eb19c", "0xbdea0d1bcc5966192b070fdf62ab4ef5b4420cff"]; // AuthCaptureEscrow v1.1, v1.0
 const XAMAN_TRIES = 10; // sign requests in Xaman per payment request (each is a push or a QR code)
 const BODY_LIMIT = 32 * 1024; // what the agent may send
 const ANSWER_LIMIT = 100 * 1024; // what is read of the API's answer
@@ -70,6 +79,36 @@ export function baseOffer(challenge) {
   return null;
 }
 const offered = (c) => [...new Set((c?.accepts ?? []).map((a) => a?.network).filter(Boolean))];
+
+// The USDC-on-Base "auth-capture" offer (Coinbase's escrow, x402 v2 only), when it has everything the escrow needs
+// and the plain EIP-3009 way of collecting (Permit2 would need an approval first).
+export function escrowOffer(challenge) {
+  if (!challenge || challenge.x402Version !== 2 || !Array.isArray(challenge.accepts)) return null;
+  for (const a of challenge.accepts) {
+    if (a?.scheme !== "auth-capture" || a.network !== `eip155:${BASE_CHAIN_ID}`) continue;
+    if (String(a.asset ?? "").toLowerCase() !== USDC_BASE.toLowerCase()) continue;
+    const amount = String(a.amount ?? "");
+    const x = a.extra ?? {};
+    if (!/^[1-9]\d{0,17}$/.test(amount) || !/^0x[0-9a-fA-F]{40}$/.test(a.payTo ?? "") || typeof a.maxTimeoutSeconds !== "number") continue;
+    if (!x.name || !x.version || !/^0x[0-9a-fA-F]{40}$/.test(x.captureAuthorizer ?? "") || !/^0x[0-9a-fA-F]{40}$/.test(x.feeRecipient ?? "")) continue;
+    if (![x.captureDeadline, x.refundDeadline, x.minFeeBps, x.maxFeeBps].every(Number.isInteger) || x.maxFeeBps > 10_000 || x.minFeeBps > x.maxFeeBps) continue;
+    if ((x.assetTransferMethod ?? "eip3009") !== "eip3009") continue;
+    if (x.authCaptureEscrow && !ESCROWS.includes(String(x.authCaptureEscrow).toLowerCase())) continue;
+    return { version: 2, accepted: a, amount, payTo: getAddress(a.payTo), resource: challenge.resource ?? null, escrow: { captureDeadline: x.captureDeadline, refundDeadline: x.refundDeadline, maxFeeBps: x.maxFeeBps } };
+  }
+  return null;
+}
+
+// What the owner signs for an escrowed offer, made by @x402/evm's own client with a signer that hands the typed
+// data back instead of signing: the payload (with a placeholder for the signature) and the typed data, as JSON.
+export async function escrowTyped(offer, from) {
+  let captured = null;
+  const signer = { address: from, signTypedData: async (td) => { captured = td; return `0x${"00".repeat(65)}`; } };
+  const { payload } = await new AuthCaptureEvmScheme(signer).createPaymentPayload(2, offer.accepted);
+  const json = (v) => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x)));
+  const typed = json({ types: { EIP712Domain: DOMAIN, ...captured.types }, domain: captured.domain, primaryType: captured.primaryType, message: captured.message });
+  return { typed, payload: json(payload) };
+}
 
 // The warning for the same request asked again while an earlier payment for it is uncertain.
 function again(previous) {
@@ -188,7 +227,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (asks.size > 10_000) asks.clear();
     const problem = await urlProblem(url);
     if (problem) return { error: problem };
-    const cap = Math.min(max_price_usd ?? 1, MAX_PRICE_USD);
+    const cap = Math.min(max_price_usd ?? 1, MAX_ESCROW_USD);
     const sendBody = body === undefined || body === null || method === "GET" ? undefined : typeof body === "string" ? body : JSON.stringify(body);
     if (sendBody !== undefined && Buffer.byteLength(sendBody) > BODY_LIMIT) return { error: "The request body is over 32 KB." };
     const h = { accept: "application/json", ...cleanHeaders(headers), "user-agent": UA };
@@ -205,14 +244,20 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (!challenge) { try { challenge = JSON.parse(text); } catch { /* no challenge in the body either */ } }
     // USDC on Base (an Ethereum wallet signs), USDC on Solana (a Solana wallet signs) and RLUSD on the XRP Ledger
     // (Xaman signs): the owner picks on the page.
-    const base = baseOffer(challenge);
+    const base = baseOffer(challenge) ?? escrowOffer(challenge);
     const sol = solanaOffer(challenge);
     const xrpl = xm ? xrplOffer(challenge) : null;
     if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
-    let offer = base && usd(base.amount) <= cap ? base : null;
-    const onSol = sol && sol.price <= cap ? sol : null;
-    const onXrpl = xrpl && xrpl.price <= cap ? xrpl : null;
-    if (!offer && !onSol && !onXrpl) return { error: `This API asks $${Math.min(...[base && usd(base.amount), sol?.price, xrpl?.price].filter(Boolean))}, above max_price_usd ($${cap}). Ask your user before raising it (at most $${MAX_PRICE_USD}).` };
+    // An escrowed offer may cost up to MAX_ESCROW_USD; everything else up to MAX_PRICE_USD.
+    const within = (price, escrowed = false) => price <= Math.min(cap, escrowed ? MAX_ESCROW_USD : MAX_PRICE_USD);
+    let offer = base && within(usd(base.amount), !!base.escrow) ? base : null;
+    const onSol = sol && within(sol.price) ? sol : null;
+    const onXrpl = xrpl && within(xrpl.price) ? xrpl : null;
+    if (!offer && !onSol && !onXrpl) {
+      const asked = Math.min(...[base && usd(base.amount), sol?.price, xrpl?.price].filter(Boolean));
+      const most = base?.escrow ? MAX_ESCROW_USD : MAX_PRICE_USD;
+      return { error: asked > most ? `This API asks $${asked}, more than the connector pays${base?.escrow ? " for an escrowed payment" : ""} (at most $${most}).` : `This API asks $${asked}, above max_price_usd ($${Math.min(cap, most)}). Ask your user before raising it (at most $${most}${base?.escrow ? ", held in escrow until the seller delivers" : ""}).` };
+    }
     const owner = await accounts.payer(account);
     const payTos = [offer?.payTo, onSol?.payTo, onXrpl?.payTo].filter(Boolean);
     const [listed, record, balance] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url), owner && offer ? usdcBalance(owner) : null]);
@@ -287,7 +332,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   const ownerView = (r) => ({
     status: r.status, agent: r.agentName, seller: new URL(r.url).host, url: r.url, method: r.method, reason: r.reason,
     price: r.price, ...VIA[via(r)](r), from: r.from, pick: !!r.pick, screened: r.screened, record: r.record,
-    options: { base: r.offer ? { price: usd(r.offer.amount), payTo: r.offer.payTo } : null, solana: r.sol ? { price: r.sol.price, payTo: r.sol.payTo } : null, xrpl: r.xrpl ? { price: r.xrpl.price, payTo: r.xrpl.payTo, seconds: signWindow(r.xrpl).seconds } : null },
+    options: { base: r.offer ? { price: usd(r.offer.amount), payTo: r.offer.payTo, ...(r.offer.escrow ? { escrow: r.offer.escrow } : {}) } : null, solana: r.sol ? { price: r.sol.price, payTo: r.sol.payTo } : null, xrpl: r.xrpl ? { price: r.xrpl.price, payTo: r.xrpl.payTo, seconds: signWindow(r.xrpl).seconds } : null },
     xaman: r.xaman && OPEN.has(r.status) ? { url: r.xaman.url, qr: r.xaman.qr, pushed: r.xaman.pushed, until: r.xaman.until } : null,
     paidWith: r.paidWith ?? null, note: r.note ?? null, expiresAt: r.expiresAt, error: r.error ?? null, warning: r.previous && OPEN.has(r.status) ? again(r.previous) : null,
     result: r.result ? { httpStatus: r.result.httpStatus, settlement: r.result.settlement ?? null, receipt: !!r.result.purchaseId, injection: !!r.result.check?.injection, delivered: r.result.check?.delivered ?? null } : null,
@@ -309,6 +354,11 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   // signed XRPL Payment; landed() asks the chain whether it settled.
   function basePayment(r, signature) {
     const m = r.typed.message;
+    if (r.offer.escrow) {
+      // auth-capture: the payload @x402/evm made (salt, authorization to the escrow's collector), now with the signature.
+      const value = b64({ x402Version: 2, ...(r.offer.resource ? { resource: r.offer.resource } : {}), accepted: r.offer.accepted, payload: { ...r.escrowPayload, signature }, ...extensions(r) });
+      return { name: "payment-signature", value, network: `eip155:${BASE_CHAIN_ID}`, token: "USDC", payTo: r.offer.payTo, receipt: { chainId: BASE_CHAIN_ID, to: r.offer.payTo, amount: r.offer.amount, from: r.from, method: "authCapture" }, landed: async () => authorizationUsed(m.from, m.nonce) };
+    }
     const payload = { signature, authorization: { from: m.from, to: m.to, value: m.value, validAfter: m.validAfter, validBefore: m.validBefore, nonce: m.nonce } };
     const [name, value] = r.offer.version === 2
       ? ["payment-signature", b64({ x402Version: 2, ...(r.offer.resource ? { resource: r.offer.resource } : {}), accepted: r.offer.accepted, payload, ...extensions(r) })]
@@ -459,6 +509,11 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       if (balance !== null && balance < BigInt(r.offer.amount)) return res.status(400).json({ error: "low_balance", message: `${short(picked)} has $${usd(balance)} USDC on Base, less than $${r.price}. Add USDC on Base to it, or pick another wallet.` });
       from = picked;
     }
+    if (r.offer.escrow) {
+      const { typed, payload } = await escrowTyped(r.offer, from);
+      await putReq({ ...r, from, status: "signing", typed, escrowPayload: payload });
+      return res.json({ from, typedData: typed });
+    }
     const typed = typedData({ ...r, from }, Math.floor(now() / 1000));
     await putReq({ ...r, from, status: "signing", typed });
     res.json({ from, typedData: typed });
@@ -471,7 +526,8 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const signature = typeof req.body?.signature === "string" && /^0x[0-9a-fA-F]{130,}$/.test(req.body.signature) ? req.body.signature : null;
     const m = r.typed.message;
     const valid = signature && await verifyTypedData({
-      address: m.from, domain: r.typed.domain, types: { TransferWithAuthorization: AUTHORIZATION }, primaryType: "TransferWithAuthorization",
+      // TransferWithAuthorization (exact) or ReceiveWithAuthorization (escrowed): the same fields.
+      address: m.from, domain: r.typed.domain, types: { [r.typed.primaryType]: AUTHORIZATION }, primaryType: r.typed.primaryType,
       message: { from: m.from, to: m.to, value: BigInt(m.value), validAfter: BigInt(m.validAfter), validBefore: BigInt(m.validBefore), nonce: m.nonce }, signature,
     }).catch(() => false);
     if (!valid) return res.status(400).json({ error: "bad_signature", message: `That signature isn't from ${m.from}. Sign with that wallet${r.pick ? "" : " (the one you sign in to Fizzl with)"}; a smart wallet's signature doesn't work here yet.` });

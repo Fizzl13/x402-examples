@@ -21,12 +21,15 @@ const PASSWORD = "correct horse battery staple";
 const REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
 const SELLER = "0x1111111111111111111111111111111111111111";
 const SANCTIONED = "0x2222222222222222222222222222222222222222";
+const COLLECTOR = "0x8612dfdc421f80336cd14E8EF9cb1E765dB5ab88"; // AuthCaptureEscrow v1.1's EIP-3009 collector
+const RECEIVE = { ReceiveWithAuthorization: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" }] };
 const TYPES = { TransferWithAuthorization: [{ name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" }] };
 
 // A seller: a 402 on Base (and Solana) until the PAYMENT-SIGNATURE carries a valid authorization for its price.
 // /flaky...: the first paid request settles but gets no answer (the connection hangs); /flaky-dedup declares x402's
 // payment-identifier and answers a retry from what it kept, /flaky-strict refuses the reused authorization with a 402,
-// /flaky-down never answers.
+// /flaky-down never answers. /escrow: only an "auth-capture" offer ($12, Coinbase's escrow), paid by a
+// ReceiveWithAuthorization to the escrow's collector.
 function seller() {
   const seen = [];
   const settled = new Map(); // nonce -> the payment-identifier it came with
@@ -42,6 +45,27 @@ function seller() {
     const payTo = req.url.startsWith("/bad") ? SANCTIONED : SELLER;
     const amount = req.url.startsWith("/dear") ? "2000000" : "2000";
     const c = req.url.startsWith("/solana") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(0, 1) } : challenge(req, payTo, amount);
+    if (req.url.startsWith("/escrow")) {
+      const now = Math.floor(Date.now() / 1000);
+      const offer = { scheme: "auth-capture", network: "eip155:8453", amount: "12000000", asset: USDC_BASE, payTo: SELLER, maxTimeoutSeconds: 300,
+        extra: { name: "USD Coin", version: "2", captureAuthorizer: SELLER, feeRecipient: SELLER, captureDeadline: now + 86400, refundDeadline: now + 7 * 86400, minFeeBps: 0, maxFeeBps: 100 } };
+      const e = { x402Version: 2, resource: { url: `http://${req.headers.host}${req.url}`, description: "a domain" }, accepts: [offer] };
+      const header = req.headers["payment-signature"];
+      if (header) {
+        const p = JSON.parse(Buffer.from(header, "base64").toString());
+        const a = p.payload.authorization;
+        const ok = p.x402Version === 2 && p.accepted.scheme === "auth-capture" && a.to.toLowerCase() === COLLECTOR.toLowerCase() && BigInt(a.value) === 12000000n && typeof p.payload.salt === "string"
+          && await verifyTypedData({ address: a.from, domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: USDC_BASE }, types: RECEIVE, primaryType: "ReceiveWithAuthorization", message: { ...a, value: BigInt(a.value), validAfter: BigInt(a.validAfter), validBefore: BigInt(a.validBefore) }, signature: p.payload.signature });
+        if (ok) {
+          res.setHeader("payment-response", Buffer.from(JSON.stringify({ success: true, transaction: "0xauthorized", network: "eip155:8453", payer: a.from })).toString("base64"));
+          res.setHeader("content-type", "application/json");
+          return res.end(JSON.stringify({ domain: "example.com", status: "registering" }));
+        }
+      }
+      res.statusCode = 402;
+      res.setHeader("payment-required", Buffer.from(JSON.stringify(e)).toString("base64"));
+      return res.end("{}");
+    }
     if (req.url.startsWith("/flaky-dedup")) c.extensions = { "payment-identifier": { info: { required: false }, schema: { type: "object" } } };
     const header = req.headers["payment-signature"];
     if (header && req.url.startsWith("/flaky")) {
@@ -372,6 +396,40 @@ test("connector payments: an API that doesn't answer the paid request gets the s
     assert.match(lostAgain.warning, /paid .* min ago .* answer got lost: paying again pays twice/);
     assert.equal((await call(client, "pay_x402", { url: `${s.url}/flaky-strict-2` })).structuredContent.warning, undefined, "nothing was paid there");
     assert.equal((await call(client, "pay_x402", { url: `${s.url}/flaky-down?other=1` })).structuredContent.warning, undefined, "another request");
+    await client.close();
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: an escrowed offer (auth-capture) is signed to the escrow's collector, up to max_price_usd", async () => {
+  const s = await seller();
+  const { base, server } = await boot({ balance: 20_000_000n });
+  try {
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const client = await connect(base, await signIn(base, owner));
+
+    // $12 is above the default $1 and the $5 for a direct payment, but an escrowed one may go up to $100 when asked.
+    const low = await call(client, "pay_x402", { url: `${s.url}/escrow/example.com`, reason: "register example.com" });
+    assert.equal(low.isError, true);
+    assert.match(low.content[0].text, /asks \$12, above max_price_usd \(\$1\)/);
+    const asked = (await call(client, "pay_x402", { url: `${s.url}/escrow/example.com`, reason: "register example.com", max_price_usd: 15 })).structuredContent;
+    assert.equal(asked.status, "waiting_for_owner");
+    assert.equal(asked.price_usd, 12);
+
+    const v = await (await fetch(`${base}/connector/payments/${asked.payment_id}`)).json();
+    assert.equal(v.options.base.escrow.maxFeeBps, 100);
+    const t = await (await fetch(`${base}/connector/payments/${asked.payment_id}/typed`, { method: "POST" })).json();
+    assert.equal(t.typedData.primaryType, "ReceiveWithAuthorization");
+    assert.equal(t.typedData.message.to.toLowerCase(), COLLECTOR.toLowerCase());
+    assert.equal(t.typedData.message.value, "12000000");
+
+    const paid = await signOnPage(base, asked.payment_id, owner);
+    assert.equal(paid.status, 200);
+    const pv = await paid.json();
+    assert.equal(pv.status, "done");
+    assert.deepEqual(pv.result.settlement, { transaction: "0xauthorized", network: "eip155:8453" });
+    const st = (await call(client, "payment_status", { payment_id: asked.payment_id })).structuredContent;
+    assert.equal(st.status, "paid");
+    assert.deepEqual(JSON.parse(st.body), { domain: "example.com", status: "registering" });
     await client.close();
   } finally { server.close(); s.server.close(); }
 });
