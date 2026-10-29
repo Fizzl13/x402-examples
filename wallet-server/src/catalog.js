@@ -264,10 +264,18 @@ function createListingsFile(file) {
 const inList = (values) => JSON.stringify([...values]);
 // How many of the words each listing has: listing id -> count, one index lookup per word (the index keeps no copy of a
 // listing's words to read back).
+// Each listing's score for the question's words: a rare word counts more than a common one (inverse document
+// frequency), so "buy an API call for my agent" ranks a listing about buying above the thousands that only say
+// "agent". Before 29 Oct 2026 every word counted 1 and ties went to the cheapest, which buried Fizzl Buy and others.
 function matchCounts(db, terms) {
   const counts = new Map();
   const lookup = db.prepare("SELECT rowid FROM fts WHERE fts MATCH ?");
-  for (const t of terms) for (const { rowid } of lookup.iterate(`"${t}"`)) counts.set(rowid, (counts.get(rowid) ?? 0) + 1);
+  const total = db.prepare("SELECT count(*) AS n FROM listings").get().n || 1;
+  for (const t of terms) {
+    const rows = [...lookup.iterate(`"${t}"`)];
+    const weight = Math.log(1 + total / Math.max(1, rows.length));
+    for (const { rowid } of rows) counts.set(rowid, (counts.get(rowid) ?? 0) + weight);
+  }
   return counts;
 }
 // Catalog files of another catalog (another process, or this one before a restart) that weren't touched for two hours:
