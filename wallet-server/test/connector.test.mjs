@@ -237,3 +237,36 @@ test("connector: a wrong verifier spends the code and removes its agent; no; the
     assert.equal((await fetch(`${base}/oauth/request?req=${c.rid}`, { headers: { cookie } })).status, 200);
   } finally { server.close(); }
 });
+
+test("connector: lenient for apps like Grok (client_id as Basic auth, JSON token body, a bare Accept, an unknown protocol version), and each step logged", async () => {
+  const { base, server, records } = await boot();
+  try {
+    const cookie = await signIn(base, privateKeyToAccount(generatePrivateKey()));
+    const { reg, verifier, rid } = await startAuthorize(base, { client_name: "Grok" });
+    const ok = await (await fetch(`${base}/oauth/consent`, json({ req: rid, allow: true }, cookie))).json();
+    const code = new URL(ok.redirect).searchParams.get("code");
+    // A wrong code first: refused and logged with its reason, never the code.
+    assert.equal((await fetch(`${base}/oauth/token`, form({ grant_type: "authorization_code", code: "nope", code_verifier: verifier }))).status, 400);
+    const failed = records.find((r) => r.input?.step === "token_failed");
+    assert.equal(failed.input.reason, "The code is wrong, already used or expired.");
+    assert.ok(!JSON.stringify(failed).includes(verifier));
+    // client_id only in an HTTP Basic header, the body as JSON.
+    const t = await fetch(`${base}/oauth/token`, { method: "POST", headers: { "content-type": "application/json", authorization: `Basic ${Buffer.from(`${reg.client_id}:`).toString("base64")}` }, body: JSON.stringify({ grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: REDIRECT }) });
+    assert.equal(t.status, 200);
+    const { access_token } = await t.json();
+    assert.ok(records.some((r) => r.input?.step === "token" && r.input.client === "Grok"));
+    // MCP with only application/json in Accept and a protocol version header the SDK doesn't know.
+    const call = (body, headers = {}) => fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${access_token}`, ...headers }, body: JSON.stringify(body) });
+    const init = await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "grok", version: "1" } } });
+    assert.equal(init.status, 200);
+    assert.equal((await init.json()).result.serverInfo.name, "fizzl-agent-wallet");
+    const list = await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { "mcp-protocol-version": "2099-01-01" });
+    assert.equal(list.status, 200);
+    assert.ok((await list.json()).result.tools.some((x) => x.name === "wallet_status"));
+    // A token we don't take is logged by its shape only.
+    assert.equal((await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer xyz-not-ours" }, body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list" }) })).status, 401);
+    const un = records.find((r) => r.input?.step === "mcp_unauthorized");
+    assert.deepEqual([un.input.bearer, un.input.awk, un.input.method], [true, false, "tools/list"]);
+    assert.ok(!JSON.stringify(records).includes("xyz-not-ours"));
+  } finally { server.close(); }
+});

@@ -8,6 +8,7 @@ import express from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createPayments } from "./connector-pay.js";
 
@@ -46,6 +47,14 @@ export function okRedirect(u) {
     if (url.protocol === "http:") return ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     return /^[a-z][a-z0-9+.-]{1,60}:$/.test(url.protocol) && !NOT_APP_SCHEMES.has(url.protocol);
   } catch { return false; }
+}
+// Replaces (or with null removes) a request header in req.rawHeaders and req.headers.
+function setRawHeader(req, name, value) {
+  const raw = [];
+  for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() !== name) raw.push(req.rawHeaders[i], req.rawHeaders[i + 1]);
+  if (value !== null) raw.push(name, value);
+  req.rawHeaders.splice(0, req.rawHeaders.length, ...raw);
+  if (value === null) delete req.headers[name]; else req.headers[name] = value;
 }
 // The agent the app becomes on the dashboard (the dashboard's agent names: 1-40 of letters, digits, space . _ -).
 export const agentName = (clientName) => `${String(clientName ?? "").replace(/[^\w .-]/g, "").replace(/\s+/g, " ").trim().slice(0, 29) || "MCP app"} connector`;
@@ -181,7 +190,7 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
       return res.status(err.status ?? 500).json({ error: "not_added", message: err.status ? err.message : "Something went wrong. Try again." });
     }
     const code = rand(24);
-    await store.putOnce("oauthcode", code, { clientId: r.clientId, redirect: r.redirect, challenge: r.challenge, key: added.key, account: id, agentId: added.agent.id }, CODE_TTL_S);
+    await store.putOnce("oauthcode", code, { clientId: r.clientId, clientName: r.client, redirect: r.redirect, challenge: r.challenge, key: added.key, account: id, agentId: added.agent.id }, CODE_TTL_S);
     usage.record("connector", { account: id, input: { step: "allowed", client: r.client } });
     res.json({ redirect: withParams(r.redirect, { code, state: r.state }) });
   });
@@ -189,8 +198,17 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
   // ---------- the token: the agent's key, for a code and its PKCE verifier ----------
   router.post("/oauth/token", express.urlencoded({ extended: false, limit: "8kb" }), async (req, res) => {
     res.set({ "cache-control": "no-store", pragma: "no-cache" });
-    const b = req.body ?? {};
-    const fail = (error, description) => res.status(400).json({ error, error_description: description });
+    const b = { ...(req.body ?? {}) };
+    // A public client sends client_id in the body; some send it as HTTP Basic auth instead (client_id and an empty
+    // secret), the default method in RFC 7591 when a client doesn't say.
+    const basic = /^Basic ([A-Za-z0-9+/=]+)$/.exec(req.get("authorization") ?? "")?.[1];
+    if (basic && b.client_id === undefined) b.client_id = decodeURIComponent(Buffer.from(basic, "base64").toString("utf8").split(":")[0]);
+    // Each failed exchange is logged with its reason (never the code or verifier), so an app that can't connect can be
+    // told why.
+    const fail = (error, description, client = null) => {
+      usage.record("connector", { input: { step: "token_failed", reason: description, client, body: String(req.get("content-type") ?? "").split(";")[0].slice(0, 40) || null, basic: !!basic } });
+      return res.status(400).json({ error, error_description: description });
+    };
     if (b.grant_type !== "authorization_code") return fail("unsupported_grant_type", "only authorization_code");
     const c = typeof b.code === "string" && b.code.length <= 64 ? await store.takeOnce("oauthcode", b.code) : null;
     if (!c) return fail("invalid_grant", "The code is wrong, already used or expired.");
@@ -201,8 +219,9 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
     if (bad) {
       // The code is spent: the agent it added can't be reached, so it goes.
       await accounts.walletFor(c.account).removeAgent(c.agentId).catch(() => {});
-      return fail("invalid_grant", bad);
+      return fail("invalid_grant", bad, c.clientName ?? null);
     }
+    usage.record("connector", { account: c.account, input: { step: "token", client: c.clientName ?? null } });
     res.json({ access_token: c.key, token_type: "Bearer", scope: "wallet" });
   });
 
@@ -323,12 +342,27 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
   }
 
   router.post("/mcp", async (req, res) => {
-    const key = /^Bearer (awk_[A-Za-z0-9_-]+)$/.exec(req.get("authorization") ?? "")?.[1];
+    const auth = req.get("authorization") ?? "";
+    const key = /^Bearer (awk_[A-Za-z0-9_-]+)$/.exec(auth)?.[1];
     const found = key ? await accounts.agentForKey(key).catch(() => null) : null;
     if (!found) {
+      // An app that sends a token we don't take: logged by its shape only, never the token.
+      if (auth) usage.record("connector", { input: { step: "mcp_unauthorized", bearer: /^Bearer /i.test(auth), awk: !!key, method: String(req.body?.method ?? "").slice(0, 40) || null } });
       return res.status(401).set("www-authenticate", `Bearer realm="fizzl-wallet", resource_metadata="${metadataUrl(req)}"`)
         .json({ jsonrpc: "2.0", error: { code: -32001, message: "Connect the Fizzl Agent Wallet first (the app's connector settings), or connect it again if it was removed on the dashboard." }, id: null });
     }
+    // Lenient where the MCP SDK is strict and some apps aren't: every answer here is JSON, so an Accept header
+    // without text/event-stream (or without one at all) is fine; an MCP-Protocol-Version this SDK doesn't know is
+    // dropped, so the version agreed in initialize applies (the SDK's default when the header is missing).
+    // (The SDK reads req.rawHeaders, so that is what is changed.)
+    const accept = String(req.headers.accept ?? "");
+    if (!accept.includes("application/json") || !accept.includes("text/event-stream")) setRawHeader(req, "accept", "application/json, text/event-stream");
+    const asked = req.headers["mcp-protocol-version"];
+    if (asked && !SUPPORTED_PROTOCOL_VERSIONS.includes(asked)) setRawHeader(req, "mcp-protocol-version", null);
+    // A refused MCP call is logged with its status and JSON-RPC method, so a client that can't use the tools shows up.
+    res.on("finish", () => {
+      if (res.statusCode >= 400) usage.record("connector", { account: found.account, input: { step: "mcp_error", status: res.statusCode, method: String(req.body?.method ?? "").slice(0, 40) || null, agent: String(found.agent?.name ?? "").slice(0, 40) || null } });
+    });
     const wallet = accounts.walletFor(found.account);
     wallet.seen(found.agent).catch(() => {});
     const server = buildServer({ account: found.account, agent: found.agent, wallet, o: origin(req) });
