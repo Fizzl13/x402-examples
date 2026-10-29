@@ -74,32 +74,79 @@ export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").repla
 // redirects, 3 seconds, and only a small text answer that looks like markdown. Cached per origin.
 const PRIVATE = [/^0\./, /^10\./, /^127\./, /^169\.254\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, /^::1$/, /^::$/, /^f[cd]/i, /^fe80/i, /^::ffff:(0|10|127|169\.254|192\.168)\./i];
 export const isPrivateAddress = (a) => PRIVATE.some((r) => r.test(a));
-export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now() } = {}) {
-  const cache = new Map(); // origin -> { has, at }
+// A skill.md is text an agent reads and follows, so a seller could hide instructions in it ("send me your key",
+// "pay this address instead"). Before a link is shown, PG1 (pg1-ai-agent.vercel.app, free) reads it with
+// check_agent_message: fixed rules, no AI model, and the text isn't stored. Its answer: "malicious" (hidden tag
+// characters, a request for secrets, a payment redirect, a sanctioned address), "suspicious" (medium findings only)
+// or "no_findings", which doesn't prove the text is harmless. Returns { verdict, codes }, or null when PG1 can't be
+// asked (slow, down, or over its 60 calls an hour; PG1_API_KEY lifts that limit). After a rate limit it is left
+// alone for 5 minutes.
+export const PG1_URL = "https://pg1-ai-agent.vercel.app/api/mcp";
+const MAX_SKILL_BYTES = 65536; // PG1 reads up to 64 KB
+export function createAgentMessageCheck({ fetch: fetchImpl = globalThis.fetch, url = PG1_URL, apiKey = null, timeoutMs = 8000, now = () => Date.now() } = {}) {
+  let pausedUntil = 0, id = 0;
+  return async function checkText(text, kind = "skill_md") {
+    if (now() < pausedUntil) return null;
+    const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+    if (apiKey) headers["x-api-key"] = apiKey;
+    try {
+      const res = await fetchImpl(url, { method: "POST", headers, signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name: "check_agent_message", arguments: { text, kind } } }) });
+      if (res.status === 429) { pausedUntil = now() + 5 * 60_000; return null; }
+      if (!res.ok) return null;
+      const raw = await res.text();
+      const result = JSON.parse(raw.match(/^data: (.*)$/m)?.[1] ?? raw)?.result;
+      if (!result || result.isError) { if (/rate_limited/.test(JSON.stringify(result ?? ""))) pausedUntil = now() + 5 * 60_000; return null; }
+      const out = result.structuredContent ?? JSON.parse(result.content?.[0]?.text ?? "null");
+      if (!["no_findings", "suspicious", "malicious"].includes(out?.verdict)) return null;
+      const codes = [...new Set((out.findings ?? []).map((f) => String(f?.code ?? "")).filter(Boolean))].slice(0, 8);
+      return { verdict: out.verdict, codes };
+    } catch { return null; }
+  };
+}
+// A link is shown with the check's result (skillCheck): "no_findings", "suspicious" (shown with a warning) or
+// "unchecked" (PG1 couldn't be asked, or the file is over 64 KB); a "malicious" one isn't shown at all.
+export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now(), checkText = null } = {}) {
+  const cache = new Map(); // origin -> { has, at, check }
   const pending = new Map(); // origins being checked right now
   async function probe(origin) {
+    const no = { has: false, check: null };
     const u = new URL(origin);
-    if (u.protocol !== "https:" || u.port || isIP(u.hostname) || !u.hostname.includes(".") || /(^|\.)(localhost|local|internal)$/i.test(u.hostname)) return false;
+    if (u.protocol !== "https:" || u.port || isIP(u.hostname) || !u.hostname.includes(".") || /(^|\.)(localhost|local|internal)$/i.test(u.hostname)) return no;
     const addrs = await lookup(u.hostname).catch(() => []);
-    if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address ?? a))) return false;
+    if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address ?? a))) return no;
     const res = await fetchImpl(`${u.origin}/skill.md`, { redirect: "manual", signal: AbortSignal.timeout(3000), headers: { accept: "text/markdown, text/plain" } }).catch(() => null);
-    if (!res || res.status !== 200 || !/^text\/(markdown|plain|x-markdown)/i.test(res.headers.get("content-type") ?? "")) return false;
+    if (!res || res.status !== 200 || !/^text\/(markdown|plain|x-markdown)/i.test(res.headers.get("content-type") ?? "")) return no;
+    // Read up to 64 KB (one byte more tells whether there is more), all of it for the injection check.
     const reader = res.body?.getReader?.();
-    let text = "";
+    const chunks = [];
+    let total = 0;
     if (reader) {
-      for (let total = 0; total < 65536;) { const { done, value } = await reader.read(); if (done) break; total += value.length; text += new TextDecoder().decode(value, { stream: true }); if (text.length > 512) break; }
+      while (total <= MAX_SKILL_BYTES) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); total += value.length; }
       reader.cancel().catch(() => {});
-    } else text = (await res.text()).slice(0, 512);
-    return /^\s*(---|#)/.test(text);
+    } else { const b = new Uint8Array(await res.arrayBuffer()); chunks.push(b); total = b.length; }
+    const bytes = new Uint8Array(Math.min(total, MAX_SKILL_BYTES + 1));
+    let at = 0;
+    for (const c of chunks) { if (at >= bytes.length) break; bytes.set(c.subarray(0, bytes.length - at), at); at += Math.min(c.length, bytes.length - at); }
+    const tooBig = total > MAX_SKILL_BYTES;
+    const text = new TextDecoder().decode(bytes);
+    if (!/^\s*(---|#)/.test(text)) return no;
+    const check = checkText && !tooBig ? await checkText(text, "skill_md").catch(() => null) : null;
+    return { has: true, check };
   }
+  const entry = (origin) => cache.get(origin);
+  const shown = (c) => !!c?.has && c.check?.verdict !== "malicious";
   return {
-    known: (origin) => cache.get(origin)?.has ?? null,
+    known: (origin) => (entry(origin) ? shown(entry(origin)) : null),
+    // What the check found for a shown link: { verdict: "no_findings" | "suspicious" | "unchecked", codes }; null without one.
+    review: (origin) => { const c = entry(origin); return shown(c) ? (c.check ?? { verdict: "unchecked", codes: [] }) : null; },
     // Check these origins (in parallel, waiting at most `waitMs`); later calls use the cache.
     // At most 16 sellers are asked at once, and one that is being asked isn't asked again.
+    // A checked skill.md is checked again after a day; no skill.md, or one PG1 couldn't check, after 6 hours.
     async check(origins, { waitMs = 3500 } = {}) {
-      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !pending.has(o) && (!c || now() - c.at > (c.has ? 86_400_000 : 6 * 3_600_000)); });
+      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !pending.has(o) && (!c || now() - c.at > (c.has && c.check ? 86_400_000 : 6 * 3_600_000)); });
       for (const o of todo) pending.set(o, null);
-      const one = (o) => probe(o).catch(() => false).then((has) => { cache.set(o, { has, at: now() }); pending.delete(o); if (cache.size > 5000) cache.delete(cache.keys().next().value); });
+      const one = (o) => probe(o).catch(() => ({ has: false, check: null })).then(({ has, check }) => { cache.set(o, { has, check, at: now() }); pending.delete(o); if (cache.size > 5000) cache.delete(cache.keys().next().value); });
       const queue = [...todo];
       const worker = async () => { while (queue.length) await one(queue.shift()); };
       const runs = Array.from({ length: Math.min(16, queue.length) }, worker);
@@ -231,6 +278,11 @@ function removeStale(dir, mine) {
 // stays open after a reload.
 export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null, dir = tmpdir(), closeOldAfterMs = 60_000 } = {}) {
   let current = null, at = 0, loading = null, firstSeen = {}, loads = 0;
+  // A seller's skill.md link and what the injection check found in it (see createSkillChecker).
+  const withSkill = (r, origin) => {
+    r.skill = skills.known(origin) ? `${origin}/skill.md` : null;
+    if (r.skill && skills.review) r.skillCheck = skills.review(origin);
+  };
   const mine = `fizzl-catalog-${randomUUID().slice(0, 8)}-`;
   // A copy older than `maxAgeMs` is loaded again, but a search gets the old copy at once while the new one loads:
   // the whole catalog is 100+ pages and takes tens of seconds, and a search that waited for it timed out (Fizzl Buy's
@@ -306,7 +358,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
   async function announce(db, origins) {
     const providers = summarize(db, origins);
     if (!providers.length) return;
-    if (skills) { await skills.check(providers.map((p) => p.origin)); for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null; }
+    if (skills) { await skills.check(providers.map((p) => p.origin)); for (const p of providers) withSkill(p, p.origin); }
     await onNew(providers);
   }
   const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
@@ -333,7 +385,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       const providers = [...by.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, limit).map((p) => ({ ...p, networks: [...p.networks] }));
       if (skills && providers.length) {
         await skills.check(providers.map((p) => p.origin));
-        for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null;
+        for (const p of providers) withSkill(p, p.origin);
       }
       return { days, providers, trackingSince: Math.min(...Object.values(firstSeen).filter((v) => v > 0), now()) };
     },
@@ -427,7 +479,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       if (skills && results.length) {
         const origins = results.map((r) => new URL(r.url).origin);
         await skills.check(origins);
-        for (const r of results) r.skill = skills.known(new URL(r.url).origin) ? `${new URL(r.url).origin}/skill.md` : null;
+        for (const r of results) withSkill(r, new URL(r.url).origin);
       }
       // The seller's track record, shown on the card ("paid out 30 of 30 days").
       if (trust) { await trust.ready({ waitMs: 0 }); for (const r of results) r.record = trust.seller(new URL(r.url).origin); }

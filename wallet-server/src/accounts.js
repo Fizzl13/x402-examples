@@ -661,7 +661,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         for (const p of mine.slice(0, 8)) {
           lines.push(`${names[p.category] ?? names.other} · ${p.host}`);
           if (p.description) lines.push(p.description.length > 160 ? `${p.description.slice(0, 157)}…` : p.description);
-          lines.push(`from ${money(p.cheapest)} · ${p.networks.join(", ")}${p.skill ? ` · skill.md: ${p.skill.replace(/^https:\/\//, "")}` : ""}`, "");
+          lines.push(`from ${money(p.cheapest)} · ${p.networks.join(", ")}${p.skill ? ` · skill.md: ${p.skill.replace(/^https:\/\//, "")}${p.skillCheck?.verdict === "suspicious" ? " (⚠ flagged by an injection check: read it before your agent does)" : ""}` : ""}`, "");
         }
         if (mine.length > 8) lines.push(`…and ${mine.length - 8} more.`, "");
         lines.push(`Listings are written by the sellers, not recommendations. Search them in your wallet: ${site.origin}`, "Change which categories you follow there, under Find services.");

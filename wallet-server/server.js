@@ -69,7 +69,7 @@ import { createTelegram } from "./src/telegram.js";
 import { createOutreach, doctorRecheck } from "./src/outreach.js";
 import { createPush } from "./src/push.js";
 import { createMailer } from "./src/mail.js";
-import { createCatalog, createSkillChecker } from "./src/catalog.js";
+import { createAgentMessageCheck, createCatalog, createSkillChecker } from "./src/catalog.js";
 import { createTrustIndex } from "./src/trust.js";
 import { createUsage } from "./src/usage.js";
 import { createStats } from "./src/stats.js";
@@ -142,7 +142,7 @@ const accounts = createAccounts({
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
 // New sellers in the catalog go to the Telegram of accounts that follow their category.
-const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, ranker: createRanker({ apiKey: env.TYPESAFE_API_KEY }), seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, ranker: createRanker({ apiKey: env.TYPESAFE_API_KEY }), seen: store.global, skills: createSkillChecker({ checkText: env.PG1_DISABLED === "1" ? null : createAgentMessageCheck({ url: env.PG1_MCP_URL || undefined, apiKey: env.PG1_API_KEY?.trim() || null }) }), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined });
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).

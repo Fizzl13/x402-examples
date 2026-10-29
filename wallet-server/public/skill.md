@@ -49,7 +49,7 @@ The free plan has 1 agent, which is enough to use every service.
 
 ### 2. A separate wallet for you (your owner)
 
-The easiest way: on the dashboard, right after adding you, your owner clicks **Make a wallet for this agent**. It is made in their browser; the key goes straight into the setup to copy. Or they make one themselves (a new account in MetaMask; its key is under the account menu → Account details → Show private key). That key is yours to sign with; it never leaves their computer.
+The easiest way: on the dashboard, right after adding you, your owner clicks **Make a wallet for this agent**. It is made in their browser; the key goes straight into the setup to copy. Or they make one themselves (a new account in MetaMask, which can export that account's key from its account details). That key is yours to sign with; it never leaves their computer.
 
 Then a few dollars of USDC **on Base** go to your wallet's address:
 - from the dashboard: **Send 5 USDC** from their own wallet, in one click;
