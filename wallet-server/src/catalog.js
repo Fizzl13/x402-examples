@@ -67,7 +67,19 @@ const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from",
 // Everyday Dutch words to the English words catalog listings use, so a plain question works too
 // ("wat is het weer de komende dagen in Amsterdam?" finds weather forecasts).
 const NL = { weer: "weather", weerbericht: "weather", voorspelling: "forecast", temperatuur: "temperature", regen: "rain", koers: "price", koersen: "price", prijs: "price", prijzen: "price", nieuws: "news", aandeel: "stock", aandelen: "stocks", munt: "coin", munten: "coins", veilig: "safe", veiligheid: "safety", vertaal: "translate", vertaling: "translation", samenvatting: "summary", samenvatten: "summarize", adres: "address", beurs: "market", markt: "market", vandaag: "today", morgen: "tomorrow", dagen: "days", wisselkoers: "exchange", uitleg: "explain", leg: "explain", controleer: "check", afbeelding: "image", plaatje: "image", foto: "image", tekst: "text", vlucht: "flight", vluchten: "flights", bedrijf: "company", portemonnee: "wallet", signaal: "signal" };
-export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).map((w) => NL[w] ?? w).filter((w) => w.length >= 3 && !STOP.has(w));
+// A rough English stem, the same for listings and questions, so "paying", "pays" and "paid"-less forms meet: "paying"
+// and "pays" become "pay", "checks" and "checking" "check", "prices" "price". It only has to be consistent, not right.
+export function stem(w) {
+  if (w.length <= 3 || /\d/.test(w)) return w;
+  if (w.endsWith("ies") && w.length > 4) return `${w.slice(0, -3)}y`;
+  if (w.endsWith("ing") && w.length > 5) return w.slice(0, -3);
+  if (w.endsWith("ed") && w.length > 5) return w.slice(0, -2);
+  if (/(ss|us|is)$/.test(w)) return w;
+  if (/(sh|ch|x|ss)es$/.test(w)) return w.slice(0, -2);
+  if (w.endsWith("s")) return w.slice(0, -1);
+  return w;
+}
+export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).map((w) => NL[w] ?? w).filter((w) => w.length >= 3 && !STOP.has(w)).map(stem);
 // ---------- skill.md: does a seller publish instructions agents can follow? ----------
 // Checked for the sellers in search results only, from the server, so carefully: https on the
 // standard port, a public hostname (no IP literals, nothing resolving to a private address), no
