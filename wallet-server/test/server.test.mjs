@@ -2881,6 +2881,14 @@ test("robots.txt, the sitemap, llms.txt, the IndexNow key and the homepage JSON-
     const sitemap = await (await fetch(`${base}/sitemap.xml`)).text();
     assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/<\/loc>/);
     assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/llms\.txt<\/loc>/);
+    assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/grok<\/loc>/);
+    const grok = await fetch(`${base}/grok`);
+    assert.equal(grok.status, 200);
+    assert.match(grok.headers.get("content-security-policy") ?? "", /frame-ancestors 'none'/);
+    const grokHtml = await grok.text();
+    assert.match(grokHtml, /<title>Fizzl Agent Wallet in Grok<\/title>/);
+    assert.match(grokHtml, /https:\/\/wallet\.fizzl\.eu\/mcp/);
+    JSON.parse(grokHtml.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]); // valid FAQ JSON-LD
     assert.match(sitemap, /<loc>https:\/\/wallet\.fizzl\.eu\/compare\/coinbase<\/loc>/);
     const compare = await fetch(`${base}/compare/coinbase`);
     assert.equal(compare.status, 200);

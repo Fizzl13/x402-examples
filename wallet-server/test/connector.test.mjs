@@ -99,6 +99,10 @@ test("connector: registration takes only safe return addresses; authorize checks
     assert.equal(okRedirect("http://evil.example/cb"), false);
     assert.equal(okRedirect("https://x.example/cb#frag"), false);
     assert.equal(okRedirect("javascript:alert(1)"), false);
+    // An app's own scheme (RFC 8252), as apps that sign in outside a browser register; browser schemes stay refused.
+    assert.equal(okRedirect("cursor://anysphere.cursor-retrieval/oauth/callback"), true);
+    assert.equal(okRedirect("com.example.app:/oauth2redirect"), true);
+    for (const u of ["data:text/html,hi", "file:///etc/passwd", "vbscript:x", "ws://example.com/cb", "mailto:a@b.c", "intent://x#Intent;end", "about:blank", "app://cb#frag"]) assert.equal(okRedirect(u), false, u);
     assert.equal((await fetch(`${base}/oauth/register`, json({ redirect_uris: ["http://evil.example/cb"] }))).status, 400);
     assert.equal((await fetch(`${base}/oauth/register`, json({}))).status, 400);
     const reg = await fetch(`${base}/oauth/register`, json({ redirect_uris: [REDIRECT], client_name: "Grok\u0007 Bot" }));
