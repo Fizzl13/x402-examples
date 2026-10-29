@@ -1675,6 +1675,17 @@ test("search: word forms meet (paying / pays / pay, checks / check), so a listin
   assert.deepEqual(r.results.map((x) => x.host), ["doctor.example"]);
 });
 
+test("search: a rare word counts more than a common one, so a listing about buying beats cheaper ones that only say agent", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const usdc = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: USDC, amount, payTo: PAY_TO });
+  const common = Array.from({ length: 8 }, (_, i) => ({ resource: `https://cheap${i}.example/agent`, description: `An agent tool number ${i} for your agent`, accepts: [usdc("1000")] }));
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items: [...common,
+    { resource: "https://buyer.example/v1/buy", description: "Buy the right paid service for you in one call", accepts: [usdc("20000")] },
+  ] }) });
+  const r = await catalog.search("buy for my agent");
+  assert.equal(r.results[0].host, "buyer.example"); // "buy" is in 1 listing, "agent" in 8: the rare word wins over the lower price
+});
+
 test("search filters: network, new, skill.md, reliable, and sorting", async () => {
   const { createCatalog } = await import("../src/catalog.js");
   const { createTrustIndex } = await import("../src/trust.js");
