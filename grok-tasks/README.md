@@ -8,10 +8,10 @@ Frits's scheduled Grok tasks, run by `.github/workflows/grok-tasks.yml` through 
 | B | Scam watch: risky tokens and claim links on X, checked with presign-guard's free checks | daily 18:13 |
 | D | Help desk: people with x402 payment problems on X, with reply drafts | every third day 18:37 |
 
-Grok searches X itself (`x_search`) and gets only Fizzl's free MCP tools (`x402_quick_check`, `token_quick_verdict`,
+Grok searches X itself (`x_search`), can open links with `web_search` (at most 6 searches of each per run), and gets only Fizzl's free MCP tools (`x402_quick_check`, `token_quick_verdict`,
 `injection_quick_check`). It has no wallet and no paid tool, so it can't pay, sign, post or message anyone. The
 report goes to the owner's Telegram through the wallet server's `/hooks/owner-report` (secret `DRAFT_KEY`), with the
-tokens used and an estimate of their price; `x_search` costs $5 per 1,000 posts on top (docs.x.ai pricing).
+tokens and tool calls used and an estimate of the whole run's price (docs.x.ai pricing).
 
 Setup: add the repository secret `XAI_API_KEY` (an API key from console.x.ai). Without it the runs do nothing.
 
