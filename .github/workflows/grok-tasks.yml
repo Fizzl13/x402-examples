@@ -7,7 +7,7 @@ name: grok-tasks
 on:
   schedule:
     - cron: "41 17 * * *"    # A: x402 scan, daily
-    - cron: "13 18 * * *"    # B: scam watch, daily
+    - cron: "13 18 2-31/3 * *" # B: scam watch, every third day (a day after D)
     - cron: "37 18 */3 * *"  # D: help desk, every third day
   workflow_dispatch:
     inputs:
@@ -54,7 +54,7 @@ jobs:
         run: |
           case "$SCHEDULE" in
             "41 17 * * *") task=A ;;
-            "13 18 * * *") task=B ;;
+            "13 18 2-31/3 * *") task=B ;;
             "37 18 */3 * *") task=D ;;
             *) task=$(printf '%s' "$INPUT_TASK" | tr '[:lower:]' '[:upper:]') ;;
           esac
