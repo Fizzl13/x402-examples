@@ -34,7 +34,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.8.0";
+export const VERSION = "0.8.1";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -50,7 +50,7 @@ const NETWORK_ALIASES = { base: BASE, solana: SOLANA, algorand: ALGORAND, "algor
 
 // On Algorand and the XRP Ledger only the dollar stablecoin is paid: USDC (an ASA) on Algorand, RLUSD from
 // Ripple's issuer on the XRP Ledger. Never ALGO, XRP or another token, so the dollar budget always holds.
-const ALGORAND_USDC = { [ALGORAND]: "31566704", [ALGORAND_TESTNET]: "10458941" };
+const ALGORAND_USDC = { [algorandId(ALGORAND)]: "31566704", [algorandId(ALGORAND_TESTNET)]: "10458941" };
 const RLUSD_HEX = "524C555344000000000000000000000000000000";
 const RLUSD_ISSUER = { [XRPL]: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De", [XRPL_TESTNET]: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" };
 // On Stellar only Circle's USDC token contract (7 decimals), never XLM or another token named USDC.
@@ -61,6 +61,23 @@ const STELLAR_USDC = { [STELLAR]: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXST
 const XLAYER_DOLLARS = {
   [XLAYER]: ["0x779ded0c9e1022225f8e0630b35a9b54be713736", "0x74b7f16337b8972027f6196a17a631ac6de26d22"],
 };
+
+// Algorand by its CAIP-2 id: the first 32 characters of the genesis hash. Sellers name it either way (the whole hash,
+// or since @x402/avm 2.29.0 only the short id), so networks are compared by this.
+function algorandId(network) {
+  return typeof network === "string" && network.startsWith("algorand:") ? network.slice(0, 41) : network;
+}
+
+// @x402/avm 2.29.0's ExactAvmScheme refuses the whole-hash form, which most Algorand sellers still use (2.28.0 took
+// both). This hands the scheme the short id; the payment still names the seller's own network (x402 puts the
+// seller's option in `accepted`), so either kind of seller can be paid. createSafeFetch wraps Algorand schemes in it.
+export function anyAlgorandId(scheme) {
+  return Object.assign(Object.create(scheme), {
+    createPaymentPayload: (version, requirements, context) =>
+      scheme.createPaymentPayload(version, { ...requirements, network: algorandId(requirements.network) }, context),
+    ...(typeof scheme.findDefaultAsset === "function" && { findDefaultAsset: (asset, network) => scheme.findDefaultAsset(asset, algorandId(network)) }),
+  });
+}
 
 // The option to pay on `network`, or null. RLUSD prices are decimal dollars ("0.001", and "2" is two dollars),
 // which x402's spend controls would read as base units, so the budget is checked here in dollars.
@@ -85,8 +102,9 @@ const UNREAD_OFFER_MS = 10 * 60 * 1000;
 
 export function payableOption(accepts, network, maxUsd) {
   const cap = Number(String(maxUsd).replace(/^\$/, ""));
-  const on = (accepts ?? []).filter((a) => a?.network === network);
-  if (ALGORAND_USDC[network]) return on.find((a) => String(a.asset) === ALGORAND_USDC[network]) ?? null;
+  const on = (accepts ?? []).filter((a) => algorandId(a?.network) === algorandId(network));
+  const usdc = ALGORAND_USDC[algorandId(network)];
+  if (usdc) return on.find((a) => String(a.asset) === usdc) ?? null;
   // x402's spend controls cap Stellar USDC too; the budget is checked here as well, in dollars.
   if (STELLAR_USDC[network]) {
     return on.find((a) => a.asset === STELLAR_USDC[network] && /^\d+$/.test(String(a.amount)) && Number(a.amount) > 0 && Number(a.amount) / 1e7 <= cap) ?? null;
@@ -228,10 +246,23 @@ export function createSafeFetch({
   const makePayingFetch = createPayingFetch ?? ((cap) => {
     const client = new x402Client((_version, accepts) => {
       const pick = payableOption(accepts, payNetwork, cap);
-      if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[payNetwork] ? " in USDC" : STELLAR_USDC[payNetwork] ? ` in USDC within ${cap}` : XLAYER_DOLLARS[payNetwork] ? ` in USD₮0 or USDC within ${cap}` : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
+      if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[algorandId(payNetwork)] ? " in USDC" : STELLAR_USDC[payNetwork] ? ` in USDC within ${cap}` : XLAYER_DOLLARS[payNetwork] ? ` in USD₮0 or USDC within ${cap}` : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
       return pick;
     }).setSpendControls({ maxAmountPerPayment: cap, ...xlayerAllowance(payNetwork, cap) });
-    register(client);
+    // Algorand schemes get anyAlgorandId, so sellers with either network id can be paid.
+    const registering = new Proxy(client, {
+      get(target, prop) {
+        if (prop === "register") {
+          return (network, scheme) => {
+            target.register(network, String(network).startsWith("algorand:") ? anyAlgorandId(scheme) : scheme);
+            return registering;
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    register(registering);
     return wrapFetchWithPayment(baseFetch, client);
   });
   let preflightFetch;

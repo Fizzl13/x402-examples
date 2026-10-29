@@ -119,6 +119,19 @@ export const ALGORAND = {
   mainnet: { network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", usdc: 31566704, algod: "https://mainnet-api.algonode.cloud" },
   testnet: { network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=", usdc: 10458941, algod: "https://testnet-api.algonode.cloud" },
 };
+// Sellers name an Algorand network by the whole genesis hash or by its CAIP-2 id (the first 32 characters), and
+// @x402/avm 2.29.0's client takes only the CAIP-2 id. Offers are matched by this id, and the scheme always gets it;
+// the payment still names the seller's own network (x402 puts the seller's option in `accepted`).
+export function algorandId(network) {
+  return typeof network === "string" && network.startsWith("algorand:") ? network.slice(0, 41) : network;
+}
+export function anyAlgorandId(scheme) {
+  return Object.assign(Object.create(scheme), {
+    createPaymentPayload: (version, requirements, context) =>
+      scheme.createPaymentPayload(version, { ...requirements, network: algorandId(requirements.network) }, context),
+    ...(typeof scheme.findDefaultAsset === "function" && { findDefaultAsset: (asset, network) => scheme.findDefaultAsset(asset, algorandId(network)) }),
+  });
+}
 // The base64 secret key @x402/avm wants (32-byte seed + 32-byte public key), from a 25-word Algorand mnemonic.
 export function algorandKeyFromMnemonic(mnemonic) {
   const seed = Buffer.from(seedFromMnemonic(String(mnemonic).trim().split(/\s+/).join(" ")));
@@ -402,7 +415,7 @@ export function createWallet(config, overrides = {}) {
   const algoNet = config.algorand ? { ...ALGORAND[config.algorand.net], algodUrl: config.algorand.algodUrl } : null;
   if (algoNet && typeof guarded.algorandSigner !== "function") throw new Error("ALGORAND_MNEMONIC needs presign-guard-wallet 0.12 or newer (npm install presign-guard-wallet@latest)");
   const algoSigner = algoNet ? guarded.algorandSigner(overrides.algorandSigner ?? toClientAvmSigner(config.algorand.key), { network: algoNet.network }) : null;
-  const isAlgoUsdcOffer = (r, cap) => r?.network === algoNet?.network && r.scheme === "exact" && String(r.asset) === String(algoNet.usdc) && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
+  const isAlgoUsdcOffer = (r, cap) => algoNet && algorandId(r?.network) === algorandId(algoNet.network) && r.scheme === "exact" && String(r.asset) === String(algoNet.usdc) && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
 
   // Solana: the agent's own Solana account, signing only x402 USDC payments, checked by presign-guard and kept to the limits.
   const solNet = config.solana ? { ...SOLANA[config.solana.net], rpcUrl: config.solana.rpcUrl } : null;
@@ -662,11 +675,14 @@ export function createWallet(config, overrides = {}) {
       client.register(`eip155:${chain.id}`, x402Checked(mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme));
       // USDC on Solana and Algorand and RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
       if (solSigner && !mandate) client.register(solNet.network, overrides.solanaScheme ?? new ExactSvmScheme(solSigner, { rpcUrl: solNet.rpcUrl }));
-      if (algoSigner && !mandate) client.register(algoNet.network, overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
+      if (algoSigner && !mandate) {
+        const scheme = anyAlgorandId(overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
+        client.register(algoNet.network, scheme).register(algorandId(algoNet.network), scheme);
+      }
       if (xrplSigner && !mandate) {
         client.register(xrplNet.network, xrplPayScheme(xrplSigner, { network: xrplNet.network, wsUrl: xrplNet.wsUrl, prepare: overrides.xrplPrepare, maxUsd: cap }));
         // RLUSD written as text ("RLUSD") isn't a default asset to the spend controls; the cap is checked above.
-        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [{ network: algoNet.network, asset: String(algoNet.usdc) }] : []), ...(solSigner ? [{ network: solNet.network, asset: solNet.usdc }] : [])] });
+        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [algoNet.network, algorandId(algoNet.network)].map((network) => ({ network, asset: String(algoNet.usdc) })) : []), ...(solSigner ? [{ network: solNet.network, asset: solNet.usdc }] : [])] });
       }
       // The order: USDC on this chain first, then USDC on Solana, then on Algorand, then RLUSD from Ripple; other
       // offers on those networks (another asset, above the cap) are left out.

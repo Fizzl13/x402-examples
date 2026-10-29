@@ -16,6 +16,8 @@ export declare const XLAYER: "eip155:196";
 /** The option paid on `network`: on Algorand only USDC, on Stellar only Circle's USDC contract within maxUsd, on X Layer only USD₮0 or USDC within maxUsd, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
 /** What a 402 offers (per x402 option: scheme, network, asset, amount, payTo) as a stable string; null without a readable x402 challenge. Consumes the body. */
 export declare function offerFingerprint(res: Response): Promise<string | null>;
+/** Wraps an Algorand scheme (e.g. @x402/avm's ExactAvmScheme) so it pays sellers that name Algorand by the whole genesis hash as well as by the CAIP-2 id. createSafeFetch does this for you. */
+export declare function anyAlgorandId<S extends object>(scheme: S): S;
 export declare function payableOption<A extends { network: string; asset?: unknown; amount?: unknown; extra?: Record<string, unknown> }>(accepts: A[], network: string, maxUsd: number | string): A | null;
 
 /** The x402 Doctor preflight: see https://x402-doctor.fizzl.eu/openapi.json */

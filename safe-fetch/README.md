@@ -45,7 +45,7 @@ try {
 
 Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` from `@x402/svm/exact/client` with a `@solana/kit` signer.
 
-Algorand and the XRP Ledger work the same way, and only their dollar stablecoin is ever paid. On Algorand that is USDC (ASA 31566704), never ALGO or another ASA. On the XRP Ledger it is RLUSD from Ripple's issuer, never XRP or a look-alike token. RLUSD prices are decimal dollars, so the budget is checked in dollars. The Doctor preflight is paid on the same network.
+Algorand and the XRP Ledger work the same way, and only their dollar stablecoin is ever paid. On Algorand that is USDC (ASA 31566704), never ALGO or another ASA. Sellers name Algorand mainnet either by the whole genesis hash or by its CAIP-2 id (`algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k`); both are paid, also with `@x402/avm` 2.29.0, which on its own accepts only the short id. On the XRP Ledger it is RLUSD from Ripple's issuer, never XRP or a look-alike token. RLUSD prices are decimal dollars, so the budget is checked in dollars. The Doctor preflight is paid on the same network.
 
 ```js
 import { toClientAvmSigner } from "@x402/avm";

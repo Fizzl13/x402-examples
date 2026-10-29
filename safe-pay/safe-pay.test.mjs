@@ -1,7 +1,7 @@
 // Run: npm test (no network, nothing paid)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decide, preflightUrl, usdCap, payNetwork, evmKey, seedBytes, explorerUrl, algorandKey, algorandHdAccounts, algorandSigner, avmSigner, SOLANA, BASE, ALGORAND } from "./safe-pay.mjs";
+import { decide, preflightUrl, usdCap, payNetwork, evmKey, seedBytes, explorerUrl, algorandKey, algorandHdAccounts, algorandSigner, avmSigner, algorandId, anyAlgorandId, SOLANA, BASE, ALGORAND } from "./safe-pay.mjs";
 
 test("the agent acts on the preflight: pay, ask or stop", () => {
   assert.equal(decide({ verdict: "go", summary: "OK to pay: $0.02 on Base." }).action, "pay");
@@ -99,4 +99,20 @@ test("algorand HD: pays from ALGORAND_ADDRESS or the first account holding USDC,
   assert.equal((await algorandSigner(VECTOR, { address: want, holds: () => assert.fail("not needed") })).address, want);
   await assert.rejects(algorandSigner(VECTOR, { address: "NOTMINE" }), /not one of the first accounts/);
   await assert.rejects(algorandSigner(VECTOR, { holds: async () => false }), /none of the first accounts of this wallet holds USDC/);
+});
+
+test("algorand: either network id is paid; the scheme gets the CAIP-2 id, the seller's id stays in the payment", async () => {
+  assert.equal(algorandId(ALGORAND), "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k");
+  assert.equal(algorandId("algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k"), "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k");
+  assert.equal(algorandId(BASE), BASE);
+  const seen = [];
+  const scheme = { scheme: "exact", createPaymentPayload: async (v, req) => { seen.push(req.network); return { x402Version: v, payload: {} }; }, findDefaultAsset: (asset, network) => ({ asset, network }) };
+  const wrapped = anyAlgorandId(scheme);
+  assert.equal(wrapped.scheme, "exact");
+  const req = { scheme: "exact", network: ALGORAND, asset: "31566704", amount: "1000" };
+  await wrapped.createPaymentPayload(2, req, {});
+  assert.deepEqual(seen, ["algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k"]);
+  assert.equal(req.network, ALGORAND, "the seller's option is left as it was");
+  assert.equal(wrapped.findDefaultAsset("31566704", ALGORAND).network, "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k");
+  assert.equal(explorerUrl("algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k", "TX1"), "https://allo.info/tx/TX1");
 });
