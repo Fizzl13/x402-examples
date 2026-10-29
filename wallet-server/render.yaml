@@ -19,3 +19,5 @@ services:
         sync: false
       - key: MANDATE_SECRET
         sync: false
+      - key: PG1_API_KEY
+        sync: false
