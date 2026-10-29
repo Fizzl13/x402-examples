@@ -31,7 +31,8 @@ function seller(accepts) {
   return { fetch, paid };
 }
 
-test("Algorand: pays the USDC offer (not another ASA) with the agent's signed transfer", async () => {
+// Sellers name Algorand mainnet by the whole genesis hash or by the CAIP-2 id (only that one since @x402/avm 2.29.0).
+for (const network of [ALGORAND, "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k"]) test(`Algorand (${network.length > 41 ? "whole genesis hash" : "CAIP-2 id"}): pays the USDC offer (not another ASA) with the agent's signed transfer`, async () => {
   const algod = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ "consensus-version": "future", fee: 0, "genesis-hash": Buffer.alloc(32, 7).toString("base64"), "genesis-id": "mainnet-v1.0", "last-round": 1000, "min-fee": 1000 }));
@@ -43,13 +44,14 @@ test("Algorand: pays the USDC offer (not another ASA) with the agent's signed tr
     const pk = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), key]), format: "der", type: "pkcs8" });
     const pub = createPublicKey(pk).export({ format: "der", type: "spki" }).subarray(-32);
     const signer = toClientAvmSigner(Buffer.concat([key, pub]).toString("base64"));
-    const offer = (asset) => ({ scheme: "exact", network: ALGORAND, amount: "10000", asset, payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER, decimals: 6 } });
+    const offer = (asset) => ({ scheme: "exact", network, amount: "10000", asset, payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER, decimals: 6 } });
     const s = seller([offer("123"), offer("31566704")]);
     const safeFetch = createSafeFetch({ network: "algorand", trusted: ["seller.example"], fetch: s.fetch, register: (c) => c.register("algorand:*", new ExactAvmScheme(signer, { algodUrl: `http://127.0.0.1:${algod.address().port}` })) });
     const res = await safeFetch(URL_);
     assert.equal(res.status, 200);
     assert.equal(s.paid.length, 1);
     assert.equal(String(s.paid[0].accepted.asset), "31566704");
+    assert.equal(s.paid[0].accepted.network, network, "the payment names the seller's own network id");
     const transfer = decodeSignedTransaction(s.paid[0].payload.paymentGroup[1]);
     assert.ok(transfer.sig);
     assert.equal(transfer.txn.sender.toString(), signer.address);

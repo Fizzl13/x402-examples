@@ -188,14 +188,26 @@ async function solanaSigner(env) {
 
 export function explorerUrl(network, tx) {
   if (!tx) return null;
-  if (network === ALGORAND) return `https://allo.info/tx/${tx}`;
+  if (algorandId(network) === algorandId(ALGORAND)) return `https://allo.info/tx/${tx}`;
   return network === SOLANA ? `https://solscan.io/tx/${tx}` : `https://basescan.org/tx/${tx}`;
+}
+
+// Sellers name Algorand by the whole genesis hash or by its CAIP-2 id (the first 32 characters), and @x402/avm 2.29.0
+// takes only the CAIP-2 id. Offers are matched by that id and the scheme always gets it; the payment still names the
+// seller's own network (x402 puts the seller's option in `accepted`).
+export const algorandId = (network) => (typeof network === "string" && network.startsWith("algorand:") ? network.slice(0, 41) : network);
+export function anyAlgorandId(scheme) {
+  return Object.assign(Object.create(scheme), {
+    createPaymentPayload: (version, requirements, context) =>
+      scheme.createPaymentPayload(version, { ...requirements, network: algorandId(requirements.network) }, context),
+    ...(typeof scheme.findDefaultAsset === "function" && { findDefaultAsset: (asset, network) => scheme.findDefaultAsset(asset, algorandId(network)) }),
+  });
 }
 
 // A fetch that pays on one network, never more than `cap` per call.
 async function payingFetch(network, cap) {
   const client = new x402Client((_version, accepts) => {
-    const pick = accepts.find((a) => a.network === network);
+    const pick = accepts.find((a) => algorandId(a.network) === algorandId(network));
     if (!pick) throw new Error(`no payment option on ${network}`);
     return pick;
   }).setSpendControls({ maxAmountPerPayment: cap });
@@ -209,7 +221,8 @@ async function payingFetch(network, cap) {
     const { ExactAvmScheme } = await import("@x402/avm/exact/client");
     const algodUrl = process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud";
     const signer = await algorandSigner(process.env.ALGORAND_MNEMONIC, { algodUrl, address: process.env.ALGORAND_ADDRESS });
-    client.register(ALGORAND, new ExactAvmScheme(signer, { algodUrl }));
+    const scheme = anyAlgorandId(new ExactAvmScheme(signer, { algodUrl }));
+    client.register(ALGORAND, scheme).register(algorandId(ALGORAND), scheme);
     return { fetch: wrapFetchWithPayment(fetch, client), payer: signer.address };
   }
   const { privateKeyToAccount } = await import("viem/accounts");
