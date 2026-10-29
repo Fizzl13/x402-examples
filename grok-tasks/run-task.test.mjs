@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, reportText, usageLine, TASKS } from "./run-task.mjs";
+import { buildRequest, reportText, usageLine, failedQuickChecks, TASKS } from "./run-task.mjs";
 
 const NOW = Date.parse("2026-10-29T18:00:00Z");
 
@@ -41,4 +41,23 @@ test("the report text and the usage line from a Responses answer", () => {
   assert.equal(reportText({}), "");
   assert.equal(usageLine(response, "grok-4.7"), "grok-4.7: 40000 in / 1500 out tokens, x search calls 3, x posts fetched 20, web search calls 2, mcp calls 1 ≈ $0.20 (tokens $0.09, tools $0.11)");
   assert.equal(usageLine({}, "other-model"), "other-model: 0 in / 0 out tokens");
+});
+
+test("failing quick checks come from the tool calls, once per URL, https only", () => {
+  const call = (url, overall, extra = {}) => ({ type: "mcp_call", name: "x402_quick_check", server_label: "x402_doctor", arguments: JSON.stringify({ url, ...extra }), output: JSON.stringify({ url, overall, failures: overall === "fail" ? 1 : 0 }) });
+  const response = { output: [
+    call("https://solgpt.us/api/dark-clawd/mpp/charge", "fail", { method: "POST" }),
+    call("https://ok.example/paid", "pass"),
+    call("https://warn.example/paid", "warn"),
+    call("https://solgpt.us/api/dark-clawd/mpp/charge", "fail", { method: "POST" }),
+    call("http://plain.example/paid", "fail"),
+    { type: "mcp_call", name: "token_quick_verdict", arguments: "{}", output: "{\"overall\":\"fail\"}" },
+    { type: "message", content: [{ type: "output_text", text: "x402_quick_check https://made-up.example fail" }] },
+    { type: "mcp_call", name: "x402_quick_check", arguments: { url: "https://obj.example/x" }, output: [{ type: "text", text: "{\"overall\":\"fail\"}" }] },
+  ] };
+  assert.deepEqual(failedQuickChecks(response), [
+    { url: "https://solgpt.us/api/dark-clawd/mpp/charge", method: "POST" },
+    { url: "https://obj.example/x" },
+  ]);
+  assert.deepEqual(failedQuickChecks({}), []);
 });
