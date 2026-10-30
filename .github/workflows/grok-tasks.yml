@@ -42,7 +42,7 @@ jobs:
   run:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
       DRAFT_KEY: ${{ secrets.DRAFT_KEY }}
@@ -72,7 +72,9 @@ jobs:
           TASK: ${{ steps.pick.outputs.task }}
           MODEL: ${{ inputs.model || 'grok-4.7' }}
           SEND: ${{ github.event_name == 'schedule' || inputs.send }}
+        # pipefail: a task that fails (e.g. xAI still at capacity after the retries) turns the run red, not tee's success.
         run: |
+          set -o pipefail
           args=("$TASK" --model "$MODEL")
           [ "$SEND" = "true" ] && args+=(--send)
           node grok-tasks/run-task.mjs "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

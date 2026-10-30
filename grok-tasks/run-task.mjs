@@ -149,6 +149,21 @@ export function usageLine(response, model) {
   return `${tokens} ≈ $${(tokenUsd + toolUsd).toFixed(2)} (tokens $${tokenUsd.toFixed(2)}, tools $${toolUsd.toFixed(2)})`;
 }
 
+// xAI answers 429 "at capacity" (and now and then a 5xx) when the model is busy; that costs nothing, so ask again after
+// a pause, at most RETRY_PAUSES.length more times. On 30 Oct 2026 task A's run got one 429 and sent no report.
+export const RETRY_PAUSES = [60_000, 180_000];
+export async function askXai(request, { key, fetch: fetchImpl = fetch, pauses = RETRY_PAUSES, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.error } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchImpl(API, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(request), signal: AbortSignal.timeout(480_000) });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) return body;
+    const why = `xAI ${res.status}: ${JSON.stringify(body.error ?? body).slice(0, 300)}`;
+    if ((res.status !== 429 && res.status < 500) || attempt >= pauses.length) throw new Error(why);
+    log(`${why}; asking again in ${pauses[attempt] / 1000} s`);
+    await sleep(pauses[attempt]);
+  }
+}
+
 async function main(argv) {
   const id = String(argv[0] ?? "").toUpperCase();
   const flag = (name) => argv.includes(name);
@@ -157,9 +172,7 @@ async function main(argv) {
   if (flag("--dry-run")) { console.log(JSON.stringify(request, null, 2)); return; }
   const key = process.env.XAI_API_KEY?.trim();
   if (!key) throw new Error("XAI_API_KEY is not set");
-  const res = await fetch(API, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(request), signal: AbortSignal.timeout(600_000) });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`xAI ${res.status}: ${JSON.stringify(body.error ?? body).slice(0, 300)}`);
+  const body = await askXai(request, { key });
   let report = reportText(body) || "Grok gaf geen rapport terug.";
   if (TASKS[id].neutral) report = `${visibilityLine(report)}\n\n${report}`;
   const usage = usageLine(body, model);
