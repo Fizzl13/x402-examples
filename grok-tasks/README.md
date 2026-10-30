@@ -24,7 +24,9 @@ tokens and tool calls used and the run's price: xAI's own cost from the answer (
 estimate from docs.x.ai pricing, with cached input at its lower price. Task A cost about $0.73 a
 run on grok-4.7 (29 Oct 2026, estimated before cached input was counted at its own price).
 
-Every endpoint Grok checked with `x402_quick_check` and found failing (read from the tool calls, not from Grok's
+For each fix candidate the report also gives the seller's X account when Grok can confirm it (the poster's profile or
+the seller's site links the endpoint's domain) and a DM draft the owner can send himself, for sellers without a
+published mail address. Every endpoint Grok checked with `x402_quick_check` and found failing (read from the tool calls, not from Grok's
 text; at most 5 a run) then goes through x402 Doctor's free web check, which hands the owner a mail draft on Telegram
 when the seller publishes a contact address (one mail per address, ever; nothing is sent without the owner's Send).
 Every endpoint Grok checked (at most 8 a run) is also added to the x402 Trust Index (`POST /api/trust/submit`, free):
