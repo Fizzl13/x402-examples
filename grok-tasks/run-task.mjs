@@ -30,9 +30,10 @@ export const TASKS = {
   // Only @x402fizzl's own posts; Grok looks wider for the post ideas with web_search.
   H: { title: "Grok taak H: review @x402fizzl", days: 7, mcp: [], xSearch: { allowed_x_handles: ["x402fizzl"] } },
 };
-// USD per million tokens (docs.x.ai pricing, prompts under 200k tokens, 29 Oct 2026), and per server-side tool item:
-// x_search $5 per 1,000 posts and $10 per 1,000 profiles, web_search $5 per 1,000 calls; remote MCP calls are free.
-const PRICES = { "grok-4.7": [2, 6], "grok-4.3": [1.25, 2.5], "grok-build-0.1": [1, 2] };
+// USD per million tokens: input, cached input, output (docs.x.ai pricing, prompts under 200k tokens, 30 Oct 2026), and
+// per server-side tool item: x_search $5 per 1,000 posts and $10 per 1,000 profiles, web_search $5 per 1,000 calls;
+// remote MCP calls are free. Only for the estimate when xAI's answer carries no cost of its own.
+const PRICES = { "grok-4.7": [2, 0.5, 6], "grok-4.3": [1.25, 0.2, 2.5], "grok-build-0.1": [1, 0.2, 2] };
 const TOOL_PRICES = { x_posts_fetched: 0.005, x_users_fetched: 0.01, web_search_calls: 0.005 };
 
 const RULES = `You run a scheduled task for Frits, who owns Fizzl (x402 Doctor, presign-guard, Ichimoku Signal, the Fizzl Agent Wallet and Fizzl Buy). Follow the task exactly.
@@ -109,13 +110,19 @@ export function trustLine(results) {
 export function usageLine(response, model) {
   const u = response?.usage ?? {};
   const inTok = Number(u.input_tokens ?? 0), outTok = Number(u.output_tokens ?? 0);
-  const price = PRICES[model];
+  const cached = Math.min(Number(u.input_tokens_details?.cached_tokens ?? 0), inTok);
   const details = u.server_side_tool_usage_details ?? {};
-  const tokenUsd = price ? (inTok * price[0] + outTok * price[1]) / 1e6 : null;
-  const toolUsd = Object.entries(TOOL_PRICES).reduce((sum, [k, each]) => sum + Number(details[k] ?? 0) * each, 0);
   const used = ["x_search_calls", "x_posts_fetched", "web_search_calls", "mcp_calls"].filter((k) => Number(details[k])).map((k) => `${k.replace(/_/g, " ")} ${details[k]}`).join(", ");
-  const cost = tokenUsd === null ? "" : ` ≈ $${(tokenUsd + toolUsd).toFixed(2)} (tokens $${tokenUsd.toFixed(2)}, tools $${toolUsd.toFixed(2)})`;
-  return `${model}: ${inTok} in / ${outTok} out tokens${used ? `, ${used}` : ""}${cost}`;
+  const tokens = `${model}: ${inTok} in${cached ? ` (${cached} cached)` : ""} / ${outTok} out tokens${used ? `, ${used}` : ""}`;
+  // xAI's own cost of the request (10^10 ticks to the dollar), when it sends one.
+  const ticks = Number(u.cost_in_usd_ticks), nano = Number(u.cost_in_nano_usd);
+  const billed = Number.isFinite(ticks) && u.cost_in_usd_ticks != null ? ticks / 1e10 : Number.isFinite(nano) && u.cost_in_nano_usd != null ? nano / 1e9 : null;
+  if (billed !== null) return `${tokens} = $${billed.toFixed(2)} (xAI)`;
+  const price = PRICES[model];
+  if (!price) return tokens;
+  const tokenUsd = ((inTok - cached) * price[0] + cached * price[1] + outTok * price[2]) / 1e6;
+  const toolUsd = Object.entries(TOOL_PRICES).reduce((sum, [k, each]) => sum + Number(details[k] ?? 0) * each, 0);
+  return `${tokens} ≈ $${(tokenUsd + toolUsd).toFixed(2)} (tokens $${tokenUsd.toFixed(2)}, tools $${toolUsd.toFixed(2)})`;
 }
 
 async function main(argv) {
@@ -136,6 +143,7 @@ async function main(argv) {
   const kinds = {};
   for (const o of body.output ?? []) kinds[`${o?.type}${o?.name ? `:${o.name}` : ""}`] = (kinds[`${o?.type}${o?.name ? `:${o.name}` : ""}`] ?? 0) + 1;
   console.error(`output items ${JSON.stringify(kinds)}; failing quick checks ${JSON.stringify(failing)}`);
+  console.error(`usage ${JSON.stringify(body.usage ?? {})}`);
   if (failing.length && flag("--send")) {
     const done = [];
     for (const c of failing) {

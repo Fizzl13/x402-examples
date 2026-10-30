@@ -45,6 +45,10 @@ test("the report text and the usage line from a Responses answer", () => {
   assert.equal(reportText({}), "");
   assert.equal(usageLine(response, "grok-4.7"), "grok-4.7: 40000 in / 1500 out tokens, x search calls 3, x posts fetched 20, web search calls 2, mcp calls 1 ≈ $0.20 (tokens $0.09, tools $0.11)");
   assert.equal(usageLine({}, "other-model"), "other-model: 0 in / 0 out tokens");
+  const cachedRun = { usage: { input_tokens: 40000, output_tokens: 1500, input_tokens_details: { cached_tokens: 30000 } } };
+  assert.equal(usageLine(cachedRun, "grok-4.7"), "grok-4.7: 40000 in (30000 cached) / 1500 out tokens ≈ $0.04 (tokens $0.04, tools $0.00)", "cached input at its own price");
+  assert.equal(usageLine({ usage: { ...cachedRun.usage, cost_in_usd_ticks: 7_300_000_000 } }, "grok-4.7"), "grok-4.7: 40000 in (30000 cached) / 1500 out tokens = $0.73 (xAI)", "xAI's own cost wins");
+  assert.equal(usageLine({ usage: { input_tokens: 1, output_tokens: 1, cost_in_nano_usd: 120_000_000 } }, "grok-4.3"), "grok-4.3: 1 in / 1 out tokens = $0.12 (xAI)");
 });
 
 test("failing quick checks come from the tool calls, once per URL, https only", () => {

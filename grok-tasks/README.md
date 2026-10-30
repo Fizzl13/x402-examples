@@ -13,7 +13,8 @@ Frits's scheduled Grok tasks, run by `.github/workflows/grok-tasks.yml` through 
 Grok searches X itself (`x_search`), can open links with `web_search` (at most 6 searches of each per run), and gets at most Fizzl's free MCP tools (`x402_quick_check`, `token_quick_verdict`,
 `injection_quick_check`). It has no wallet and no paid tool, so it can't pay, sign, post or message anyone. The
 report goes to the owner's Telegram through the wallet server's `/hooks/owner-report` (secret `DRAFT_KEY`), with the
-tokens and tool calls used and an estimate of the whole run's price (docs.x.ai pricing). Task A cost about $0.73 a
+tokens and tool calls used and the run's price: xAI's own cost from the answer (`cost_in_usd_ticks`), or else an
+estimate from docs.x.ai pricing, with cached input at its lower price. Task A cost about $0.73 a
 run on grok-4.7 (29 Oct 2026), so A runs daily, B and D every third day and F and H weekly: about $1.40 a day.
 
 Every endpoint Grok checked with `x402_quick_check` and found failing (read from the tool calls, not from Grok's
