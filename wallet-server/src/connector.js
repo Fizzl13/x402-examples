@@ -339,7 +339,7 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
       inputSchema: {
         url: z.string().url().max(2000).describe("The API URL (https)"),
         method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),
-        body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Request body: a string, or an object sent as JSON"),
+        body: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Request body: a string, or an object sent as JSON. For a GET, an object (such as a pick's example input) is sent as URL query parameters instead"),
         headers: z.record(z.string(), z.string()).optional().describe("Extra request headers, e.g. content-type"),
         max_price_usd: z.number().positive().max(100).optional().describe("The most this call may cost, in dollars (default 1; at most 5, or 100 for an escrowed payment that is only captured when the seller delivers, such as a domain)"),
         reason: z.string().max(300).optional().describe("What this is for, in a few words: shown to your user when they sign, and on the receipt"),

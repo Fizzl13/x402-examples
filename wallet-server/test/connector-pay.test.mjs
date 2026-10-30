@@ -15,7 +15,7 @@ import { createApp } from "../src/app.js";
 import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
-import { baseOffer, cleanHeaders, USDC_BASE } from "../src/connector-pay.js";
+import { baseOffer, cleanHeaders, queryUrl, USDC_BASE } from "../src/connector-pay.js";
 
 const PASSWORD = "correct horse battery staple";
 const REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -164,7 +164,13 @@ test("helpers: the Base offer of a challenge, and the headers an agent may send"
   assert.equal(baseOffer({ ...c, accepts: [{ ...c.accepts[0], network: "eip155:1" }] }), null);
   assert.equal(baseOffer({ ...c, accepts: [{ ...c.accepts[0], amount: "0" }] }), null);
   assert.equal(baseOffer({ ...c, accepts: [{ ...c.accepts[0], asset: "0x0000000000000000000000000000000000000001" }] }), null);
-  assert.deepEqual(cleanHeaders({ Authorization: "Bearer x", Cookie: "a", "PAYMENT-SIGNATURE": "p", "X-Api-Key": "k", "content-type": "application/json", "bad header": "x" }), { "x-api-key": "k", "content-type": "application/json" });
+  assert.deepEqual(cleanHeaders({ Authorization: "Bearer x", Cookie: "a", "PAYMENT-SIGNATURE": "p", "X-Api-Key": "k", "content-type": "application/json", "bad header": "x" }), { "x-api-key": "k", "content-type": "application/json" });  // A GET's input goes into the query (a pick's example input, as an agent passes it), never silently dropped.
+  assert.deepEqual(queryUrl("https://api.example/price", { symbols: "BTC,ETH", n: 2, list: ["a", "b"], skip: null }), { url: "https://api.example/price?symbols=BTC%2CETH&n=2&list=a%2Cb" });
+  assert.deepEqual(queryUrl("https://api.example/price?symbols=SOL", { symbols: "BTC", days: 1 }), { url: "https://api.example/price?symbols=SOL&days=1" }, "the URL's own parameters stay");
+  assert.deepEqual(queryUrl("https://api.example/price", '{"symbols":"BTC"}'), { url: "https://api.example/price?symbols=BTC" });
+  assert.deepEqual(queryUrl("https://api.example/price", undefined), { url: "https://api.example/price" });
+  assert.match(queryUrl("https://api.example/price", "symbols=BTC").error, /can't carry a body/);
+  assert.match(queryUrl("https://api.example/price", ["BTC"]).error, /can't carry a body/);
 });
 
 test("connector payments: the app asks, the owner signs in their own wallet, the seller is paid and the answer comes back", async () => {
@@ -258,6 +264,8 @@ test("connector payments: no, a wrong signer, the sanctions list, the cap, other
     assert.match(await err({ url: "ftp://example.com/x" }), /Only https URLs/);
     const free = (await call(client, "pay_x402", { url: `${s.url}/free` })).structuredContent;
     assert.deepEqual([free.status, free.http_status, JSON.parse(free.body)], ["no_payment_needed", 200, { free: true }]);
+    await call(client, "pay_x402", { url: `${s.url}/free/price`, body: { symbols: "BTC" } });
+    assert.deepEqual([s.seen.at(-1).method, s.seen.at(-1).url, s.seen.at(-1).body], ["GET", "/free/price?symbols=BTC", ""], "a GET's input reaches the seller in the query");
     assert.match((await call(client, "payment_status", { payment_id: "x".repeat(32) })).content[0].text, /No such payment request/);
     await client.close();
   } finally { server.close(); s.server.close(); }
