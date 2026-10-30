@@ -7,7 +7,7 @@ const NOW = Date.parse("2026-10-29T18:00:00Z");
 test("each task: X search from its window, only free MCP tools, the task text and the rules", () => {
   for (const id of Object.keys(TASKS)) {
     const r = buildRequest(id, { now: NOW });
-    assert.equal(r.model, "grok-4.7");
+    assert.equal(r.model, ["A", "D"].includes(id) ? "grok-4.7" : "grok-4.3");
     assert.equal(r.tools[0].type, "x_search");
     assert.equal(r.tools[1].type, "web_search");
     assert.match(r.input[0].content, /at most 6 X searches and 6 web searches/);
@@ -27,6 +27,7 @@ test("each task: X search from its window, only free MCP tools, the task text an
   assert.deepEqual(buildRequest("F", { now: NOW }).tools[0].excluded_x_handles, ["x402fizzl"]);
   assert.deepEqual(buildRequest("H", { now: NOW }).tools[0].allowed_x_handles, ["x402fizzl"]);
   assert.equal(buildRequest("A", { now: NOW }).tools[0].allowed_x_handles, undefined);
+  assert.equal(buildRequest("B", { now: NOW, model: "grok-4.7" }).model, "grok-4.7", "--model wins");
   assert.throws(() => buildRequest("Z"), /unknown task/);
 });
 

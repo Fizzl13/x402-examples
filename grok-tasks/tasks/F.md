@@ -1,6 +1,6 @@
 Weekly x402 ecosystem digest. Report to me in Dutch, short.
 
-Read X posts from the last 7 days by and about x402 tooling and infrastructure: Coinbase/CDP x402, x402 Foundation, PayAI, t54 / XRPL AI Hub, GoPlausible, x402scan, nohumans.directory, PayAPI Market, Circle Gateway, MPP/Tempo, and any new x402 checker, wallet, facilitator or marketplace. Skip Fizzl's own posts (@x402fizzl).
+Read X posts from the last 7 days by and about x402 tooling and infrastructure: Coinbase/CDP x402, x402 Foundation, PayAI, t54 / XRPL AI Hub, GoPlausible, x402scan, nohumans.directory, PayAPI Market, Circle Gateway, MPP/Tempo, and any new x402 checker, wallet, facilitator or marketplace. Skip Fizzl's own posts (@x402fizzl). Do at least 4 different X searches (for example releases, complaints, new tools, and the big names above) before you report.
 
 Report:
 1. New releases and features (one line each, with the link).

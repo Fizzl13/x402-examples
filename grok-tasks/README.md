@@ -15,7 +15,9 @@ Grok searches X itself (`x_search`), can open links with `web_search` (at most 6
 report goes to the owner's Telegram through the wallet server's `/hooks/owner-report` (secret `DRAFT_KEY`), with the
 tokens and tool calls used and the run's price: xAI's own cost from the answer (`cost_in_usd_ticks`), or else an
 estimate from docs.x.ai pricing, with cached input at its lower price. Task A cost about $0.73 a
-run on grok-4.7 (29 Oct 2026), so A runs daily, B and D every third day and F and H weekly: about $1.40 a day.
+run on grok-4.7 (29 Oct 2026), so A runs daily, B and D every third day and F and H weekly. A and D run on grok-4.7; the reading tasks B, F and H on
+grok-4.3, at about half the price (their texts ask for a minimum number of searches, since a first test searched too
+little).
 
 Every endpoint Grok checked with `x402_quick_check` and found failing (read from the tool calls, not from Grok's
 text; at most 5 a run) then goes through x402 Doctor's free web check, which hands the owner a mail draft on Telegram

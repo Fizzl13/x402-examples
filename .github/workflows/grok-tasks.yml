@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       task: { description: "Task: A (x402 scan), B (scam watch), D (help desk), F (weekly digest) or H (post review)", required: true, default: "A" }
-      model: { description: "xAI model", required: false, default: "grok-4.7" }
+      model: { description: "xAI model (empty: the task's own, grok-4.7 for A and D, grok-4.3 for B, F and H)", required: false, default: "" }
       send: { description: "Send the report to Telegram", type: boolean, default: true }
   push:
     branches: [main]
@@ -74,9 +74,10 @@ jobs:
         if: steps.pick.outputs.skip != '1'
         env:
           TASK: ${{ steps.pick.outputs.task }}
-          MODEL: ${{ inputs.model || 'grok-4.7' }}
+          MODEL: ${{ inputs.model }}
           SEND: ${{ github.event_name == 'schedule' || inputs.send }}
         run: |
-          args=("$TASK" --model "$MODEL")
+          args=("$TASK")
+          [ -n "$MODEL" ] && args+=(--model "$MODEL")
           [ "$SEND" = "true" ] && args+=(--send)
           node grok-tasks/run-task.mjs "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

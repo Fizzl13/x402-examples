@@ -1,7 +1,7 @@
 // Runs one of Frits's Grok tasks (tasks/<id>.md) through xAI's Responses API: Grok searches X itself (x_search) and
 // uses Fizzl's free MCP checks, never a paid tool and never a wallet, so it can't pay, post or message anyone.
 // Prints the report; with --send it goes to the owner's Telegram through the wallet's /hooks/owner-report.
-//   XAI_API_KEY=… node run-task.mjs A [--model grok-4.7] [--send] [--dry-run]
+//   XAI_API_KEY=… node run-task.mjs A [--model grok-4.3] [--send] [--dry-run]
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -21,14 +21,17 @@ const MCP = {
   doctor: { type: "mcp", server_label: "x402_doctor", server_url: "https://x402-doctor.fizzl.eu/mcp", allowed_tools: ["x402_quick_check"] },
   presign: { type: "mcp", server_label: "presign_guard", server_url: "https://presign-guard.fizzl.eu/mcp", allowed_tools: ["token_quick_verdict", "injection_quick_check"] },
 };
+// model: the default per task. A and D (sellers, mail drafts, reply drafts) stay on grok-4.7; the reading tasks run on
+// grok-4.3 at about half the price (a test of B on 30 Oct cost $0.05, but searched too little: the task texts now ask
+// for a minimum number of searches).
 export const TASKS = {
   A: { title: "Grok taak A: x402-scan", days: 1, mcp: ["doctor", "presign"] },
-  B: { title: "Grok taak B: scam-watch", days: 1, mcp: ["presign"] },
+  B: { title: "Grok taak B: scam-watch", days: 1, mcp: ["presign"], model: "grok-4.3" },
   D: { title: "Grok taak D: helpdesk", days: 3, mcp: ["doctor", "presign"] },
   // xSearch: extra x_search settings (docs.x.ai: allowed_x_handles or excluded_x_handles, at most 20, without the @).
-  F: { title: "Grok taak F: x402-weekoverzicht", days: 7, mcp: [], xSearch: { excluded_x_handles: ["x402fizzl"] } },
+  F: { title: "Grok taak F: x402-weekoverzicht", days: 7, mcp: [], xSearch: { excluded_x_handles: ["x402fizzl"] }, model: "grok-4.3" },
   // Only @x402fizzl's own posts; Grok looks wider for the post ideas with web_search.
-  H: { title: "Grok taak H: review @x402fizzl", days: 7, mcp: [], xSearch: { allowed_x_handles: ["x402fizzl"] } },
+  H: { title: "Grok taak H: review @x402fizzl", days: 7, mcp: [], xSearch: { allowed_x_handles: ["x402fizzl"] }, model: "grok-4.3" },
 };
 // USD per million tokens: input, cached input, output (docs.x.ai pricing, prompts under 200k tokens, 30 Oct 2026), and
 // per server-side tool item: x_search $5 per 1,000 posts and $10 per 1,000 profiles, web_search $5 per 1,000 calls;
@@ -46,9 +49,10 @@ const RULES = `You run a scheduled task for Frits, who owns Fizzl (x402 Doctor, 
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
-export function buildRequest(id, { model = "grok-4.7", now = Date.now(), dir = new URL("./tasks/", import.meta.url) } = {}) {
+export function buildRequest(id, { model, now = Date.now(), dir = new URL("./tasks/", import.meta.url) } = {}) {
   const task = TASKS[id];
   if (!task) throw new Error(`unknown task ${id} (one of ${Object.keys(TASKS).join(", ")})`);
+  model ||= task.model ?? "grok-4.7";
   const text = readFileSync(new URL(`${id}.md`, dir), "utf8");
   return {
     model,
@@ -128,8 +132,8 @@ export function usageLine(response, model) {
 async function main(argv) {
   const id = String(argv[0] ?? "").toUpperCase();
   const flag = (name) => argv.includes(name);
-  const model = argv.includes("--model") ? argv[argv.indexOf("--model") + 1] : "grok-4.7";
-  const request = buildRequest(id, { model });
+  const request = buildRequest(id, { model: argv.includes("--model") ? argv[argv.indexOf("--model") + 1] : undefined });
+  const model = request.model;
   if (flag("--dry-run")) { console.log(JSON.stringify(request, null, 2)); return; }
   const key = process.env.XAI_API_KEY?.trim();
   if (!key) throw new Error("XAI_API_KEY is not set");
