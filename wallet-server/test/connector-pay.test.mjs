@@ -15,7 +15,7 @@ import { createApp } from "../src/app.js";
 import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
-import { baseOffer, cleanHeaders, queryUrl, USDC_BASE } from "../src/connector-pay.js";
+import { baseOffer, checksOf, cleanHeaders, queryUrl, USDC_BASE } from "../src/connector-pay.js";
 
 const PASSWORD = "correct horse battery staple";
 const REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
@@ -187,6 +187,8 @@ test("connector payments: the app asks, the owner signs in their own wallet, the
     assert.equal(a.status, "waiting_for_owner");
     assert.equal(a.price_usd, 0.002);
     assert.equal(a.approve_url, `${base}/approve/${a.payment_id}`);
+    assert.deepEqual(Object.keys(a.checks), ["sanctions", "payout_record", "balance", "limits"], "what was checked before asking, in words");
+    assert.match(a.checks.sanctions, /not on the OFAC sanctions list/);
     assert.equal(s.seen.length, 1, "only the unpaid request so far");
     assert.match(s.seen[0].headers["user-agent"], /^fizzl-wallet-connector\//);
     assert.equal(told.length, 1);
@@ -440,4 +442,21 @@ test("connector payments: an escrowed offer (auth-capture) is signed to the escr
     assert.deepEqual(JSON.parse(st.body), { domain: "example.com", status: "registering" });
     await client.close();
   } finally { server.close(); s.server.close(); }
+});
+
+test("helpers: the checks pay_x402 reports, including a price above the owner's limits", () => {
+  const owner = "0x1111111111111111111111111111111111111111";
+  const c = checksOf({ screened: true, record: { known: true, verdict: "go", days: 30, payableDays: 29 }, owner, offer: {}, balance: 5_000_000n, lowOnBase: false, price: 0.01, budget: { token: "USDC", perTx: "5", perDay: "20", used: "0.5", left: "19.5" } });
+  assert.match(c.payout_record, /29 of the 30 days it checked; last verdict go/);
+  assert.match(c.balance, /0x1111…1111 has enough USDC on Base/);
+  assert.equal(c.limits, "Within your user's limits ($19.5 left today).");
+  assert.match(checksOf({ screened: true, record: null, owner, offer: {}, balance: null, price: 7, budget: { perTx: "5", left: "20" } }).limits, /above your user's limit of \$5 per payment\. They can still sign it/);
+  assert.match(checksOf({ screened: true, record: null, owner, offer: {}, balance: null, price: 3, budget: { perTx: "5", left: "1" } }).limits, /more than the \$1 left/);
+  const none = checksOf({ screened: false, record: { known: false }, owner: null, offer: null, balance: null, price: 1, budget: null });
+  assert.deepEqual([none.sanctions, none.payout_record, none.balance, none.limits], [
+    "The OFAC sanctions list couldn't be read just now, so the payout address wasn't screened.",
+    "Not in x402 Doctor's Trust Index yet: no payout record.",
+    "Your user picks the wallet when signing; its balance is checked then.",
+    "Your user's limits couldn't be read just now.",
+  ]);
 });

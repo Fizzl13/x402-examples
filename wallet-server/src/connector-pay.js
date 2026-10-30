@@ -79,6 +79,22 @@ export function queryUrl(url, body) {
 // One request (method, URL and body) as a key, for spotting the same request asked again.
 const requestKey = (account, method, url, body) => `${account}:${createHash("sha256").update(`${method} ${url}\n${body ?? ""}`).digest("hex").slice(0, 32)}`;
 const usd = (units) => Number(units) / 1e6;
+
+// What pay_x402 checked before asking the owner, in words, so the app can tell its user (a Grok test on 30 Oct 2026
+// found the checks were only implied). The limits are the owner's agent limits: an owner-signed payment above one is
+// not refused, since the owner signs it themselves, but the app is told so it can say it.
+export function checksOf({ screened, record, owner, offer, balance, lowOnBase, price, budget }) {
+  const n = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+  const perTx = n(budget?.perTx), left = n(budget?.left);
+  return {
+    sanctions: screened ? "The payout address is not on the OFAC sanctions list." : "The OFAC sanctions list couldn't be read just now, so the payout address wasn't screened.",
+    payout_record: record === null ? "x402 Doctor didn't answer, so there is no payout record to show." : !record.known ? "Not in x402 Doctor's Trust Index yet: no payout record." : record.days ? `x402 Doctor saw it paying out on ${record.payableDays ?? 0} of the ${record.days} days it checked${record.verdict ? `; last verdict ${record.verdict}` : ""}.` : `In x402 Doctor's Trust Index${record.verdict ? ` (last verdict ${record.verdict})` : ""}, without a payout record yet.`,
+    balance: !owner ? "Your user picks the wallet when signing; its balance is checked then." : lowOnBase ? `${short(owner)} has too little USDC on Base, so only the other ways are offered.` : offer && balance !== null ? `${short(owner)} has enough USDC on Base.` : offer ? `The USDC balance of ${short(owner)} couldn't be read just now.` : "Checked in your user's wallet when they sign.",
+    limits: perTx !== null && price > perTx ? `$${price} is above your user's limit of $${perTx} per payment. They can still sign it themselves; tell them.`
+      : left !== null && price > left ? `$${price} is more than the $${left} left of your user's daily limit. They can still sign it themselves; tell them.`
+      : budget ? `Within your user's limits${left !== null ? ` ($${left} left today)` : ""}.` : "Your user's limits couldn't be read just now.",
+  };
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The USDC-on-Base "exact" offer in an x402 challenge (v2, from the PAYMENT-REQUIRED header or the body, or v1).
@@ -198,6 +214,10 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       return { known: true, verdict: j.last_scan?.verdict ?? null, days: j.days_checked ?? null, payableDays: j.days_payable ?? null };
     } catch { return null; }
   }
+  // The owner's spending limits (the same ones wallet_status shows). null: they can't be read.
+  async function spendingOf(account) {
+    try { const s = await accounts.walletFor(account).spending(); return Array.isArray(s) ? s : null; } catch { return null; }
+  }
   async function usdcBalance(address) {
     try {
       const data = `0x70a08231${address.slice(2).toLowerCase().padStart(64, "0")}`;
@@ -282,20 +302,23 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     }
     const owner = await accounts.payer(account);
     const payTos = [offer?.payTo, onSol?.payTo, onXrpl?.payTo].filter(Boolean);
-    const [listed, record, balance] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url), owner && offer ? usdcBalance(owner) : null]);
+    const [listed, record, balance, budgets] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url), owner && offer ? usdcBalance(owner) : null, spendingOf(account)]);
     const hit = payTos.find((_, i) => listed[i]);
     if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
+    let lowOnBase = false;
     if (owner && offer && balance !== null && balance < BigInt(offer.amount)) {
       if (!onSol && !onXrpl) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${usd(offer.amount)} this API asks. They can add USDC on Base to that address and ask again.` };
       offer = null; // too little USDC on Base: the other ways only
+      lowOnBase = true;
     }
     const price = offer ? usd(offer.amount) : onSol ? onSol.price : onXrpl.price;
+    const checks = checksOf({ screened: listed.every((x) => x === false), record, owner, offer, balance, lowOnBase, price, budget: budgets?.find((b) => b.token === (offer || onSol ? "USDC" : "RLUSD")) ?? budgets?.find((b) => b.token === "USDC") ?? null });
     const previous = await store.peekOnce("conpay-uncertain", requestKey(account, method, url, sendBody ?? null)).catch(() => null);
 
     let r = {
       id: randomBytes(24).toString("base64url"), account, agentId: agent.id, agentName: agent.name, status: "waiting", origin,
       url, method, headers: h, body: sendBody ?? null, reason: typeof reason === "string" ? reason.trim().slice(0, 300) || null : null,
-      offer, sol: onSol, xrpl: onXrpl, idExt: paymentIdDeclaration(challenge), previous: previous ?? null, price, from: owner && offer ? getAddress(owner) : null, pick: !owner, screened: listed.every((x) => x === false), record, createdAt: now(), expiresAt: now() + WAIT_MS,
+      offer, sol: onSol, xrpl: onXrpl, idExt: paymentIdDeclaration(challenge), previous: previous ?? null, price, from: owner && offer ? getAddress(owner) : null, pick: !owner, screened: listed.every((x) => x === false), record, checks, createdAt: now(), expiresAt: now() + WAIT_MS,
     };
     await putReq(r);
     const host = new URL(url).host;
@@ -325,7 +348,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   }
   function agentView(r, origin) {
     const base = { payment_id: r.id, price_usd: r.price, seller: new URL(r.url).host };
-    if (OPEN.has(r.status)) return { status: "waiting_for_owner", ...base, approve_url: `${origin}/approve/${r.id}`, expires_in_s: Math.max(0, Math.round((r.expiresAt - now()) / 1000)), pay_with: [...(r.offer ? ["USDC on Base"] : []), ...(r.sol ? ["USDC on Solana (Phantom)"] : []), ...(r.xrpl ? ["RLUSD on the XRP Ledger (Xaman)"] : [])], ...(r.xaman?.pushed ? { note: "The payment is also in your user's Xaman app." } : {}), ...(r.previous ? { warning: `${again(r.previous)} Tell your user before they sign this one.`, previous_payment_id: r.previous.id } : {}) };
+    if (OPEN.has(r.status)) return { status: "waiting_for_owner", ...base, approve_url: `${origin}/approve/${r.id}`, expires_in_s: Math.max(0, Math.round((r.expiresAt - now()) / 1000)), pay_with: [...(r.offer ? ["USDC on Base"] : []), ...(r.sol ? ["USDC on Solana (Phantom)"] : []), ...(r.xrpl ? ["RLUSD on the XRP Ledger (Xaman)"] : [])], ...(r.checks ? { checks: r.checks } : {}), ...(r.xaman?.pushed ? { note: "The payment is also in your user's Xaman app." } : {}), ...(r.previous ? { warning: `${again(r.previous)} Tell your user before they sign this one.`, previous_payment_id: r.previous.id } : {}) };
     if (r.status === "paying") return { status: "paying", ...base };
     if (r.status === "expired") return { status: "expired", ...base, note: "Your user didn't sign within 15 minutes. Nothing was paid; ask again if it's still needed." };
     if (r.status === "denied") return { status: "denied", ...base, note: "Your user said no. Nothing was paid." };
