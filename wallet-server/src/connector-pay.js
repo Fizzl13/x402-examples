@@ -60,6 +60,22 @@ const UNCERTAIN = new Set(["settled_no_answer", "outcome_unknown"]); // paid wit
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const unb64 = (s) => { try { return JSON.parse(Buffer.from(String(s), "base64").toString("utf8")); } catch { return null; } };
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+// A GET carries no body, so an agent's input for a GET (an object, or a JSON object as a string, often a pick's
+// example) goes into the URL's query instead; parameters already in the URL stay as they are. Anything else as a GET
+// body is refused rather than dropped: the seller would answer (and charge for) a request without the input.
+export function queryUrl(url, body) {
+  if (body === undefined || body === null || body === "") return { url };
+  let input = body;
+  if (typeof input === "string") { try { input = JSON.parse(input); } catch { input = null; } }
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "A GET request can't carry a body. Put the input in the URL's query (?name=value), or pass it as an object." };
+  const u = new URL(url);
+  for (const [k, v] of Object.entries(input)) {
+    if (v === undefined || v === null || u.searchParams.has(k)) continue;
+    u.searchParams.set(k, Array.isArray(v) && v.every((x) => typeof x !== "object") ? v.join(",") : typeof v === "object" ? JSON.stringify(v) : String(v));
+  }
+  return u.href.length > 2000 ? { error: "The URL with the input is over 2,000 characters." } : { url: u.href };
+}
+
 // One request (method, URL and body) as a key, for spotting the same request asked again.
 const requestKey = (account, method, url, body) => `${account}:${createHash("sha256").update(`${method} ${url}\n${body ?? ""}`).digest("hex").slice(0, 32)}`;
 const usd = (units) => Number(units) / 1e6;
@@ -221,6 +237,12 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   // ---------- the app asks (pay_x402) ----------
   async function request({ account, agent, origin }, { url, method = "GET", body, headers, max_price_usd, reason }) {
     if (agent.paused) return { error: `${agent.name} is paused on the owner's dashboard.` };
+    if (method === "GET") {
+      const q = queryUrl(url, body);
+      if (q.error) return { error: q.error };
+      url = q.url;
+      body = undefined;
+    }
     const a = asks.get(agent.id);
     if (!a || now() - a.since > 3_600_000) asks.set(agent.id, { n: 1, since: now() });
     else if (++a.n > ASKS_PER_HOUR) return { error: `${ASKS_PER_HOUR} payment requests an hour is the most one app can send its owner. Wait, or ask your user to pay on the dashboard.` };
