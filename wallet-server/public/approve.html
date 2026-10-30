@@ -121,7 +121,8 @@ h1 { text-transform: none; font-size: clamp(28px, 5vw, 40px); letter-spacing: -1
         ? `<button class="btn pri" id="sign" type="button">Sign with my wallet</button>`
         : `<a class="btn pri" href="https://metamask.app.link/dapp/${esc(location.host + location.pathname)}">Open in MetaMask</a><a class="btn" href="https://go.cb-w.com/dapp?cb_url=${here}">Open in Coinbase Wallet</a>`;
       const baseBlock = !o.base ? "" : `<div class="opt">${both ? `<p><b>USDC on Base</b>, $${esc(o.base.price)}, signed in an Ethereum wallet</p>` : ""}
-        ${window.ethereum ? "" : '<p class="note">No Ethereum wallet in this browser. On a phone, open this page in your wallet app.</p>'}<div class="row">${baseButtons}</div></div>`;
+        ${window.ethereum ? "" : '<p class="note">No Ethereum wallet in this browser. On a phone, open this page in your wallet app.</p>'}<div class="row">${baseButtons}</div>
+        ${o.base.escrow ? "" : `<p class="note">MetaMask may warn "High-risk approval: the spender ${esc(short(o.base.payTo))} is untrusted EOA". It says that about almost every x402 payment, because sellers are paid to their own wallet. This signature is not an approval: it sends exactly $${esc(o.base.price)} once to that address, for a few minutes, and can't take more. Check that address and amount in the wallet's message before you sign.</p>`}</div>`;
       const sw = solWallets[0];
       const here2 = encodeURIComponent(location.href), ref = encodeURIComponent(location.origin);
       const solBlock = !o.solana ? "" : `<div class="opt">${both ? `<p><b>USDC on Solana</b>, $${esc(o.solana.price)}, signed in a Solana wallet</p>` : ""}
