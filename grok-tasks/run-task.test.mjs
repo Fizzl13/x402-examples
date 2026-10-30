@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, reportText, usageLine, failedQuickChecks, quickChecks, trustLine, visibilityLine, TASKS } from "./run-task.mjs";
+import { buildRequest, reportText, usageLine, failedQuickChecks, quickChecks, trustLine, visibilityLine, askXai, TASKS } from "./run-task.mjs";
 
 const NOW = Date.parse("2026-10-29T18:00:00Z");
 
@@ -91,4 +91,21 @@ test("taak V asks like any developer, web search only, and scores which answers 
   assert.equal(visibilityLine(answer), "Vindbaarheid: 1 x402 Doctor ✅ · 2 presign-guard ❌ · 3 Fizzl Agent Wallet ❌ · 4 Fizzl Buy ✅ (2/4)");
   assert.equal(visibilityLine("**1.** presign-guard is great for 1 but\n**2.** use presign-guard"), "Vindbaarheid: 1 x402 Doctor ❌ · 2 presign-guard ✅ · 3 Fizzl Agent Wallet ❌ · 4 Fizzl Buy ❌ (1/4)", "per numbered answer");
   assert.equal(visibilityLine("Try wallet.fizzl.eu"), "Vindbaarheid: 1 x402 Doctor ❌ · 2 presign-guard ❌ · 3 Fizzl Agent Wallet ✅ · 4 Fizzl Buy ❌ (1/4)", "unnumbered: the whole answer");
+});
+
+test("xAI at capacity (429) or a 5xx: asked again after a pause; other errors and the last try throw", async () => {
+  const answers = (list) => { const calls = []; return { calls, fetch: async (_url, init) => { calls.push(JSON.parse(init.body)); const [status, body] = list.shift(); return new Response(JSON.stringify(body), { status }); } }; };
+  const slept = [], logs = [];
+  const opts = (f) => ({ key: "k", fetch: f.fetch, pauses: [5, 7], sleep: async (ms) => slept.push(ms), log: (m) => logs.push(m) });
+  const ok = answers([[429, { error: "The model is currently at capacity" }], [503, {}], [200, { output: [] }]]);
+  assert.deepEqual(await askXai({ model: "m" }, opts(ok)), { output: [] });
+  assert.equal(ok.calls.length, 3);
+  assert.deepEqual(slept, [5, 7]);
+  assert.match(logs[0], /^xAI 429: .*asking again in 0\.005 s$/);
+  const busy = answers([[429, {}], [429, {}], [429, { error: "still busy" }]]);
+  await assert.rejects(askXai({}, opts(busy)), /xAI 429: "still busy"/);
+  assert.equal(busy.calls.length, 3, "two retries, then it gives up");
+  const bad = answers([[400, { error: "bad request" }]]);
+  await assert.rejects(askXai({}, opts(bad)), /xAI 400/);
+  assert.equal(bad.calls.length, 1, "a 4xx other than 429 is not asked again");
 });
