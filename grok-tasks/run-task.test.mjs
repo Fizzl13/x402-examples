@@ -12,7 +12,6 @@ test("each task: X search from its window, only free MCP tools, the task text an
     assert.equal(r.tools[1].type, "web_search");
     assert.match(r.input[0].content, /at most 6 X searches and 6 web searches/);
     const mcp = r.tools.filter((t) => t.type === "mcp");
-    assert.ok(mcp.length >= 1);
     const allowed = mcp.flatMap((t) => t.allowed_tools);
     assert.deepEqual(allowed.filter((n) => !["x402_quick_check", "token_quick_verdict", "injection_quick_check"].includes(n)), [], "free checks only");
     assert.ok(mcp.every((t) => t.allowed_tools.length > 0), "an empty list would allow every tool, the paid ones too");
@@ -23,6 +22,11 @@ test("each task: X search from its window, only free MCP tools, the task text an
   assert.equal(buildRequest("A", { now: NOW }).tools[0].from_date, "2026-10-28");
   assert.equal(buildRequest("D", { now: NOW }).tools[0].from_date, "2026-10-26");
   assert.deepEqual(buildRequest("B", { now: NOW }).tools.slice(2).map((t) => t.server_label), ["presign_guard"]);
+  assert.equal(buildRequest("F", { now: NOW }).tools[0].from_date, "2026-10-22");
+  assert.equal(buildRequest("F", { now: NOW }).tools.length, 2, "the digest only reads");
+  assert.deepEqual(buildRequest("F", { now: NOW }).tools[0].excluded_x_handles, ["x402fizzl"]);
+  assert.deepEqual(buildRequest("H", { now: NOW }).tools[0].allowed_x_handles, ["x402fizzl"]);
+  assert.equal(buildRequest("A", { now: NOW }).tools[0].allowed_x_handles, undefined);
   assert.throws(() => buildRequest("Z"), /unknown task/);
 });
 

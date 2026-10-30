@@ -9,9 +9,11 @@ on:
     - cron: "41 17 * * *"    # A: x402 scan, daily
     - cron: "13 18 2-31/3 * *" # B: scam watch, every third day (a day after D)
     - cron: "37 18 */3 * *"  # D: help desk, every third day
+    - cron: "19 7 * * 1"     # F: x402 ecosystem digest, Mondays
+    - cron: "47 19 * * 0"    # H: @x402fizzl post review, Sundays
   workflow_dispatch:
     inputs:
-      task: { description: "Task: A (x402 scan), B (scam watch) or D (help desk)", required: true, default: "A" }
+      task: { description: "Task: A (x402 scan), B (scam watch), D (help desk), F (weekly digest) or H (post review)", required: true, default: "A" }
       model: { description: "xAI model", required: false, default: "grok-4.7" }
       send: { description: "Send the report to Telegram", type: boolean, default: true }
   push:
@@ -56,9 +58,11 @@ jobs:
             "41 17 * * *") task=A ;;
             "13 18 2-31/3 * *") task=B ;;
             "37 18 */3 * *") task=D ;;
+            "19 7 * * 1") task=F ;;
+            "47 19 * * 0") task=H ;;
             *) task=$(printf '%s' "$INPUT_TASK" | tr '[:lower:]' '[:upper:]') ;;
           esac
-          case "$task" in A|B|D) ;; *) echo "::error::Unknown task $task"; exit 1 ;; esac
+          case "$task" in A|B|D|F|H) ;; *) echo "::error::Unknown task $task"; exit 1 ;; esac
           echo "task=$task" >> "$GITHUB_OUTPUT"
           if [ -z "$XAI_API_KEY" ]; then echo "No XAI_API_KEY secret, nothing to run." >> "$GITHUB_STEP_SUMMARY"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v5
