@@ -86,6 +86,7 @@ test("taak V asks like any developer, web search only, and scores which answers 
   const r = buildRequest("V", { now: NOW });
   assert.deepEqual(r.tools, [{ type: "web_search" }], "no X search, no MCP, no memory of us");
   assert.doesNotMatch(JSON.stringify(r.input), /fizzl|presign|doctor/i, "nothing in the prompt points at our services");
+  assert.match(r.input[0].content, /at most 6 searches/, "the first run made 30 searches and cost $1.00");
   const answer = "1. Use x402 Doctor (https://x402-doctor.fizzl.eu/) because…\n2. x402check.xyz screens…\n3. AgentWallet (agentwallet.ai)…\n4. **Fizzl Buy** at buy.fizzl.eu…";
   assert.equal(visibilityLine(answer), "Vindbaarheid: 1 x402 Doctor ✅ · 2 presign-guard ❌ · 3 Fizzl Agent Wallet ❌ · 4 Fizzl Buy ✅ (2/4)");
   assert.equal(visibilityLine("**1.** presign-guard is great for 1 but\n**2.** use presign-guard"), "Vindbaarheid: 1 x402 Doctor ❌ · 2 presign-guard ✅ · 3 Fizzl Agent Wallet ❌ · 4 Fizzl Buy ❌ (1/4)", "per numbered answer");

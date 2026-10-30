@@ -54,7 +54,8 @@ const RULES = `You run a scheduled task for Frits, who owns Fizzl (x402 Doctor, 
 - Use web search to open a link from a post (t.co links, landing pages, docs, GitHub) when you need the paid URL or an official domain.
 - Your whole answer is the report, in plain text for a Telegram message: no tables, no markdown headings, no notes about what you are doing, at most 3,500 characters.`;
 
-const NEUTRAL = "You are a helpful assistant for software developers. Search the web for current options and answer briefly, with concrete product names and links.";
+// At most 6 searches: the first run (30 Oct) made 30 and cost $1.00.
+const NEUTRAL = "You are a helpful assistant for software developers. Search the web for current options (at most 6 searches) and answer briefly, with concrete product names and links.";
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
