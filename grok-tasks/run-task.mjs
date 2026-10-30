@@ -11,6 +11,10 @@ const REPORT_HOOK = "https://wallet.fizzl.eu/hooks/owner-report";
 // mail draft on Telegram (one mail per address, ever; nothing is sent without the owner's Send).
 const DOCTOR_CHECK = "https://x402-doctor.fizzl.eu/api/diagnose";
 const MAX_DRAFT_CHECKS = 5;
+// Every endpoint that answered with a payment challenge is added to the x402 Trust Index (free; Doctor checks the 402
+// again and skips what a registry already lists), so sellers seen only on X get a daily track record too.
+const TRUST_SUBMIT = "https://x402-doctor.fizzl.eu/api/trust/submit";
+const MAX_TRUST_SUBMITS = 8; // Doctor allows 10 an hour
 
 // Free tools only: every paid tool of these servers needs an x402 payment Grok can't make, and isn't offered.
 const MCP = {
@@ -69,19 +73,36 @@ export function reportText(response) {
   return typeof response?.output_text === "string" ? response.output_text.trim() : "";
 }
 
-// The endpoints Grok checked with x402_quick_check that failed, from the tool calls themselves (not Grok's text).
-export function failedQuickChecks(response) {
+// The endpoints Grok checked with x402_quick_check and their verdict (pass, warn or fail), from the tool calls
+// themselves (not Grok's text): https only, once per URL.
+export function quickChecks(response) {
   const out = [];
   for (const item of response?.output ?? []) {
     if (!/mcp/.test(String(item?.type)) || !/(^|[._])x402_quick_check$/.test(String(item?.name))) continue;
     let args = item.arguments;
     try { if (typeof args === "string") args = JSON.parse(args); } catch { continue; }
     const result = typeof item.output === "string" ? item.output : JSON.stringify(item.output ?? "");
-    if (!/"overall\\?"\s*:\s*\\?"fail/.test(result)) continue; // also inside a JSON-encoded text part
+    const overall = /"overall\\?"\s*:\s*\\?"(pass|warn|fail)/.exec(result)?.[1]; // also inside a JSON-encoded text part
+    if (!overall) continue;
     if (typeof args?.url !== "string" || !/^https:\/\//.test(args.url) || out.some((c) => c.url === args.url)) continue;
-    out.push({ url: args.url, ...(args.method === "POST" ? { method: "POST" } : {}) });
+    out.push({ url: args.url, ...(args.method === "POST" ? { method: "POST" } : {}), overall });
   }
   return out;
+}
+
+// The ones that failed: these go through Doctor's web check for a mail draft.
+export function failedQuickChecks(response) {
+  return quickChecks(response).filter((c) => c.overall === "fail").map(({ overall, ...c }) => c);
+}
+
+// What POST /api/trust/submit answered, for the report: added (201, a new track record from the next daily scan),
+// already there (200: a registry lists it, or it was added before), or not added (no payment challenge, a cap).
+export function trustLine(results) {
+  const added = results.filter((r) => r.status === 201).map((r) => r.host);
+  const known = results.filter((r) => r.status === 200).length;
+  const other = results.length - added.length - known;
+  if (!results.length) return "";
+  return `Trust Index: ${added.length} nieuw toegevoegd${added.length ? ` (${added.join(", ")})` : ""}, ${known} stond(en) er al in${other ? `, ${other} niet toegevoegd` : ""}.`;
 }
 
 // What the run cost in tokens, and what xAI says about the server-side tools; x_search's per-post price comes on top.
@@ -122,6 +143,16 @@ async function main(argv) {
       done.push(`${new URL(c.url).host}${res?.ok ? "" : ` (check ${res ? `HTTP ${res.status}` : "niet bereikt"})`}`);
     }
     report += `\n\nDoctor-webcheck voor ${done.join(", ")}: publiceert de verkoper een contactadres, dan komt er een mail-concept in Telegram.`;
+  }
+  const checked = quickChecks(body).slice(0, MAX_TRUST_SUBMITS);
+  if (checked.length && flag("--send")) {
+    const results = [];
+    for (const c of checked) {
+      const res = await fetch(TRUST_SUBMIT, { method: "POST", headers: { "content-type": "application/json", "user-agent": "fizzl-grok-tasks/1" }, body: JSON.stringify({ url: c.url }), signal: AbortSignal.timeout(60_000) }).catch(() => null);
+      results.push({ host: new URL(c.url).host, status: res?.status ?? 0 });
+    }
+    console.error(`trust submit ${JSON.stringify(results)}`);
+    report += `\n\n${trustLine(results)}`;
   }
   console.log(`${TASKS[id].title}\n\n${report}\n\n${usage}`);
   if (flag("--send")) {

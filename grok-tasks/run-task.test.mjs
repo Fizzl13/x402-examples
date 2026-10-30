@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, reportText, usageLine, failedQuickChecks, TASKS } from "./run-task.mjs";
+import { buildRequest, reportText, usageLine, failedQuickChecks, quickChecks, trustLine, TASKS } from "./run-task.mjs";
 
 const NOW = Date.parse("2026-10-29T18:00:00Z");
 
@@ -64,4 +64,16 @@ test("failing quick checks come from the tool calls, once per URL, https only", 
     { url: "https://obj.example/x" },
   ]);
   assert.deepEqual(failedQuickChecks({}), []);
+  assert.deepEqual(quickChecks(response).map((c) => [c.url, c.overall]), [
+    ["https://solgpt.us/api/dark-clawd/mpp/charge", "fail"],
+    ["https://ok.example/paid", "pass"],
+    ["https://warn.example/paid", "warn"],
+    ["https://obj.example/x", "fail"],
+  ], "every checked https endpoint goes to the Trust Index");
+});
+
+test("the Trust Index line says what was added and what was already there", () => {
+  assert.equal(trustLine([{ host: "a.example", status: 201 }, { host: "b.example", status: 200 }, { host: "c.example", status: 422 }, { host: "d.example", status: 0 }]), "Trust Index: 1 nieuw toegevoegd (a.example), 1 stond(en) er al in, 2 niet toegevoegd.");
+  assert.equal(trustLine([{ host: "b.example", status: 200 }]), "Trust Index: 0 nieuw toegevoegd, 1 stond(en) er al in.");
+  assert.equal(trustLine([]), "");
 });
