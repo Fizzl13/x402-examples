@@ -9,8 +9,11 @@ Frits's scheduled Grok tasks, run by `.github/workflows/grok-tasks.yml` through 
 | D | Help desk: people with x402 payment problems on X, with reply drafts | by hand |
 | F | x402 ecosystem digest: releases, complaints and what overlaps with Fizzl, from a week of X | by hand |
 | H | Review of @x402fizzl's posts of the week, with 3 post ideas | by hand |
+| V | Findability: four plain developer questions, asked with web search only; which answers name our services | Wednesdays 09:53 |
 
-Only A runs on a schedule: what its tool calls find feeds the mail drafts and the Trust Index below, which only works
+V runs weekly too: through the API Grok has no memory and no connectors, so it answers as for any developer (the
+prompt never names Fizzl), and the report starts with one line saying which of the four answers named our service.
+Besides that, only A runs on a schedule: what its tool calls find feeds the mail drafts and the Trust Index below, which only works
 through the API. B, D, F and H are reports the owner only reads, so he runs them in the Grok app, which his
 subscription covers; here they can still be started by hand.
 

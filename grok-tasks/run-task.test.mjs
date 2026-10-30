@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRequest, reportText, usageLine, failedQuickChecks, quickChecks, trustLine, TASKS } from "./run-task.mjs";
+import { buildRequest, reportText, usageLine, failedQuickChecks, quickChecks, trustLine, visibilityLine, TASKS } from "./run-task.mjs";
 
 const NOW = Date.parse("2026-10-29T18:00:00Z");
 
 test("each task: X search from its window, only free MCP tools, the task text and the rules", () => {
-  for (const id of Object.keys(TASKS)) {
+  for (const id of Object.keys(TASKS).filter((k) => !TASKS[k].neutral)) {
     const r = buildRequest(id, { now: NOW });
     assert.equal(r.model, "grok-4.7");
     assert.equal(r.tools[0].type, "x_search");
@@ -80,4 +80,14 @@ test("the Trust Index line says what was added and what was already there", () =
   assert.equal(trustLine([{ host: "a.example", status: 201 }, { host: "b.example", status: 200 }, { host: "c.example", status: 422 }, { host: "d.example", status: 0 }]), "Trust Index: 1 nieuw toegevoegd (a.example), 1 stond(en) er al in, 2 niet toegevoegd.");
   assert.equal(trustLine([{ host: "b.example", status: 200 }]), "Trust Index: 0 nieuw toegevoegd, 1 stond(en) er al in.");
   assert.equal(trustLine([]), "");
+});
+
+test("taak V asks like any developer, web search only, and scores which answers named us", () => {
+  const r = buildRequest("V", { now: NOW });
+  assert.deepEqual(r.tools, [{ type: "web_search" }], "no X search, no MCP, no memory of us");
+  assert.doesNotMatch(JSON.stringify(r.input), /fizzl|presign|doctor/i, "nothing in the prompt points at our services");
+  const answer = "1. Use x402 Doctor (https://x402-doctor.fizzl.eu/) because…\n2. x402check.xyz screens…\n3. AgentWallet (agentwallet.ai)…\n4. **Fizzl Buy** at buy.fizzl.eu…";
+  assert.equal(visibilityLine(answer), "Vindbaarheid: 1 x402 Doctor ✅ · 2 presign-guard ❌ · 3 Fizzl Agent Wallet ❌ · 4 Fizzl Buy ✅ (2/4)");
+  assert.equal(visibilityLine("**1.** presign-guard is great for 1 but\n**2.** use presign-guard"), "Vindbaarheid: 1 x402 Doctor ❌ · 2 presign-guard ✅ · 3 Fizzl Agent Wallet ❌ · 4 Fizzl Buy ❌ (1/4)", "per numbered answer");
+  assert.equal(visibilityLine("Try wallet.fizzl.eu"), "Vindbaarheid: 1 x402 Doctor ❌ · 2 presign-guard ❌ · 3 Fizzl Agent Wallet ✅ · 4 Fizzl Buy ❌ (1/4)", "unnumbered: the whole answer");
 });

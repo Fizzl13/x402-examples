@@ -29,7 +29,17 @@ export const TASKS = {
   F: { title: "Grok taak F: x402-weekoverzicht", days: 7, mcp: [], xSearch: { excluded_x_handles: ["x402fizzl"] } },
   // Only @x402fizzl's own posts; Grok looks wider for the post ideas with web_search.
   H: { title: "Grok taak H: review @x402fizzl", days: 7, mcp: [], xSearch: { allowed_x_handles: ["x402fizzl"] } },
+  // Does an AI that knows nothing about us recommend our services? Asked through the API, so no memory and no
+  // connectors; neutral: a plain developer question with web search only, never Fizzl's name in the prompt.
+  V: { title: "Grok taak V: vindbaarheid", neutral: true, mcp: [] },
 };
+// Taak V: which of the four questions in tasks/V.md named our service (the answer is numbered 1 to 4).
+const OURS = [
+  ["x402 Doctor", /x402[ -]?doctor/i],
+  ["presign-guard", /presign[ -]?guard/i],
+  ["Fizzl Agent Wallet", /fizzl agent wallet|wallet\.fizzl\.eu/i],
+  ["Fizzl Buy", /fizzl buy|buy\.fizzl\.eu/i],
+];
 // USD per million tokens: input, cached input, output (docs.x.ai pricing, prompts under 200k tokens, 30 Oct 2026), and
 // per server-side tool item: x_search $5 per 1,000 posts and $10 per 1,000 profiles, web_search $5 per 1,000 calls;
 // remote MCP calls are free. Only for the estimate when xAI's answer carries no cost of its own.
@@ -44,12 +54,25 @@ const RULES = `You run a scheduled task for Frits, who owns Fizzl (x402 Doctor, 
 - Use web search to open a link from a post (t.co links, landing pages, docs, GitHub) when you need the paid URL or an official domain.
 - Your whole answer is the report, in plain text for a Telegram message: no tables, no markdown headings, no notes about what you are doing, at most 3,500 characters.`;
 
+const NEUTRAL = "You are a helpful assistant for software developers. Search the web for current options and answer briefly, with concrete product names and links.";
+
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+// One line for the report: per question, whether its answer named our service.
+export function visibilityLine(answer) {
+  const parts = String(answer ?? "").split(/^\s*(?:\*\*|#+\s*)?([1-4])[.)]/m);
+  const byQ = {};
+  for (let i = 1; i < parts.length; i += 2) byQ[parts[i]] = (byQ[parts[i]] ?? "") + parts[i + 1];
+  const numbered = Object.keys(byQ).length >= 2;
+  const hits = OURS.map(([name, re], i) => [name, re.test(numbered ? byQ[String(i + 1)] ?? "" : answer ?? "")]);
+  return `Vindbaarheid: ${hits.map(([name, hit], i) => `${i + 1} ${name} ${hit ? "✅" : "❌"}`).join(" · ")} (${hits.filter(([, hit]) => hit).length}/4)`;
+}
 
 export function buildRequest(id, { model = "grok-4.7", now = Date.now(), dir = new URL("./tasks/", import.meta.url) } = {}) {
   const task = TASKS[id];
   if (!task) throw new Error(`unknown task ${id} (one of ${Object.keys(TASKS).join(", ")})`);
   const text = readFileSync(new URL(`${id}.md`, dir), "utf8");
+  if (task.neutral) return { model, input: [{ role: "system", content: NEUTRAL }, { role: "user", content: text }], tools: [{ type: "web_search" }] };
   return {
     model,
     input: [
@@ -137,6 +160,7 @@ async function main(argv) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`xAI ${res.status}: ${JSON.stringify(body.error ?? body).slice(0, 300)}`);
   let report = reportText(body) || "Grok gaf geen rapport terug.";
+  if (TASKS[id].neutral) report = `${visibilityLine(report)}\n\n${report}`;
   const usage = usageLine(body, model);
   const failing = failedQuickChecks(body).slice(0, MAX_DRAFT_CHECKS);
   // For the job log: which kinds of output items came back (the shape of the tool calls), and what was picked up.
