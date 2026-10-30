@@ -267,16 +267,19 @@ const inList = (values) => JSON.stringify([...values]);
 // Each listing's score for the question's words: a rare word counts more than a common one (inverse document
 // frequency), so "buy an API call for my agent" ranks a listing about buying above the thousands that only say
 // "agent". Before 29 Oct 2026 every word counted 1 and ties went to the cheapest, which buried Fizzl Buy and others.
+// `all` is the score of a listing that has every word, so score / all says how much of the question it covers.
 function matchCounts(db, terms) {
   const counts = new Map();
   const lookup = db.prepare("SELECT rowid FROM fts WHERE fts MATCH ?");
   const total = db.prepare("SELECT count(*) AS n FROM listings").get().n || 1;
+  let all = 0;
   for (const t of terms) {
     const rows = [...lookup.iterate(`"${t}"`)];
     const weight = Math.log(1 + total / Math.max(1, rows.length));
+    all += weight;
     for (const { rowid } of rows) counts.set(rowid, (counts.get(rowid) ?? 0) + weight);
   }
-  return counts;
+  return { counts, all };
 }
 // Catalog files of another catalog (another process, or this one before a restart) that weren't touched for two hours:
 // left behind, since a live catalog writes a new file every hour.
@@ -441,7 +444,7 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       if (terms.length) { where.push("fts MATCH ?"); params.push(terms.map((t) => `"${t}"`).join(" OR ")); }
       if (category) { where.push("l.category = ?"); params.push(category); }
       if (fresh) { where.push("l.origin IN (SELECT value FROM json_each(?))"); params.push(inList(Object.keys(firstSeen).filter((o) => isNew(o)))); }
-      const matched = terms.length ? matchCounts(db, terms) : null;
+      const { counts: matched = null, all: allWords = 0 } = terms.length ? matchCounts(db, terms) : {};
       const rows = db.prepare(`SELECT l.id, l.resource, l.origin, l.host, l.path, l.description, l.prices, l.method, e.json AS example, l.category
         FROM ${terms.length ? "fts JOIN listings l ON l.id = fts.rowid" : "listings l"} LEFT JOIN examples e ON e.id = l.example
         WHERE ${where.join(" AND ")} ORDER BY l.id`).iterate(...params);
@@ -494,7 +497,8 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       else if (ranker?.enabled) all = await ranker.rank(String(query), all);
       const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
       const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
-      const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => ({ ...r, example: r.example == null ? null : JSON.parse(r.example) }));
+      // coverage (with words): the share of the question's words the listing has, rare words weighing more (0 to 1).
+      const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => ({ ...r, ...(matched && allWords && typeof score === "number" ? { coverage: Math.round(Math.min(1, score / allWords) * 100) / 100 } : {}), example: r.example == null ? null : JSON.parse(r.example) }));
       // Which of these sellers publish a skill.md (cached; unknown ones are checked now, briefly).
       if (skills && results.length) {
         const origins = results.map((r) => new URL(r.url).origin);

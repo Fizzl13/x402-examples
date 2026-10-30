@@ -2948,3 +2948,14 @@ test("robots.txt, the sitemap, llms.txt, the IndexNow key and the homepage JSON-
     server.close();
   }
 });
+
+test("catalog: each search result says how much of the question it covers (rare words weigh more)", async () => {
+  const { createCatalog } = await import("../src/catalog.js");
+  const r = (u, d) => ({ resource: u, description: d, accepts: [{ scheme: "exact", network: "eip155:8453", asset: USDC, amount: "10000", payTo: PAY_TO }] });
+  const items = [r("https://all.example/x", "Cat poem, signed by a notary"), r("https://poem.example/x", "Write a poem on any topic"), r("https://notary.example/x", "Notary service for documents")];
+  const catalog = createCatalog({ url: "https://catalog.test/d", fetch: async () => Response.json({ items }) });
+  const out = Object.fromEntries((await catalog.search("a poem about my cat, signed by a notary")).results.map((x) => [new URL(x.url).host, x.coverage]));
+  assert.equal(out["all.example"], 1);
+  assert.ok(out["poem.example"] < 0.6 && out["notary.example"] < 0.6, JSON.stringify(out));
+  assert.equal((await catalog.search("")).results[0]?.coverage, undefined);
+});

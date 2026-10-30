@@ -12,7 +12,7 @@ import { presignSource } from "../src/connector.js";
 import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
-import { agentName, okRedirect } from "../src/connector.js";
+import { agentName, okRedirect, fitOf } from "../src/connector.js";
 
 const PASSWORD = "correct horse battery staple";
 const PAY_TO = "0x6B0F4651eD42893ab58139938175E4a69f175F25";
@@ -30,7 +30,8 @@ async function boot() {
   const store = memoryStore();
   const accounts = createAccounts({ store, publicUrl: "https://wallet.test", billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: async () => Response.json({ jsonrpc: "2.0", id: 1, result: null }) }, walletOptions: { authority: null } });
   const searches = [], checks = [], records = [];
-  const catalog = { search: async (q, opts) => { searches.push({ q, opts }); return { query: q, results: SELLERS.map((s) => ({ ...s })), total: SELLERS.length }; } };
+  // A question nobody sells an answer to: the same sellers, each sharing only a few of its words.
+  const catalog = { search: async (q, opts) => { searches.push({ q, opts }); return { query: q, results: SELLERS.map((s) => ({ ...s, ...(/notary/.test(q) ? { coverage: 0.3 } : {}) })), total: SELLERS.length }; } };
   const presign = async (url, init) => { checks.push({ url, body: JSON.parse(init.body), agent: init.headers["user-agent"] }); return Response.json({ verdict: /ignore previous/i.test(JSON.parse(init.body).text) ? "red" : "green" }); };
   const usage = { record: (route, fields) => records.push({ route, ...fields }) };
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), catalog, usage, oauthStore: store.global, connector: { fetch: presign, presignUrl: "https://presign.test" } });
@@ -187,6 +188,14 @@ test("connector: sign in, allow, a code for the token, the tools, and disconnect
     assert.deepEqual(found.services[0].input_example, { need: "weather forecast for Amsterdam tomorrow" });
     assert.match(found.services[1].track_record, /29 of the 30 days/);
     assert.match(found.note, /first entry is Fizzl Buy/);
+    assert.equal(found.close_match, undefined);
+    const odd = (await client.callTool({ name: "find_services", arguments: { query: "a poem about my cat, signed by a notary" } })).structuredContent;
+    assert.equal(odd.close_match, false);
+    assert.ok(odd.services.every((x) => x.url !== "https://buy.fizzl.eu/v1/buy" && x.fit === "poor"), "no Fizzl Buy when nothing fits: it would buy the nearest");
+    assert.match(odd.note, /None of these clearly does what was asked/);
+    const zero = await client.callTool({ name: "find_services", arguments: { query: "weather", max_price_usd: 0 } });
+    assert.equal(zero.isError, true);
+    assert.match(zero.content[0].text, /max_price_usd must be above 0/);
     const cheap = (await client.callTool({ name: "find_services", arguments: { query: "weather", max_price_usd: 0.01 } })).structuredContent;
     assert.equal(cheap.services[0].url, "https://agents.dexl.io/v1/tools/weather", "no Fizzl Buy under its price");
 
@@ -289,4 +298,10 @@ test("connector: check_text's source in the agent's own words becomes a kind pre
   for (const [words, kind] of Object.entries(cases)) assert.equal(presignSource(words), kind, words);
   assert.equal(presignSource(""), undefined);
   assert.equal(presignSource(undefined), undefined);
+});
+
+test("connector: how well a listing fits, from Jev's relevance or else the share of the question's words", () => {
+  assert.deepEqual([fitOf({ relevance: 1 }), fitOf({ relevance: 0.67 }), fitOf({ relevance: 0.33, coverage: 1 })], ["good", "partial", "poor"], "relevance wins when the search was ranked by meaning");
+  assert.deepEqual([fitOf({ coverage: 1 }), fitOf({ coverage: 0.7 }), fitOf({ coverage: 0.3 }), fitOf({ relevance: null, coverage: 0.95 })], ["good", "partial", "poor", "good"]);
+  assert.equal(fitOf({}), undefined, "nothing to go by: no fit, and the listing counts as close");
 });
