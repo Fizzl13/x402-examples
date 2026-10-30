@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 
 const API = "https://api.x.ai/v1/responses";
 const REPORT_HOOK = "https://wallet.fizzl.eu/hooks/owner-report";
+// x402 Doctor's free web check: for a failing endpoint whose seller publishes a contact address, it hands the owner a
+// mail draft on Telegram (one mail per address, ever; nothing is sent without the owner's Send).
+const DOCTOR_CHECK = "https://x402-doctor.fizzl.eu/api/diagnose";
+const MAX_DRAFT_CHECKS = 5;
 
 // Free tools only: every paid tool of these servers needs an x402 payment Grok can't make, and isn't offered.
 const MCP = {
@@ -57,6 +61,21 @@ export function reportText(response) {
   return typeof response?.output_text === "string" ? response.output_text.trim() : "";
 }
 
+// The endpoints Grok checked with x402_quick_check that failed, from the tool calls themselves (not Grok's text).
+export function failedQuickChecks(response) {
+  const out = [];
+  for (const item of response?.output ?? []) {
+    if (!/mcp/.test(String(item?.type)) || !/(^|[._])x402_quick_check$/.test(String(item?.name))) continue;
+    let args = item.arguments;
+    try { if (typeof args === "string") args = JSON.parse(args); } catch { continue; }
+    const result = typeof item.output === "string" ? item.output : JSON.stringify(item.output ?? "");
+    if (!/"overall\\?"\s*:\s*\\?"fail/.test(result)) continue; // also inside a JSON-encoded text part
+    if (typeof args?.url !== "string" || !/^https:\/\//.test(args.url) || out.some((c) => c.url === args.url)) continue;
+    out.push({ url: args.url, ...(args.method === "POST" ? { method: "POST" } : {}) });
+  }
+  return out;
+}
+
 // What the run cost in tokens, and what xAI says about the server-side tools; x_search's per-post price comes on top.
 export function usageLine(response, model) {
   const u = response?.usage ?? {};
@@ -81,8 +100,21 @@ async function main(argv) {
   const res = await fetch(API, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(request), signal: AbortSignal.timeout(600_000) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`xAI ${res.status}: ${JSON.stringify(body.error ?? body).slice(0, 300)}`);
-  const report = reportText(body) || "Grok gaf geen rapport terug.";
+  let report = reportText(body) || "Grok gaf geen rapport terug.";
   const usage = usageLine(body, model);
+  const failing = failedQuickChecks(body).slice(0, MAX_DRAFT_CHECKS);
+  // For the job log: which kinds of output items came back (the shape of the tool calls), and what was picked up.
+  const kinds = {};
+  for (const o of body.output ?? []) kinds[`${o?.type}${o?.name ? `:${o.name}` : ""}`] = (kinds[`${o?.type}${o?.name ? `:${o.name}` : ""}`] ?? 0) + 1;
+  console.error(`output items ${JSON.stringify(kinds)}; failing quick checks ${JSON.stringify(failing)}`);
+  if (failing.length && flag("--send")) {
+    const done = [];
+    for (const c of failing) {
+      const res = await fetch(DOCTOR_CHECK, { method: "POST", headers: { "content-type": "application/json", "user-agent": "fizzl-grok-tasks/1" }, body: JSON.stringify(c), signal: AbortSignal.timeout(90_000) }).catch(() => null);
+      done.push(`${new URL(c.url).host}${res?.ok ? "" : ` (check ${res ? `HTTP ${res.status}` : "niet bereikt"})`}`);
+    }
+    report += `\n\nDoctor-webcheck voor ${done.join(", ")}: publiceert de verkoper een contactadres, dan komt er een mail-concept in Telegram.`;
+  }
   console.log(`${TASKS[id].title}\n\n${report}\n\n${usage}`);
   if (flag("--send")) {
     const draftKey = process.env.DRAFT_KEY?.trim();
