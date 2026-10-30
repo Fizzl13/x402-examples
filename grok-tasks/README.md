@@ -19,6 +19,9 @@ run on grok-4.7 (29 Oct 2026), so A runs daily, B and D every third day and F an
 Every endpoint Grok checked with `x402_quick_check` and found failing (read from the tool calls, not from Grok's
 text; at most 5 a run) then goes through x402 Doctor's free web check, which hands the owner a mail draft on Telegram
 when the seller publishes a contact address (one mail per address, ever; nothing is sent without the owner's Send).
+Every endpoint Grok checked (at most 8 a run) is also added to the x402 Trust Index (`POST /api/trust/submit`, free):
+Doctor checks the 402 again and skips what a registry already lists, so a seller seen only on X gets a daily track
+record. The report says how many were new.
 
 Setup: add the repository secret `XAI_API_KEY` (an API key from console.x.ai). Without it the runs do nothing.
 
