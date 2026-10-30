@@ -5,17 +5,21 @@ Frits's scheduled Grok tasks, run by `.github/workflows/grok-tasks.yml` through 
 | Task | What | When (UTC) |
 |---|---|---|
 | A | x402 scan: new x402 sellers on X, checked with x402 Doctor's free check | daily 17:41 |
-| B | Scam watch: risky tokens and claim links on X, checked with presign-guard's free checks | every third day 18:13 |
-| D | Help desk: people with x402 payment problems on X, with reply drafts | every third day 18:37 |
-| F | x402 ecosystem digest: releases, complaints and what overlaps with Fizzl, from a week of X | Mondays 07:19 |
-| H | Review of @x402fizzl's posts of the week, with 3 post ideas | Sundays 19:47 |
+| B | Scam watch: risky tokens and claim links on X, checked with presign-guard's free checks | by hand |
+| D | Help desk: people with x402 payment problems on X, with reply drafts | by hand |
+| F | x402 ecosystem digest: releases, complaints and what overlaps with Fizzl, from a week of X | by hand |
+| H | Review of @x402fizzl's posts of the week, with 3 post ideas | by hand |
+
+Only A runs on a schedule: what its tool calls find feeds the mail drafts and the Trust Index below, which only works
+through the API. B, D, F and H are reports the owner only reads, so he runs them in the Grok app, which his
+subscription covers; here they can still be started by hand.
 
 Grok searches X itself (`x_search`), can open links with `web_search` (at most 6 searches of each per run), and gets at most Fizzl's free MCP tools (`x402_quick_check`, `token_quick_verdict`,
 `injection_quick_check`). It has no wallet and no paid tool, so it can't pay, sign, post or message anyone. The
 report goes to the owner's Telegram through the wallet server's `/hooks/owner-report` (secret `DRAFT_KEY`), with the
 tokens and tool calls used and the run's price: xAI's own cost from the answer (`cost_in_usd_ticks`), or else an
 estimate from docs.x.ai pricing, with cached input at its lower price. Task A cost about $0.73 a
-run on grok-4.7 (29 Oct 2026), so A runs daily, B and D every third day and F and H weekly: about $1.40 a day.
+run on grok-4.7 (29 Oct 2026, estimated before cached input was counted at its own price).
 
 Every endpoint Grok checked with `x402_quick_check` and found failing (read from the tool calls, not from Grok's
 text; at most 5 a run) then goes through x402 Doctor's free web check, which hands the owner a mail draft on Telegram

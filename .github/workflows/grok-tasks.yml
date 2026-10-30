@@ -6,11 +6,9 @@ name: grok-tasks
 
 on:
   schedule:
+    # Only A on a schedule: its tool calls feed the mail drafts and the Trust Index. B, D, F and H are reports the owner
+    # only reads, so he runs them in the Grok app (part of his subscription); here they still run by hand.
     - cron: "41 17 * * *"    # A: x402 scan, daily
-    - cron: "13 18 2-31/3 * *" # B: scam watch, every third day (a day after D)
-    - cron: "37 18 */3 * *"  # D: help desk, every third day
-    - cron: "19 7 * * 1"     # F: x402 ecosystem digest, Mondays
-    - cron: "47 19 * * 0"    # H: @x402fizzl post review, Sundays
   workflow_dispatch:
     inputs:
       task: { description: "Task: A (x402 scan), B (scam watch), D (help desk), F (weekly digest) or H (post review)", required: true, default: "A" }
@@ -56,10 +54,6 @@ jobs:
         run: |
           case "$SCHEDULE" in
             "41 17 * * *") task=A ;;
-            "13 18 2-31/3 * *") task=B ;;
-            "37 18 */3 * *") task=D ;;
-            "19 7 * * 1") task=F ;;
-            "47 19 * * 0") task=H ;;
             *) task=$(printf '%s' "$INPUT_TASK" | tr '[:lower:]' '[:upper:]') ;;
           esac
           case "$task" in A|B|D|F|H) ;; *) echo "::error::Unknown task $task"; exit 1 ;; esac
