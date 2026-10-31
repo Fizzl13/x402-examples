@@ -99,7 +99,7 @@ function seller() {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, url: `http://127.0.0.1:${server.address().port}`, seen, settled })));
 }
 
-async function boot({ balance = 5_000_000n, authorizationUsed = () => false } = {}) {
+async function boot({ balance = 5_000_000n, authorizationUsed = () => false, connector = {} } = {}) {
   const store = memoryStore();
   const accounts = createAccounts({ store, publicUrl: "https://wallet.test", billing: { payTo: SELLER, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: async () => Response.json({ jsonrpc: "2.0", id: 1, result: null }) }, walletOptions: { authority: null } });
   const told = [];
@@ -117,7 +117,7 @@ async function boot({ balance = 5_000_000n, authorizationUsed = () => false } = 
     throw new Error(`unexpected ${u}`);
   };
   const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), usage: { record: () => {} }, oauthStore: store.global,
-    connector: { fetch: services, presignUrl: "https://presign.test", doctorUrl: "https://doctor.test", baseRpc: "https://base.test", allowPrivate: true, statusWaitMs: 300, paidTimeoutMs: 400, retryPauseMs: 0 } });
+    connector: { fetch: services, presignUrl: "https://presign.test", doctorUrl: "https://doctor.test", baseRpc: "https://base.test", allowPrivate: true, statusWaitMs: 300, paidTimeoutMs: 400, retryPauseMs: 0, ...connector } });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   return { base, server, accounts, told, store };
@@ -459,4 +459,24 @@ test("helpers: the checks pay_x402 reports, including a price above the owner's 
     "Your user picks the wallet when signing; its balance is checked then.",
     "Your user's limits couldn't be read just now.",
   ]);
+});
+
+test("connector payments: a Fizzl service paid from the owner's Fizzl Pass vault; the pass proof goes to Fizzl's services only", async () => {
+  const sent = [];
+  const sellerFetch = async (url, init) => {
+    sent.push({ host: new URL(url).hostname, pass: init.headers["x-fizzl-pass"] ?? null });
+    if (new URL(url).hostname === "presign-guard.fizzl.eu") return new Response(JSON.stringify({ verdict: "green" }), { status: 200, headers: { "content-type": "application/json", "x-fizzl-vault": "paid", "x-fizzl-vault-balance": "0.04" } });
+    return Response.json({ free: true });
+  };
+  const { base, server, accounts } = await boot({ connector: { sellerFetch } });
+  accounts.passToken = async () => "fzp1.passproof.sig";
+  try {
+    const client = await connect(base, await signIn(base, privateKeyToAccount(generatePrivateKey())));
+    const vault = (await call(client, "pay_x402", { url: "https://presign-guard.fizzl.eu/v1/check", method: "POST", body: { tx: "0x" } })).structuredContent;
+    assert.deepEqual([vault.status, vault.http_status, vault.vault_balance_usd, JSON.parse(vault.body)], ["paid_from_vault", 200, 0.04, { verdict: "green" }]);
+    const other = (await call(client, "pay_x402", { url: "https://api.example.com/free" })).structuredContent;
+    assert.equal(other.status, "no_payment_needed");
+    assert.deepEqual(sent, [{ host: "presign-guard.fizzl.eu", pass: "fzp1.passproof.sig" }, { host: "api.example.com", pass: null }]);
+    await client.close();
+  } finally { server.close(); }
 });

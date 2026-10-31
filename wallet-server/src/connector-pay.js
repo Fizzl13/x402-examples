@@ -77,6 +77,8 @@ export function queryUrl(url, body) {
 }
 
 // One request (method, URL and body) as a key, for spotting the same request asked again.
+// Fizzl's own paid services, which take the Fizzl Pass proof (X-Fizzl-Pass): higher free limits and the pass vault.
+const FIZZL_SERVICE_HOSTS = new Set(["x402-doctor.fizzl.eu", "presign-guard.fizzl.eu", "ichimoku-signal.fizzl.eu", "buy.fizzl.eu"]);
 const requestKey = (account, method, url, body) => `${account}:${createHash("sha256").update(`${method} ${url}\n${body ?? ""}`).digest("hex").slice(0, 32)}`;
 const usd = (units) => Number(units) / 1e6;
 
@@ -255,6 +257,16 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   // A request whose payment may have gone through without an answer, kept an hour under its request key.
   const markUncertain = (r, status) => store.putOnce("conpay-uncertain", requestKey(r.account, r.method, r.url, r.body), { id: r.id, status, at: now(), price: r.price }, KEEP_TTL_S);
 
+  // Fizzl's own services get the owner's Fizzl Pass proof along (a bearer token: never sent anywhere else, and not kept
+  // with the request), so a call can be paid from the pass's vault and its credit back counts.
+  async function passFor(account, url) {
+    let host;
+    try { host = new URL(url).hostname; } catch { return {}; }
+    if (!FIZZL_SERVICE_HOSTS.has(host)) return {};
+    const token = account ? await accounts.passToken?.(account).catch(() => null) : null;
+    return token ? { "x-fizzl-pass": token } : {};
+  }
+
   // ---------- the app asks (pay_x402) ----------
   async function request({ account, agent, origin }, { url, method = "GET", body, headers, max_price_usd, reason }) {
     if (agent.paused) return { error: `${agent.name} is paused on the owner's dashboard.` };
@@ -278,9 +290,14 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
 
     let first, text;
     try {
-      first = await sellerFetch(url, { method, headers: h, body: sendBody, redirect: "manual", signal: AbortSignal.timeout(20_000) });
+      first = await sellerFetch(url, { method, headers: { ...h, ...(await passFor(account, url)) }, body: sendBody, redirect: "manual", signal: AbortSignal.timeout(20_000) });
       text = await readText(first, ANSWER_LIMIT);
     } catch (err) { return { error: err?.name === "TimeoutError" ? "The API didn't answer within 20 seconds." : "The API can't be reached." }; }
+    // Paid from the owner's Fizzl Pass vault: nothing to sign.
+    if (first.status !== 402 && first.headers.get("x-fizzl-vault") === "paid") {
+      usage.record("connector", { account, input: { tool: "pay_x402", host: new URL(url).host }, result: { status: "paid_from_vault" } });
+      return { status: "paid_from_vault", http_status: first.status, vault_balance_usd: Number(first.headers.get("x-fizzl-vault-balance")) || 0, content_type: first.headers.get("content-type"), body: text.slice(0, SHOWN_LIMIT) };
+    }
     if (first.status !== 402) return { status: "no_payment_needed", http_status: first.status, content_type: first.headers.get("content-type"), body: text.slice(0, SHOWN_LIMIT) };
 
     let challenge = first.headers.get("payment-required") ? unb64(first.headers.get("payment-required")) : null;
@@ -426,7 +443,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   async function pay(r, p) {
     const { name, value } = p;
     const send = async () => {
-      const res = await sellerFetch(r.url, { method: r.method, headers: { ...r.headers, [name]: value }, body: r.body ?? undefined, redirect: "manual", signal: AbortSignal.timeout(paidTimeoutMs) });
+      const res = await sellerFetch(r.url, { method: r.method, headers: { ...r.headers, ...(await passFor(r.account, r.url)), [name]: value }, body: r.body ?? undefined, redirect: "manual", signal: AbortSignal.timeout(paidTimeoutMs) });
       return { res, text: await readText(res, ANSWER_LIMIT) };
     };
     let res, text, retried = false;

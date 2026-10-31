@@ -107,3 +107,23 @@ test("phase 2b: an agent gets its owner's pass proof (GET /v1/pass) to send as X
   assert.equal((await fetch(`${base}/v1/pass`)).status, 401);
   assert.equal(await accounts.passToken(OWNER), token, "kept, not signed again on every call");
 });
+
+test("phase 3: the dashboard shows what the pass's vault holds, asked from x402 Doctor with the proof", async (t) => {
+  const { privateKeyToAccount, generatePrivateKey } = await import("viem/accounts");
+  const { store, accounts, key } = setup();
+  const owner = privateKeyToAccount(generatePrivateKey());
+  const asked = [];
+  const vaultFetch = async (url, init) => { asked.push({ url, pass: init.headers["x-fizzl-pass"] }); return Response.json({ balance_usd: 0.042 }); };
+  const app = createApp({ accounts, auth: createAuth({ password: "a-long-test-password", secure: false }), passJwks: publicJwks(key), vaultFetch, vaultUrl: "https://doctor.test/api/v1/vault" });
+  const server = await new Promise((resolve) => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (p, body, cookie) => fetch(`${base}${p}`, { method: "POST", headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
+  const m = await (await post("/api/signin/message", { address: owner.address })).json();
+  const cookie = (await post("/api/signin", { nonce: m.nonce, signature: await owner.signMessage({ message: m.message }) })).headers.get("set-cookie").split(";")[0];
+  const a = await store.global.getAccount(owner.address.toLowerCase()) ?? await store.global.getAccount(owner.address);
+  await store.global.putAccount({ ...a, paidUntil: Date.now() + 5 * DAY });
+  const r = await (await fetch(`${base}/api/pass`, { headers: { cookie } })).json();
+  assert.equal(r.pass.vault_usd, 0.042);
+  assert.deepEqual(asked, [{ url: "https://doctor.test/api/v1/vault", pass: r.pass.token }]);
+});
