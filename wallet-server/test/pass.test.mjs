@@ -88,3 +88,22 @@ test("HTTP: the public check (CORS) and the published key", async (t) => {
   assert.equal(jwks.keys[0].kid, key.kid);
   assert.equal((await fetch(`${base}/api/pass`)).status, 401, "the proof needs the owner's session");
 });
+
+test("phase 2b: an agent gets its owner's pass proof (GET /v1/pass) to send as X-Fizzl-Pass; none without a pass", async (t) => {
+  const { store, accounts, key } = setup();
+  await store.global.putAccount({ id: OWNER, address: OWNER, createdAt: Date.now(), paidUntil: Date.now() + 5 * DAY, payments: [] });
+  const { key: agentKey } = await accounts.walletFor(OWNER).addAgent("bot");
+  const FREE = "0x4444444444444444444444444444444444444444";
+  await store.global.putAccount({ id: FREE, address: FREE, createdAt: Date.now(), paidUntil: 0, payments: [] });
+  const { key: freeKey } = await accounts.walletFor(FREE).addAgent("bot");
+  const app = createApp({ accounts, auth: createAuth({ password: "a-long-test-password", secure: false }), passJwks: publicJwks(key) });
+  const server = await new Promise((resolve) => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const get = (k) => fetch(`${base}/v1/pass`, { headers: { authorization: `Bearer ${k}` } }).then((r) => r.json());
+  const { token } = await get(agentKey);
+  assert.equal(verifyPass(token, key.publicKey).tier, "bronze");
+  assert.equal((await get(freeKey)).token, null);
+  assert.equal((await fetch(`${base}/v1/pass`)).status, 401);
+  assert.equal(await accounts.passToken(OWNER), token, "kept, not signed again on every call");
+});

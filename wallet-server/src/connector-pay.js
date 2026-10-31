@@ -206,9 +206,10 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     return sanctions.set ? sanctions.set.has(address.toLowerCase()) : null;
   }
   // The seller in x402 Doctor's Trust Index (free lookup): its last verdict and payout record. null: no answer.
-  async function sellerRecord(url) {
+  async function sellerRecord(url, account = null) {
     try {
-      const r = await fetchImpl(`${doctorUrl}/api/trust?url=${encodeURIComponent(url)}`, { headers: { "user-agent": UA }, signal: AbortSignal.timeout(10_000) });
+      const pass = account ? await accounts.passToken?.(account).catch(() => null) : null; // Fizzl Pass: the account's own limit
+      const r = await fetchImpl(`${doctorUrl}/api/trust?url=${encodeURIComponent(url)}`, { headers: { "user-agent": UA, ...(pass ? { "x-fizzl-pass": pass } : {}) }, signal: AbortSignal.timeout(10_000) });
       if (r.status === 404) return { known: false };
       const j = await r.json();
       return { known: true, verdict: j.last_scan?.verdict ?? null, days: j.days_checked ?? null, payableDays: j.days_payable ?? null };
@@ -302,7 +303,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     }
     const owner = await accounts.payer(account);
     const payTos = [offer?.payTo, onSol?.payTo, onXrpl?.payTo].filter(Boolean);
-    const [listed, record, balance, budgets] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url), owner && offer ? usdcBalance(owner) : null, spendingOf(account)]);
+    const [listed, record, balance, budgets] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url, account), owner && offer ? usdcBalance(owner) : null, spendingOf(account)]);
     const hit = payTos.find((_, i) => listed[i]);
     if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
     let lowOnBase = false;

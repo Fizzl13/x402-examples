@@ -537,6 +537,17 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const token = passKey ? signPass({ iss: "wallet.fizzl.eu", tier: p.tier, until: p.until, wallets: p.wallets, iat: now() }, passKey) : null;
       return { pass: { tier: p.tier, name: t.label, until: p.until, wallets: p.wallets, token } };
     },
+    // The account's signed pass proof, for the X-Fizzl-Pass header on calls to Fizzl's services (higher free limits).
+    // Kept 10 minutes per account; null without a pass or a signing key.
+    async passToken(id) {
+      const hit = passTokens.get(id);
+      if (hit && hit.at > now() - 10 * 60_000 && (!hit.until || hit.until > now())) return hit.token;
+      const p = passKey ? (await api.pass(id).catch(() => null))?.pass : null;
+      const token = p?.token ?? null;
+      passTokens.set(id, { token, until: p?.until ?? null, at: now() });
+      if (passTokens.size > 5000) passTokens.delete(passTokens.keys().next().value);
+      return token;
+    },
     // Anyone: is this wallet covered by a pass? Only the tier and the end, never whose it is.
     async passStatus(wallet) {
       const w = walletKey(wallet);
@@ -1272,6 +1283,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   }
 
   // ---------- Fizzl Pass (src/pass.js) ----------
+  const passTokens = new Map(); // account -> { token, until, at }
   // Phase 1: Pro is the Bronze pass. It covers the account's own wallet and its agents' wallets, indexed by wallet
   // until the pass ends, so GET /v1/pass/status answers without knowing the account.
   const passOf = (a) => { const until = proUntil(a); return !a || a.admin || !(until > now()) ? null : { tier: "bronze", until }; };
