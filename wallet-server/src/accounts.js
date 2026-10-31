@@ -26,6 +26,7 @@ import { weekOf, formatDigest } from "./digest.js";
 import { createAlertHook, createEndpointMonitor, hookKind, urlProblem } from "./monitor.js";
 import { cleanSubscription } from "./push.js";
 import { readRegistration, readAssertion } from "./passkey.js";
+import { PASS_TIERS, signPass, walletKey, isWallet } from "./pass.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -112,7 +113,7 @@ export function welcomeMail(origin) {
   };
 }
 
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null, passKey = null }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -501,6 +502,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
       try { a = await syncAuto(a, fresh ? { maxAgeMs: 0 } : {}); } catch (err) { console.warn(`[subscription] ${err.message}`); }
       const plan = planOf(a);
+      if (passOf(a)) indexPass(id).catch(() => {}); // agents' wallets learned since are covered too
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
         paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
@@ -525,6 +527,22 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
           ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
           : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
+    },
+
+    // The account's pass: tier, end, the wallets it covers, and a signed proof (when PASS_SIGNING_KEY is set).
+    async pass(id) {
+      const p = await indexPass(id);
+      if (!p) return { pass: null, how: `Fizzl Pass Bronze comes with Pro ($${Number(priceUnits) / 1e6} for 30 days).` };
+      const t = PASS_TIERS[p.tier];
+      const token = passKey ? signPass({ iss: "wallet.fizzl.eu", tier: p.tier, until: p.until, wallets: p.wallets, iat: now() }, passKey) : null;
+      return { pass: { tier: p.tier, name: t.label, until: p.until, wallets: p.wallets, token } };
+    },
+    // Anyone: is this wallet covered by a pass? Only the tier and the end, never whose it is.
+    async passStatus(wallet) {
+      const w = walletKey(wallet);
+      if (!isWallet(w)) throw Object.assign(new Error("wallet must be a wallet address (EVM 0x…, Solana, XRPL r… or Algorand)"), { status: 400 });
+      const v = await g.peekOnce("pass", w);
+      return { wallet: w, pass: v && v.until > now() ? { tier: v.tier, name: PASS_TIERS[v.tier]?.label ?? v.tier, until: v.until } : null };
     },
 
     // ---------- agents (routing an agent key to its account) ----------
@@ -1248,8 +1266,27 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const bigger = TIERS[tier] ? { tierUntil: { ...(a.tierUntil ?? {}), [tier]: Math.max(now(), a.tierUntil?.[tier] ?? 0) + months * PERIOD_MS } } : {};
     await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(chainId === "xrpl" ? { chain: "xrpl", ...(from ? { from } : {}) } : chainId === "algorand" ? { chain: "algorand", ...(from ? { from } : {}) } : isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
     usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: netName(a, chainId), months, ...(TIERS[tier] ? { tier } : {}) } });
+    indexPass(a.id).catch((err) => console.warn(`[pass] ${err.message}`)); // the pass is checkable at once
     await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} ${chainId === "xrpl" ? "RLUSD on the XRP Ledger" : chainId === "algorand" ? "USDC on Algorand" : `USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}`}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
+  }
+
+  // ---------- Fizzl Pass (src/pass.js) ----------
+  // Phase 1: Pro is the Bronze pass. It covers the account's own wallet and its agents' wallets, indexed by wallet
+  // until the pass ends, so GET /v1/pass/status answers without knowing the account.
+  const passOf = (a) => { const until = proUntil(a); return !a || a.admin || !(until > now()) ? null : { tier: "bronze", until }; };
+  async function passWallets(a) {
+    const agents = await store.scope(a.id).listAgents().catch(() => []);
+    return [...new Set([a.address, ...agents.map((x) => x.address)].filter((w) => w && isWallet(w)).map(walletKey))];
+  }
+  async function indexPass(id) {
+    const a = await account(id);
+    const p = passOf(a);
+    if (!p) return null;
+    const wallets = await passWallets(a);
+    const ttl = Math.max(60, Math.ceil((p.until - now()) / 1000));
+    for (const w of wallets) await g.putOnce("pass", w, { tier: p.tier, until: p.until }, ttl);
+    return { ...p, wallets };
   }
 
   const netName = (a, chainId) => (chainId === "xrpl" ? "XRPL" : chainId === "algorand" ? "Algorand" : isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base");

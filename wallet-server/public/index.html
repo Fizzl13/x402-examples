@@ -1602,6 +1602,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     if (me.algoPay) $("#planCard").insertAdjacentHTML("beforeend", algoPayHtml(me.algoPay));
     if (me.xrplPay) { $("#planCard").insertAdjacentHTML("beforeend", xrplPayHtml(me.xrplPay)); if (me.chain === "xrpl") $("#xrplPay")?.setAttribute("open", ""); }
+    // Fizzl Pass Bronze comes with Pro (src/pass.js): which wallets it covers, the public check and the signed proof.
+    if (!me.admin && (me.proUntil ?? 0) > Date.now()) {
+      $("#planCard").insertAdjacentHTML("beforeend", `<div id="passBox" class="note" style="margin:0;display:grid;gap:6px"><strong>Fizzl Pass Bronze</strong><span>Included with Pro until ${esc(day(me.proUntil))}.</span></div>`);
+      if (!DEMO) api("GET", "/api/pass").then((r) => {
+        const p = r?.pass, box = $("#passBox");
+        if (!p || !box) return;
+        const check = `${location.origin}/v1/pass/status?wallet=${encodeURIComponent(p.wallets[0] ?? "")}`;
+        box.insertAdjacentHTML("beforeend", `<span>Covers ${p.wallets.length} wallet${p.wallets.length === 1 ? "" : "s"}: yours and your agents' (an agent's wallet counts once it has signed a payment). Partners can check any of them for free, without seeing whose it is.</span><div class="btns">${p.wallets.length ? `<button class="button ghost small" type="button" data-copy="${esc(check)}">Copy the public check</button>` : ""}${p.token ? `<button class="button ghost small" type="button" data-copy="${esc(p.token)}">Copy the signed proof</button>` : ""}</div><span>More benefits on Fizzl's services (higher free limits, credit back on every call) follow as they go live.</span>`);
+      }).catch(() => {});
+    }
     $("#planCard").insertAdjacentHTML("beforeend", me.promo
       ? `<p class="note" style="margin:0">🎁 Tester code used: ${esc(me.promo.days)} days of Pro (${esc(day(me.promo.at))}). Thanks for testing!</p>`
       : `<details><summary>Have a tester code?</summary><form class="paste" id="promoForm" style="margin-top:8px"><input id="promoIn" placeholder="TEST-…" aria-label="Tester code" autocapitalize="characters" autocomplete="off" maxlength="20"><button class="button small" type="submit">Use code</button></form><div class="msg" id="promoMsg" role="status"></div></details>`);

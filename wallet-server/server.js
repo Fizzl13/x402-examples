@@ -58,6 +58,7 @@
 //                       USDC stays in their wallet, agents are topped up to a small float; ../agent-allowance)
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
+import { passKeyFrom, publicJwks } from "./src/pass.js";
 import { createHash } from "node:crypto";
 import { createApp, SITEMAP_PATHS } from "./src/app.js";
 import indexNow from "./src/indexnow.cjs";
@@ -124,7 +125,10 @@ const push = env.VAPID_PRIVATE_KEY || pushSeed ? createPush({ privateKey: env.VA
 
 const usage = createUsage({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined, salt: env.USAGE_LOG_SALT || null, ownWallets: (env.USAGE_OWN_WALLETS ?? "").split(",") });
 if (!usage.enabled) console.warn("[usage] USAGE_LOG_TOKEN not set: usage statistics are off");
+// Fizzl Pass proofs (src/pass.js): signed with PASS_SIGNING_KEY (a 32-byte Ed25519 seed); without it the pass works, unsigned.
+const passKey = passKeyFrom(env.PASS_SIGNING_KEY);
 const accounts = createAccounts({
+  passKey,
   usage,
   xaman: env.XAMAN_API_KEY?.trim() ? { apiKey: env.XAMAN_API_KEY.trim() } : null,
   store,
@@ -153,7 +157,7 @@ const outreach = createOutreach({ store, mailer: outreachMailer, telegram, admin
 // instead of ~100 s. (Holding /health at 503 until then was dropped: Render stops routing to an instance after 15 s of
 // failed checks, which after a crash would refuse agents' payment calls too.)
 catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
-const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);

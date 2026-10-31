@@ -42,7 +42,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {} }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -141,6 +141,15 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // The wallet for Claude Desktop in one file (the pinned version's .mcpb): open it and Claude Desktop installs it.
   app.get("/download/claude-desktop", (_req, res) => res.set("cache-control", "public, max-age=300").redirect(302, WALLET_MCPB));
   app.get("/pair", (req, res) => res.redirect(302, `/?pair=${String(req.query.code ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 12)}#/agents`));
+  // Fizzl Pass (public, before the agent API's key check) (src/pass.js): anyone can check a wallet's pass; the public key checks a signed proof offline.
+  app.get("/v1/pass/status", (req, res, next) => slowDown(req, res, next), wrap(async (req, res) => {
+    res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
+    res.json(await accounts.passStatus(String(req.query.wallet ?? "")));
+  }));
+  app.get("/.well-known/fizzl-pass.json", (_req, res) => {
+    if (!passJwks) return res.status(404).json({ error: "no pass signing key on this server" });
+    res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }).json({ ...passJwks, format: "fzp1.<base64url JSON claims>.<base64url Ed25519 signature over 'fzp1.<claims>'>", claims: ["iss", "tier", "until (ms)", "wallets", "iat", "kid"] });
+  });
   app.use("/v1", v1);
 
   // ---------- the search bar: paid APIs in the public x402 catalog ----------
@@ -341,6 +350,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   const owner = express.Router();
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
+  owner.get("/pass", wrap(async (req, res) => res.set("cache-control", "no-store").json(await accounts.pass(req.account))));
   owner.get("/state", wrap(async (req, res) => res.json({ ...(await req.wallet.state()), onchain: allowance?.enabled ? allowance.contract : null })));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
