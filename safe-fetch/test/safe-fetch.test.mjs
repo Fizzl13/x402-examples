@@ -339,7 +339,7 @@ test("diagnoseOnFailure: a diagnosis not signed by Doctor is dropped, never show
 });
 
 // A world that records the outcome reports sent to Doctor.
-function outcomeWorld({ endpointStatus = 200 } = {}) {
+function outcomeWorld({ endpointStatus = 200, verdict = "go", reasons = [] } = {}) {
   const log = { reports: [] };
   const baseFetch = async (url, init = {}) => {
     if (String(url).endsWith("/api/v1/outcome")) {
@@ -349,7 +349,7 @@ function outcomeWorld({ endpointStatus = 200 } = {}) {
     return Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
   };
   const createPayingFetch = () => async (url) => {
-    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict: "go", summary: "OK", reasons: [] }, url));
+    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict, summary: verdict === "go" ? "OK" : "Not safe", reasons }, url));
     return Response.json(endpointStatus === 200 ? { ok: true } : { error: "x" }, { status: endpointStatus });
   };
   return { log, baseFetch, createPayingFetch };
@@ -376,7 +376,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.9\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.10\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -435,4 +435,38 @@ test("network aliases: 'algorand' and 'xrpl' become their CAIP-2 ids in the pref
     await make(w, { network: alias })(PAID);
     assert.equal(w.log.preflights[0].url.searchParams.get("network"), id);
   }
+});
+
+test("shareOutcomes: not paid after a no_go or a stopped caution is reported as refused, with the reason code", async () => {
+  const noGo = outcomeWorld({ verdict: "no_go", reasons: [{ level: "info", code: "onchain_payments" }, { level: "no_go", code: "payto_sanctioned" }] });
+  await assert.rejects(make(noGo, { shareOutcomes: true })(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(noGo.log.reports.length, 1);
+  const { body } = noGo.log.reports[0];
+  assert.deepEqual([body.outcome, body.reason, body.source, body.preflight.verdict], ["refused", "payto_sanctioned", "doctor", "no_go"]);
+  assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
+  const caution = outcomeWorld({ verdict: "caution", reasons: [{ level: "caution", code: "payto_changed" }] });
+  const sf = make(caution, { shareOutcomes: true });
+  await assert.rejects(sf(PAID), (e) => e.code === "caution");
+  await assert.rejects(sf(PAID), (e) => e.code === "caution"); // the cached verdict: reported once
+  await tick();
+  assert.deepEqual(caution.log.reports.map((r) => [r.body.outcome, r.body.reason]), [["refused", "payto_changed"]]);
+  // A caution the agent pays anyway is a payment, not a refusal.
+  const paid = outcomeWorld({ verdict: "caution", reasons: [{ level: "caution", code: "payto_changed" }] });
+  await make(paid, { shareOutcomes: true, onCaution: "pay" })(PAID);
+  await tick();
+  assert.equal(paid.log.reports[0].body.outcome, "paid_ok");
+  // Off by default.
+  const off = outcomeWorld({ verdict: "no_go", reasons: [{ level: "no_go", code: "x" }] });
+  await assert.rejects(make(off)(PAID));
+  await tick();
+  assert.equal(off.log.reports.length, 0);
+});
+
+test("refusalReason: the first reason at the verdict's level, as a code Doctor accepts", async () => {
+  const { refusalReason } = await import("../index.js");
+  assert.equal(refusalReason({ verdict: "caution", reasons: [{ level: "info", code: "a_b" }, { level: "caution", code: "price_changed" }] }), "price_changed");
+  assert.equal(refusalReason({ verdict: "no_go", reasons: [] }), "no_go");
+  assert.equal(refusalReason({ verdict: "no_go", reasons: [{ level: "no_go", code: "Weird-Code!" }] }), "weird_code_");
+  assert.equal(refusalReason(null), "refused");
 });

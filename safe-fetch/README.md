@@ -100,7 +100,7 @@ When a seller offers both, the exact option is paid. The preflight and the budge
 | `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
 | `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
 | `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
-| `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it (see below) |
+| `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it; when not paying, tell it why (see below) |
 | `onDiagnosis` | | `(report, { url, method, status, error }) => void`, e.g. for logging or alerting |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
@@ -137,6 +137,8 @@ With `shareOutcomes: true`, safe-fetch tells x402 Doctor what happened after it 
 - What is sent: the outcome, the HTTP status, the signed preflight you already received and its query (endpoint, method, budget, network). No keys, no response content.
 - A report only counts with a real, paid preflight for that endpoint, once per preflight, so reports cannot be made up for free.
 - It is sent after the answer and never delays or changes it. Off by default.
+
+When safe-fetch does **not** pay (a `no_go`, or a `caution` that `onCaution` stops), it reports `refused` with the reason code that stopped it (for example `payto_changed`, `price_changed` or `payee_mismatch`). That is the seller's signal back: Doctor shows sellers how often agents refused to pay their endpoint and why (in the free web check and `GET https://x402-doctor.fizzl.eu/api/v1/refusals?url=…`), as counts only, never who.
 
 ## Signed verdicts
 

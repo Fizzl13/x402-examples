@@ -15,8 +15,11 @@
 // to fix it: onDiagnosis(report), diagnosisOf(response) or error.diagnosis.
 // With shareOutcomes, after paying it tells Doctor what happened (paid_ok,
 // paid_failed, paid_error), with the signed preflight as proof, so later
-// preflights for that endpoint learn from what agents ran into. Off by
-// default; no keys, amounts or response content are sent.
+// preflights for that endpoint learn from what agents ran into. When it does
+// not pay (no_go, or a caution it stops at), it reports "refused" with the
+// preflight's reason code, so the seller learns why nobody pays (Doctor shows
+// sellers the counts per reason, never who). Off by default; no keys, amounts
+// or response content are sent.
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:
 // a missing, changed or forged verdict is never a payment (receipt.js).
@@ -34,7 +37,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.9.0";
+export const VERSION = "0.10.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -122,6 +125,15 @@ export function payableOption(accepts, network, maxUsd) {
   // Either is paid only if your register() added its scheme, and both stay within the budget (x402's spend controls
   // read the amount, which for auth-capture is the most that can be captured).
   return on.find((a) => a?.scheme === "exact") ?? on.find((a) => a?.scheme === "auth-capture") ?? on[0] ?? null;
+}
+
+// The code that stopped the payment: the preflight's first reason at its verdict's level (no_go, then caution), as
+// Doctor accepts it (a-z, 0-9, _); the verdict itself when there is none.
+export function refusalReason(preflight) {
+  const reasons = Array.isArray(preflight?.reasons) ? preflight.reasons : [];
+  const pick = reasons.find((r) => r?.level === preflight?.verdict) || reasons.find((r) => r?.level === "no_go" || r?.level === "caution");
+  const code = String(pick?.code || preflight?.verdict || "refused").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 48);
+  return /^[a-z][a-z0-9_]{1,47}$/.test(code) ? code : "refused";
 }
 
 export class SafePayError extends Error {
@@ -326,10 +338,8 @@ export function createSafeFetch({
 
   // One outcome report per paid preflight: Doctor counts it once anyway.
   const reported = new Set();
-  function reportOutcome(url, method, preflight, res) {
+  function sendOutcome(url, method, preflight, report) {
     if (!shareOutcomes || !preflight?.receipt?.request_id || reported.has(preflight.receipt.request_id)) return;
-    const outcome = res.ok ? "paid_ok" : res.status === 402 ? "paid_failed" : res.status >= 400 ? "paid_error" : null;
-    if (!outcome) return;
     reported.add(preflight.receipt.request_id);
     if (reported.size > 1000) reported.delete(reported.values().next().value);
     const query = Object.fromEntries(new URL(preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl })).searchParams);
@@ -338,10 +348,18 @@ export function createSafeFetch({
       .then(() => baseFetch(`${doctorUrl.replace(/\/$/, "")}/api/v1/outcome`, {
         method: "POST",
         headers: { ...DOCTOR_HEADERS, "content-type": "application/json" },
-        body: JSON.stringify({ outcome, status: res.status, preflight, query }),
+        body: JSON.stringify({ ...report, preflight, query }),
       }))
       .then((r) => r?.body?.cancel?.())
       .catch(() => {});
+  }
+  function reportOutcome(url, method, preflight, res) {
+    const outcome = res.ok ? "paid_ok" : res.status === 402 ? "paid_failed" : res.status >= 400 ? "paid_error" : null;
+    if (outcome) sendOutcome(url, method, preflight, { outcome, status: res.status });
+  }
+  // Not paid after a preflight: "refused", with the reason that stopped it (the first reason at the verdict's level).
+  function reportRefusal(url, method, preflight) {
+    sendOutcome(url, method, preflight, { outcome: "refused", reason: refusalReason(preflight), source: "doctor" });
   }
 
   async function payAndCheck(url, init, method) {
@@ -386,10 +404,16 @@ export function createSafeFetch({
     };
     onPreflight?.(preflight, { url, method, cached });
     const why = preflight.summary || preflight.verdict;
-    if (preflight.verdict === "no_go") throw new SafePayError(`not paid: ${why}`, { code: "no_go", preflight, url });
+    if (preflight.verdict === "no_go") {
+      reportRefusal(url, method, preflight);
+      throw new SafePayError(`not paid: ${why}`, { code: "no_go", preflight, url });
+    }
     if (preflight.verdict === "caution") {
       const ok = onCaution === "pay" || (typeof onCaution === "function" && (await onCaution(preflight)) === true);
-      if (!ok) throw new SafePayError(`not paid (caution): ${why}`, { code: "caution", preflight, url });
+      if (!ok) {
+        reportRefusal(url, method, preflight);
+        throw new SafePayError(`not paid (caution): ${why}`, { code: "caution", preflight, url });
+      }
     } else if (preflight.verdict !== "go") {
       throw new SafePayError(`not paid: unknown verdict ${preflight.verdict}`, { code: "preflight_failed", preflight, url });
     }

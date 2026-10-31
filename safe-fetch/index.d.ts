@@ -68,7 +68,7 @@ export interface SafeFetchOptions {
   /** When a payment still fails (402 again, or paying throws), buy a $0.01 Doctor diagnosis of why. Default false. */
   diagnoseOnFailure?: boolean;
   onDiagnosis?: (report: Diagnosis, info: { url: string; method: string; status: number | null; error: Error | null }) => void;
-  /** After paying, tell Doctor whether the payment worked (with the signed preflight as proof), so later preflights learn from it. Default false. */
+  /** After paying, tell Doctor whether the payment worked (with the signed preflight as proof), so later preflights learn from it; when it does not pay (no_go, or a caution it stops at), report "refused" with the reason code, so the seller learns why. Default false. */
   shareOutcomes?: boolean;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
@@ -91,3 +91,6 @@ export declare function recoverSigner(message: string, signature: string): strin
 export declare const AUTHORITY: string;
 export declare function certMessage(cert: { service: string; signer: string; valid_from: string }): string;
 export declare function verifyReceipt(body: unknown, options?: { signers?: string[]; route?: string; input?: unknown; authority?: string | null; service?: string }): { valid: boolean; signer?: string; reason?: string };
+
+/** The reason code reported with a refused outcome: the preflight's first reason at its verdict's level. */
+export function refusalReason(preflight: { verdict?: string; reasons?: { level?: string; code?: string }[] }): string;
