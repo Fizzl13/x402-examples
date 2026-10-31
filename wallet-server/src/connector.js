@@ -339,9 +339,10 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
       annotations: { readOnlyHint: true, openWorldHint: true },
     }, async ({ text, source, task }) => {
       try {
+        const pass = await accounts.passToken?.(account).catch(() => null); // Fizzl Pass: the owner's own, higher free limit
         const res = await fetchImpl(`${presignUrl}/v1/injection/quick`, {
           method: "POST",
-          headers: { "content-type": "application/json", "user-agent": `fizzl-wallet-connector/${version}` },
+          headers: { "content-type": "application/json", "user-agent": `fizzl-wallet-connector/${version}`, ...(pass ? { "x-fizzl-pass": pass } : {}) },
           body: JSON.stringify({ text, ...(presignSource(source) ? { source: presignSource(source) } : {}), ...(task ? { task } : {}) }),
           signal: AbortSignal.timeout(20_000),
         });

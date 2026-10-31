@@ -611,6 +611,16 @@ export function createWallet(config, overrides = {}) {
     if (!res.ok) throw new Error(`wallet server ${path}: HTTP ${res.status}`);
     return res.json();
   }
+  // Fizzl Pass: with a wallet server, the owner's pass proof (GET /v1/pass), sent as X-Fizzl-Pass on Fizzl's free
+  // checks so this agent gets the pass's higher free limits. Kept 30 minutes; none or unreachable = the normal limits.
+  let passCache = { at: 0, token: null };
+  async function passHeader() {
+    if (!config.server?.url || !config.server?.key) return {};
+    if (Date.now() - passCache.at > 30 * 60_000) {
+      try { passCache = { at: Date.now(), token: (await serverJson("GET", "/v1/pass"))?.token ?? null }; } catch { passCache = { at: Date.now(), token: null }; }
+    }
+    return passCache.token ? { "x-fizzl-pass": passCache.token } : {};
+  }
   // On-chain limit (wallet server + agent-allowance contract on Base): when this wallet holds less USDC than a payment
   // may cost, ask the server to top it up from the owner's wallet first, within the limit the chain keeps. Best effort:
   // without a limit, or if it fails, the payment goes ahead with what the wallet holds. "No limit" is remembered a while.
@@ -965,7 +975,7 @@ export function createWallet(config, overrides = {}) {
         return { what_to_do: TEXT_ADVICE[check.verdict], ...rest, paid: out.paid, payment: out.payment };
       }
       if (text.length > QUICK_TEXT_CHARS) return { verdict: null, error: `The free check takes up to ${QUICK_TEXT_CHARS} characters; this text has ${text.length}.`, next: "Call check_text again with detailed: true ($0.01 from this wallet, up to 32,000 characters), or check the part that tells you to do something." };
-      const res = await plainFetch(`${presignUrl}/v1/injection/quick`, { method: "POST", headers, body, signal: AbortSignal.timeout(20000) });
+      const res = await plainFetch(`${presignUrl}/v1/injection/quick`, { method: "POST", headers: { ...headers, ...(await passHeader()) }, body, signal: AbortSignal.timeout(20000) });
       const j = await res.json().catch(() => ({}));
       if (res.ok && j.verdict) return { verdict: j.verdict, what_to_do: TEXT_ADVICE[j.verdict], note: "Free check, the verdict only. detailed: true gives the reasons for $0.01 from this wallet." };
       if (res.status === 429) return { verdict: null, error: "The free checks for this hour are used up (10 an hour).", next: "Call check_text again with detailed: true ($0.01 from this wallet, within its limits)." };

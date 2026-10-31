@@ -77,6 +77,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       const found = key && (await accounts.agentForKey(key));
       if (!found) return res.status(401).json({ error: "unauthorized", message: "Send Authorization: Bearer <agent key>. Keys are made on the dashboard." });
       req.agent = found.agent;
+      req.account = found.account;
       req.wallet = accounts.walletFor(found.account);
       req.wallet.seen(found.agent).catch(() => {}); // for "Test my setup": the agent got through
       next();
@@ -85,6 +86,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   const v1 = express.Router();
   v1.use(agentOnly);
   v1.get("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.getPolicy() })));
+  // The owner's Fizzl Pass proof, for the agent to send as X-Fizzl-Pass to Fizzl's services (higher free limits).
+  v1.get("/pass", wrap(async (req, res) => res.set("cache-control", "no-store").json({ token: (await accounts.passToken?.(req.account)) ?? null })));
   v1.post("/reserve", wrap(async (req, res) => res.json(await req.wallet.reserve(req.agent, req.body ?? {}))));
   // An action that isn't a signature (a PayPal refund held back by fizzl-paypal-guard): ask the owner.
   v1.post("/actions", wrap(async (req, res) => res.json(await req.wallet.ask(req.agent, req.body ?? {}))));

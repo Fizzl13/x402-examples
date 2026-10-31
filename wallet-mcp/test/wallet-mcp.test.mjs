@@ -983,3 +983,27 @@ test("check_text: the free limit used up says how to go on; detailed pays $0.01 
   assert.equal(paid[0].payload.authorization.value, "10000");
   assert.deepEqual(fake.sent, [["signTypedData", "TransferWithAuthorization"]]);
 });
+
+test("check_text with a wallet server: the owner's Fizzl Pass proof goes along as X-Fizzl-Pass (fetched once); none without one", async () => {
+  const net = network();
+  const seen = [];
+  let passCalls = 0;
+  const make = (token) => {
+    const fetch = async (input, init = {}) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url === "https://wallet.test/v1/pass") { passCalls++; assert.equal(new Headers(init.headers).get("authorization"), "Bearer awk_test"); return Response.json({ token }); }
+      if (url === `${PG}/v1/injection/quick`) { seen.push(new Headers(init.headers).get("x-fizzl-pass")); return Response.json({ verdict: "green" }); }
+      return net.fetch(input, init);
+    };
+    const fake = fakeWallet();
+    return createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch, presignUrl: PG, guard: { verifyReceipts: "off" } });
+  };
+  const withPass = make("fzp1.test-claims.test-signature");
+  await withPass.checkText({ text: "hello" });
+  await withPass.checkText({ text: "hello again" });
+  assert.deepEqual(seen, ["fzp1.test-claims.test-signature", "fzp1.test-claims.test-signature"]);
+  assert.equal(passCalls, 1, "asked once, then kept");
+  seen.length = 0;
+  await make(null).checkText({ text: "hello" });
+  assert.deepEqual(seen, [null]);
+});
