@@ -42,7 +42,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -353,7 +353,19 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   const owner = express.Router();
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
-  owner.get("/pass", wrap(async (req, res) => res.set("cache-control", "no-store").json(await accounts.pass(req.account))));
+  // The owner's pass, with what its vault holds (credit back from Fizzl's services, asked from x402 Doctor with the proof;
+  // null when that doesn't answer within 4 seconds).
+  owner.get("/pass", wrap(async (req, res) => {
+    const out = await accounts.pass(req.account);
+    if (out?.pass?.token && vaultUrl) {
+      try {
+        const r = await vaultFetch(vaultUrl, { headers: { "x-fizzl-pass": out.pass.token, accept: "application/json" }, signal: AbortSignal.timeout(4000) });
+        const v = r.ok ? await r.json() : null;
+        out.pass.vault_usd = typeof v?.balance_usd === "number" ? v.balance_usd : null;
+      } catch { out.pass.vault_usd = null; }
+    }
+    res.set("cache-control", "no-store").json(out);
+  }));
   owner.get("/state", wrap(async (req, res) => res.json({ ...(await req.wallet.state()), onchain: allowance?.enabled ? allowance.contract : null })));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
