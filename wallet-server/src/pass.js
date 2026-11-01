@@ -1,4 +1,4 @@
-// Fizzl Pass, phase 1: the pass itself and its proof.
+// Fizzl Pass: the pass itself and its proof.
 //
 // A pass gives an account's agents better terms on Fizzl's services. Phase 1 has one tier, Bronze: it is Pro
 // ($5 for 30 days, on every network Pro can be paid on), so every account with Pro has a Bronze pass. What the
@@ -13,6 +13,10 @@ import { createPrivateKey, createPublicKey, createHash, sign as edSign, verify a
 
 export const PASS_TIERS = {
   bronze: { name: "Bronze", label: "Fizzl Pass Bronze", days: 30, usdc: 5 },
+  // Bought on their own (they include Pro for their whole term): more credit back and higher free limits on the
+  // services (lib/fizzl-pass.js and lib/fizzl-vault.js there know silver and gold already).
+  silver: { name: "Silver", label: "Fizzl Pass Silver", days: 90, usdc: 20 },
+  gold: { name: "Gold", label: "Fizzl Pass Gold", days: 180, usdc: 60 },
 };
 
 const b64u = (buf) => Buffer.from(buf).toString("base64url");
