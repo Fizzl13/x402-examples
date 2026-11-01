@@ -47,7 +47,7 @@ function seller() {
     const amount = req.url.startsWith("/dear") ? "2000000" : "2000";
     const c = req.url.startsWith("/solana") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(0, 1) } : challenge(req, payTo, amount);
     // ...-refusing: the 402 names a refusal url on the seller's own site (the draft refusal extension).
-    if (req.url.includes("-refusing")) c.extensions = { refusal: { info: { url: `http://${req.headers.host}/.well-known/x402-refusal`, version: "0.1-draft" } } };
+    if (req.url.includes("-refusing")) c.extensions = { refusal: { info: { url: `http://${req.headers.host}/.well-known/x402-refusal`, version: "0.2-draft" } } };
     if (req.url.startsWith("/escrow")) {
       const now = Math.floor(Date.now() / 1000);
       const offer = { scheme: "auth-capture", network: "eip155:8453", amount: "12000000", asset: USDC_BASE, payTo: SELLER, maxTimeoutSeconds: 300,
@@ -486,25 +486,23 @@ test("connector payments: a Fizzl service paid from the owner's Fizzl Pass vault
 
 // The draft refusal extension (x402-foundation/x402#4087): a seller whose 402 takes refusals hears why the connector
 // didn't ask the owner to pay. Only the automatic checks; never the owner's own "no".
-test("connector payments: a seller that takes refusals hears about the OFAC list and the price, not about the owner's no", async () => {
+test("connector payments: a seller that takes refusals hears about the price, not about the OFAC list (unsigned) or the owner's no", async () => {
   const s = await seller();
   const { base, server } = await boot();
   try {
     const owner = privateKeyToAccount(generatePrivateKey());
     const client = await connect(base, await signIn(base, owner));
     assert.equal((await call(client, "pay_x402", { url: `${s.url}/bad-refusing/x?city=Amsterdam` })).isError, true);
-    assert.equal((await call(client, "pay_x402", { url: `${s.url}/dear-refusing` })).isError, true);
+    assert.equal((await call(client, "pay_x402", { url: `${s.url}/dear-refusing?city=Amsterdam` })).isError, true);
     const asked = (await call(client, "pay_x402", { url: `${s.url}/weather-refusing` })).structuredContent;
     await fetch(`${base}/connector/payments/${asked.payment_id}/deny`, { method: "POST" });
     const reports = async () => s.seen.filter((x) => x.url === "/.well-known/x402-refusal").map((x) => JSON.parse(x.body));
-    for (let i = 0; i < 50 && (await reports()).length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 50 && (await reports()).length < 1; i++) await new Promise((r) => setTimeout(r, 20));
     await new Promise((r) => setTimeout(r, 50));
     const got = await reports();
-    assert.deepEqual(got.map((r) => r.reason).sort(), ["price_above_limit", "screening_hit"], "nothing for the owner's no");
-    const hit = got.find((r) => r.reason === "screening_hit");
-    assert.equal(hit.resource, `${s.url}/bad-refusing/x`, "without the query: none of the request's input");
-    assert.equal(hit.offer.acceptIndex, 1, "the offer with the listed payout address");
-    assert.match(hit.by, /^fizzl-agent-wallet\//);
+    assert.deepEqual(got.map((r) => r.reason), ["price_above_limit"], "no unsigned screening_hit, nothing for the owner's no");
+    assert.equal(got[0].resource, `${s.url}/dear-refusing`, "without the query: none of the request's input");
+    assert.equal(got[0].by, undefined, "nothing that groups the wallet's users");
     await client.close();
   } finally { server.close(); s.server.close(); }
 });

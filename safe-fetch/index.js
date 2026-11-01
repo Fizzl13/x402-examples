@@ -22,8 +22,8 @@
 // or response content are sent.
 // With tellSellers, a refusal also goes to the seller itself when its 402 names a refusal url on its own site (the
 // draft refusal extension, x402-foundation/x402#4087): the ready report from Doctor's preflight (reason code and the
-// hash of the refused offer; no query, no keys, nothing about the buyer), once a day per endpoint and reason. Off by
-// default.
+// hash of the refused offer; no query, no keys, nothing about the buyer or this client), once a day per endpoint and
+// reason. A screening_hit isn't sent: the draft takes it only signed. Off by default.
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:
 // a missing, changed or forged verdict is never a payment (receipt.js).
@@ -41,7 +41,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.11.0";
+export const VERSION = "0.11.1";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -391,6 +391,8 @@ export function createSafeFetch({
     if (target.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(target.hostname)) return;
     if (!sameSite(target.hostname, endpoint.hostname)) return;
     if (refusal.report.resource !== `${endpoint.origin}${endpoint.pathname}`) return;
+    // The draft (0.2) takes a screening_hit only signed, and this client holds no key to sign with.
+    if (refusal.signature_required || (refusal.report.reason === "screening_hit" && !refusal.report.signature)) return;
     const key = `${refusal.report.resource} ${refusal.report.reason}`;
     if (now() - (toldSellers.get(key) ?? -Infinity) < 24 * 60 * 60 * 1000) return;
     toldSellers.set(key, now());
@@ -399,7 +401,8 @@ export function createSafeFetch({
       .then(() => baseFetch(target.href, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...refusal.report, by: `x402-safe-fetch/${VERSION}` }),
+        // No "by": buyers aren't grouped by the client they use.
+        body: JSON.stringify(refusal.report),
         redirect: "error",
       }))
       .then((r) => r?.body?.cancel?.())
