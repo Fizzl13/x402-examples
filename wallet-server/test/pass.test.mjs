@@ -169,3 +169,40 @@ test("Silver that ends before Pro: the public check turns Bronze on its own, and
   t += 30 * DAY;
   assert.equal((await accounts.passStatus(OWNER)).pass, null);
 });
+
+test("x402 sale: Doctor hands in the sale with the key; the buyer's wallet has the pass and fetches its proof with the claim id; once per payment", async (t) => {
+  let now = Date.now();
+  const { accounts, key } = setup(() => now);
+  const app = createApp({ accounts, auth: createAuth({ password: "a-long-test-password", secure: false }), passJwks: publicJwks(key), passSaleKey: "a-long-pass-sale-test-value" });
+  const server = await new Promise((resolve) => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const BUYER = "0x5555555555555555555555555555555555555555";
+  const claim = "abcdefghijklmnopqrstuvwxyz012345";
+  const sale = (body, auth = "Bearer a-long-pass-sale-test-value") => fetch(`${base}/hooks/pass-sale`, { method: "POST", headers: { "content-type": "application/json", authorization: auth }, body: JSON.stringify(body) });
+  assert.equal((await fetch(`${base}/v1/pass/claim/${claim}`)).status, 404);
+  assert.equal((await sale({ wallet: BUYER, tier: "silver", tx: "0xtx1", claim }, "Bearer wrong")).status, 401);
+  assert.equal((await sale({ wallet: BUYER, tier: "platinum", tx: "0xtx1", claim })).status, 400);
+  const ok = await (await sale({ wallet: BUYER, tier: "silver", tx: "0xtx1", claim })).json();
+  assert.equal(ok.pass.tier, "silver");
+  assert.equal(Math.round((ok.pass.until - now) / DAY), 90);
+  const c = await (await fetch(`${base}/v1/pass/claim/${claim}`)).json();
+  assert.equal(c.pass.tier, "silver");
+  assert.deepEqual(verifyPass(c.token, key.publicKey, now).wallets, [BUYER]);
+  assert.equal((await accounts.passStatus(BUYER)).pass.tier, "silver");
+  // The same payment again: nothing more.
+  assert.equal((await (await sale({ wallet: BUYER, tier: "silver", tx: "0xtx1", claim })).json()).duplicate, true);
+  // Another Silver extends it.
+  const more = await (await sale({ wallet: BUYER, tier: "silver", tx: "0xtx2", claim: "abcdefghijklmnopqrstuvwxyz012346" })).json();
+  assert.equal(Math.round((more.pass.until - now) / DAY), 180);
+  // Bronze from an account next to a bought Silver: the higher tier counts.
+  await accounts.passSale({ wallet: OWNER, tier: "gold", tx: "0xtx3", claim: "abcdefghijklmnopqrstuvwxyz012347" });
+  assert.equal((await accounts.passStatus(OWNER)).pass.tier, "gold");
+  now += 200 * DAY;
+  assert.equal((await accounts.passStatus(BUYER)).pass, null);
+  // Without PASS_SALE_KEY the hook isn't there.
+  const off = createApp({ accounts, auth: createAuth({ password: "a-long-test-password", secure: false }) });
+  const s2 = await new Promise((resolve) => { const s = off.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => s2.close());
+  assert.equal((await fetch(`http://127.0.0.1:${s2.address().port}/hooks/pass-sale`, { method: "POST" })).status, 404);
+});

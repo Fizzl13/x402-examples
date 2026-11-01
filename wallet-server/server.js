@@ -46,6 +46,8 @@
 //   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
 //                       and is the key the server uses to ask Doctor again right before it mails a draft about its findings
 //   DOCTOR_URL          optional: x402 Doctor's base URL for that recheck (default https://x402-doctor.fizzl.eu)
+//   PASS_SALE_KEY       optional: long random string, the same on x402 Doctor; lets Doctor hand in Fizzl Passes it sold
+//                       over x402 (POST /hooks/pass-sale)
 //   DRAFT_KEY           optional: long random string, the same as the GitHub secret of the outreach-draft workflow;
 //                       lets Claude hand in written messages as drafts (never sends)
 //   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
@@ -157,7 +159,7 @@ const outreach = createOutreach({ store, mailer: outreachMailer, telegram, admin
 // instead of ~100 s. (Holding /health at 503 until then was dropped: Render stops routing to an instance after 15 s of
 // failed checks, which after a crash would refuse agents' payment calls too.)
 catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
-const app = createApp({ passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);

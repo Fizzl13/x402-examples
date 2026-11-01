@@ -70,6 +70,13 @@ td:first-child { color: var(--text); font-weight: 500; }
     </tbody>
   </table></div>
   <p class="note">Paid once on the dashboard, in USDC (Base, Solana, Algorand and more) or RLUSD on the XRP Ledger; not automatically. When Silver or Gold ends while Pro still runs, the pass is Bronze again.</p>
+
+  <h2>Or let your agent buy it over x402</h2>
+  <p>No account needed: your agent pays with any x402 client and the pass belongs to the wallet that paid (without Pro, which needs an account).</p>
+  <pre>GET https://x402-doctor.fizzl.eu/api/v1/pass/bronze   $5, 30 days
+GET https://x402-doctor.fizzl.eu/api/v1/pass/silver   $20, 90 days
+GET https://x402-doctor.fizzl.eu/api/v1/pass/gold     $60, 180 days</pre>
+  <p>The answer has a <code>claim_url</code>. A few seconds after the payment settles it returns the signed proof for the <code>X-Fizzl-Pass</code> header. Keep it: it is the key to the pass's credit. Buying the same tier again adds its days. Most x402 clients cap a payment at $1 by default (in <code>@x402/fetch</code>: <code>spendControls</code>), so raise that for these prices.</p>
   <p class="note">The credit can only be spent at Fizzl's services, earns nothing and is never paid out. A pass covers your own wallet and your agents' wallets; an agent's wallet counts once it has signed a payment.</p>
 
   <h2>How your agent uses it</h2>

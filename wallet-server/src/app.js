@@ -3,6 +3,7 @@
 // customers with their wallet); Telegram posts button taps and /start links
 // to /telegram/webhook. Every request works only on its own account.
 import express from "express";
+import { PASS_TIERS } from "./pass.js";
 import { PAY_CHAINS } from "./accounts.js";
 import { noUsage, agentOf, fizzlSite } from "./usage.js";
 import { readFileSync } from "node:fs";
@@ -43,7 +44,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
+export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -149,6 +150,21 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.get("/v1/pass/status", (req, res, next) => slowDown(req, res, next), wrap(async (req, res) => {
     res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
     res.json(await accounts.passStatus(String(req.query.wallet ?? "")));
+  }));
+  // A pass bought over x402 at x402 Doctor: the buyer fetches its signed proof with the claim id Doctor gave it.
+  app.get("/v1/pass/claim/:claim", (req, res, next) => slowDown(req, res, next), wrap(async (req, res) => {
+    res.set({ "access-control-allow-origin": "*", "cache-control": "no-store" });
+    const c = await accounts.passClaim(req.params.claim);
+    if (!c) return res.status(404).json({ status: "pending", message: "Not here (yet): x402 Doctor passes the sale on once the payment has settled, usually within seconds. Try again shortly; a claim id that never works was mistyped." });
+    res.json({ pass: { tier: c.tier, name: PASS_TIERS[c.tier]?.label ?? c.tier, until: c.until, wallets: [c.wallet] }, token: c.token, how: "Send the token as the X-Fizzl-Pass header to Fizzl's services (x402-doctor.fizzl.eu, presign-guard.fizzl.eu, ichimoku-signal.fizzl.eu, buy.fizzl.eu): higher free limits, and paid calls paid from the pass's credit when it holds enough. Keep it secret: it works like a key to that credit. More: https://wallet.fizzl.eu/pass" });
+  }));
+  // x402 Doctor hands in a pass it sold over x402 (only with PASS_SALE_KEY, the same on both servers).
+  const passSaleKeyHash = passSaleKey ? createHash("sha256").update(passSaleKey).digest() : null;
+  app.post("/hooks/pass-sale", express.json({ limit: "4kb" }), wrap(async (req, res) => {
+    if (!passSaleKeyHash) return res.status(404).json({ error: "not_found" });
+    const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
+    if (!timingSafeEqual(given, passSaleKeyHash)) { console.warn("[pass] a sale with a wrong PASS_SALE_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
+    res.json(await accounts.passSale(req.body ?? {}));
   }));
   app.get("/.well-known/fizzl-pass.json", (_req, res) => {
     if (!passJwks) return res.status(404).json({ error: "no pass signing key on this server" });

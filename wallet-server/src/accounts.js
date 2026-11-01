@@ -554,13 +554,37 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (passTokens.size > 5000) passTokens.delete(passTokens.keys().next().value);
       return token;
     },
-    // Anyone: is this wallet covered by a pass? Only the tier and the end, never whose it is.
+    // Anyone: is this wallet covered by a pass? Only the tier and the end, never whose it is. A wallet can have an
+    // account's pass and one it bought itself over x402 (passSale): the higher tier counts.
     async passStatus(wallet) {
       const w = walletKey(wallet);
       if (!isWallet(w)) throw Object.assign(new Error("wallet must be a wallet address (EVM 0x…, Solana, XRPL r… or Algorand)"), { status: 400 });
-      const e = await g.peekOnce("pass", w);
-      const v = e && e.until > now() ? e : e?.next && e.next.until > now() ? e.next : null;
+      const v = await currentPass(w);
       return { wallet: w, pass: v ? { tier: v.tier, name: PASS_TIERS[v.tier]?.label ?? v.tier, until: v.until } : null };
+    },
+    // x402 Doctor sold a pass over x402 to this wallet (after the payment settled): the pass is the wallet's own,
+    // without an account. Extends a pass of the same tier; another tier starts now. The signed proof waits under the
+    // buyer's claim id (GET /v1/pass/claim/<id>) until the pass ends. Once per payment.
+    async passSale({ wallet, tier, tx, claim } = {}) {
+      const w = walletKey(wallet);
+      const t = PASS_TIERS[tier];
+      if (!isWallet(w) || !t || typeof tx !== "string" || !tx || tx.length > 200 || !/^[A-Za-z0-9_-]{22,64}$/.test(String(claim ?? ""))) throw Object.assign(new Error("needs wallet, tier (bronze, silver or gold), tx and claim"), { status: 400 });
+      if (!(await g.claimTx(`passsale:${tx}`))) return { ok: true, duplicate: true, claim: await g.peekOnce("passclaim", claim) };
+      const prev = await g.peekOnce("walletpass", w);
+      const start = prev && prev.tier === tier && prev.until > now() ? prev.until : now();
+      const until = start + t.days * DAY;
+      const ttl = Math.ceil((until - now()) / 1000);
+      await g.putOnce("walletpass", w, { tier, until }, ttl);
+      const token = passKey ? signPass({ iss: "wallet.fizzl.eu", tier, until, wallets: [w], iat: now() }, passKey) : null;
+      await g.putOnce("passclaim", claim, { wallet: w, tier, until, token }, ttl);
+      usage.record("pass_sold", { usd: t.usdc, input: { tier, via: "x402" } });
+      return { ok: true, pass: { tier, until, wallet: w } };
+    },
+    // The buyer's proof after an x402 purchase; null until x402 Doctor has passed the sale on.
+    async passClaim(claim) {
+      if (!/^[A-Za-z0-9_-]{22,64}$/.test(String(claim ?? ""))) return null;
+      const c = await g.peekOnce("passclaim", claim);
+      return c && c.until > now() ? c : null;
     },
 
     // ---------- agents (routing an agent key to its account) ----------
@@ -1290,6 +1314,16 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   }
 
   // ---------- Fizzl Pass (src/pass.js) ----------
+  const TIER_RANK = { bronze: 1, silver: 2, gold: 3 };
+  // The wallet's pass now: the account's (with Bronze after a Silver or Gold that ended) or the one it bought itself.
+  async function currentPass(w) {
+    const e = await g.peekOnce("pass", w);
+    const fromAccount = e && e.until > now() ? e : e?.next && e.next.until > now() ? e.next : null;
+    const own = await g.peekOnce("walletpass", w);
+    const bought = own && own.until > now() ? own : null;
+    if (!fromAccount || !bought) return fromAccount ?? bought;
+    return TIER_RANK[bought.tier] > TIER_RANK[fromAccount.tier] ? bought : fromAccount;
+  }
   const passTokens = new Map(); // account -> { token, until, at }
   // Phase 1: Pro is the Bronze pass. It covers the account's own wallet and its agents' wallets, indexed by wallet
   // until the pass ends, so GET /v1/pass/status answers without knowing the account.
