@@ -188,11 +188,12 @@ async function readText(res, limit) {
 
 export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, paidTimeoutMs = PAID_TIMEOUT_MS, retryPauseMs = RETRY_PAUSE_MS, version = "0", now = () => Date.now(), refusals = undefined }) {
   // The seller hears why the connector didn't ask the owner to pay, when its 402 names a refusal url on its own site
-  // (the draft refusal extension, x402-foundation/x402#4087): only the wallet's automatic checks (OFAC list, price,
-  // network), never the owner's own "no", and nothing about the owner. REFUSALS_TO_SELLERS=off turns it off.
+  // (the draft refusal extension, x402-foundation/x402#4087): only the wallet's automatic checks (price, network),
+  // never the owner's own "no", and nothing about the owner or the wallet (no "by"). An OFAC hit isn't sent: the draft
+  // takes a screening_hit only signed, and the server holds no key to sign with. REFUSALS_TO_SELLERS=off turns it off.
   const toSellers = refusals !== undefined ? refusals
     : process.env.REFUSALS_TO_SELLERS === "off" ? null
-    : createRefusalSender({ fetchImpl: (u, o) => sellerFetch(u, o), by: `fizzl-agent-wallet/${version}`, log: { warn() {} } });
+    : createRefusalSender({ fetchImpl: (u, o) => sellerFetch(u, o), log: { warn() {} } });
   function tellSeller(challenge, url, reason, detail, payTo = null) {
     if (!toSellers) return;
     const target = refusalTarget(challenge, url);
@@ -343,7 +344,6 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const payTos = [offer?.payTo, onSol?.payTo, onXrpl?.payTo].filter(Boolean);
     const [listed, record, balance, budgets] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url, account), owner && offer ? usdcBalance(owner) : null, spendingOf(account)]);
     const hit = payTos.find((_, i) => listed[i]);
-    if (hit) tellSeller(challenge, url, "screening_hit", "the payout address is on the OFAC SDN list", hit);
     if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
     let lowOnBase = false;
     if (owner && offer && balance !== null && balance < BigInt(offer.amount)) {
