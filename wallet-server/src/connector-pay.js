@@ -24,6 +24,7 @@
 // the refund deadline. @x402/evm's AuthCaptureEvmScheme builds what is signed, so it matches what the escrow checks.
 // Such an offer may cost more than an exact one (up to MAX_ESCROW_USD): the owner signs it in their own wallet.
 import express from "express";
+import { createRefusalSender, refusalTarget, refusalReport } from "./refusal.js";
 import { createHash, randomBytes } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { verifyTypedData, getAddress, encodeFunctionData } from "viem";
@@ -185,7 +186,25 @@ async function readText(res, limit) {
   return text;
 }
 
-export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, paidTimeoutMs = PAID_TIMEOUT_MS, retryPauseMs = RETRY_PAUSE_MS, version = "0", now = () => Date.now() }) {
+export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, paidTimeoutMs = PAID_TIMEOUT_MS, retryPauseMs = RETRY_PAUSE_MS, version = "0", now = () => Date.now(), refusals = undefined }) {
+  // The seller hears why the connector didn't ask the owner to pay, when its 402 names a refusal url on its own site
+  // (the draft refusal extension, x402-foundation/x402#4087): only the wallet's automatic checks (OFAC list, price,
+  // network), never the owner's own "no", and nothing about the owner. REFUSALS_TO_SELLERS=off turns it off.
+  const toSellers = refusals !== undefined ? refusals
+    : process.env.REFUSALS_TO_SELLERS === "off" ? null
+    : createRefusalSender({ fetchImpl: (u, o) => sellerFetch(u, o), by: `fizzl-agent-wallet/${version}`, log: { warn() {} } });
+  function tellSeller(challenge, url, reason, detail, payTo = null) {
+    if (!toSellers) return;
+    const target = refusalTarget(challenge, url);
+    const accepts = Array.isArray(challenge?.accepts) ? challenge.accepts : [];
+    let index = payTo ? accepts.findIndex((a) => String(a?.payTo ?? "").toLowerCase() === String(payTo).toLowerCase()) : 0;
+    if (index < 0) index = 0;
+    if (!target || !accepts[index]) return;
+    const u = new URL(url);
+    try {
+      toSellers.send({ url: target, report: refusalReport({ resource: `${u.origin}${u.pathname}`, accept: accepts[index], acceptIndex: index, reason, detail, x402Version: Number.isInteger(challenge.x402Version) ? challenge.x402Version : 2 }) });
+    } catch { /* a report never changes the answer */ }
+  }
   const UA = `fizzl-wallet-connector/${version}`;
   const asks = new Map(); // agent id -> { n, since }
   // XRPL in Xaman: on when the server has a Xaman app's key and secret.
@@ -307,6 +326,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const base = baseOffer(challenge) ?? escrowOffer(challenge);
     const sol = solanaOffer(challenge);
     const xrpl = xm ? xrplOffer(challenge) : null;
+    if (!base && !sol && !xrpl) tellSeller(challenge, url, "network_unsupported", "Fizzl Agent Wallet pays USDC on Base or Solana, or RLUSD on the XRP Ledger");
     if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
     // An escrowed offer may cost up to MAX_ESCROW_USD; everything else up to MAX_PRICE_USD.
     const within = (price, escrowed = false) => price <= Math.min(cap, escrowed ? MAX_ESCROW_USD : MAX_PRICE_USD);
@@ -316,12 +336,14 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (!offer && !onSol && !onXrpl) {
       const asked = Math.min(...[base && usd(base.amount), sol?.price, xrpl?.price].filter(Boolean));
       const most = base?.escrow ? MAX_ESCROW_USD : MAX_PRICE_USD;
+      tellSeller(challenge, url, "price_above_limit", `asked $${asked}, above the buyer's limit`);
       return { error: asked > most ? `This API asks $${asked}, more than the connector pays${base?.escrow ? " for an escrowed payment" : ""} (at most $${most}).` : `This API asks $${asked}, above max_price_usd ($${Math.min(cap, most)}). Ask your user before raising it (at most $${most}${base?.escrow ? ", held in escrow until the seller delivers" : ""}).` };
     }
     const owner = await accounts.payer(account);
     const payTos = [offer?.payTo, onSol?.payTo, onXrpl?.payTo].filter(Boolean);
     const [listed, record, balance, budgets] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url, account), owner && offer ? usdcBalance(owner) : null, spendingOf(account)]);
     const hit = payTos.find((_, i) => listed[i]);
+    if (hit) tellSeller(challenge, url, "screening_hit", "the payout address is on the OFAC SDN list", hit);
     if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
     let lowOnBase = false;
     if (owner && offer && balance !== null && balance < BigInt(offer.amount)) {
