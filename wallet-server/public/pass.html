@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Fizzl Pass: better terms on Fizzl's services</title>
-<meta name="description" content="Fizzl Pass Bronze comes with Agent Wallet Pro; Silver and Gold give more: up to 25 times the free limits and 30% of every paid call back as credit on x402 Doctor, presign-guard, Ichimoku Signal and Fizzl Buy. For sellers: check a wallet's pass for free, or verify its signed proof offline, and give pass holders your own terms.">
+<meta name="description" content="Fizzl Pass Bronze comes with Agent Wallet Pro; Silver and Gold give more: up to 25 times the free limits, 30% of every paid call back as credit on x402 Doctor, presign-guard, Ichimoku Signal and Fizzl Buy, and up to 3 free delivery checks a month. For sellers: check a wallet's pass for free, or verify its signed proof offline, and give pass holders your own terms.">
 <link rel="canonical" href="https://wallet.fizzl.eu/pass">
 <style>
 @font-face { font-family: "Lexend"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/lexend-latin-wght-normal.woff2") format("woff2"); }
@@ -67,8 +67,10 @@ td:first-child { color: var(--text); font-weight: 500; }
       <tr><td>Free limits</td><td>5 times</td><td>10 times</td><td>25 times</td></tr>
       <tr><td>Credit back</td><td>10% of each paid call</td><td>20%</td><td>30%</td></tr>
       <tr><td>Credit lasts</td><td>12 months after the last credit</td><td>12 months after the last credit</td><td>No end</td></tr>
+      <tr><td>Free delivery checks</td><td>No</td><td>1 a month</td><td>3 a month</td></tr>
     </tbody>
   </table></div>
+  <p class="note">A delivery check (normally $0.25) has x402 Doctor buy an endpoint once and check the answer. Order it with <code>GET https://x402-doctor.fizzl.eu/api/v1/delivery-check?url=…</code> and your pass proof in the <code>X-Fizzl-Pass</code> header, without paying; an endpoint Doctor refuses uses none. What is left this month: <code>GET https://x402-doctor.fizzl.eu/api/v1/pass/perks</code> with the same header.</p>
   <p class="note">Paid once on the dashboard, in USDC (Base, Solana, Algorand and more) or RLUSD on the XRP Ledger; not automatically. When Silver or Gold ends while Pro still runs, the pass is Bronze again.</p>
 
   <h2>Or let your agent buy it over x402</h2>
