@@ -127,3 +127,30 @@ test("phase 3: the dashboard shows what the pass's vault holds, asked from x402 
   assert.equal(r.pass.vault_usd, 0.042);
   assert.deepEqual(asked, [{ url: "https://doctor.test/api/v1/vault", pass: r.pass.token }]);
 });
+
+test("phase 4: the /pass page is served, and its seller example verifies a real proof (and refuses a changed one)", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const crypto = await import("node:crypto");
+  const { accounts, key } = setup();
+  const app = createApp({ accounts, auth: createAuth({ password: "a-long-test-password", secure: false }), passJwks: publicJwks(key) });
+  const server = await new Promise((resolve) => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => server.close());
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/pass`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /For sellers/);
+  assert.match(await (await fetch(`http://127.0.0.1:${server.address().port}/sitemap.xml`)).text(), /wallet\.fizzl\.eu\/pass</);
+  // The page's Node example, run as written (only the key fetch is replaced by the published key).
+  const pre = [...readFileSync(new URL("../public/pass.html", import.meta.url), "utf8").matchAll(/<pre>([\s\S]*?)<\/pre>/g)].map((m) => m[1]).find((x) => x.includes("checkPass"));
+  const code = pre.replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&")
+    .replace(/^import .*$/m, "")
+    .replace(/^const \{ keys \} = await .*$/m, "")
+    + "\nreturn checkPass;";
+  const checkPass = new Function("createPublicKey", "verify", "keys", code)(crypto.createPublicKey, crypto.verify, publicJwks(key).keys);
+  const token = signPass({ iss: "wallet.fizzl.eu", tier: "bronze", until: Date.now() + DAY, wallets: [OWNER], iat: Date.now() }, key);
+  assert.deepEqual([checkPass(token).tier, checkPass(token).wallets], ["bronze", [OWNER]]);
+  const [h, b, s] = token.split(".");
+  assert.equal(checkPass(`${h}.${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(b, "base64url")), tier: "gold" })).toString("base64url")}.${s}`), null);
+  assert.equal(checkPass(signPass({ tier: "bronze", until: Date.now() - 1, wallets: [] }, key)), null);
+  assert.equal(checkPass("nonsense"), null);
+});
