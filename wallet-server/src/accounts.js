@@ -135,7 +135,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const TIERS = {
     pro20: { label: "Pro 20", units: BigInt(Math.round(Number(billing.price20Usdc ?? 9) * 1e6)) },
     unlimited: { label: "Pro Unlimited", units: BigInt(Math.round(Number(billing.priceUnlimitedUsdc ?? 20) * 1e6)) },
+    // Fizzl Pass Silver and Gold: one payment buys 90 or 180 days (3 or 6 periods) of the pass, with Pro for that time.
+    silver: { label: PASS_TIERS.silver.label, units: BigInt(Math.round(Number(billing.priceSilverUsdc ?? PASS_TIERS.silver.usdc) * 1e6)), periods: 3 },
+    gold: { label: PASS_TIERS.gold.label, units: BigInt(Math.round(Number(billing.priceGoldUsdc ?? PASS_TIERS.gold.usdc) * 1e6)), periods: 6 },
   };
+  const periodsOf = (tier) => TIERS[tier]?.periods ?? 1;
+  // The prices the dashboard shows, per plan.
+  const prices = () => ({ priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, priceSilverUsdc: Number(TIERS.silver.units) / 1e6, priceGoldUsdc: Number(TIERS.gold.units) / 1e6 });
   const unitOf = (tier) => TIERS[tier]?.units ?? priceUnits;
   const labelOf = (tier) => TIERS[tier]?.label ?? "Pro";
   const tierActive = (a, tier) => (a?.tierUntil?.[tier] ?? 0) + GRACE_MS > now();
@@ -189,7 +195,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const deadline = paid[0].at + WITHDRAW_MS;
     if (now() > deadline) return null;
     const total = paid.reduce((n, p) => n + (Number(p.amount) || 0), 0);
-    const used = ((Number(unitOf(paid[0].tier)) / 1e6) * (now() - paid[0].at)) / PERIOD_MS; // pro rata at the price of the plan first paid for
+    const used = ((Number(unitOf(paid[0].tier)) / 1e6 / periodsOf(paid[0].tier)) * (now() - paid[0].at)) / PERIOD_MS; // pro rata at the price of the plan first paid for
     return { done: false, deadline, refundUsdc: Math.max(0, Math.floor((total - used) * 100) / 100) };
   }
   const subscription = billing.subscription && isAddress(billing.subscription) ? getAddress(billing.subscription) : null;
@@ -505,7 +511,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (passOf(a)) indexPass(id).catch(() => {}); // agents' wallets learned since are covered too
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
-        paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
+        pass: passOf(a), paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
         chain: a.admin ? null : isXrplAcct(a) ? "xrpl" : isAlgoAcct(a) ? "algorand" : isSol(a) ? "solana" : "ethereum",
         signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isXrplAcct(a) ? "xaman" : isAlgoAcct(a) ? "pera" : isSol(a) ? "solana" : "ethereum",
         email: a.emailHint ?? null, emailSignIn: !!mailer,
@@ -520,19 +526,19 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
-        xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY },
+        xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, ...prices(), periodDays: PERIOD_MS / DAY },
         // USDC on Algorand: for accounts that signed in with Pera (the payment must come from that address).
-        algoPay: isAlgoAcct(a) && algoPayTo ? { payTo: algoPayTo, asset: ALGO_USDC, token: "USDC", priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY } : null,
+        algoPay: isAlgoAcct(a) && algoPayTo ? { payTo: algoPayTo, asset: ALGO_USDC, token: "USDC", ...prices(), periodDays: PERIOD_MS / DAY } : null,
         billing: a.admin || !a.address || isXrplAcct(a) || isAlgoAcct(a) ? null : isSol(a)
-          ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
-          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
+          ? (solPayTo ? { chain: "solana", payTo: solPayTo, ...prices(), token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
+          : { chain: "base", payTo, ...prices(), token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
     },
 
     // The account's pass: tier, end, the wallets it covers, and a signed proof (when PASS_SIGNING_KEY is set).
     async pass(id) {
       const p = await indexPass(id);
-      if (!p) return { pass: null, how: `Fizzl Pass Bronze comes with Pro ($${Number(priceUnits) / 1e6} for 30 days).` };
+      if (!p) return { pass: null, how: `Fizzl Pass Bronze comes with Pro ($${Number(priceUnits) / 1e6} for 30 days); Silver is $${Number(TIERS.silver.units) / 1e6} for 90 days and Gold $${Number(TIERS.gold.units) / 1e6} for 180 days, Pro included.` };
       const t = PASS_TIERS[p.tier];
       const token = passKey ? signPass({ iss: "wallet.fizzl.eu", tier: p.tier, until: p.until, wallets: p.wallets, iat: now() }, passKey) : null;
       return { pass: { tier: p.tier, name: t.label, until: p.until, wallets: p.wallets, token } };
@@ -552,8 +558,9 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     async passStatus(wallet) {
       const w = walletKey(wallet);
       if (!isWallet(w)) throw Object.assign(new Error("wallet must be a wallet address (EVM 0x…, Solana, XRPL r… or Algorand)"), { status: 400 });
-      const v = await g.peekOnce("pass", w);
-      return { wallet: w, pass: v && v.until > now() ? { tier: v.tier, name: PASS_TIERS[v.tier]?.label ?? v.tier, until: v.until } : null };
+      const e = await g.peekOnce("pass", w);
+      const v = e && e.until > now() ? e : e?.next && e.next.until > now() ? e.next : null;
+      return { wallet: w, pass: v ? { tier: v.tier, name: PASS_TIERS[v.tier]?.label ?? v.tier, until: v.until } : null };
     },
 
     // ---------- agents (routing an agent key to its account) ----------
@@ -1103,7 +1110,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(id);
       if (!a || !isSol(a) || !a.address) throw Object.assign(new Error("only for accounts signed in with a Solana wallet"), { status: 400 });
       if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
-      const m = Math.min(12, Math.max(1, Math.floor(Number(months) || 1)));
+      const m = Math.min(Math.floor(12 / periodsOf(tier)), Math.max(1, Math.floor(Number(months) || 1)));
       const { value } = await solRpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
       const unit = unitOf(tier);
       return { message: usdcTransferMessage({ from: a.address, to: solPayTo, amount: unit * BigInt(m), blockhash: value.blockhash }), amountUsdc: (Number(unit) * m) / 1e6, months: m, payTo: solPayTo };
@@ -1247,7 +1254,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   }
   // Which plan a payment buys: the one asked for, or (asked for nothing, e.g. a pasted hash) Pro 20 when the
   // amount is a whole number of Pro 20 months and not of Pro months.
-  const tierFor = (tier, paid) => (["pro", "pro20", "unlimited"].includes(tier) ? tier : paid >= TIERS.pro20.units && paid % TIERS.pro20.units === 0n && paid % priceUnits !== 0n ? "pro20" : "pro");
+  const tierFor = (tier, paid) => (["pro", "pro20", "unlimited", "silver", "gold"].includes(tier) ? tier : paid >= TIERS.pro20.units && paid % TIERS.pro20.units === 0n && paid % priceUnits !== 0n ? "pro20" : "pro");
   async function claimSolana(a, signature, tier) {
     if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
     if (!isSolanaSignature(signature)) throw Object.assign(new Error("that is not a Solana transaction signature"), { status: 400 });
@@ -1271,7 +1278,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   // Pro for what was paid (whole months, at most 12), after any time already paid for. Months of a bigger plan
   // also add time on that plan (from now, or after what's left of it); the Pro time they add comes after any Pro left.
   async function credit(a, tx, paid, chainId = null, tier = "pro", from = null) {
-    const months = Math.min(12, Number(paid / unitOf(tier)));
+    const months = Math.min(12, Number(paid / unitOf(tier)) * periodsOf(tier));
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     const bigger = TIERS[tier] ? { tierUntil: { ...(a.tierUntil ?? {}), [tier]: Math.max(now(), a.tierUntil?.[tier] ?? 0) + months * PERIOD_MS } } : {};
@@ -1286,7 +1293,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const passTokens = new Map(); // account -> { token, until, at }
   // Phase 1: Pro is the Bronze pass. It covers the account's own wallet and its agents' wallets, indexed by wallet
   // until the pass ends, so GET /v1/pass/status answers without knowing the account.
-  const passOf = (a) => { const until = proUntil(a); return !a || a.admin || !(until > now()) ? null : { tier: "bronze", until }; };
+  // Gold or Silver while bought (and Pro, which they include, hasn't been withdrawn); otherwise Pro is Bronze.
+  const passOf = (a) => {
+    const until = proUntil(a);
+    if (!a || a.admin || !(until > now())) return null;
+    for (const tier of ["gold", "silver"]) { const end = Math.min(a.tierUntil?.[tier] ?? 0, until); if (end > now()) return { tier, until: end }; }
+    return { tier: "bronze", until };
+  };
   async function passWallets(a) {
     const agents = await store.scope(a.id).listAgents().catch(() => []);
     return [...new Set([a.address, ...agents.map((x) => x.address)].filter((w) => w && isWallet(w)).map(walletKey))];
@@ -1296,8 +1309,11 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const p = passOf(a);
     if (!p) return null;
     const wallets = await passWallets(a);
-    const ttl = Math.max(60, Math.ceil((p.until - now()) / 1000));
-    for (const w of wallets) await g.putOnce("pass", w, { tier: p.tier, until: p.until }, ttl);
+    // Silver or Gold that ends before Pro does: Bronze follows, so the public check stays right without a new index.
+    const end = proUntil(a);
+    const next = p.tier !== "bronze" && end > p.until ? { tier: "bronze", until: end } : null;
+    const ttl = Math.max(60, Math.ceil(((next?.until ?? p.until) - now()) / 1000));
+    for (const w of wallets) await g.putOnce("pass", w, { tier: p.tier, until: p.until, ...(next ? { next } : {}) }, ttl);
     return { ...p, wallets };
   }
 

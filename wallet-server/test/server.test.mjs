@@ -588,6 +588,41 @@ test("free plan: one agent; a second is refused, and paused if it already exists
   } finally { server.close(); }
 });
 
+test("Fizzl Pass Silver ($20, 90 days) and Gold ($60, 180 days): Pro included, the pass tier in the proof and the public check, Bronze after", async () => {
+  const c = chain();
+  const { base, server, accounts } = await boot({ rpc: c.rpc });
+  try {
+    const alice = customer(), bob = customer();
+    const a = await signInAs(base, alice), b = await signInAs(base, bob);
+    // $5 asked as Silver: refused.
+    const short = await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 5), tier: "silver" });
+    assert.equal(short.status, 400);
+    assert.match(short.body.message, /no payment of 20 USDC/);
+    const me = (await a.call("POST", "/api/billing/claim", { txHash: c.pay(alice.address, 20), tier: "silver" })).body;
+    assert.equal(me.plan, "pro");
+    assert.equal(me.pass.tier, "silver");
+    assert.equal(me.billing.priceSilverUsdc, 20);
+    assert.equal(me.billing.priceGoldUsdc, 60);
+    assert.equal(me.payments.at(-1).tier, "silver");
+    assert.equal(me.payments.at(-1).months, 3);
+    const days = (ms) => Math.round((ms - Date.now()) / 86_400_000);
+    assert.equal(days(me.proUntil), 90, "Pro for the whole 90 days");
+    assert.equal(days(me.pass.until), 90);
+    const pass = await accounts.pass(me.id);
+    assert.equal(pass.pass.name, "Fizzl Pass Silver");
+    assert.equal((await accounts.passStatus(alice.address)).pass.tier, "silver");
+    // Gold: 180 days.
+    const gold = (await b.call("POST", "/api/billing/claim", { txHash: c.pay(bob.address, 60), tier: "gold" })).body;
+    assert.equal(gold.pass.tier, "gold");
+    assert.equal(days(gold.proUntil), 180);
+    // A pasted $20 without a tier is Pro (4 months), not a pass: Silver has to be asked for.
+    const carol = customer(), cc = await signInAs(base, carol);
+    const pro = (await cc.call("POST", "/api/billing/claim", { txHash: c.pay(carol.address, 20) })).body;
+    assert.equal(pro.pass.tier, "bronze");
+    assert.equal(days(pro.proUntil), 120);
+  } finally { server.close(); }
+});
+
 test("Pro 20 ($9, 20 endpoints) and Pro Unlimited ($20); a pasted $9 hash counts as Pro 20; Pro alone stays at 10", async () => {
   const c = chain();
   const endpointMonitor = { check: async () => ({ state: "ok", status: 402, ms: 10, note: "ok" }) };

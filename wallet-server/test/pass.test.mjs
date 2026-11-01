@@ -154,3 +154,18 @@ test("phase 4: the /pass page is served, and its seller example verifies a real 
   assert.equal(checkPass(signPass({ tier: "bronze", until: Date.now() - 1, wallets: [] }, key)), null);
   assert.equal(checkPass("nonsense"), null);
 });
+
+test("Silver that ends before Pro: the public check turns Bronze on its own, and the proof follows", async () => {
+  let t = Date.now();
+  const { store, accounts, key } = setup(() => t);
+  await store.global.putAccount({ id: OWNER, address: OWNER, createdAt: t, paidUntil: t + 120 * DAY, tierUntil: { silver: t + 90 * DAY }, payments: [] });
+  const r = await accounts.pass(OWNER);
+  assert.deepEqual([r.pass.tier, r.pass.name], ["silver", "Fizzl Pass Silver"]);
+  assert.equal(verifyPass(r.pass.token, key.publicKey, t).tier, "silver");
+  assert.equal((await accounts.passStatus(OWNER)).pass.tier, "silver");
+  t += 91 * DAY;
+  assert.equal((await accounts.passStatus(OWNER)).pass.tier, "bronze", "no new index needed");
+  assert.equal((await accounts.pass(OWNER)).pass.tier, "bronze");
+  t += 30 * DAY;
+  assert.equal((await accounts.passStatus(OWNER)).pass, null);
+});
