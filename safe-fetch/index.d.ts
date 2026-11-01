@@ -70,6 +70,8 @@ export interface SafeFetchOptions {
   onDiagnosis?: (report: Diagnosis, info: { url: string; method: string; status: number | null; error: Error | null }) => void;
   /** After paying, tell Doctor whether the payment worked (with the signed preflight as proof), so later preflights learn from it; when it does not pay (no_go, or a caution it stops at), report "refused" with the reason code, so the seller learns why. Default false. */
   shareOutcomes?: boolean;
+  /** When not paying, tell the seller why if its 402 names a refusal url on its own site (draft x402-foundation/x402#4087). Default false. */
+  tellSellers?: boolean;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;

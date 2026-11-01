@@ -101,6 +101,7 @@ When a seller offers both, the exact option is paid. The preflight and the budge
 | `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
 | `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
 | `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it; when not paying, tell it why (see below) |
+| `tellSellers` | `false` | When not paying, tell the seller itself why, if its 402 takes refusals (draft refusal extension, see below) |
 | `onDiagnosis` | | `(report, { url, method, status, error }) => void`, e.g. for logging or alerting |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
@@ -139,6 +140,13 @@ With `shareOutcomes: true`, safe-fetch tells x402 Doctor what happened after it 
 - It is sent after the answer and never delays or changes it. Off by default.
 
 When safe-fetch does **not** pay (a `no_go`, or a `caution` that `onCaution` stops), it reports `refused` with the reason code that stopped it (for example `payto_changed`, `price_changed` or `payee_mismatch`). That is the seller's signal back: Doctor shows sellers how often agents refused to pay their endpoint and why (in the free web check and `GET https://x402-doctor.fizzl.eu/api/v1/refusals?url=…`), as counts only, never who.
+
+With `tellSellers: true`, a refusal also goes straight to the seller, when its 402 names a refusal url on its own site (the draft refusal extension, [x402-foundation/x402#4087](https://github.com/x402-foundation/x402/issues/4087)). safe-fetch posts the ready report from Doctor's preflight:
+- the reason code (for example `screening_hit` or `price_above_limit`);
+- the sha256 of the refused offer;
+- the endpoint without its query.
+
+No keys, no amounts from your wallet, nothing about you. It goes only to the endpoint's own site, with redirects refused, at most once a day per endpoint and reason, and never delays the error you get. It works with or without `shareOutcomes`.
 
 ## Signed verdicts
 

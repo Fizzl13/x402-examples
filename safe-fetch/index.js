@@ -20,6 +20,10 @@
 // preflight's reason code, so the seller learns why nobody pays (Doctor shows
 // sellers the counts per reason, never who). Off by default; no keys, amounts
 // or response content are sent.
+// With tellSellers, a refusal also goes to the seller itself when its 402 names a refusal url on its own site (the
+// draft refusal extension, x402-foundation/x402#4087): the ready report from Doctor's preflight (reason code and the
+// hash of the refused offer; no query, no keys, nothing about the buyer), once a day per endpoint and reason. Off by
+// default.
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:
 // a missing, changed or forged verdict is never a payment (receipt.js).
@@ -37,7 +41,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.10.0";
+export const VERSION = "0.11.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -209,6 +213,17 @@ function requestOf(input, init) {
   return { url: String(input), method: String(init?.method ?? "GET").toUpperCase() };
 }
 
+// Same site: the same host, or the same last two host labels except on shared hosting and two-label country
+// suffixes, where only the exact host counts (as x402 Doctor's lib/refusal.js).
+const SHARED_HOSTING = new Set(["onrender.com", "vercel.app", "netlify.app", "herokuapp.com", "workers.dev", "pages.dev", "github.io", "fly.dev", "railway.app", "replit.app", "repl.co", "web.app", "firebaseapp.com", "appspot.com", "deno.dev", "azurewebsites.net", "cloudfront.net", "amazonaws.com", "ngrok-free.app", "ngrok.io", "trycloudflare.com", "glitch.me", "koyeb.app", "co.uk", "org.uk", "com.au", "co.jp", "com.br", "co.nz", "co.za", "com.cn", "co.in"]);
+function sameSite(a, b) {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  if (x === y) return true;
+  const base = (h) => h.split(".").slice(-2).join(".");
+  return base(x) === base(y) && !SHARED_HOSTING.has(base(x));
+}
+
 /**
  * @param {object} options
  * @param {(client: x402Client) => unknown} options.register  registers your payment schemes on a client
@@ -226,6 +241,7 @@ function requestOf(input, init) {
  * @param {boolean} [options.diagnoseOnFailure]  when a payment still fails, buy a $0.01 Doctor diagnosis of why (default false)
  * @param {(report: object, info: {url: string, method: string, status: number|null, error: Error|null}) => void} [options.onDiagnosis]
  * @param {boolean} [options.shareOutcomes]  after paying, tell Doctor whether the payment worked (default false)
+ * @param {boolean} [options.tellSellers]  when not paying, tell the seller why if its 402 takes refusals (default false)
  * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
  * @param {() => number} [options.now]
  */
@@ -244,6 +260,7 @@ export function createSafeFetch({
   diagnoseOnFailure = false,
   onDiagnosis,
   shareOutcomes = false,
+  tellSellers = false,
   fetch: baseFetch = globalThis.fetch,
   createPayingFetch,
   now = Date.now,
@@ -357,9 +374,41 @@ export function createSafeFetch({
     const outcome = res.ok ? "paid_ok" : res.status === 402 ? "paid_failed" : res.status >= 400 ? "paid_error" : null;
     if (outcome) sendOutcome(url, method, preflight, { outcome, status: res.status });
   }
+  // The seller's own refusal url (tellSellers): only on the endpoint's own site, only a report about this endpoint,
+  // redirects refused, once a day per endpoint and reason, fire and forget.
+  const toldSellers = new Map();
+  function tellSeller(url, preflight) {
+    const refusal = preflight?.refusal;
+    if (!tellSellers || !refusal?.url || !refusal.report) return;
+    let target;
+    let endpoint;
+    try {
+      target = new URL(refusal.url);
+      endpoint = new URL(url);
+    } catch {
+      return;
+    }
+    if (target.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(target.hostname)) return;
+    if (!sameSite(target.hostname, endpoint.hostname)) return;
+    if (refusal.report.resource !== `${endpoint.origin}${endpoint.pathname}`) return;
+    const key = `${refusal.report.resource} ${refusal.report.reason}`;
+    if (now() - (toldSellers.get(key) ?? -Infinity) < 24 * 60 * 60 * 1000) return;
+    toldSellers.set(key, now());
+    if (toldSellers.size > 1000) toldSellers.delete(toldSellers.keys().next().value);
+    Promise.resolve()
+      .then(() => baseFetch(target.href, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...refusal.report, by: `x402-safe-fetch/${VERSION}` }),
+        redirect: "error",
+      }))
+      .then((r) => r?.body?.cancel?.())
+      .catch(() => {});
+  }
   // Not paid after a preflight: "refused", with the reason that stopped it (the first reason at the verdict's level).
   function reportRefusal(url, method, preflight) {
     sendOutcome(url, method, preflight, { outcome: "refused", reason: refusalReason(preflight), source: "doctor" });
+    tellSeller(url, preflight);
   }
 
   async function payAndCheck(url, init, method) {
