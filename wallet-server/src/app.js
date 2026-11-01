@@ -17,6 +17,7 @@ import { createConnector } from "./connector.js";
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 // A dated comparison with Coinbase for Agents (Coinbase MCP and Coinbase Wallet MCP), with its sources.
 const COMPARE_COINBASE = fileURLToPath(new URL("../public/compare-coinbase.html", import.meta.url));
+const PASS_PAGE = fileURLToPath(new URL("../public/pass.html", import.meta.url));
 const CONNECTOR_GUIDE = fileURLToPath(new URL("../public/connector.html", import.meta.url));
 const GROK_GUIDE = fileURLToPath(new URL("../public/grok.html", import.meta.url));
 // The consent page of the connector for ChatGPT, Grok and other remote MCP apps (src/connector.js).
@@ -26,7 +27,7 @@ const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", impo
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
 // The public pages, for the sitemap and IndexNow (server.js).
-export const SITEMAP_PATHS = ["/", "/skill.md", "/llms.txt", "/privacy", "/terms", "/compare/coinbase", "/connector", "/grok"];
+export const SITEMAP_PATHS = ["/", "/skill.md", "/llms.txt", "/privacy", "/terms", "/compare/coinbase", "/connector", "/grok", "/pass"];
 const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const AGENTKEY = fileURLToPath(new URL("../public/agentkey.js", import.meta.url)); // makes an agent wallet in the browser
 // The owner's Stats tab and outreach to sellers: not in the public page, sent only to the signed-in owner.
@@ -643,6 +644,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.get("/llms.txt", (_req, res) => res.set("cache-control", "public, max-age=300").type("text/plain; charset=utf-8").sendFile(LLMS));
   app.get(`/${indexNow.INDEXNOW_KEY}.txt`, (_req, res) => res.type("text/plain").send(indexNow.INDEXNOW_KEY));
   app.get("/compare/coinbase", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(COMPARE_COINBASE));
+  // Fizzl Pass: what it gives, how agents use it, and how sellers check it (partners).
+  app.get("/pass", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(PASS_PAGE));
   // How to add the wallet to ChatGPT, Claude or Grok (the connector at /mcp, src/connector.js).
   app.get("/connector", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(CONNECTOR_GUIDE));
   app.get("/grok", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(GROK_GUIDE));
