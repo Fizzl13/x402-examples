@@ -1,7 +1,7 @@
 // Offline: the endpoint, Doctor and the payment are fakes; nothing is paid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSafeFetch, SafePayError, usdCap, preflightUrl, diagnosisOf, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
+import { VERSION, createSafeFetch, SafePayError, usdCap, preflightUrl, diagnosisOf, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 // A stand-in for Doctor's signer: preflights are signed like the live service signs them.
@@ -339,9 +339,13 @@ test("diagnoseOnFailure: a diagnosis not signed by Doctor is dropped, never show
 });
 
 // A world that records the outcome reports sent to Doctor.
-function outcomeWorld({ endpointStatus = 200, verdict = "go", reasons = [] } = {}) {
-  const log = { reports: [] };
+function outcomeWorld({ endpointStatus = 200, verdict = "go", reasons = [], refusal = undefined } = {}) {
+  const log = { reports: [], toSeller: [] };
   const baseFetch = async (url, init = {}) => {
+    if (String(url).endsWith("/.well-known/x402-refusal") || String(url).includes("victim")) {
+      log.toSeller.push({ url: String(url), redirect: init.redirect, body: JSON.parse(init.body) });
+      return new Response(null, { status: 204 });
+    }
     if (String(url).endsWith("/api/v1/outcome")) {
       log.reports.push({ ua: init.headers["user-agent"], body: JSON.parse(init.body) });
       return Response.json({ accepted: true });
@@ -349,7 +353,7 @@ function outcomeWorld({ endpointStatus = 200, verdict = "go", reasons = [] } = {
     return Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
   };
   const createPayingFetch = () => async (url) => {
-    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict, summary: verdict === "go" ? "OK" : "Not safe", reasons }, url));
+    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict, summary: verdict === "go" ? "OK" : "Not safe", reasons, ...(refusal ? { refusal } : {}) }, url));
     return Response.json(endpointStatus === 200 ? { ok: true } : { error: "x" }, { status: endpointStatus });
   };
   return { log, baseFetch, createPayingFetch };
@@ -376,7 +380,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.10\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.11\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -469,4 +473,34 @@ test("refusalReason: the first reason at the verdict's level, as a code Doctor a
   assert.equal(refusalReason({ verdict: "no_go", reasons: [] }), "no_go");
   assert.equal(refusalReason({ verdict: "no_go", reasons: [{ level: "no_go", code: "Weird-Code!" }] }), "weird_code_");
   assert.equal(refusalReason(null), "refused");
+});
+
+// The draft refusal extension (x402-foundation/x402#4087): with tellSellers, the seller hears why it wasn't paid.
+test("tellSellers: a no_go for a seller that takes refusals sends Doctor's ready report to the seller, once a day; off by default", async () => {
+  const report = { x402Version: 2, resource: PAID, offer: { hash: "a".repeat(64), acceptIndex: 0 }, reason: "screening_hit", detail: "x402 Doctor preflight: payto_sanctioned", checkedAt: "2026-11-01T08:00:00.000Z", by: "x402-doctor-preflight" };
+  const refusal = { url: "https://api.example.com/.well-known/x402-refusal", send_if: "you do not pay", report };
+  const reasons = [{ level: "no_go", code: "payto_sanctioned" }];
+  const w = outcomeWorld({ verdict: "no_go", reasons, refusal });
+  const sf = make(w, { tellSellers: true, cacheMs: 0 });
+  await assert.rejects(sf(PAID), (e) => e.code === "no_go");
+  await assert.rejects(sf(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(w.log.toSeller.length, 1, "once a day per endpoint and reason");
+  assert.equal(w.log.toSeller[0].url, refusal.url);
+  assert.equal(w.log.toSeller[0].redirect, "error");
+  assert.deepEqual(w.log.toSeller[0].body, { ...report, by: `x402-safe-fetch/${VERSION}` });
+  assert.equal(w.log.reports.length, 0, "tellSellers alone sends nothing to Doctor");
+
+  const off = outcomeWorld({ verdict: "no_go", reasons, refusal });
+  await assert.rejects(make(off)(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(off.log.toSeller.length, 0, "off by default");
+
+  // Never to another site, and never a report about another endpoint.
+  const elsewhere = outcomeWorld({ verdict: "no_go", reasons, refusal: { ...refusal, url: "https://victim.example/hook" } });
+  await assert.rejects(make(elsewhere, { tellSellers: true })(PAID), (e) => e.code === "no_go");
+  const other = outcomeWorld({ verdict: "no_go", reasons, refusal: { ...refusal, report: { ...report, resource: "https://api.example.com/other" } } });
+  await assert.rejects(make(other, { tellSellers: true })(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(elsewhere.log.toSeller.length + other.log.toSeller.length, 0);
 });
