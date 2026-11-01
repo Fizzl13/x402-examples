@@ -37,6 +37,7 @@ Receipts are kept for 90 days. The MCP server and agents using `withPurchase` fi
    | `TELEGRAM_BOT_TOKEN` | optional: a bot **only this server uses** (the server sets a webhook on it, so it can't also be polled by `telegramApprover`) |
    | `TELEGRAM_CHAT_ID` | your Telegram user id |
    | `PASS_SIGNING_KEY` | optional: any random value of at least 32 characters (Render's Generate button works) or a 32-byte Ed25519 seed. Signs Fizzl Pass proofs; its public key is published at `/.well-known/fizzl-pass.json`. Without it the pass and its public check work, without a signed proof |
+   | `PASS_SALE_KEY` | optional: a long random value, the same on x402 Doctor. Lets Doctor hand in a Fizzl Pass it sold over x402 (`POST /hooks/pass-sale`); the buyer then fetches its proof at `GET /v1/pass/claim/<id>` |
    | `PRO_PAY_TO` | optional: the address customers' Pro payments go to |
    | `PRO_PRICE_USDC` | optional: Pro per 30 days (default 5) |
    | `SESSION_SECRET` | optional: signs dashboard sessions (default: derived from `ADMIN_PASSWORD`) |

@@ -19,6 +19,8 @@ services:
         sync: false
       - key: PASS_SIGNING_KEY
         sync: false
+      - key: PASS_SALE_KEY
+        sync: false
       - key: MANDATE_SECRET
         sync: false
       - key: PG1_API_KEY
