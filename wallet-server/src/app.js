@@ -44,7 +44,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
+export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -685,5 +685,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!(status >= 400 && status < 500) || res.headersSent) return next(err);
     res.status(status).json({ error: status === 404 ? "not_found" : "bad_request" });
   });
+  // A 5xx: answered as JSON and reported to Sentry when SENTRY_DSN is set (src/error-report.js).
+  if (errorReporter) app.use(errorReporter.expressHandler());
   return app;
 }

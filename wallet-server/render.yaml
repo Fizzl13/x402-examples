@@ -9,6 +9,8 @@ services:
     envVars:
       - key: ADMIN_PASSWORD
         sync: false
+      - key: SENTRY_DSN # optional: errors (5xx, crashes) to Sentry, without request data (src/error-report.js)
+        sync: false
       - key: WALLET_REDIS_URL
         sync: false
       - key: PUBLIC_URL
