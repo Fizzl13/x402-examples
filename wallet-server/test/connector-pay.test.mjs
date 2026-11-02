@@ -47,7 +47,7 @@ function seller() {
     const amount = req.url.startsWith("/dear") ? "2000000" : "2000";
     const c = req.url.startsWith("/solana") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(0, 1) } : challenge(req, payTo, amount);
     // ...-refusing: the 402 names a refusal url on the seller's own site (the draft refusal extension).
-    if (req.url.includes("-refusing")) c.extensions = { refusal: { info: { url: `http://${req.headers.host}/.well-known/x402-refusal`, version: "0.2-draft" } } };
+    if (req.url.includes("-refusing")) c.extensions = { refusal: { info: { url: `http://${req.headers.host}/.well-known/x402-refusal`, version: "0.3-draft" } } };
     if (req.url.startsWith("/escrow")) {
       const now = Math.floor(Date.now() / 1000);
       const offer = { scheme: "auth-capture", network: "eip155:8453", amount: "12000000", asset: USDC_BASE, payTo: SELLER, maxTimeoutSeconds: 300,

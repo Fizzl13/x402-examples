@@ -391,7 +391,7 @@ export function createSafeFetch({
     if (target.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(target.hostname)) return;
     if (!sameSite(target.hostname, endpoint.hostname)) return;
     if (refusal.report.resource !== `${endpoint.origin}${endpoint.pathname}`) return;
-    // The draft (0.2) takes a screening_hit only signed, and this client holds no key to sign with.
+    // The draft takes a screening_hit only signed, and this client holds no key to sign with.
     if (refusal.signature_required || (refusal.report.reason === "screening_hit" && !refusal.report.signature)) return;
     const key = `${refusal.report.resource} ${refusal.report.reason}`;
     if (now() - (toldSellers.get(key) ?? -Infinity) < 24 * 60 * 60 * 1000) return;
