@@ -488,10 +488,16 @@ test("connector payments: a Fizzl service paid from the owner's Fizzl Pass vault
 // didn't ask the owner to pay. Only the automatic checks; never the owner's own "no".
 test("connector payments: a seller that takes refusals hears about the price, not about the OFAC list (unsigned) or the owner's no", async () => {
   const s = await seller();
-  const { base, server } = await boot();
+  const { base, server, accounts } = await boot();
   try {
     const owner = privateKeyToAccount(generatePrivateKey());
     const client = await connect(base, await signIn(base, owner));
+    // Off until the owner turns it on: nothing goes to the seller.
+    assert.equal((await call(client, "pay_x402", { url: `${s.url}/dear-refusing?city=Amsterdam` })).isError, true);
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(s.seen.filter((x) => x.url === "/.well-known/x402-refusal").length, 0, "off by default");
+    assert.deepEqual(await accounts.setTellSellers(owner.address.toLowerCase(), true), { tellSellers: true });
+    await assert.rejects(accounts.setTellSellers(owner.address.toLowerCase(), "yes"), /true or false/);
     assert.equal((await call(client, "pay_x402", { url: `${s.url}/bad-refusing/x?city=Amsterdam` })).isError, true);
     assert.equal((await call(client, "pay_x402", { url: `${s.url}/dear-refusing?city=Amsterdam` })).isError, true);
     const asked = (await call(client, "pay_x402", { url: `${s.url}/weather-refusing` })).structuredContent;

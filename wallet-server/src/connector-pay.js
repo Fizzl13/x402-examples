@@ -190,12 +190,14 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
   // The seller hears why the connector didn't ask the owner to pay, when its 402 names a refusal url on its own site
   // (the draft refusal extension, x402-foundation/x402#4087): only the wallet's automatic checks (price, network),
   // never the owner's own "no", and nothing about the owner or the wallet (no "by"). An OFAC hit isn't sent: the draft
-  // takes a screening_hit only signed, and the server holds no key to sign with. REFUSALS_TO_SELLERS=off turns it off.
+  // takes a screening_hit only signed, and the server holds no key to sign with. Off until the owner turns it on
+  // (dashboard: "Tell sellers why", accounts.tellsSellers); REFUSALS_TO_SELLERS=off turns it off for the whole server.
   const toSellers = refusals !== undefined ? refusals
     : process.env.REFUSALS_TO_SELLERS === "off" ? null
     : createRefusalSender({ fetchImpl: (u, o) => sellerFetch(u, o), log: { warn() {} } });
-  function tellSeller(challenge, url, reason, detail, payTo = null) {
+  async function tellSeller(account, challenge, url, reason, detail, payTo = null) {
     if (!toSellers) return;
+    if (!(await accounts.tellsSellers?.(account).catch(() => false))) return;
     const target = refusalTarget(challenge, url);
     const accepts = Array.isArray(challenge?.accepts) ? challenge.accepts : [];
     let index = payTo ? accepts.findIndex((a) => String(a?.payTo ?? "").toLowerCase() === String(payTo).toLowerCase()) : 0;
@@ -327,7 +329,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const base = baseOffer(challenge) ?? escrowOffer(challenge);
     const sol = solanaOffer(challenge);
     const xrpl = xm ? xrplOffer(challenge) : null;
-    if (!base && !sol && !xrpl) tellSeller(challenge, url, "network_unsupported", "Fizzl Agent Wallet pays USDC on Base or Solana, or RLUSD on the XRP Ledger");
+    if (!base && !sol && !xrpl) tellSeller(account, challenge, url, "network_unsupported", "Fizzl Agent Wallet pays USDC on Base or Solana, or RLUSD on the XRP Ledger").catch(() => {});
     if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
     // An escrowed offer may cost up to MAX_ESCROW_USD; everything else up to MAX_PRICE_USD.
     const within = (price, escrowed = false) => price <= Math.min(cap, escrowed ? MAX_ESCROW_USD : MAX_PRICE_USD);
@@ -338,7 +340,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       const asked = Math.min(...[base && usd(base.amount), sol?.price, xrpl?.price].filter(Boolean));
       const most = base?.escrow ? MAX_ESCROW_USD : MAX_PRICE_USD;
       // No detail: the owner's limit is private (refusal extension 0.4-draft); the seller knows its own price.
-      tellSeller(challenge, url, "price_above_limit", null);
+      tellSeller(account, challenge, url, "price_above_limit", null).catch(() => {});
       return { error: asked > most ? `This API asks $${asked}, more than the connector pays${base?.escrow ? " for an escrowed payment" : ""} (at most $${most}).` : `This API asks $${asked}, above max_price_usd ($${Math.min(cap, most)}). Ask your user before raising it (at most $${most}${base?.escrow ? ", held in escrow until the seller delivers" : ""}).` };
     }
     const owner = await accounts.payer(account);
