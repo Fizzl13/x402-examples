@@ -773,6 +773,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <div class="slider"><label for="perDay"><span>Daily budget, all agents</span><span id="perDayLbl"></span></label><input id="perDay" type="range" min="1" max="200" step="1"></div>
           <div class="save"><button class="button primary" id="saveRule">Save rule</button><span class="note" id="saveMsg"></span></div>
         </div>
+        <div class="card" id="tellBox" hidden>
+          <span class="tag">TELL SELLERS WHY</span>
+          <p class="note" style="margin:10px 0 10px">When a seller asks more than your limit, or wants a token your wallet doesn't pay, your wallet can tell that seller the reason, so they can fix their offer. Only the reason is sent (for example "price above the buyer's limit"): never your limits, amounts, wallet or anything about you. Off unless you turn it on.</p>
+          <label class="note" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="tellOn"> Tell sellers why my agents didn't pay</label>
+          <span class="msg" id="tellMsg" role="status"></span>
+        </div>
         <details class="advanced"><summary>More rules: what they may buy, other tokens</summary><div class="rule">
         <div class="card">
           <span class="tag">WHAT MAY THEY BUY? IN YOUR OWN WORDS</span>
@@ -1560,7 +1566,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     $("#deleteBox").hidden = me.admin || DEMO;
     if (!DEMO) loadMonitors();
-    renderFollow(); setupAgents(); renderApp(); renderMail(); renderKeys();
+    renderFollow(); renderTell(); setupAgents(); renderApp(); renderMail(); renderKeys();
     $("#addrLine").hidden = !me.address;
     if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : me.chain === "algorand" ? " · ALGORAND" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
     if (me.admin) {
@@ -2179,6 +2185,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const fb = e.target.closest("[data-fund]");
     if (fb) { fb.disabled = true; try { await fundAgent(Number(fb.dataset.fund)); } finally { fb.disabled = false; } return; }
     if (e.target.closest("#setupAddrClear")) { try { await api("PUT", `/api/agents/${encodeURIComponent(setupAgentId)}/address`, { address: null }); runSetup(); } catch {} }
+  });
+
+  // ---------- telling sellers why a payment didn't happen (refusal extension), the owner's choice ----------
+  function renderTell() {
+    if (!me) return;
+    $("#tellBox").hidden = false;
+    $("#tellOn").checked = me.tellSellers === true;
+  }
+  $("#tellOn").addEventListener("change", async (e) => {
+    const on = e.target.checked;
+    try {
+      const r = await api("PUT", "/api/tell-sellers", { on });
+      me.tellSellers = r.tellSellers;
+      $("#tellMsg").textContent = r.tellSellers ? "On: sellers hear the reason, nothing else." : "Off: sellers hear nothing."; $("#tellMsg").className = "msg good";
+    } catch (err) { e.target.checked = !on; $("#tellMsg").textContent = err.message; $("#tellMsg").className = "msg bad"; }
   });
 
   // ---------- new providers on the phone or Telegram, per category ----------

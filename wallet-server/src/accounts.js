@@ -525,6 +525,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
+        // Whether the connector tells sellers why it didn't pay (refusal extension): off until the owner turns it on.
+        tellSellers: a.tellSellers === true,
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
         xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, ...prices(), periodDays: PERIOD_MS / DAY },
         // USDC on Algorand: for accounts that signed in with Pera (the payment must come from that address).
@@ -694,6 +696,21 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     },
 
     // ---------- new providers in the x402 catalog, on Telegram, for the categories an account follows ----------
+    // Telling sellers why the connector didn't pay (the draft refusal extension, x402-foundation/x402#4087) is the owner's
+    // choice: off until they turn it on. A report carries the reason only: no amounts, no wallet, nothing about the owner.
+    async setTellSellers(id, on) {
+      if (typeof on !== "boolean") throw Object.assign(new Error("on: true or false"), { status: 400 });
+      const a = id === ADMIN ? ((await g.getAccount(ADMIN)) ?? { id: ADMIN }) : await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      if (id === ADMIN) await g.putAccount({ ...a, tellSellers: on });
+      else await serial(id, async () => touch((await g.getAccount(id)) ?? a, { tellSellers: on }));
+      usage.record("tell_sellers", { account: id, input: { on } });
+      return { tellSellers: on };
+    },
+    async tellsSellers(id) {
+      const a = id ? await g.getAccount(id).catch(() => null) : null;
+      return a?.tellSellers === true;
+    },
     async setFollow(id, categories) {
       if (!Array.isArray(categories) || categories.length > 20 || categories.some((c) => !FOLLOWABLE.has(c))) throw Object.assign(new Error(`categories: a list of ${[...FOLLOWABLE].join(", ")}`), { status: 400 });
       const follow = [...new Set(categories)];

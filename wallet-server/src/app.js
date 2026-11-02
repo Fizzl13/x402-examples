@@ -422,6 +422,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   owner.delete("/agents/:id/mandate", wrap(async (req, res) => res.json(await req.wallet.setAgentMandate(req.params.id, null))));
   owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
   owner.put("/follow", wrap(async (req, res) => res.json(await accounts.setFollow(req.account, req.body?.categories))));
+  owner.put("/tell-sellers", wrap(async (req, res) => res.json(await accounts.setTellSellers(req.account, req.body?.on))));
   owner.delete("/agents/:id", wrap(async (req, res) => { await req.wallet.removeAgent(req.params.id); res.json({ ok: true }); }));
   owner.post("/approvals/:id", wrap(async (req, res) => {
     const d = req.body?.decision;
