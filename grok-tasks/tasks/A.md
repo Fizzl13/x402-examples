@@ -21,7 +21,7 @@ One line per seller, worst first:
 - @handle, link to the post
 - endpoint that was checked
 - verdict (go / warn / no_go / fail) and the main problem in plain words
-- "fix-kandidaat" only for a real problem that stops payers: a fail, mismatched challenge header and body, a wrong realm, a payment method that breaks for a wallet (like Phantom), or missing fields. Extra networks, assets or schemes a seller chose next to a working USDC option are not a fix candidate. Only report what the tool answered; quote its top problem, never add problems of your own.
+- "fix-kandidaat" only for a real problem that stops payers: a fail, mismatched challenge header and body, a wrong realm, a payment method that breaks for a wallet (like Phantom), only test networks (testnet or devnet money), or missing fields. A body mirror of the header, a missing Bazaar extension or openapi.json alone is not a fix candidate. Extra networks, assets or schemes a seller chose next to a working USDC option are not a fix candidate. Only report what the tool answered; quote its top problem, never add problems of your own.
 For each fix candidate, add two lines:
 - "X: @handle (bevestigd via <link>)": the seller's official X account. The poster counts only if their profile or the post links to the endpoint's domain; otherwise look for an X link on the seller's own site, docs or GitHub (one web search at most per seller). Write "X: niet bevestigd" if you can't confirm one; never guess a handle.
 - "DM-concept:" one message in English, at most 270 characters, that I can send myself: what x402 Doctor found (its top problem, in plain words), that the free check at x402-doctor.fizzl.eu shows the fix, and no sales talk. Never send it.
