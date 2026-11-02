@@ -337,7 +337,8 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (!offer && !onSol && !onXrpl) {
       const asked = Math.min(...[base && usd(base.amount), sol?.price, xrpl?.price].filter(Boolean));
       const most = base?.escrow ? MAX_ESCROW_USD : MAX_PRICE_USD;
-      tellSeller(challenge, url, "price_above_limit", `asked $${asked}, above the buyer's limit`);
+      // No detail: the owner's limit is private (refusal extension 0.4-draft); the seller knows its own price.
+      tellSeller(challenge, url, "price_above_limit", null);
       return { error: asked > most ? `This API asks $${asked}, more than the connector pays${base?.escrow ? " for an escrowed payment" : ""} (at most $${most}).` : `This API asks $${asked}, above max_price_usd ($${Math.min(cap, most)}). Ask your user before raising it (at most $${most}${base?.escrow ? ", held in escrow until the seller delivers" : ""}).` };
     }
     const owner = await accounts.payer(account);
