@@ -503,6 +503,7 @@ test("connector payments: a seller that takes refusals hears about the price, no
     assert.deepEqual(got.map((r) => r.reason), ["price_above_limit"], "no unsigned screening_hit, nothing for the owner's no");
     assert.equal(got[0].resource, `${s.url}/dear-refusing`, "without the query: none of the request's input");
     assert.equal(got[0].by, undefined, "nothing that groups the wallet's users");
+    assert.equal(got[0].detail, undefined, "no detail: the owner's limit is private (0.4-draft)");
     await client.close();
   } finally { server.close(); s.server.close(); }
 });
