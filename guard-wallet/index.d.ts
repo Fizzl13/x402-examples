@@ -17,7 +17,13 @@ export declare const CREDIT_HEADER: string;
 /** A presign-guard verdict: see https://presign-guard.fizzl.eu/openapi.json */
 export interface PresignVerdict {
   verdict: "green" | "orange" | "red";
-  reasons?: Array<{ code: string; severity: "red" | "orange" | "info"; subject?: string; details?: Record<string, unknown> }>;
+  reasons?: Array<{ code: string; severity: "red" | "orange" | "info"; subject?: string; details?: Record<string, unknown>; fix?: { expected: string; saw: string; change: string; retry: "change" | "elsewhere" | "ask" | "never"; set?: Record<string, unknown> } }>;
+  /** true when every orange and red reason can be changed into green */
+  fixable?: boolean;
+  checked?: Array<{ check: string; what: string }>;
+  not_checked?: Array<{ check: string; because: "unavailable" | "not_sent" | "out_of_scope"; why: string; send?: string; subject?: string }>;
+  /** false when a check that applies couldn't run this time */
+  checks_complete?: boolean;
   subject?: Record<string, unknown>;
   receipt?: Record<string, unknown>;
   [key: string]: unknown;
@@ -31,7 +37,7 @@ export type CheckRequest =
   | { type: "authorization"; chainId: number; address: string; authorizationChainId?: number; nonce?: string; origin?: string; from?: string };
 
 export declare class PresignBlockedError extends Error {
-  code: "red" | "orange" | "check_failed" | "bad_receipt" | "unsupported_chain" | "over_limit" | "paused" | "limit_unavailable";
+  code: "red" | "orange" | "incomplete" | "check_failed" | "bad_receipt" | "unsupported_chain" | "over_limit" | "paused" | "limit_unavailable";
   verdict: PresignVerdict | null;
   request: CheckRequest | null;
   /** With code "over_limit": which limits would be crossed. */
@@ -184,6 +190,8 @@ export interface GuardOptions {
   fetch?: typeof globalThis.fetch;
   /** What to do on an orange verdict. Default "stop". "allow" does not cover EIP-7702 authorizations: an orange one is signed only when your function returns true. */
   onOrange?: "stop" | "allow" | ((verdict: PresignVerdict, info: { method: string; request: CheckRequest }) => boolean | Promise<boolean>);
+  /** A green whose checks_complete is false (a check that applies couldn't run): "allow" (default) signs, "stop" throws code "incomplete", a function decides. */
+  onIncomplete?: "allow" | "stop" | ((verdict: PresignVerdict, info: { method: string; request: CheckRequest }) => boolean | Promise<boolean>);
   /** When the check cannot be done (outage, unsupported chain). Default "stop". A forged or changed verdict, and an EIP-7702 authorization, always stop. */
   onError?: "stop" | "allow";
   /** The site asking for the signature, if any: domain age and phishing lists are checked. */

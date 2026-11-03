@@ -41,7 +41,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.11.1";
+export const VERSION = "0.12.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -230,6 +230,8 @@ function sameSite(a, b) {
  * @param {string} [options.network]  the network you pay on: "base", "solana", "algorand", "xrpl", "stellar" or a CAIP-2 id (default Base)
  * @param {number|string} [options.maxUsd]  budget per endpoint call (default 0.05)
  * @param {"stop"|"pay"|((preflight: object) => boolean|Promise<boolean>)} [options.onCaution]
+ * @param {"pay"|"stop"|((preflight: object) => boolean|Promise<boolean>)} [options.onIncomplete]  a "go" whose checks_complete
+ *   is false (a check that applies couldn't run): "pay" (default), "stop" throws code "incomplete", a function decides
  * @param {string[]} [options.trusted]  hosts you already trust: paid without a preflight
  * @param {(preflight: object, info: {url: string, method: string, cached: boolean}) => void} [options.onPreflight]
  * @param {number} [options.cacheMs]  how long a verdict is reused while the 402 offers the same thing (default 1 hour; at most 10 minutes when the offer can't be read)
@@ -250,6 +252,7 @@ export function createSafeFetch({
   network = BASE,
   maxUsd = 0.05,
   onCaution = "stop",
+  onIncomplete = "pay",
   trusted = [],
   onPreflight,
   cacheMs = 60 * 60 * 1000,
@@ -272,6 +275,9 @@ export function createSafeFetch({
   }
   if (!["stop", "pay"].includes(onCaution) && typeof onCaution !== "function") {
     throw new TypeError('onCaution must be "stop", "pay" or a function');
+  }
+  if (!["pay", "stop"].includes(onIncomplete) && typeof onIncomplete !== "function") {
+    throw new TypeError('onIncomplete must be "pay", "stop" or a function');
   }
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
   const trustedHosts = new Set(trusted.map(hostOf).filter(Boolean));
@@ -309,7 +315,9 @@ export function createSafeFetch({
   async function preflightFor(url, method, offer) {
     const key = `${method} ${url}`;
     const hit = verdicts.get(key);
-    const ttl = offer === null ? Math.min(cacheMs, UNREAD_OFFER_MS) : cacheMs;
+    // An unreadable offer, or a verdict on less than usual (checks_complete false), is reused for at most 10 minutes.
+    const short = offer === null || hit?.preflight?.checks_complete === false;
+    const ttl = short ? Math.min(cacheMs, UNREAD_OFFER_MS) : cacheMs;
     if (hit && hit.offer === offer && hit.at + ttl > now()) return { preflight: hit.preflight, cached: true };
     const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl });
     const res = await payPreflight(pfUrl, { headers: DOCTOR_HEADERS });
@@ -468,6 +476,12 @@ export function createSafeFetch({
       }
     } else if (preflight.verdict !== "go") {
       throw new SafePayError(`not paid: unknown verdict ${preflight.verdict}`, { code: "preflight_failed", preflight, url });
+    } else if (preflight.checks_complete === false && onIncomplete !== "pay") {
+      // "go" on less than usual: a check that applies couldn't run (Doctor's not_checked says which). Not the seller's
+      // doing, so no refusal is reported to it.
+      const ok = typeof onIncomplete === "function" && (await onIncomplete(preflight)) === true;
+      const missing = (preflight.not_checked || []).filter((n) => n?.because === "unavailable").map((n) => n.check).join(", ") || "unknown";
+      if (!ok) throw new SafePayError(`not paid: go, but not every check ran (${missing}); try again in a few minutes`, { code: "incomplete", preflight, url });
     }
     return payAfterPreflight();
   };

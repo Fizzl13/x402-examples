@@ -15,7 +15,7 @@ const PAID = "https://api.example.com/paid";
 const FREE = "https://api.example.com/free";
 
 // A world with one paid endpoint, Doctor answering `verdict`, and a paying fetch that records its cap.
-function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorStatus = 200, tamper = null } = {}) {
+function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorStatus = 200, tamper = null, extra = {} } = {}) {
   const log = { probes: [], preflights: [], paid: [], caps: [] };
   const baseFetch = async (url, init = {}) => {
     log.probes.push([url, init.method ?? "GET"]);
@@ -27,7 +27,7 @@ function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorSt
       if (url.includes("/api/v1/preflight")) {
         log.preflights.push({ cap, url: new URL(url) });
         if (doctorStatus !== 200) return Response.json({ error: "boom" }, { status: doctorStatus });
-        const body = await signed({ verdict, summary, reasons: [] }, url);
+        const body = await signed({ verdict, summary, reasons: [], ...extra }, url);
         return Response.json(tamper ? await tamper(body, url) : body);
       }
       log.paid.push({ cap, url, method: init.method ?? "GET", body: init.body });
@@ -69,6 +69,43 @@ test("no_go: throws SafePayError with the preflight; the endpoint is not paid", 
     return true;
   });
   assert.equal(w.log.paid.length, 0);
+});
+
+test("go with checks_complete false: pays by default; onIncomplete 'stop' throws code incomplete naming what didn't run; a function decides; reused at most 10 minutes", async () => {
+  const extra = { checks_complete: false, not_checked: [{ check: "sanctions", because: "unavailable", why: "x" }, { check: "track_record", because: "no_data", why: "y" }] };
+  const dflt = world({ extra });
+  await make(dflt)(PAID);
+  assert.equal(dflt.log.paid.length, 1);
+
+  const stop = world({ extra });
+  await assert.rejects(make(stop, { onIncomplete: "stop" })(PAID), (err) => {
+    assert.equal(err.code, "incomplete");
+    assert.match(err.message, /not every check ran \(sanctions\)/);
+    return true;
+  });
+  assert.equal(stop.log.paid.length, 0);
+
+  const asked = [];
+  const yes = world({ extra });
+  await make(yes, { onIncomplete: async (p) => { asked.push(p.checks_complete); return true; } })(PAID);
+  assert.deepEqual(asked, [false]);
+  assert.equal(yes.log.paid.length, 1);
+
+  let t = 0;
+  const cached = world({ extra });
+  const f = make(cached, { now: () => t });
+  await f(PAID);
+  t = 11 * 60 * 1000;
+  await f(PAID);
+  assert.equal(cached.log.preflights.length, 2, "an incomplete verdict is asked again after 10 minutes");
+  const full = world({ extra: { checks_complete: true } });
+  const g = make(full, { now: () => t });
+  t = 0;
+  await g(PAID);
+  t = 11 * 60 * 1000;
+  await g(PAID);
+  assert.equal(full.log.preflights.length, 1, "a complete verdict is reused for the hour");
+  assert.throws(() => createSafeFetch({ register: () => {}, onIncomplete: "maybe" }), /onIncomplete/);
 });
 
 test("caution: stops by default; pays with onCaution 'pay'; asks a function otherwise", async () => {
@@ -380,7 +417,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.11\.1$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.12\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);

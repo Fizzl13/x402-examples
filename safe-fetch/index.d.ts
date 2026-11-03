@@ -26,6 +26,10 @@ export interface Preflight {
   summary?: string;
   reasons?: Array<{ level: string; code?: string; message: string }>;
   signals?: Record<string, unknown>;
+  checked?: Array<{ check: string; what: string }>;
+  not_checked?: Array<{ check: string; because: "unavailable" | "no_data" | "not_sent" | "out_of_scope"; why: string; send?: string }>;
+  /** false when a check that applies couldn't run this time */
+  checks_complete?: boolean;
   [key: string]: unknown;
 }
 
@@ -37,7 +41,7 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "preflight_failed" | "bad_receipt" | "no_option";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option";
   preflight: Preflight | null;
   url: string | null;
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
@@ -53,6 +57,8 @@ export interface SafeFetchOptions {
   maxUsd?: number | string;
   /** What to do on a caution verdict. Default "stop". */
   onCaution?: "stop" | "pay" | ((preflight: Preflight) => boolean | Promise<boolean>);
+  /** What to do on a "go" whose checks_complete is false (a check that applies couldn't run). Default "pay"; "stop" throws code "incomplete". */
+  onIncomplete?: "pay" | "stop" | ((preflight: Preflight) => boolean | Promise<boolean>);
   /** Hosts you already trust: paid without a preflight. */
   trusted?: string[];
   onPreflight?: (preflight: Preflight, info: { url: string; method: string; cached: boolean }) => void;

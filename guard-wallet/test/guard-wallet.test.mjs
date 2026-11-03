@@ -17,7 +17,7 @@ const SPENDER = "0x1111111111111111111111111111111111111111";
 const TOKEN = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
 // A wallet that records what it signs, and a presign-guard answering `verdict`.
-function world({ verdict = "green", reasons = [], status = 200, key = presignKey, tamper = null } = {}) {
+function world({ verdict = "green", reasons = [], status = 200, key = presignKey, tamper = null, extra = {} } = {}) {
   const log = { checks: [], signed: [] };
   const wallet = {
     chain: { id: 8453 },
@@ -31,7 +31,7 @@ function world({ verdict = "green", reasons = [], status = 200, key = presignKey
     const input = JSON.parse(init.body);
     log.checks.push({ url, input, ua: init.headers["user-agent"] });
     if (status !== 200) return Response.json({ verdict: null, error: "upstream down" }, { status });
-    const body = await signed({ version: "2", verdict, reasons, checkedAt: "2026-09-30T10:00:00.000Z" }, input, key);
+    const body = await signed({ version: "2", verdict, reasons, ...extra, checkedAt: "2026-09-30T10:00:00.000Z" }, input, key);
     return Response.json(tamper ? tamper(body) : body);
   };
   return { log, wallet, pay };
@@ -92,6 +92,45 @@ test("orange: stops by default; signs with 'allow'; asks a function otherwise", 
   const no = world({ verdict: "orange" });
   await assert.rejects(make(no, { onOrange: async (v) => { asked.push(v.verdict); return false; } }).sendTransaction({ to: SPENDER }), { code: "orange" });
   assert.deepEqual(asked, ["orange"]);
+});
+
+test("red and orange errors carry presign-guard's fix, so an agent that reads only the error knows what to change", async () => {
+  const orange = world({ verdict: "orange", reasons: [{ code: "UNLIMITED_APPROVAL", severity: "orange", fix: { retry: "change", change: "Approve exactly the amount needed instead of unlimited, then check again." } }] });
+  await assert.rejects(make(orange).sendTransaction({ to: SPENDER }), (err) => {
+    assert.equal(err.code, "orange");
+    assert.match(err.message, /UNLIMITED_APPROVAL\); to fix: Approve exactly the amount needed/);
+    return true;
+  });
+  const red = world({ verdict: "red", reasons: [{ code: "SANCTIONED_ADDRESS", severity: "red", fix: { retry: "never", change: "Don't sign." } }] });
+  await assert.rejects(make(red).sendTransaction({ to: SPENDER }), /SANCTIONED_ADDRESS\); don't retry: Don't sign\./);
+  const bare = world({ verdict: "red", reasons: [{ code: "X", severity: "red" }] });
+  await assert.rejects(make(bare).sendTransaction({ to: SPENDER }), (err) => !/;/.test(err.message));
+});
+
+test("green with checks_complete false: signs by default; onIncomplete \"stop\" throws code incomplete naming what didn't run; a function decides", async () => {
+  const extra = { checks_complete: false, not_checked: [{ check: "sanctions", because: "unavailable", why: "x" }, { check: "site", because: "not_sent", send: "origin", why: "y" }] };
+  const dflt = world({ extra });
+  await make(dflt).sendTransaction({ to: SPENDER });
+  assert.equal(dflt.log.signed.length, 1);
+
+  const stop = world({ extra });
+  await assert.rejects(make(stop, { onIncomplete: "stop" }).sendTransaction({ to: SPENDER }), (err) => {
+    assert.equal(err.code, "incomplete");
+    assert.match(err.message, /not every check ran \(sanctions\)/);
+    return true;
+  });
+  assert.equal(stop.log.signed.length, 0);
+
+  const asked = [];
+  const yes = world({ extra });
+  await make(yes, { onIncomplete: async (v, info) => { asked.push([v.checks_complete, info.method]); return true; } }).sendTransaction({ to: SPENDER });
+  assert.deepEqual(asked, [[false, "sendTransaction"]]);
+  assert.equal(yes.log.signed.length, 1);
+
+  const complete = world({ extra: { checks_complete: true } });
+  await make(complete, { onIncomplete: "stop" }).sendTransaction({ to: SPENDER });
+  assert.equal(complete.log.signed.length, 1, "a complete green signs");
+  assert.throws(() => guardWallet(dflt.wallet, { pay: dflt.pay, onIncomplete: "maybe" }), /onIncomplete/);
 });
 
 test("writeContract is encoded and checked as the transaction it becomes", async () => {

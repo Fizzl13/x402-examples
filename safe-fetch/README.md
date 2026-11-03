@@ -6,7 +6,7 @@ A free endpoint is answered as is. For a paid one (HTTP 402), your agent first p
 
 | Preflight | What `safeFetch` does |
 |---|---|
-| `go` | Pays the endpoint, never more than `maxUsd` |
+| `go` | Pays the endpoint, never more than `maxUsd`; with `onIncomplete: "stop"`, not when Doctor says a check couldn't run (`checks_complete: false`) |
 | `caution` | `onCaution`: `"stop"` (default, throws), `"pay"`, or your own function (e.g. ask the user) |
 | `no_go` | Throws `SafePayError`; the endpoint is not paid |
 
@@ -94,6 +94,7 @@ When a seller offers both, the exact option is paid. The preflight and the budge
 | `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), `"stellar"` (USDC), `"xlayer"` (USD₮0 or USDC), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
 | `maxUsd` | `0.05` | Budget per endpoint call; the payment is capped at it and the preflight says `no_go` above it |
 | `onCaution` | `"stop"` | `"stop"`, `"pay"` or `async (preflight) => boolean` |
+| `onIncomplete` | `"pay"` | A `go` whose `checks_complete` is `false` (a check that applies couldn't run this time, named in `not_checked`): `"pay"`, `"stop"` (throws code `incomplete`; not reported to the seller as a refusal) or `async (preflight) => boolean`. Such a verdict is reused for at most 10 minutes |
 | `trusted` | `[]` | Hosts paid without a preflight |
 | `onPreflight` | | `(preflight, { url, method, cached }) => void`, e.g. for logging |
 | `cacheMs` | 1 hour | How long a verdict is reused per method and URL while the 402 offers the same thing (at most 10 minutes when the offer can't be read); any change in price, payout address, token or network means a new preflight |
