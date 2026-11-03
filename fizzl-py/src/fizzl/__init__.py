@@ -23,7 +23,7 @@ import re
 from typing import Any, List, Mapping, Optional
 from urllib.parse import urlencode
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 __all__ = ["Fizzl", "PRICES", "PRESIGN_URL", "DOCTOR_URL", "BUY_URL", "__version__"]
 
 PRESIGN_URL = "https://presign-guard.fizzl.eu"
