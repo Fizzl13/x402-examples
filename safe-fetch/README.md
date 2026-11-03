@@ -86,6 +86,32 @@ const safeFetch = createSafeFetch({
 
 When a seller offers both, the exact option is paid. The preflight and the budget apply the same way.
 
+## Already have an x402 client? One line
+
+If your agent already pays with the official x402 client (`x402Client` from `@x402/core`, used by `@x402/fetch`, `@x402/axios` and the other transports), you don't have to switch to `safeFetch`. Add the preflight as a hook, and every payment that client makes is checked first:
+
+```js
+import { x402Client } from "@x402/core/client";
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { doctorPreflight } from "x402-safe-fetch/hook";
+
+const client = new x402Client();
+// … register your schemes as before (registerExactEvmScheme(client, { signer }), …)
+client.onBeforePaymentCreation(doctorPreflight({ client, maxUsd: 0.05 }));
+
+const fetchWithPayment = wrapFetchWithPayment(fetch, client); // unchanged
+```
+
+Before the client signs a payment, the hook asks x402 Doctor ($0.001, paid by the same client, or 1 prepaid credit with `creditKey`). Then:
+
+- `no_go`: the payment is aborted (`Payment creation aborted: x402 Doctor: …`). Nothing is signed.
+- `caution`: aborted, unless `onCaution` is `"pay"` or your function says yes.
+- `go`: the payment goes ahead. With `onIncomplete: "stop"`, a `go` whose `checks_complete` is false is aborted too.
+
+The verdict is signed by Doctor and checked, and reused while the endpoint asks the same thing (same payTo, amount, token and network). Doctor's own 402 for the preflight is never checked again and is paid only up to $0.002. Options: `client`, `pay` or `creditKey` (how the preflight is paid), `maxUsd`, `method`, `onCaution`, `onIncomplete`, `onError` (`"stop"` by default), `trusted`, `onPreflight`, `cacheMs`.
+
+The hook can't see your request, only the 402, so Doctor checks the endpoint with `method` (GET by default; it tries the other method too).
+
 ## Options
 
 | Option | Default | |

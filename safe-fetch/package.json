@@ -1,12 +1,16 @@
 {
   "name": "x402-safe-fetch",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "A fetch for AI agents that checks an unknown x402 endpoint ($0.001 x402 Doctor preflight) before paying it, and never pays above your budget.",
   "type": "module",
   "exports": {
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
+    },
+    "./hook": {
+      "types": "./hook.d.ts",
+      "default": "./hook.js"
     }
   },
   "main": "./index.js",
@@ -14,7 +18,9 @@
   "files": [
     "index.js",
     "receipt.js",
+    "hook.js",
     "index.d.ts",
+    "hook.d.ts",
     "README.md",
     "LICENSE"
   ],
