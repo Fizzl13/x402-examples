@@ -71,6 +71,29 @@ fizzl.check_before_signing(type="approval", chainId=8453, token="0x...", spender
 fizzl = Fizzl(credit_keys={"presign": PRESIGN_CREDIT_KEY, "doctor": DOCTOR_CREDIT_KEY})
 ```
 
+## Already pay with the x402 client? One line
+
+If your agent pays with the official x402 Python client (`x402ClientSync` or `x402Client`), add x402 Doctor's preflight as a hook and every payment that client makes is checked first:
+
+```python
+import requests
+from x402 import x402ClientSync
+from x402.http.clients import wrapRequestsWithPayment
+from fizzl.hook import doctor_preflight
+
+payer = x402ClientSync()                       # register your schemes as before
+session = wrapRequestsWithPayment(requests.Session(), payer)
+payer.on_before_payment_creation(doctor_preflight(session=session, max_usd=0.05))
+```
+
+Before the client signs, the hook asks x402 Doctor ($0.001, paid through the same session, or 1 prepaid credit with `credit_key`):
+
+- `no_go`: the payment is aborted (`PaymentAbortedError`); nothing is signed.
+- `caution`: aborted, unless `on_caution="pay"` or your function says yes.
+- `go`: it goes ahead. With `on_incomplete="stop"`, a `go` whose `checks_complete` is false is aborted too.
+
+The verdict is reused while the endpoint asks the same payTo, amount, token and network. Doctor's own 402 for the preflight is skipped by the hook and paid only up to $0.002. If Doctor can't be asked, the payment stops (`on_error="pay"` lets it through). Install with `pip install "fizzl[x402]"`.
+
 ## LangChain / LangGraph
 
 ```python
