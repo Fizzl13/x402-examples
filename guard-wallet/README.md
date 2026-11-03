@@ -6,9 +6,11 @@ Before every `sendTransaction`, `writeContract`, `signTypedData` and `signAuthor
 
 | Verdict | What the wallet does |
 |---|---|
-| 🟢 green | Signs |
+| 🟢 green | Signs; with `onIncomplete: "stop"`, not when presign-guard says a check couldn't run (`checks_complete: false`) |
 | 🟠 orange | `onOrange`: `"stop"` (default, throws), `"allow"`, or your own function (e.g. ask the user) |
 | 🔴 red | Throws `PresignBlockedError` with the reasons; **nothing is signed** |
+
+On red and orange the error message ends with presign-guard's fix for the first reason that has one ("to fix: approve exactly the amount needed…", "don't retry: …"), so an agent that reads only the error knows whether to rebuild the request or stop.
 
 On top of that it can keep to **spending limits** you set per token (per transaction and per day), and ask a human for anything over them. See [Spending limits](#spending-limits).
 
@@ -73,6 +75,7 @@ Every other method (`getAddresses`, `extend`, `sendRawTransaction` for a transac
 | `creditKey` | | A presign-guard credit key (`pgc_…`): checks are paid from prepaid credits first, then with `pay`. See [Prepaid credits](#prepaid-credits) |
 | `fetch` | `globalThis.fetch` | Plain fetch used for credit-paid checks |
 | `onOrange` | `"stop"` | `"stop"`, `"allow"` or `async (verdict, { method, request }) => boolean`. `"allow"` does not cover [EIP-7702 authorizations](#eip-7702-authorizations) |
+| `onIncomplete` | `"allow"` | A green whose `checks_complete` is `false` (a check that applies couldn't run this time, named in `not_checked`): `"allow"` signs, `"stop"` throws code `incomplete`, or `async (verdict, { method, request }) => boolean` decides (e.g. stop above an amount) |
 | `onError` | `"stop"` | When the check cannot be done (outage, a chain presign-guard does not cover): `"stop"` or `"allow"`. An EIP-7702 authorization always stops |
 | `origin` | | The site asking for the signature: its domain age and phishing lists are checked too |
 | `onVerdict` | | `(verdict, { method, request, paidWith, creditsLeft }) => void`, e.g. for logging; `paidWith` is `"credits"` or `"x402"` |
