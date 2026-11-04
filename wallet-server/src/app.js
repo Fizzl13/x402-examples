@@ -166,10 +166,12 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     if (!timingSafeEqual(given, passSaleKeyHash)) { console.warn("[pass] a sale with a wrong PASS_SALE_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
     res.json(await accounts.passSale(req.body ?? {}));
   }));
-  app.get("/.well-known/fizzl-pass.json", (_req, res) => {
+  app.get("/.well-known/fizzl-pass.json", wrap(async (_req, res) => {
     if (!passJwks) return res.status(404).json({ error: "no pass signing key on this server" });
-    res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }).json({ ...passJwks, format: "fzp1.<base64url JSON claims>.<base64url Ed25519 signature over 'fzp1.<claims>'>", claims: ["iss", "tier", "until (ms)", "wallets", "iat", "kid"] });
-  });
+    // revoked: ids (claim gid) of passes the owner gave away and took back; refuse a proof whose gid is listed.
+    const revoked = (await accounts.passRevoked?.().catch(() => [])) ?? [];
+    res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }).json({ ...passJwks, revoked, format: "fzp1.<base64url JSON claims>.<base64url Ed25519 signature over 'fzp1.<claims>'>", claims: ["iss", "tier", "until (ms)", "wallets", "iat", "kid", "gid (a pass the owner gave away; refuse it when listed in revoked)"] });
+ }));
   app.use("/v1", v1);
 
   // ---------- the search bar: paid APIs in the public x402 catalog ----------
@@ -543,6 +545,11 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     if (!outreach) return res.status(503).json({ error: "unavailable", message: "Outreach is not set up on this server." });
     return fn(req, res);
   });
+  // Passes the owner gives away (a partner, a project): Gold without an end date unless asked otherwise; revocable.
+  const adminOnly = (fn) => wrap(async (req, res) => (req.account !== "admin" ? res.status(403).json({ error: "forbidden" }) : fn(req, res)));
+  owner.get("/admin/passes", adminOnly(async (_req, res) => res.set("cache-control", "private, no-store").json(await accounts.passGrants())));
+  owner.post("/admin/passes", adminOnly(async (req, res) => res.json(await accounts.passGrant({ wallet: req.body?.wallet, tier: req.body?.tier || "gold", days: req.body?.days ?? null, note: req.body?.note }))));
+  owner.post("/admin/passes/:id/revoke", adminOnly(async (req, res) => res.json(await accounts.passRevoke(req.params.id))));
   owner.get("/admin/outreach", ownerOnly(async (_req, res) => res.json(await outreach.list())));
   owner.post("/admin/outreach", ownerOnly(async (req, res) => res.json(await outreach.add({ to: req.body?.to, subject: req.body?.subject, body: req.body?.body, url: req.body?.url || null }))));
   owner.put("/admin/outreach/:id", ownerOnly(async (req, res) => res.json(await outreach.update(req.params.id, { to: req.body?.to, subject: req.body?.subject, body: req.body?.body }))));

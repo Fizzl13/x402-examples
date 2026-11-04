@@ -206,3 +206,40 @@ test("x402 sale: Doctor hands in the sale with the key; the buyer's wallet has t
   t.after(() => s2.close());
   assert.equal((await fetch(`http://127.0.0.1:${s2.address().port}/hooks/pass-sale`, { method: "POST" })).status, 404);
 });
+
+test("a pass the owner gives away: Gold with no end date by default, checkable by wallet, revocable", async (t) => {
+  const { accounts, key } = setup();
+  const SOL = "GV8KjQwQmpUZ2ULCygHQn65VvsiPXCNkVKqAuK87pzRq";
+  const app = createApp({ accounts, auth: createAuth({ password: "a-long-test-password", secure: false }), passJwks: publicJwks(key) });
+  const server = await new Promise((resolve) => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const json = (body) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const cookie = (await fetch(`${base}/api/login`, json({ password: "a-long-test-password" }))).headers.get("set-cookie").split(";")[0];
+  const admin = (path, body) => fetch(`${base}/api/admin/passes${path}`, body ? { ...json(body), headers: { ...json(body).headers, cookie } } : { headers: { cookie } });
+
+  assert.equal((await fetch(`${base}/api/admin/passes`)).status, 401, "only the owner");
+  const made = await (await admin("", { wallet: SOL, note: "AgentFuel" })).json();
+  const g1 = made.grants[0];
+  assert.deepEqual([g1.wallet, g1.tier, g1.forever, g1.note], [SOL, "gold", true, "AgentFuel"]);
+  const claims = verifyPass(g1.token, publicJwks(key).keys[0], Date.UTC(2099, 0, 1));
+  assert.deepEqual([claims.tier, claims.wallets, claims.gid], ["gold", [SOL], g1.id], "valid for decades, with its grant id");
+  assert.equal((await (await admin("")).json()).grants[0].token, g1.token, "the same proof every time");
+  assert.equal((await (await fetch(`${base}/v1/pass/status?wallet=${SOL}`)).json()).pass.tier, "gold");
+  assert.equal((await admin("", { wallet: SOL })).status, 409, "one at a time per wallet");
+  assert.equal((await admin("", { wallet: "nope" })).status, 400);
+  assert.equal((await admin("", { wallet: SOL.replace("G", "H"), tier: "platinum" })).status, 400);
+  const timed = (await (await admin("", { wallet: OWNER, tier: "silver", days: 30 })).json()).grants[0];
+  assert.equal(timed.forever, false);
+  assert.ok(Math.abs(timed.until - (Date.now() + 30 * DAY)) < 60_000);
+
+  assert.deepEqual((await (await fetch(`${base}/.well-known/fizzl-pass.json`)).json()).revoked, []);
+  const after = await (await admin(`/${g1.id}/revoke`, {})).json();
+  const r1 = after.grants.find((x) => x.id === g1.id);
+  assert.ok(r1.revokedAt);
+  assert.equal(r1.token, null, "a revoked pass's proof is not shown again");
+  assert.deepEqual((await (await fetch(`${base}/.well-known/fizzl-pass.json`)).json()).revoked, [g1.id], "published for the services");
+  assert.equal((await (await fetch(`${base}/v1/pass/status?wallet=${SOL}`)).json()).pass, null);
+  assert.equal((await admin(`/${g1.id}/revoke`, {})).status, 404, "once");
+  assert.equal((await admin("", { wallet: SOL })).status, 200, "a new one after revoking");
+});

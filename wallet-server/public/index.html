@@ -1574,6 +1574,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
       $("#planCard").insertAdjacentHTML("beforeend", `<details id="promoAdmin"><summary>Tester codes (free Pro)</summary><div style="display:grid;gap:8px;margin-top:8px"><input id="promoNote" placeholder="For whom? (e.g. Bob · Reddit)" aria-label="For whom" maxlength="60"><div class="paste"><input id="promoDays" type="number" min="1" max="365" value="30" aria-label="Days of Pro"><input id="promoUses" type="number" min="1" max="1000" value="1" aria-label="How many testers"><button class="button small" type="button" id="promoMake">Make code</button></div><p class="note" style="margin:0">Days of Pro · how many people can use it (1 = a personal code). Each account can use one code once.</p><div id="promoList"></div></div></details>`);
       if (!DEMO) api("GET", "/api/admin/promos").then(renderPromos, () => {});
+      $("#planCard").insertAdjacentHTML("beforeend", `<details id="grantAdmin"><summary>Give a Fizzl Pass (free)</summary><div style="display:grid;gap:8px;margin-top:8px"><input id="grantWallet" placeholder="Wallet address (0x…, Solana, r… or Algorand)" aria-label="Wallet address" autocomplete="off" spellcheck="false"><input id="grantNote" placeholder="For whom? (e.g. AgentFuel)" aria-label="For whom" maxlength="60"><div class="paste"><select id="grantTier" aria-label="Tier"><option value="gold">Gold (25×)</option><option value="silver">Silver (10×)</option><option value="bronze">Bronze (5×)</option></select><input id="grantDays" type="number" min="1" max="3650" placeholder="No end" aria-label="Days (empty: no end date)"><button class="button small" type="button" id="grantMake">Give pass</button></div><p class="note" style="margin:0">Higher free limits on Fizzl's services for that wallet. Days empty: no end date. Give the proof (Copy) only to its owner: whoever has it gets the pass. Revoke stops it everywhere within 6 hours.</p><div id="grantList"></div></div></details>`);
+      if (!DEMO) api("GET", "/api/admin/passes").then(renderGrants, () => {});
       $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
       if (!DEMO) api("GET", "/api/admin/subscription").then(renderSetup, () => {});
       return;
@@ -2927,6 +2929,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!box) return;
     box.innerHTML = r.promos.length ? `<div class="paylist">${r.promos.map((p) => `<div><span><b style="color:#fff">${esc(p.code)}</b>${p.note ? ` · ${esc(p.note)}` : ""} · ${esc(p.days)} days · ${esc(p.used)}/${esc(p.uses)} used${p.stopped ? " · stopped" : ""}</span><span>${p.stopped ? "" : `<button class="link" type="button" data-copy="${esc(p.code)}">Copy</button> · <button class="link" type="button" data-promostop="${esc(p.code)}">Stop</button>`}</span></div>`).join("")}</div>` : `<p class="note" style="margin:0">No codes yet.</p>`;
   }
+  // ---------- Fizzl Passes the owner gives away ----------
+  function renderGrants(r) {
+    const box = $("#grantList");
+    if (!box) return;
+    const end = (x) => (x.forever ? "no end date" : `until ${day(x.until)}`);
+    box.innerHTML = r.grants.length ? `<div class="paylist">${r.grants.map((x) => `<div><span><b style="color:#fff">${esc(x.note || x.tier)}</b> · ${esc(x.tier)} · <code>${esc(x.wallet.slice(0, 6))}…${esc(x.wallet.slice(-4))}</code> · ${x.revokedAt ? `revoked ${esc(day(x.revokedAt))}` : esc(end(x))}</span><span>${x.revokedAt ? "" : `${x.token ? `<button class="link" type="button" data-copy="${esc(x.token)}">Copy proof</button> · ` : ""}<button class="link" type="button" data-grantrevoke="${esc(x.id)}">Revoke</button>`}</span></div>`).join("")}</div>` : `<p class="note" style="margin:0">No passes given away yet.</p>`;
+  }
+  document.addEventListener("click", async (e) => {
+    if (e.target.closest("#grantMake")) {
+      try { renderGrants(await api("POST", "/api/admin/passes", { wallet: $("#grantWallet").value.trim(), tier: $("#grantTier").value, days: $("#grantDays").value ? Number($("#grantDays").value) : null, note: $("#grantNote").value })); $("#grantWallet").value = ""; $("#grantNote").value = ""; $("#grantDays").value = ""; } catch (err) { if (err.message !== "login") alert(err.message); }
+      return;
+    }
+    const rv = e.target.closest("[data-grantrevoke]");
+    if (rv) { if (!confirm("Revoke this pass? Fizzl's services refuse it within 6 hours.")) return; try { renderGrants(await api("POST", `/api/admin/passes/${encodeURIComponent(rv.dataset.grantrevoke)}/revoke`, {})); } catch (err) { if (err.message !== "login") alert(err.message); } return; }
+  });
   document.addEventListener("click", async (e) => {
     if (e.target.closest("#promoMake")) {
       try { renderPromos(await api("POST", "/api/admin/promos", { days: Number($("#promoDays").value), uses: Number($("#promoUses").value), note: $("#promoNote").value })); $("#promoNote").value = ""; } catch (err) { if (err.message !== "login") alert(err.message); }

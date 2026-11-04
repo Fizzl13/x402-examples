@@ -19,6 +19,10 @@ export const PASS_TIERS = {
   gold: { name: "Gold", label: "Fizzl Pass Gold", days: 180, usdc: 60 },
 };
 
+// A pass the owner gives away (src/accounts.js passGrant) without an end date ends on this day: far enough to be
+// "never", and still a plain number every verifier compares with now. The owner can take it back (revoked list).
+export const PASS_FOREVER = Date.UTC(2100, 0, 1);
+
 const b64u = (buf) => Buffer.from(buf).toString("base64url");
 const PKCS8_ED25519 = Buffer.from("302e020100300506032b657004220420", "hex");
 
