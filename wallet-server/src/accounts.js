@@ -26,7 +26,7 @@ import { weekOf, formatDigest } from "./digest.js";
 import { createAlertHook, createEndpointMonitor, hookKind, urlProblem } from "./monitor.js";
 import { cleanSubscription } from "./push.js";
 import { readRegistration, readAssertion } from "./passkey.js";
-import { PASS_TIERS, signPass, walletKey, isWallet } from "./pass.js";
+import { PASS_TIERS, signPass, walletKey, isWallet, PASS_FOREVER } from "./pass.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -581,6 +581,45 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       await g.putOnce("passclaim", claim, { wallet: w, tier, until, token }, ttl);
       usage.record("pass_sold", { usd: t.usdc, input: { tier, via: "x402" } });
       return { ok: true, pass: { tier, until, wallet: w } };
+    },
+    // ---------- passes the owner gives away (a partner, a project): no payment, revocable ----------
+    // A grant covers one wallet, Gold unless another tier is asked, with no end date unless days is given. Its id
+    // (gid) is in the signed proof; revoking it puts the id in the list /.well-known/fizzl-pass.json publishes, and
+    // the services refuse that proof from their next key refresh (at most 6 hours). The proof is signed with the
+    // grant's own time, so it is the same text every time the owner looks it up.
+    async passGrant({ wallet, tier = "gold", days = null, note = "" } = {}) {
+      const w = walletKey(wallet);
+      if (!isWallet(w)) throw Object.assign(new Error("wallet must be a wallet address (EVM 0x…, Solana, XRPL r… or Algorand)"), { status: 400 });
+      if (!PASS_TIERS[tier]) throw Object.assign(new Error("tier must be bronze, silver or gold"), { status: 400 });
+      const d = days === null || days === undefined || days === "" || Number(days) === 0 ? null : Math.floor(Number(days));
+      if (d !== null && !(d >= 1 && d <= 3650)) throw Object.assign(new Error("days must be 1 to 3650, or empty for no end date"), { status: 400 });
+      const who = String(note ?? "").replace(/[^\p{L}\p{N} @·.,()/_-]/gu, "").trim().slice(0, 60);
+      return serial(ADMIN, async () => {
+        const rec = (await g.getAccount(ADMIN)) ?? { id: ADMIN };
+        const grants = rec.passGrants ?? [];
+        if (grants.some((x) => x.wallet === w && !x.revokedAt && x.until > now())) throw Object.assign(new Error("This wallet has a pass from you already: revoke that one first."), { status: 409 });
+        if (grants.length >= 500) throw Object.assign(new Error("Too many passes given away (500)."), { status: 409 });
+        const grant = { id: `g_${randomBytes(9).toString("base64url")}`, wallet: w, tier, until: d ? now() + d * DAY : PASS_FOREVER, at: now(), ...(who ? { note: who } : {}) };
+        await g.putAccount({ ...rec, passGrants: [...grants, grant] });
+        usage.record("pass_granted", { input: { tier, forever: !d } });
+        return api.passGrants();
+      });
+    },
+    async passGrants() {
+      const grants = (await g.getAccount(ADMIN))?.passGrants ?? [];
+      return { grants: grants.slice().reverse().map((x) => ({ ...x, forever: x.until >= PASS_FOREVER, token: !x.revokedAt && passKey ? grantToken(x) : null })) };
+    },
+    async passRevoke(gid) {
+      return serial(ADMIN, async () => {
+        const rec = await g.getAccount(ADMIN);
+        if (!(rec?.passGrants ?? []).some((x) => x.id === gid && !x.revokedAt)) throw Object.assign(new Error("No such pass, or it was revoked already."), { status: 404 });
+        await g.putAccount({ ...rec, passGrants: rec.passGrants.map((x) => (x.id === gid ? { ...x, revokedAt: now() } : x)) });
+        return api.passGrants();
+      });
+    },
+    // The ids of revoked grants that would otherwise still be valid: published with the public key.
+    async passRevoked() {
+      return ((await g.getAccount(ADMIN))?.passGrants ?? []).filter((x) => x.revokedAt && x.until > now()).map((x) => x.id);
     },
     // The buyer's proof after an x402 purchase; null until x402 Doctor has passed the sale on.
     async passClaim(claim) {
@@ -1333,7 +1372,14 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   // ---------- Fizzl Pass (src/pass.js) ----------
   const TIER_RANK = { bronze: 1, silver: 2, gold: 3 };
   // The wallet's pass now: the account's (with Bronze after a Silver or Gold that ended) or the one it bought itself.
+  const grantToken = (x) => signPass({ iss: "wallet.fizzl.eu", tier: x.tier, until: x.until, wallets: [x.wallet], iat: x.at, gid: x.id }, passKey);
   async function currentPass(w) {
+    const given = ((await g.getAccount(ADMIN))?.passGrants ?? []).find((x) => x.wallet === w && !x.revokedAt && x.until > now());
+    const other = await accountOrBoughtPass(w);
+    if (!given) return other;
+    return other && TIER_RANK[other.tier] > TIER_RANK[given.tier] ? other : { tier: given.tier, until: given.until };
+  }
+  async function accountOrBoughtPass(w) {
     const e = await g.peekOnce("pass", w);
     const fromAccount = e && e.until > now() ? e : e?.next && e.next.until > now() ? e.next : null;
     const own = await g.peekOnce("walletpass", w);
