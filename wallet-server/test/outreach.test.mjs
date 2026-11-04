@@ -223,3 +223,20 @@ test("the owner-report hook: DRAFT_KEY only, plain Telegram messages to the owne
   const sv2 = await new Promise((r) => { const sv = noChat.listen(0, () => r(sv)); });
   try { assert.equal((await fetch(`http://127.0.0.1:${sv2.address().port}/hooks/owner-report`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer draft-key-456" }, body: "{\"text\":\"x\"}" })).status, 404); } finally { sv2.close(); }
 });
+
+test("telegram: a network error is tried once more, a Telegram error is not", async () => {
+  const { createTelegram } = await import("../src/telegram.js");
+  let n = 0;
+  const flaky = async () => { n++; if (n === 1) throw new TypeError("fetch failed"); return new Response(JSON.stringify({ ok: true, result: { message_id: 7 } })); };
+  const tg = createTelegram({ token: "1:abc", fetch: flaky, retryMs: 1 });
+  assert.equal(await tg.sendButtons("1", "hi", [[{ text: "OK", data: "x" }]]), 7);
+  assert.equal(n, 2);
+  let m = 0;
+  const refused = async () => { m++; return new Response(JSON.stringify({ ok: false, description: "Bad Request: can't parse entities" }), { status: 400 }); };
+  await assert.rejects(createTelegram({ token: "1:abc", fetch: refused, retryMs: 1 }).send("1", "hi"), /can't parse entities/);
+  assert.equal(m, 1);
+  let k = 0;
+  const down = async () => { k++; throw new TypeError("fetch failed"); };
+  await assert.rejects(createTelegram({ token: "1:abc", fetch: down, retryMs: 1 }).send("1", "hi"), /fetch failed/);
+  assert.equal(k, 2);
+});
