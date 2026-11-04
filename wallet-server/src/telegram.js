@@ -15,9 +15,13 @@ const network = (id) => {
   return s ? `chain ${s}` : "";
 };
 
-export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, username = null, fetch: fetchImpl = globalThis.fetch, api = API }) {
+export function createTelegram({ token, publicUrl, webhookSecret, dashboardUrl, username = null, fetch: fetchImpl = globalThis.fetch, api = API, retryMs = 1500 }) {
+  // A network error ("fetch failed": no answer from Telegram at all) is tried once more after a short wait;
+  // an answer from Telegram, even an error, is not. A lost message (an outreach draft, an approval) costs more
+  // than the rare double when the first request did arrive.
+  const post = (method, body) => fetchImpl(`${api}/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const call = async (method, body) => {
-    const res = await fetchImpl(`${api}/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await post(method, body).catch(async () => { await new Promise((r) => setTimeout(r, retryMs)); return post(method, body); });
     const data = await res.json().catch(() => null);
     if (!data?.ok) throw new Error(`Telegram ${method}: ${data?.description ?? `HTTP ${res.status}`}`);
     return data.result;
