@@ -168,6 +168,34 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     await onAlert({ kind: "price", agentName: agent.name, purchaseId: p.id, host, text: `💸 ${agent.name} paid $${paid} to ${route}, ${times}× the usual $${usual} there. It was within your rules, so it went through. If the seller raised its price, lower the per-call limit or pause the agent.` });
   }
 
+  // After a purchase within the rules: did this agent pay the same seller (host) several times in a few minutes,
+  // together more than its per-call USDC limit? That is what a purchase split into parts under the limit looks like
+  // (structuring: each part passes, the whole wouldn't). A heads-up for the owner, at most once a day per agent and
+  // seller: 3+ payments within 10 minutes, each at least a quarter of the limit (an agent polling a seller for a cent
+  // under a $0.05 limit isn't splitting anything). No AI, never blocks; an honest burst can still look the same.
+  const SPLIT_WINDOW_MS = 10 * 60_000, SPLIT_MIN = 3, SPLIT_PART = 0.25;
+  const splitSent = new Map(); // `${agent}|${host}` -> day
+  async function checkSplit(agent, purchase, p, raw) {
+    const host = hostOf(purchase?.url);
+    const usdcKey = Object.keys(raw?.tokens ?? {}).find((k) => k.toUpperCase() === "USDC");
+    const perTx = Number(usdcKey ? raw.tokens[usdcKey]?.perTx : NaN);
+    if (!host || !(perTx > 0)) return;
+    const key = `${agent.id}|${host}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (splitSent.get(key) === day) return;
+    const since = now() - SPLIT_WINDOW_MS;
+    let recent = (await store.listPurchases(200))
+      .filter((x) => x.agent === agent.id && (x.createdAt ?? 0) >= since && hostOf(x.what?.url) === host);
+    if (!recent.some((x) => x.id === p.id)) recent.push(p);
+    recent = recent.filter((x) => usdOfAmounts(x.amounts) >= perTx * SPLIT_PART);
+    const total = Math.round(recent.reduce((n, x) => n + usdOfAmounts(x.amounts), 0) * 1e6) / 1e6;
+    if (recent.length < SPLIT_MIN || !(total > perTx)) return;
+    splitSent.set(key, day);
+    if (splitSent.size > 1000) splitSent.delete(splitSent.keys().next().value);
+    await log("split", { agent: agent.name, purchase: p.id, host, payments: recent.length, total, perTx });
+    safeTrack("split_purchase", { usd: total, input: { host }, result: { payments: recent.length } });
+    await onAlert({ kind: "split", agentName: agent.name, purchaseId: p.id, host, text: `✂️ ${agent.name} paid ${host} ${recent.length} times in 10 minutes, $${total} in all: more than your per-call limit of $${perTx}. Each payment was within your rules, so they went through. If one purchase was split up to stay under the limit, lower the daily limit or pause the agent.` });
+  }
+
   async function updatePurchase(agent, purchaseId, change) {
     if (typeof purchaseId !== "string") return null;
     const p = await store.getPurchase(purchaseId);
@@ -219,7 +247,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         if (!first.includes(agent.id)) return { status: "paused", summary: `${agent.name} is paused: the free plan has ${maxAgents} agent${maxAgents === 1 ? "" : "s"} (upgrade to Pro on the dashboard)` };
       }
       if (!request || typeof request !== "object" || !request.type) throw Object.assign(new Error("request is required"), { status: 400 });
-      const { policy } = await policyNow();
+      const { raw, policy } = await policyNow();
       const trusted = trustedVerdict(verdict, request);
       const purchase = cleanPurchase(rawPurchase);
       const spend = spendFor(request, trusted);
@@ -251,6 +279,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
         checkUnusual(agent, purchase, p).catch((err) => console.warn(`[unusual] ${err.message}`)); // in the background: the agent doesn't wait
         checkPriceJump(agent, purchase, p).catch((err) => console.warn(`[price] ${err.message}`));
+        checkSplit(agent, purchase, p, raw).catch((err) => console.warn(`[split] ${err.message}`));
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }
       const summary = result.reasons.map((r) => r.message).join("; ");
