@@ -74,7 +74,7 @@ test("unusual purchase: after 5+ earlier buys, one unlike them gives the owner a
     const what = body.state?.new_purchase?.what ?? "";
     return Response.json({ answers: { unusual: { noul: /airdrop/i.test(what) ? 0.93 : 0.2 } } });
   };
-  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, ruleChecker: createRuleChecker({ apiKey: "k", fetch, log: quiet }), onAlert: async (a) => alerts.push(a) });
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, ruleChecker: createRuleChecker({ apiKey: "k", fetch, log: quiet }), onAlert: async (a) => { if (a.kind !== "split") alerts.push(a); } });
   await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "50" } }, unknownTokens: "ask", window: "24h" });
   const { key } = await wallet.addAgent("trader");
   const agent = await wallet.agentForKey(key);
@@ -105,7 +105,7 @@ test("unusual purchase: after 5+ earlier buys, one unlike them gives the owner a
 
 test("unusual purchase: off without a TypeSafe key", async () => {
   const alerts = [];
-  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, ruleChecker: createRuleChecker({ apiKey: "", fetch: async () => { throw new Error("must not be called"); }, log: quiet }), onAlert: async (a) => alerts.push(a) });
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, ruleChecker: createRuleChecker({ apiKey: "", fetch: async () => { throw new Error("must not be called"); }, log: quiet }), onAlert: async (a) => { if (a.kind !== "split") alerts.push(a); } });
   await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "50" } }, unknownTokens: "ask", window: "24h" });
   const { key } = await wallet.addAgent("trader");
   const agent = await wallet.agentForKey(key);
@@ -138,6 +138,51 @@ test("price jump: paying the same API 2× its usual price (and a cent more) give
   await buy(100000); await settle();
   assert.equal(alerts.length, 1, "once a day per agent and API");
   assert.ok((await wallet.state()).events.some((e) => e.type === "price_jump"));
+});
+
+test("split purchase: 3+ payments to one seller within 10 minutes, together over the per-call limit, give one heads-up a day; never blocked", async () => {
+  const alerts = [];
+  let t = 1_000_000;
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, now: () => t, onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "0.05", perDay: "10" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("bot");
+  const agent = await wallet.agentForKey(key);
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const buy = (micro, url = "https://api.seller.test/report") => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "report", url } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  // Two small payments, then one more to another seller: not a split.
+  for (const m of [20000, 20000]) { assert.equal((await buy(m)).status, "ok"); await settle(); t += 60_000; }
+  assert.equal((await buy(20000, "https://other.test/x")).status, "ok"); await settle();
+  assert.equal(alerts.length, 0, "two payments to one seller, or a third to another, is not a split");
+  // Three to the same seller within 10 minutes, $0.06 together, over the $0.05 per-call limit.
+  t += 60_000;
+  const r = await buy(20000); await settle();
+  assert.equal(r.status, "ok", "never blocked");
+  assert.equal(alerts.length, 1);
+  assert.deepEqual([alerts[0].kind, alerts[0].host], ["split", "api.seller.test"]);
+  assert.match(alerts[0].text, /paid api\.seller\.test 3 times in 10 minutes, \$0\.06 in all: more than your per-call limit of \$0\.05/);
+  await buy(20000); await settle();
+  assert.equal(alerts.length, 1, "once a day per agent and seller");
+  assert.ok((await wallet.state()).events.some((e) => e.type === "split"));
+});
+
+test("split purchase: payments spread over more than 10 minutes, or together under the per-call limit, give no heads-up", async () => {
+  const alerts = [];
+  let t = 1_000_000;
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, now: () => t, onAlert: async (a) => { if (a.kind === "split") alerts.push(a); } }); // $0.03 after $0.01s is also a price jump: not this test
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "0.05", perDay: "10" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("bot");
+  const agent = await wallet.agentForKey(key);
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const buy = (micro) => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "report", url: "https://api.seller.test/report" } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  for (let i = 0; i < 4; i++) { assert.equal((await buy(10000)).status, "ok"); await settle(); t += 60_000; }
+  assert.equal(alerts.length, 0, "four times $0.01: under a quarter of the limit each, polling, not a split");
+  t += 11 * 60_000;
+  for (let i = 0; i < 3; i++) { assert.equal((await buy(30000)).status, "ok"); await settle(); t += 11 * 60_000; }
+  assert.equal(alerts.length, 0, "11 minutes apart: never three within 10 minutes");
 });
 
 test("a stopped purchase tells the owner (with the reasons and what it was for), at most once per agent per 10 minutes", async () => {
