@@ -14,10 +14,13 @@
 //   identity-backed  no verified agent, but payTo is an account with a valid identity credential
 //   expired          payTo's identity credential has expired
 //   not-read         nothing could be read (node or registry unreachable): never counted as a pass or a fail
-// with `agent` ({ outcome, tokenAddress, tokenId, status, agentWallet, reason }) when the seller shows a badge.
+// with `agent` ({ outcome, tokenAddress, tokenId, status, agentWallet, reason }) when the seller shows a badge, and
+// `proof` ({ status: verified | invalid, facts, issuer, credential, created, reason }) when the seller serves a
+// zero-knowledge proof about the person behind its payTo at /.well-known/concordium-proof.json (src/proof.js).
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { createProofCheck } from './proof.js';
 
 const REGISTRY = 'https://agent-registry-mcp.concordium.com/mcp';
 const NET_ID = { 'ccd:9dd9ca4d19e9393877d2c44b70f89acb': 'mainnet', 'ccd:4221332d34e1694168c2a0c0b3fd0f27': 'testnet' };
@@ -120,7 +123,7 @@ export function credentialOf(info, providers = new Map(), now = Date.now()) {
   };
 }
 
-export function createIdentity({ network, node, fetch = globalThis.fetch, get = createSafeGet({ fetch }), registry = REGISTRY, ttlMs = 10 * 60 * 1000, now = () => Date.now() } = {}) {
+export function createIdentity({ network, node, fetch = globalThis.fetch, get = createSafeGet({ fetch }), registry = REGISTRY, ttlMs = 10 * 60 * 1000, now = () => Date.now(), proof = createProofCheck({ network, node, get, now }) } = {}) {
   const netId = NET_ID[network];
   const cache = new Map();
   let providers = null;
@@ -170,11 +173,13 @@ export function createIdentity({ network, node, fetch = globalThis.fetch, get = 
       if (hit && now() - hit.at < ttlMs) return hit.value;
       const [info, names] = await Promise.all([node.accountInfo(payTo).catch(() => null), providerNames()]);
       const credential = credentialOf(info, names, now());
-      const agent = resourceUrl ? await agentOf(resourceUrl, payTo).catch(() => null) : null;
+      const [agent, zk] = resourceUrl && origin
+        ? await Promise.all([agentOf(resourceUrl, payTo).catch(() => null), proof(origin.toLowerCase(), payTo).catch(() => null)])
+        : [null, null];
       const outcome = agent?.outcome === 'verified-wallet' ? 'verified-agent'
         : credential?.expired ? 'expired'
           : credential ? 'identity-backed' : 'not-read';
-      const value = { outcome, ...(credential ? { credential } : {}), ...(agent ? { agent } : {}) };
+      const value = { outcome, ...(credential ? { credential } : {}), ...(agent ? { agent } : {}), ...(zk ? { proof: zk } : {}) };
       if (cache.size > 500) cache.delete(cache.keys().next().value);
       cache.set(key, { at: now(), value });
       return value;

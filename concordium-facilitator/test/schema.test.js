@@ -9,14 +9,15 @@ import { createApp } from '../src/app.js';
 
 const schema = JSON.parse(fs.readFileSync(new URL('../schema/concordium-identity.schema.json', import.meta.url), 'utf8'));
 
-// The JSON Schema keywords the file uses: type, enum, pattern, required, properties, additionalProperties: false.
+// The JSON Schema keywords the file uses: type, enum, pattern, items, required, properties, additionalProperties: false.
 function validate(s, v, at = '$') {
   const errs = [];
   const types = [].concat(s.type ?? []);
-  const kind = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
+  const kind = v === null ? 'null' : Array.isArray(v) ? 'array' : Number.isInteger(v) && types.includes('integer') ? 'integer' : typeof v;
   if (types.length && !types.includes(kind)) return [`${at}: ${kind} is not ${types.join('|')}`];
   if (s.enum && !s.enum.includes(v)) errs.push(`${at}: ${JSON.stringify(v)} is not one of ${s.enum.join(', ')}`);
   if (s.pattern && typeof v === 'string' && !new RegExp(s.pattern).test(v)) errs.push(`${at}: ${v} doesn't match ${s.pattern}`);
+  if (kind === 'array' && s.items) v.forEach((x, i) => errs.push(...validate(s.items, x, `${at}[${i}]`)));
   if (kind === 'object' && s.properties) {
     for (const r of s.required || []) if (!(r in v)) errs.push(`${at}.${r}: missing`);
     for (const [k, x] of Object.entries(v)) {

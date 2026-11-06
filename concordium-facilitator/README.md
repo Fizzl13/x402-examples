@@ -20,6 +20,7 @@ protocol 10) through `@concordium/web-sdk` 12.
 | `GET /identity` | `?url=<paid endpoint>&payTo=<account>`: what Concordium says about a seller (its identity credential; its agent in the Agent Registry) |
 | `GET /demo/paid` | testnet: a demo x402 seller (paid at agent #993's wallet), settled by this facilitator in-process; `GET /.well-known/agent-card.json` is its card, pinned in the Agent Registry |
 | `GET /schema/concordium-identity.json` | the JSON Schema of `extensions["concordium-identity"]` and of the /identity answer ([schema/concordium-identity.schema.json](schema/concordium-identity.schema.json)) |
+| `GET /.well-known/concordium-proof.json` | testnet: the demo seller's zero-knowledge proof (18 or older, EU resident), made in its owner's wallet |
 | `GET /payments` | the payments the sponsor account paid for, read from the chain (the wallet proxy's account history) |
 | `GET /` | a page for people: what it is, its live state, and the 402 option a seller adds |
 
@@ -47,7 +48,7 @@ SPONSOR_ADDRESS=… SPONSOR_KEY=… npm start
 | `CONCORDIUM_NODE` / `CONCORDIUM_PORT` | gRPC node, default `grpc.testnet.concordium.com:20000` |
 | `SELLERS` | comma-separated payTo accounts it sponsors (empty: any) |
 | `DAILY_LIMIT` | settlements a day (default 500) |
-| `IDENTITY` | `report` (default): who the seller is rides along in /verify and /settle as `extensions["concordium-identity"]`; `agent`: sponsor only sellers paid at the wallet of a registered Concordium agent for that endpoint; `off` |
+| `IDENTITY` | `report` (default): who the seller is rides along in /verify and /settle as `extensions["concordium-identity"]`; `agent`: sponsor only sellers paid at the wallet of a registered Concordium agent for that endpoint; `proof`: sponsor only sellers serving a verified zero-knowledge proof about the person behind their payTo (`/.well-known/concordium-proof.json`); `off` |
 | `DEMO_PAY_TO` | testnet only: the demo seller's payTo (default agent #993's wallet), or `off` |
 | `WALLET_PROXY` | wallet proxy for the payment history (default: Concordium's, per network) |
 

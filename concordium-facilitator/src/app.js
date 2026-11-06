@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { NETWORKS, paymentKey, settlePayment, verifyPayment } from './scheme.js';
 import { page } from './page.js';
+import { PROOF_PATH } from './proof.js';
 
 const MAX_BODY = 64 * 1024;
 // The concordium-identity extension's JSON Schema, served at GET /schema/concordium-identity.json.
@@ -13,7 +14,7 @@ const IDENTITY_SCHEMA = fs.readFileSync(new URL('../schema/concordium-identity.s
 // identity (src/identity.js createIdentity) and identityMode: 'off'; 'report' (default: what Concordium says about the
 // seller rides along in the verify and settle answers, as extensions["concordium-identity"]); or 'agent' (only sellers
 // whose payTo is the wallet of an active, registered agent for that endpoint are sponsored).
-// demo: { payTo, card, amount = '1000', asset = 'CCD' } adds a paid demo endpoint (GET /demo/paid, a plain x402 seller
+// demo: { payTo, card, proof, amount = '1000', asset = 'CCD' } adds a paid demo endpoint (GET /demo/paid, a plain x402 seller
 // settled by this facilitator in-process) and its seller's Agent Card (GET /.well-known/agent-card.json, served byte for
 // byte so its SHA-256 matches the metadata_hash pinned in the Agent Registry).
 export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, identity = null, identityMode = 'report', demo = null, now = () => Date.now(), log = console } = {}) {
@@ -44,8 +45,11 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     if (!identity || identityMode === 'off' || typeof requirements?.payTo !== 'string') return null;
     try { return await identity.check({ resourceUrl, payTo: requirements.payTo }); } catch { return null; }
   }
-  const identityRefusal = (id) => (identityMode === 'agent' && id?.outcome !== 'verified-agent'
-    ? `this facilitator sponsors only sellers whose payTo is the wallet of a registered Concordium agent for this endpoint (${id?.agent?.reason || id?.outcome || 'not read'})` : null);
+  const identityRefusal = (id) => {
+    if (identityMode === 'agent' && id?.outcome !== 'verified-agent') return `this facilitator sponsors only sellers whose payTo is the wallet of a registered Concordium agent for this endpoint (${id?.agent?.reason || id?.outcome || 'not read'})`;
+    if (identityMode === 'proof' && id?.proof?.status !== 'verified') return `this facilitator sponsors only sellers that prove who stands behind their payTo (a zero-knowledge proof at ${PROOF_PATH}: ${id?.proof?.reason || 'none served'})`;
+    return null;
+  };
   const withIdentity = (body, id) => (id ? { ...body, extensions: { ...(body.extensions || {}), 'concordium-identity': id } } : body);
   function settledToday() {
     const today = new Date(now()).toISOString().slice(0, 10);
@@ -123,6 +127,10 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         }
         if (refused) return json(res, 200, { success: false, errorReason: refused, network: requirements?.network ?? network, transaction: '' });
         return json(res, 200, await settleOne(requirements, payload, resourceUrl));
+      }
+      if (demo?.proof && req.method === 'GET' && path === PROOF_PATH) {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', ...OPEN });
+        return res.end(demo.proof);
       }
       if (demo && req.method === 'GET' && path === '/.well-known/agent-card.json') {
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', ...OPEN });
