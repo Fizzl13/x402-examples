@@ -63,6 +63,21 @@ Stricter than the spec (it allows that):
 - **One at a time**: the same transaction is never being settled twice at once; a second submission fails at the
   node anyway (its nonce is used).
 
+## Who is being paid (beyond the spec)
+
+Concordium ties every account to an identity a regulated identity provider verified, and runs an Agent Registry
+(CIS-8004) for AI agents. Before sponsoring, this facilitator reads both for the seller (src/identity.js):
+
+- the payTo account's credential: its identity provider and `validTo` (expired is reported);
+- when the paid endpoint (`paymentPayload.resource.url`) serves an Agent Card with a Concordium badge: the agent in the
+  registry must be Active, its card at `agent_uri` must still hash to the `metadata_hash` on chain, the card must list
+  this origin, and payTo must be the agent wallet it registered (the same rules as x402 Doctor's payee check).
+
+The result is `extensions["concordium-identity"]` in the /verify and /settle answers: `verified-agent`,
+`identity-backed`, `expired` or `not-read`, with the credential and the agent's own outcome. With `IDENTITY=agent` the
+facilitator sponsors only `verified-agent` sellers (`seller_identity_not_verified` otherwise), before anything is
+signed. `GET /identity?url=&payTo=` gives the same answer for a seller to check itself.
+
 ## /settle
 
 Verify again, sign as sponsor (`Transaction.sponsor`), submit, wait for finalization, and return

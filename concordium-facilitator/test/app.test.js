@@ -95,3 +95,31 @@ test('a transaction that does not parse is invalid, an unknown route a 404', asy
   assert.equal((await s.call('/nope')).error, 'not found');
   await s.close();
 });
+
+test('identity: report mode adds what Concordium says about the seller; agent mode sponsors only verified agents', async () => {
+  const id = (outcome) => ({ check: async ({ payTo }) => ({ outcome, agent: { outcome: outcome === 'verified-agent' ? 'verified-wallet' : 'mismatch', reason: 'payTo is not the agent\'s registered wallet' }, payTo }) });
+  const report = await serve({ node: stand(), identity: id('identity-backed'), identityMode: 'report' });
+  const v = await report.call('/verify', await body(req()));
+  assert.equal(v.isValid, true);
+  assert.equal(v.extensions['concordium-identity'].outcome, 'identity-backed');
+  await report.close();
+
+  const node = stand();
+  const strict = await serve({ node, identity: id('identity-backed'), identityMode: 'agent' });
+  const refused = await strict.call('/verify', await body(req()));
+  assert.deepEqual([refused.isValid, refused.invalidReason], [false, 'seller_identity_not_verified']);
+  const notSettled = await strict.call('/settle', await body(req()));
+  assert.deepEqual([notSettled.success, notSettled.errorReason], [false, 'seller_identity_not_verified']);
+  assert.equal(node.sent.length, 0, 'nothing sponsored');
+  await strict.close();
+
+  const verified = await serve({ node: stand(), identity: id('verified-agent'), identityMode: 'agent' });
+  const s = await verified.call('/settle', await body(req()));
+  assert.equal(s.success, true);
+  assert.equal(s.extensions['concordium-identity'].outcome, 'verified-agent');
+  await verified.close();
+
+  const off = await serve({ node: stand(), identity: id('identity-backed'), identityMode: 'off' });
+  assert.equal((await off.call('/verify', await body(req()))).extensions, undefined);
+  await off.close();
+});
