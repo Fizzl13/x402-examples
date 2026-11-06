@@ -1,7 +1,8 @@
 # concordium-testnet: the facilitator against the live Concordium testnet.
 # On a pull request (and by hand, mode "read"): read-only checks, no keys.
-# By hand with mode "pay": one real testnet payment (0.001 CCD by default), sponsored by the facilitator's testnet
-# account. Its keys are repository secrets set by the owner: CCD_TESTNET_BUYER_ADDRESS, CCD_TESTNET_BUYER_KEY,
+# By hand with mode "pay": real testnet payments (count, 0.001 CCD each by default), sponsored by the facilitator's
+# testnet account, through the deployed facilitator (input facilitator) or in the job itself (facilitator empty).
+# Its keys are repository secrets set by the owner: CCD_TESTNET_BUYER_ADDRESS, CCD_TESTNET_BUYER_KEY,
 # CCD_TESTNET_SPONSOR_ADDRESS, CCD_TESTNET_SPONSOR_KEY, CCD_TESTNET_PAY_TO. Testnet only.
 name: concordium-testnet
 
@@ -21,6 +22,12 @@ on:
       amount:
         description: "in the asset's smallest unit (1000 = 0.001 CCD)"
         default: "1000"
+      count:
+        description: "pay mode: how many payments (1 to 5)"
+        default: "1"
+      facilitator:
+        description: "pay mode: through this deployed facilitator (empty = in the job itself)"
+        default: "https://concordium-facilitator.onrender.com"
 
 permissions:
   contents: read
@@ -49,4 +56,6 @@ jobs:
           PAY_TO: ${{ secrets.CCD_TESTNET_PAY_TO }}
           ASSET: ${{ inputs.asset }}
           AMOUNT: ${{ inputs.amount }}
+          COUNT: ${{ inputs.count }}
+          FACILITATOR_URL: ${{ inputs.facilitator }}
         run: node scripts/testnet.js pay

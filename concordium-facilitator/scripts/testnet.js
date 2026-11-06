@@ -2,8 +2,9 @@
 //   node scripts/testnet.js read   no keys: the node runs protocol 10+ (sponsored transactions), the testnet genesis
 //                                  matches, EURR reads as a PLT, and a payment signed with a wrong key for a real
 //                                  account is refused on its real credentials.
-//   node scripts/testnet.js pay    a real testnet payment: BUYER_ADDRESS/BUYER_KEY pays AMOUNT (default 1000, i.e.
-//                                  0.001 CCD) of ASSET (default CCD) to PAY_TO, sponsored by SPONSOR_ADDRESS/SPONSOR_KEY.
+//   node scripts/testnet.js pay    real testnet payments: BUYER_ADDRESS/BUYER_KEY pays AMOUNT (default 1000, i.e.
+//                                  0.001 CCD) of ASSET (default CCD) to PAY_TO, COUNT times, sponsored by SPONSOR_ADDRESS
+//                                  (SPONSOR_KEY in process, or the deployed facilitator at FACILITATOR_URL).
 //                                  Testnet only; keys come from repository secrets, never from the code or the log.
 import { generateKeyPairSync } from 'node:crypto';
 import { buildBasicAccountSigner } from '@concordium/web-sdk';
@@ -38,22 +39,38 @@ async function read() {
   v.invalidReason === 'invalid_exact_signature' ? ok('a wrongly signed payment is refused on the account\'s real keys') : fail(`expected invalid_exact_signature, got ${v.invalidReason} ${v.detail ?? ''}`);
 }
 
+// FACILITATOR_URL set: the payments go through that deployed facilitator's /verify and /settle (as a seller's server
+// would send them), so the live service is tested end to end; empty: verified and settled in this process.
+// COUNT: how many payments, one after another (1 to 5).
 async function pay() {
-  const need = ['BUYER_ADDRESS', 'BUYER_KEY', 'SPONSOR_ADDRESS', 'SPONSOR_KEY', 'PAY_TO'];
+  const need = ['BUYER_ADDRESS', 'BUYER_KEY', 'SPONSOR_ADDRESS', 'PAY_TO'];
+  const remote = process.env.FACILITATOR_URL?.trim().replace(/\/+$/, '') || '';
+  if (!remote) need.push('SPONSOR_KEY');
   const missing = need.filter((k) => !process.env[k]?.trim());
   if (missing.length) return fail(`set ${missing.join(', ')} (repository secrets)`);
   const e = (k) => process.env[k].trim();
+  const count = Math.max(1, Math.min(5, Number(process.env.COUNT) || 1));
   const asset = process.env.ASSET?.trim() || 'CCD';
   const token = asset === 'CCD' ? null : await node.token(asset);
+  if (asset !== 'CCD' && !token) return fail(`token ${asset} not found on testnet`);
   const req = { scheme: 'exact', network: TESTNET, amount: process.env.AMOUNT?.trim() || '1000', asset, payTo: e('PAY_TO'), maxTimeoutSeconds: 120, extra: { sponsor: e('SPONSOR_ADDRESS'), ...(token ? { decimals: token.decimals } : {}) } };
-  const nonce = await node.nextNonce(e('BUYER_ADDRESS'));
-  const payload = await buildPayment({ requirements: req, sender: e('BUYER_ADDRESS'), nonce, signer: buildBasicAccountSigner(e('BUYER_KEY')), token });
-  const v = await verifyPayment({ requirements: req, payload, sponsor: e('SPONSOR_ADDRESS'), node });
-  if (!v.isValid) return fail(`verify: ${v.invalidReason} ${v.detail ?? ''}`);
-  ok(`verify: valid, payer ${v.payer}`);
-  const s = await settlePayment({ requirements: req, payload, sponsor: e('SPONSOR_ADDRESS'), sponsorSigner: buildBasicAccountSigner(e('SPONSOR_KEY')), node });
-  if (!s.success) return fail(`settle: ${s.errorReason} ${s.detail ?? ''} ${s.transaction}`);
-  ok(`settled: ${s.transaction} (https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=${s.transaction})`);
+  const post = async (path, body) => {
+    const res = await fetch(`${remote}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(150_000) });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { throw new Error(`${path}: HTTP ${res.status} ${text.slice(0, 200)}`); }
+  };
+  if (remote) ok(`via ${remote}`);
+  for (let i = 1; i <= count; i++) {
+    const nonce = await node.nextNonce(e('BUYER_ADDRESS'));
+    const payload = await buildPayment({ requirements: req, sender: e('BUYER_ADDRESS'), nonce, signer: buildBasicAccountSigner(e('BUYER_KEY')), token });
+    const body = { x402Version: 2, paymentPayload: { x402Version: 2, accepted: req, payload }, paymentRequirements: req };
+    const v = remote ? await post('/verify', body) : await verifyPayment({ requirements: req, payload, sponsor: e('SPONSOR_ADDRESS'), node });
+    if (!v.isValid) return fail(`payment ${i}: verify: ${v.invalidReason} ${v.invalidMessage ?? v.detail ?? ''}`);
+    ok(`payment ${i}: verify valid, payer ${v.payer}`);
+    const st = remote ? await post('/settle', body) : await settlePayment({ requirements: req, payload, sponsor: e('SPONSOR_ADDRESS'), sponsorSigner: buildBasicAccountSigner(e('SPONSOR_KEY')), node });
+    if (!st.success) return fail(`payment ${i}: settle: ${st.errorReason} ${st.errorMessage ?? st.detail ?? ''} ${st.transaction}`);
+    ok(`payment ${i}: settled ${st.transaction} (https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=${st.transaction})`);
+  }
 }
 
 try { await (mode === 'pay' ? pay() : read()); } catch (err) { fail(err?.message ?? String(err)); }
