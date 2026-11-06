@@ -2,7 +2,7 @@
 // It sponsors only payments to the sellers in `sellers` (when given) and at most `dailyLimit` settlements a day, so a
 // stranger can't spend the sponsor's CCD on fees by paying themselves.
 import http from 'node:http';
-import { NETWORKS, settlePayment, verifyPayment } from './scheme.js';
+import { NETWORKS, paymentKey, settlePayment, verifyPayment } from './scheme.js';
 import { page } from './page.js';
 
 const MAX_BODY = 64 * 1024;
@@ -57,7 +57,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' });
       }
       if (req.method === 'GET' && path === '/supported') {
-        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { sponsor } }], extensions: [], signers: { [network]: [sponsor] } });
+        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: [], signers: { [network]: [sponsor] } });
       }
       if (req.method === 'POST' && (path === '/verify' || path === '/settle')) {
         const { requirements, payload } = parts(await readBody(req));
@@ -69,7 +69,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         }
         if (refused) return json(res, 200, { success: false, errorReason: refused, network: requirements?.network ?? network, transaction: '' });
         if (settledToday() >= dailyLimit) return json(res, 200, { success: false, errorReason: 'facilitator_daily_limit', network, transaction: '' });
-        const key = String(payload?.transaction ?? '');
+        const key = paymentKey(payload);
         if (settling.has(key)) return json(res, 200, { success: false, errorReason: 'already_settling', network, transaction: '' });
         settling.add(key);
         try {

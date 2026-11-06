@@ -11,6 +11,7 @@ const FIRST = {
   'ccd:4221332d34e1694168c2a0c0b3fd0f27': { tx: '1b2edc98d09914df0df49a96ff3371cdd6edbdf4c9390ce5d9e522b093254c98', when: '6 Nov 2026', what: '0.001 CCD, buyer fee 0' },
 };
 const SOURCE = 'https://github.com/Fizzl13/x402-examples/tree/main/concordium-facilitator';
+const SPEC = 'https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_concordium.md';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = (s) => (s.length > 16 ? `${s.slice(0, 8)}…${s.slice(-6)}` : s);
@@ -31,9 +32,9 @@ export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sel
   const url = base || 'https://&lt;this host&gt;';
   const requirements = JSON.stringify({
     scheme: 'exact', network, amount: '10000', asset: 'CCD', payTo: '<your Concordium account>',
-    maxTimeoutSeconds: 120, extra: { sponsor },
+    maxTimeoutSeconds: 120, extra: { feePayer: sponsor },
   }, null, 2);
-  const plt = JSON.stringify({ asset: 'EURR', amount: '10000', extra: { sponsor, decimals: 6 } }, null, 2);
+  const plt = JSON.stringify({ asset: 'EURR', amount: '10000', extra: { feePayer: sponsor } }, null, 2);
 
   return `<!doctype html>
 <html lang="en"><head>
@@ -73,7 +74,7 @@ footer { margin-top:48px; font-size:14px; color:var(--muted); }
 <body><main>
 <span class="tag">${esc(net.name)} · x402</span>
 <h1>x402 facilitator for Concordium</h1>
-<p>Lets an API charge per call on Concordium with x402. The buyer signs a transfer of <strong>CCD or a protocol-level token</strong> (PLT, e.g. EURR) to the seller and names this facilitator as <strong>sponsor</strong>. The facilitator checks it, co-signs as sponsor, pays the fee and submits it. <strong>The buyer pays no fees</strong>, and the facilitator never holds anyone's funds.</p>
+<p>An independent facilitator for x402's <a href="${SPEC}">exact scheme on Concordium</a>, the one <code>@x402/concordium</code> clients use. The buyer signs a transfer of <strong>CCD or a protocol-level token</strong> (PLT, e.g. EURR) to the seller and names this facilitator as fee payer (sponsor). The facilitator checks it, co-signs as sponsor, pays the fee and submits it. <strong>The buyer pays no fees</strong>, and the facilitator never holds anyone's funds.</p>
 
 <div class="grid">
   <div class="card"><div class="k">Status</div><div class="v ok">Live</div></div>
@@ -87,7 +88,7 @@ ${first ? `<p style="margin-top:16px">First payment settled ${esc(first.when)}: 
 
 <h2>How a payment works</h2>
 <ol>
-  <li>The seller's API answers <code>402</code> with a Concordium option that names this facilitator as sponsor.</li>
+  <li>The seller's API answers <code>402</code> with a Concordium option that names this facilitator in <code>extra.feePayer</code>.</li>
   <li>The buyer signs a sponsored transfer (account transaction v1) of exactly that amount to the seller and sends it in the <code>PAYMENT-SIGNATURE</code> header.</li>
   <li>The seller posts it to <code>/verify</code>, then <code>/settle</code>: this facilitator checks amount, payee, signature, nonce, expiry and balance, co-signs as sponsor, submits it and waits until it is final.</li>
 </ol>
@@ -95,7 +96,7 @@ ${first ? `<p style="margin-top:16px">First payment settled ${esc(first.when)}: 
 <h2>For sellers: the 402 option</h2>
 <p>Add this to <code>accepts[]</code> (here 0.01 CCD; amounts are in the smallest unit, 6 decimals for CCD):</p>
 <pre>${esc(requirements)}</pre>
-<p>For a PLT, set the token id and its decimals:</p>
+<p>For a PLT, set its token id (the decimals are read from the chain):</p>
 <pre>${esc(plt)}</pre>
 <p>Then use <code>${esc(url)}</code> as your facilitator URL.${sellersOnly ? ' This instance sponsors listed sellers only; ask to be added.' : ''}</p>
 
@@ -109,7 +110,7 @@ ${first ? `<p style="margin-top:16px">First payment settled ${esc(first.when)}: 
 </table>
 
 <h2>Spec and code</h2>
-<p>The scheme is written up in <a href="${SOURCE}/SPEC.md">SPEC.md</a>. Code (MIT), tests and a buyer-side helper: <a href="${SOURCE}">github.com/Fizzl13/x402-examples</a>. Built on Concordium's sponsored transactions (protocol 10) with <code>@concordium/web-sdk</code>.</p>
+<p>The scheme: <a href="${SPEC}">scheme_exact_concordium.md</a> in the x402 repository. On top of its checks this facilitator also caps the energy at what the transfer needs, checks a PLT's pause and allow/deny lists before sponsoring, and has a seller allow-list and a daily limit (<a href="${SOURCE}/SPEC.md">SPEC.md</a>). Code (MIT), tests and a buyer-side helper: <a href="${SOURCE}">github.com/Fizzl13/x402-examples</a>. Built on Concordium's sponsored transactions (protocol 10) with <code>@concordium/web-sdk</code>.</p>
 
 <footer>Made by <a href="https://fizzl.eu">Fizzl</a>. ${network.endsWith('0c0b3fd0f27') ? 'Testnet only: no real funds move.' : ''}</footer>
 </main></body></html>`;

@@ -31,7 +31,7 @@ function node({ nonce = 7n, ccd = 10_000_000n, eurr = 5_000_000n, token = { deci
     waitFinal: async () => outcome,
   };
 }
-const req = (over = {}) => ({ scheme: 'exact', network: TESTNET, amount: '10000', asset: 'CCD', payTo: seller.address, maxTimeoutSeconds: 120, extra: { sponsor: sponsor.address }, ...over });
+const req = (over = {}) => ({ scheme: 'exact', network: TESTNET, amount: '10000', asset: 'CCD', payTo: seller.address, maxTimeoutSeconds: 120, extra: { feePayer: sponsor.address }, ...over });
 const pay = (r, over = {}) => buildPayment({ requirements: r, sender: buyer.address, nonce: 7n, signer: buyer.signer, now: NOW, ...over });
 
 test('a CCD payment verifies, is sponsored, submitted once, and settles', async () => {
@@ -52,7 +52,7 @@ test('a CCD payment verifies, is sponsored, submitted once, and settles', async 
 });
 
 test('a PLT (EURR) payment verifies with the token decimals', async () => {
-  const r = req({ asset: 'EURR', amount: '2500000', extra: { sponsor: sponsor.address, decimals: 6 } });
+  const r = req({ asset: 'EURR', amount: '2500000', extra: { feePayer: sponsor.address, decimals: 6 } });
   const payload = await pay(r);
   const v = await verifyPayment({ requirements: r, payload, sponsor: sponsor.address, node: node(), now: NOW });
   assert.equal(v.isValid, true, `${v.invalidReason} ${v.detail}`);
@@ -71,10 +71,11 @@ test('refused: another amount, another seller, another asset, another sponsor', 
   const v = (requirements, p = payload, sp = sponsor.address) => verifyPayment({ requirements, payload: p, sponsor: sp, node: node(), now: NOW });
   assert.equal((await v(req({ amount: '20000' }))).invalidReason, 'invalid_exact_amount_mismatch');
   assert.equal((await v(req({ payTo: stranger.address }))).invalidReason, 'invalid_exact_recipient_mismatch');
-  assert.equal((await v(req({ asset: 'EURR', extra: { sponsor: sponsor.address, decimals: 6 } }))).invalidReason, 'invalid_exact_asset_mismatch');
-  const other = await pay(req({ extra: { sponsor: stranger.address } }));
+  assert.equal((await v(req({ asset: 'EURR', extra: { feePayer: sponsor.address, decimals: 6 } }))).invalidReason, 'invalid_exact_asset_mismatch');
+  const other = await pay(req({ extra: { feePayer: stranger.address } }));
   assert.match((await v(r, other)).detail, /sponsor is not this facilitator/);
-  assert.equal((await v(req({ extra: { sponsor: stranger.address } }))).invalidReason, 'invalid_payment_requirements', 'requirements naming another sponsor');
+  assert.equal((await v(req({ extra: { feePayer: stranger.address } }))).invalidReason, 'invalid_payment_requirements', 'requirements naming another fee payer');
+  assert.equal((await v(req({ extra: { sponsor: stranger.address } }))).invalidReason, 'invalid_payment_requirements', 'or another sponsor (the first drafts\' name)');
 });
 
 test('refused: a forged signature, a used or future nonce, an expired or too-long transaction', async () => {
@@ -91,15 +92,32 @@ test('refused: a forged signature, a used or future nonce, an expired or too-lon
 test('refused: a sponsor-paid transaction with extra energy, a tampered payload, or no sponsor at all', async () => {
   const r = req();
   const payload = await pay(r);
-  const json = JSON.parse(payload.transaction);
-  const heavy = structuredClone(json);
+  const heavy = structuredClone(payload.signedTransaction);
   heavy.header.executionEnergyAmount = Number(heavy.header.executionEnergyAmount) + 100000;
-  const h = await verifyPayment({ requirements: r, payload: { transaction: JSON.stringify(heavy) }, sponsor: sponsor.address, node: node(), now: NOW });
+  const h = await verifyPayment({ requirements: r, payload: { signedTransaction: heavy }, sponsor: sponsor.address, node: node(), now: NOW });
   assert.match(h.detail, /energy/);
   const plain = Transaction.transfer({ amount: { microCcdAmount: 10000n }, toAddress: AccountAddress.fromBase58(seller.address) });
   assert.ok(plain);
   const s = await verifyPayment({ requirements: r, payload: { transaction: 'not json' }, sponsor: sponsor.address, node: node(), now: NOW });
   assert.equal(s.invalidReason, 'invalid_payload');
+  assert.equal((await verifyPayment({ requirements: r, payload: {}, sponsor: sponsor.address, node: node(), now: NOW })).invalidReason, 'invalid_payload');
+});
+
+test('the spec\'s forms: extra.feePayer and payload.signedTransaction; the first drafts\' forms still verify', async () => {
+  const r = req();
+  const payload = await pay(r);
+  assert.equal(typeof payload.signedTransaction, 'object');
+  assert.equal(payload.signedTransaction.version, 1);
+  assert.equal(typeof payload.signedTransaction.header.nonce, 'number', 'bigints as numbers, as @x402/concordium sends them');
+  assert.deepEqual(payload.signedTransaction.signatures.sponsor ?? {}, {}, 'the sponsor slot is empty');
+  // The first drafts: extra.sponsor and payload.transaction (the JSON string).
+  const legacyReq = req({ extra: { sponsor: sponsor.address } });
+  const legacy = { transaction: Transaction.toJSONString(Transaction.signableFromJSON(payload.signedTransaction)) };
+  const v = await verifyPayment({ requirements: legacyReq, payload: legacy, sponsor: sponsor.address, node: node(), now: NOW });
+  assert.equal(v.isValid, true, `${v.invalidReason} ${v.detail}`);
+  // Through JSON (as it travels in the header), the object form still verifies.
+  const wire = JSON.parse(JSON.stringify(payload));
+  assert.equal((await verifyPayment({ requirements: r, payload: wire, sponsor: sponsor.address, node: node(), now: NOW })).isValid, true);
 });
 
 test('settle: a failed transaction on chain is reported, not settled', async () => {

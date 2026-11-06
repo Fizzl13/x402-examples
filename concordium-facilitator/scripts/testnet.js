@@ -30,7 +30,7 @@ async function read() {
   ok(`next nonce of ${KNOWN.slice(0, 8)}…: ${nonce}`);
   // A payment from a real account, signed with a key that isn't its: refused on its real on-chain credentials.
   const priv = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32).toString('hex');
-  const req = { scheme: 'exact', network: TESTNET, amount: '1000', asset: 'CCD', payTo: KNOWN, maxTimeoutSeconds: 120, extra: { sponsor: KNOWN } };
+  const req = { scheme: 'exact', network: TESTNET, amount: '1000', asset: 'CCD', payTo: KNOWN, maxTimeoutSeconds: 120, extra: { feePayer: KNOWN } };
   const sender = process.env.READ_SENDER || '3paEXqKpvG8MiHa9YphTDEkbLJNpJjdzJcJt2Jt623xqjCYidx'; // a testnet token governance account
   const realSender = (await node.accountInfo(sender)) ? sender : null;
   if (!realSender) { console.log(`skip signature check: ${sender.slice(0, 8)}… is not a testnet account`); return; }
@@ -53,7 +53,7 @@ async function pay() {
   const asset = process.env.ASSET?.trim() || 'CCD';
   const token = asset === 'CCD' ? null : await node.token(asset);
   if (asset !== 'CCD' && !token) return fail(`token ${asset} not found on testnet`);
-  const req = { scheme: 'exact', network: TESTNET, amount: process.env.AMOUNT?.trim() || '1000', asset, payTo: e('PAY_TO'), maxTimeoutSeconds: 120, extra: { sponsor: e('SPONSOR_ADDRESS'), ...(token ? { decimals: token.decimals } : {}) } };
+  const req = { scheme: 'exact', network: TESTNET, amount: process.env.AMOUNT?.trim() || '1000', asset, payTo: e('PAY_TO'), maxTimeoutSeconds: 120, extra: { feePayer: e('SPONSOR_ADDRESS') } };
   const post = async (path, body) => {
     const res = await fetch(`${remote}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(150_000) });
     const text = await res.text();

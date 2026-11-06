@@ -1,17 +1,19 @@
 # Concordium x402 facilitator (testnet first)
 
-An x402 facilitator for Concordium. A buyer signs a transfer of CCD or a protocol-level token (PLT, e.g. EURR or USDR)
-to the seller and names this facilitator as **sponsor**; the facilitator checks it, adds its signature as sponsor,
-pays the fee and submits it. The buyer needs no CCD for fees, and the facilitator never holds anyone's funds.
-It uses Concordium's sponsored transactions (account transaction v1, protocol 10) through `@concordium/web-sdk` 12.
+An independent facilitator for x402's [exact scheme on Concordium](https://github.com/x402-foundation/x402/blob/main/specs/schemes/exact/scheme_exact_concordium.md),
+the scheme `@x402/concordium` clients use. A buyer signs a transfer of CCD or a protocol-level token (PLT, e.g. EURR)
+to the seller and names this facilitator as fee payer (`extra.feePayer`, the transaction's sponsor); the facilitator
+checks it, adds its signature as sponsor, pays the fee and submits it. The buyer needs no CCD for fees, and the
+facilitator never holds anyone's funds. It uses Concordium's sponsored transactions (account transaction v1,
+protocol 10) through `@concordium/web-sdk` 12.
 
-The scheme is written up in [SPEC.md](SPEC.md).
+[SPEC.md](SPEC.md) lists what it checks, including the checks it adds on top of the spec's.
 
 ## Routes
 
 | Route | What |
 |---|---|
-| `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { sponsor } }] }` |
+| `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { feePayer } }] }` |
 | `POST /verify` | x402 v2 body `{ paymentPayload, paymentRequirements }` → `{ isValid, payer }` or `{ isValid: false, invalidReason, invalidMessage }` |
 | `POST /settle` | same body → `{ success, transaction, network, payer }` once the transfer is final on chain |
 | `GET /health` | `{ ok, network, sponsor, settled_today, daily_limit, sponsored, sponsored_today, fees_ccd }` |
@@ -48,7 +50,7 @@ SPONSOR_ADDRESS=… SPONSOR_KEY=… npm start
 
 ```js
 import { buildPayment } from './src/scheme.js';
-const payload = await buildPayment({ requirements, sender, nonce, signer }); // signer: buildBasicAccountSigner(key)
+const payload = await buildPayment({ requirements, sender, nonce, signer }); // { signedTransaction }; signer: buildBasicAccountSigner(key)
 // PAYMENT-SIGNATURE: base64 of { x402Version: 2, accepted: requirements, payload }
 ```
 
