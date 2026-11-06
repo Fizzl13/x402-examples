@@ -38,13 +38,13 @@ async function serve(opts) {
   const call = async (path, body) => (await fetch(`${base}${path}`, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})).json();
   return { base, call, close: () => new Promise((r) => server.close(r)) };
 }
-const req = (over = {}) => ({ scheme: 'exact', network: TESTNET, amount: '10000', asset: 'CCD', payTo: seller.address, maxTimeoutSeconds: 120, extra: { sponsor: sponsor.address }, ...over });
+const req = (over = {}) => ({ scheme: 'exact', network: TESTNET, amount: '10000', asset: 'CCD', payTo: seller.address, maxTimeoutSeconds: 120, extra: { feePayer: sponsor.address }, ...over });
 const body = async (r, nonce = 1n) => ({ x402Version: 2, paymentPayload: { x402Version: 2, accepted: r, payload: await buildPayment({ requirements: r, sender: buyer.address, nonce, signer: buyer.signer }) }, paymentRequirements: r });
 
 test('/supported names the network and the sponsor; /health answers', async () => {
   const s = await serve({ node: stand() });
   const sup = await s.call('/supported');
-  assert.deepEqual(sup.kinds, [{ x402Version: 2, scheme: 'exact', network: TESTNET, extra: { sponsor: sponsor.address } }]);
+  assert.deepEqual(sup.kinds, [{ x402Version: 2, scheme: 'exact', network: TESTNET, extra: { feePayer: sponsor.address } }]);
   assert.equal((await s.call('/health')).ok, true);
   await s.close();
 });
@@ -58,7 +58,7 @@ test('GET / is a page with the network, the sponsor and how to use it', async ()
     const html = await res.text();
     assert.match(html, /Concordium testnet/);
     assert.ok(html.includes(sponsor.address));
-    assert.ok(html.includes('&quot;sponsor&quot;'), 'the 402 example names the sponsor');
+    assert.ok(html.includes('&quot;feePayer&quot;'), 'the 402 example names the fee payer');
     assert.match(html, /\/settle/);
     assert.ok(html.includes(new URL(s.base).host), 'shows its own host as the facilitator URL');
     assert.equal((await s.call('/health')).settled_today, 0);

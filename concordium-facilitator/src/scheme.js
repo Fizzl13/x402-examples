@@ -1,6 +1,8 @@
-// The x402 "exact" scheme on Concordium with sponsored transactions (SPEC.md): the buyer signs a transfer of CCD or a
-// protocol-level token (PLT) to the seller, with this facilitator as sponsor; the facilitator checks it, adds its
-// signature as sponsor (paying the fee) and submits it. It never holds the buyer's funds.
+// The x402 "exact" scheme on Concordium (x402-foundation/x402 specs/schemes/exact/scheme_exact_concordium.md, the
+// same scheme @x402/concordium implements): the buyer signs a V1 sponsored transfer of CCD or a protocol-level token
+// (PLT) to the seller, naming this facilitator as sponsor (extra.feePayer); the facilitator checks it, adds its
+// signature as sponsor (paying the fee) and submits it. It never holds the buyer's funds. SPEC.md lists the checks
+// this facilitator adds on top of the spec's.
 import {
   AccountAddress, AccountTransactionType, CcdAmount, SequenceNumber, Transaction, TransactionExpiry,
 } from '@concordium/web-sdk';
@@ -24,16 +26,35 @@ export function checkRequirements(req, sponsor) {
   if (typeof req.amount !== 'string' || !/^\d+$/.test(req.amount) || BigInt(req.amount) === 0n) return 'invalid_payment_requirements';
   if (typeof req.payTo !== 'string' || !safeAddress(req.payTo)) return 'invalid_payment_requirements';
   if (typeof req.asset !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(req.asset)) return 'invalid_payment_requirements';
-  if (req.extra?.sponsor !== undefined && req.extra.sponsor !== sponsor) return 'invalid_payment_requirements';
+  const named = feePayerOf(req);
+  if (named !== undefined && named !== sponsor) return 'invalid_payment_requirements';
   return null;
 }
+// The sponsor the requirements name: extra.feePayer (the spec), or extra.sponsor (this facilitator's first drafts).
+export function feePayerOf(req) { return req?.extra?.feePayer ?? req?.extra?.sponsor; }
+
+// The signed transaction in an x402 payload: payload.signedTransaction, the JSON object @x402/concordium sends
+// (Transaction.toJSON with bigints as numbers), or payload.transaction, the JSON string of the first drafts.
+export function signedTransactionOf(payload) {
+  if (payload?.signedTransaction && typeof payload.signedTransaction === 'object') return Transaction.signableFromJSON(payload.signedTransaction);
+  if (typeof payload?.transaction === 'string') {
+    try { return Transaction.signableFromJSON(JSON.parse(payload.transaction)); } catch { return Transaction.signableFromJSON(Transaction.fromJSONString(payload.transaction)); }
+  }
+  throw new Error('missing_signed_transaction');
+}
+// A stable key for one payment, whichever form it came in (to settle it at most once at a time).
+export function paymentKey(payload) {
+  try { return JSON.stringify(jsonSafe(Transaction.toJSON(signedTransactionOf(payload)))); } catch { return String(payload?.transaction ?? ''); }
+}
+const jsonSafe = (v) => (typeof v === 'bigint' ? (v > BigInt(Number.MAX_SAFE_INTEGER) || v < BigInt(Number.MIN_SAFE_INTEGER) ? v.toString() : Number(v))
+  : Array.isArray(v) ? v.map(jsonSafe) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonSafe(x)])) : v);
 function safeAddress(s) { try { AccountAddress.fromBase58(s); return true; } catch { return false; } }
 
 // The buyer's side: build and sign the sponsorable transfer the requirements ask for. `token` (for a PLT) is
-// { decimals }. Returns the x402 payload { transaction } (the signed transaction as JSON).
+// { decimals }. Returns the x402 payload { signedTransaction }: the sender-signed transaction as the spec's JSON object.
 export async function buildPayment({ requirements: req, sender, nonce, signer, token = null, now = Date.now() }) {
-  const sponsor = req.extra?.sponsor;
-  if (!sponsor) throw new Error('requirements.extra.sponsor is missing: the facilitator sponsoring the fee');
+  const sponsor = feePayerOf(req);
+  if (!sponsor) throw new Error('requirements.extra.feePayer is missing: the facilitator sponsoring the fee');
   const expiry = TransactionExpiry.fromEpochSeconds(BigInt(Math.floor(now / 1000) + Math.min(Number(req.maxTimeoutSeconds) || 120, 600)));
   const to = AccountAddress.fromBase58(req.payTo);
   let tx;
@@ -50,7 +71,7 @@ export async function buildPayment({ requirements: req, sender, nonce, signer, t
     .addSponsor(AccountAddress.fromBase58(sponsor))
     .build();
   const signed = await Transaction.sign(signable, signer);
-  return { transaction: Transaction.toJSONString(signed) };
+  return { signedTransaction: jsonSafe(Transaction.toJSON(signed)) };
 }
 
 // What the transfer in a parsed transaction pays: { asset, amount (atomic bigint), to (base58) }, or null when the
@@ -82,9 +103,7 @@ export async function verifyPayment({ requirements: req, payload, sponsor, node,
   const r = checkRequirements(req, sponsor);
   if (r) return bad(r);
   let tx;
-  try { tx = Transaction.signableFromJSON(JSON.parse(payload?.transaction)); } catch {
-    try { tx = Transaction.signableFromJSON(Transaction.fromJSONString(payload?.transaction)); } catch { return bad('invalid_payload', 'the transaction does not parse'); }
-  }
+  try { tx = signedTransactionOf(payload); } catch { return bad('invalid_payload', 'the transaction does not parse'); }
   if (tx.version !== 1 || !tx.header.sponsor) return bad('invalid_payload', 'not a sponsored (v1) transaction');
   if (AccountAddress.toBase58(tx.header.sponsor.account) !== sponsor || tx.header.sponsor.numSignatures !== 1n) return bad('invalid_payload', 'the sponsor is not this facilitator');
   const payer = AccountAddress.toBase58(tx.header.sender);
