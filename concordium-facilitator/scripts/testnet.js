@@ -2,7 +2,8 @@
 //   node scripts/testnet.js read   no keys: the node runs protocol 10+ (sponsored transactions), the testnet genesis
 //                                  matches, EURR reads as a PLT, and a payment signed with a wrong key for a real
 //                                  account is refused on its real credentials, and the demo seller's zero-knowledge
-//                                  proof (demo/concordium-proof.json) verifies against the chain.
+//                                  proof (demo/concordium-proof.json) verifies against the chain, and so does the
+//                                  demo buyer's (demo/concordium-buyer-proof.json, when committed).
 //   node scripts/testnet.js pay    real testnet payments: BUYER_ADDRESS/BUYER_KEY pays AMOUNT (default 1000, i.e.
 //                                  0.001 CCD) of ASSET (default CCD) to PAY_TO, COUNT times, sponsored by SPONSOR_ADDRESS
 //                                  (SPONSOR_KEY in process, or the deployed facilitator at FACILITATOR_URL).
@@ -12,8 +13,8 @@ import { buildBasicAccountSigner } from '@concordium/web-sdk';
 import { createNode } from '../src/node.js';
 import { buildPayment, settlePayment, verifyPayment } from '../src/scheme.js';
 import { createIdentity } from '../src/identity.js';
-import { createProofCheck } from '../src/proof.js';
-import { readFileSync } from 'node:fs';
+import { BUYER_PROOF_EXTENSION, createBuyerProofCheck, createProofCheck } from '../src/proof.js';
+import { existsSync, readFileSync } from 'node:fs';
 
 const TESTNET = 'ccd:4221332d34e1694168c2a0c0b3fd0f27';
 const KNOWN = '3dt3UMPzRASZndjmKpSWgCP2HhmoxZrgs8FDPtZjNHZzj13hhB'; // an existing testnet account (read only)
@@ -21,6 +22,10 @@ const mode = process.argv[2] || 'read';
 const node = createNode({ host: process.env.CONCORDIUM_NODE || undefined });
 const fail = (msg) => { console.error(`FAIL ${msg}`); process.exitCode = 1; };
 const ok = (msg) => console.log(`ok   ${msg}`);
+// The demo buyer's proof (its owner is an adult), made with x402 Doctor's /concordium-proof.html?role=buyer for the
+// account BUYER_ADDRESS pays from. Not a secret: worthless from any other account.
+const BUYER_PROOF = new URL('../demo/concordium-buyer-proof.json', import.meta.url);
+const buyerProofFile = () => (existsSync(BUYER_PROOF) ? JSON.parse(readFileSync(BUYER_PROOF, 'utf8')) : null);
 
 async function read() {
   const status = await node.grpc.getConsensusStatus();
@@ -40,6 +45,11 @@ async function read() {
   const { origin, payTo } = JSON.parse(proofFile);
   const zk = await createProofCheck({ network: TESTNET, node, get: async () => proofFile })(origin, payTo);
   zk?.status === 'verified' ? ok(`demo seller's proof: verified (${zk.facts.join(', ')}), credential ${zk.credential.slice(0, 12)}… of ${payTo.slice(0, 8)}…`) : fail(`demo seller's proof: ${zk?.reason ?? 'not read'}`);
+  const bp = buyerProofFile();
+  if (bp) {
+    const r = await createBuyerProofCheck({ network: TESTNET, node })(bp, bp.account, ['adult']);
+    r.status === 'verified' ? ok(`demo buyer's proof: verified (${r.facts.join(', ')}), credential ${r.credential.slice(0, 12)}… of ${bp.account.slice(0, 8)}…`) : fail(`demo buyer's proof: ${r.reason}`);
+  } else console.log("     demo buyer's proof: none committed yet");
   // A payment from a real account, signed with a key that isn't its: refused on its real on-chain credentials.
   const priv = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32).toString('hex');
   const req = { scheme: 'exact', network: TESTNET, amount: '1000', asset: 'CCD', payTo: KNOWN, maxTimeoutSeconds: 120, extra: { feePayer: KNOWN } };
@@ -88,23 +98,28 @@ async function pay() {
 // buy: an x402 buyer against the demo seller (DEMO_URL, default the deployed facilitator's /demo/paid): GET, read
 // the 402, sign the payment it asks for, send it in PAYMENT-SIGNATURE, and print the answer, the transaction and what
 // Concordium said about the seller. Needs only BUYER_ADDRESS and BUYER_KEY.
+// The 402 of a demo endpoint, then (unless probe) a payment for it, with the buyer proof when given.
+async function purchase(url, { proof = null, probe = false } = {}) {
+  const first = await fetch(url, { signal: AbortSignal.timeout(150_000) });
+  if (first.status !== 402) throw new Error(`${url}: expected 402, got ${first.status}`);
+  const required = JSON.parse(Buffer.from(first.headers.get('payment-required') || '', 'base64').toString('utf8'));
+  const req = required.accepts?.find((a) => a.network === TESTNET && a.scheme === 'exact');
+  if (!req) throw new Error('no Concordium testnet option in the 402');
+  const buyer = process.env.BUYER_ADDRESS.trim();
+  const token = req.asset === 'CCD' ? null : await node.token(req.asset);
+  const payload = await buildPayment({ requirements: req, sender: buyer, nonce: await node.nextNonce(buyer), signer: buildBasicAccountSigner(process.env.BUYER_KEY.trim()), token });
+  const header = Buffer.from(JSON.stringify({ x402Version: 2, resource: required.resource, accepted: req, payload, ...(proof ? { extensions: { [BUYER_PROOF_EXTENSION]: proof } } : {}) })).toString('base64');
+  const paid = await fetch(url, { headers: { 'payment-signature': header }, signal: AbortSignal.timeout(150_000) });
+  return { req, status: paid.status, body: await paid.json().catch(() => ({})) };
+}
+
 async function buy() {
   const missing = ['BUYER_ADDRESS', 'BUYER_KEY'].filter((k) => !process.env[k]?.trim());
   if (missing.length) return fail(`set ${missing.join(', ')} (repository secrets)`);
   const url = process.env.DEMO_URL?.trim() || 'https://concordium-facilitator.onrender.com/demo/paid';
-  const first = await fetch(url, { signal: AbortSignal.timeout(150_000) });
-  if (first.status !== 402) return fail(`${url}: expected 402, got ${first.status}`);
-  const required = JSON.parse(Buffer.from(first.headers.get('payment-required') || '', 'base64').toString('utf8'));
-  const req = required.accepts?.find((a) => a.network === TESTNET && a.scheme === 'exact');
-  if (!req) return fail('no Concordium testnet option in the 402');
+  const { req, status, body } = await purchase(url);
   ok(`402: ${req.amount} ${req.asset} to ${req.payTo.slice(0, 8)}…, fee payer ${req.extra?.feePayer?.slice(0, 8)}…`);
-  const buyer = process.env.BUYER_ADDRESS.trim();
-  const token = req.asset === 'CCD' ? null : await node.token(req.asset);
-  const payload = await buildPayment({ requirements: req, sender: buyer, nonce: await node.nextNonce(buyer), signer: buildBasicAccountSigner(process.env.BUYER_KEY.trim()), token });
-  const header = Buffer.from(JSON.stringify({ x402Version: 2, resource: required.resource, accepted: req, payload })).toString('base64');
-  const paid = await fetch(url, { headers: { 'payment-signature': header }, signal: AbortSignal.timeout(150_000) });
-  const body = await paid.json().catch(() => ({}));
-  if (paid.status !== 200) return fail(`paid request: ${paid.status} ${body.error ?? ''}`);
+  if (status !== 200) return fail(`paid request: ${status} ${body.error ?? ''}`);
   ok(`paid: ${body.transaction} (https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=${body.transaction})`);
   const id = body.identity;
   ok(`seller: ${id?.outcome ?? 'not reported'}${id?.agent ? ` (agent ${id.agent.tokenId ?? id.agent.tokenAddress}: ${id.agent.outcome}${id.agent.reason ? `, ${id.agent.reason}` : ''})` : ''}`);
@@ -112,6 +127,17 @@ async function buy() {
   if (id?.proof?.status === 'verified') ok(`seller proof: verified (${id.proof.facts.join(', ')})`);
   else if (id?.proof) fail(`seller proof: ${id.proof.status}, ${id.proof.reason ?? ''}`);
   else console.log('     seller proof: none served');
+
+  // The adults-only demo: refused without the buyer's proof (nothing signed or sent), sold with it.
+  const proof = buyerProofFile();
+  if (!proof) { console.log("     adults-only demo: skipped, no buyer proof committed yet (demo/concordium-buyer-proof.json)"); return; }
+  if (proof.account !== process.env.BUYER_ADDRESS.trim()) return fail(`the committed buyer proof is for ${proof.account.slice(0, 8)}…, not the buyer`);
+  const adult = url.replace(/\/demo\/paid$/, '/demo/adult');
+  const refused = await purchase(adult);
+  refused.status === 402 && /^buyer_proof_required/.test(refused.body.error ?? '') ? ok('adults only, no proof: refused before anything was signed') : fail(`adults only, no proof: expected a 402 buyer_proof_required, got ${refused.status} ${refused.body.error ?? ''}`);
+  const sold = await purchase(adult, { proof });
+  if (sold.status !== 200) return fail(`adults only, with the proof: ${sold.status} ${sold.body.error ?? ''}`);
+  ok(`adults only, with the proof: paid ${sold.body.transaction}; buyer ${sold.body.buyer?.status} (${sold.body.buyer?.facts?.join(', ')})`);
 }
 
 try { await (mode === 'buy' ? buy() : mode === 'pay' ? pay() : read()); } catch (err) { fail(err?.message ?? String(err)); }
