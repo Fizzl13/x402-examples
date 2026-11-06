@@ -1,11 +1,14 @@
 // The facilitator's HTTP API (x402 v2 facilitator routes): GET /supported, POST /verify, POST /settle, GET /health.
 // It sponsors only payments to the sellers in `sellers` (when given) and at most `dailyLimit` settlements a day, so a
 // stranger can't spend the sponsor's CCD on fees by paying themselves.
+import fs from 'node:fs';
 import http from 'node:http';
 import { NETWORKS, paymentKey, settlePayment, verifyPayment } from './scheme.js';
 import { page } from './page.js';
 
 const MAX_BODY = 64 * 1024;
+// The concordium-identity extension's JSON Schema, served at GET /schema/concordium-identity.json.
+const IDENTITY_SCHEMA = fs.readFileSync(new URL('../schema/concordium-identity.schema.json', import.meta.url));
 
 // identity (src/identity.js createIdentity) and identityMode: 'off'; 'report' (default: what Concordium says about the
 // seller rides along in the verify and settle answers, as extensions["concordium-identity"]); or 'agent' (only sellers
@@ -19,7 +22,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
   let day = '', settled = 0;
 
-  // Read-only GETs (the Agent Card, /supported, /health, /identity, /payments) may be read from any page, e.g. a
+  // Read-only GETs (the Agent Card, /supported, /health, /identity, /payments, the schema) may be read from any page, e.g. a
   // registry's pin page fetching the card to hash it; POST /verify and /settle don't need it and don't get it.
   const OPEN = { 'access-control-allow-origin': '*' };
   const json = (res, status, body, extra = {}) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...extra }); res.end(JSON.stringify(body)); };
@@ -95,12 +98,16 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         const id = await identity.check({ resourceUrl: q.get('url') || null, payTo }).catch(() => null);
         return json(res, id ? 200 : 503, id ?? { error: 'could not read' }, OPEN);
       }
+      if (req.method === 'GET' && path === '/schema/concordium-identity.json') {
+        res.writeHead(200, { 'content-type': 'application/schema+json', 'cache-control': 'public, max-age=300', ...OPEN });
+        return res.end(IDENTITY_SCHEMA);
+      }
       if (req.method === 'GET' && path === '/payments') {
         const onChain = history ? await history.get().catch(() => null) : null;
         return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' }, OPEN);
       }
       if (req.method === 'GET' && path === '/supported') {
-        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: [], signers: { [network]: [sponsor] } }, OPEN);
+        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: identity && identityMode !== 'off' ? ['concordium-identity'] : [], signers: { [network]: [sponsor] } }, OPEN);
       }
       if (req.method === 'POST' && (path === '/verify' || path === '/settle')) {
         const { requirements, payload, resourceUrl } = parts(await readBody(req));

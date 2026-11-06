@@ -78,6 +78,23 @@ The result is `extensions["concordium-identity"]` in the /verify and /settle ans
 facilitator sponsors only `verified-agent` sellers (`seller_identity_not_verified` otherwise), before anything is
 signed. `GET /identity?url=&payTo=` gives the same answer for a seller to check itself.
 
+The extension's exact shape is a JSON Schema: [schema/concordium-identity.schema.json](schema/concordium-identity.schema.json),
+also served at `GET /schema/concordium-identity.json`. `/supported` lists `"concordium-identity"` in `extensions` when
+the check is on. Example, the demo seller (testnet agent #993):
+
+```json
+{
+  "outcome": "verified-agent",
+  "credential": { "provider": "Concordium testnet IP", "validTo": "2027-11", "expired": false, "revealed": null },
+  "agent": { "tokenAddress": "JyP9Y8gHmf4U8QPMm1TkT", "tokenId": "993", "status": "Active",
+             "agentWallet": "3HFbRLEGSVUsebprTBmTvpdbTkHg4ncutEYWf4EEaQfgQae9v3", "outcome": "verified-wallet" }
+}
+```
+
+The agent outcomes: `verified-wallet`, `owner-only` (no agent wallet set; payTo is the owner), `mismatch`, `revoked`,
+`card-mismatch`, `endpoint-unlisted`, `other-network` (a badge from the other network's registry) and `not-read`; any
+outcome but `verified-wallet` carries a `reason`.
+
 ## /settle
 
 Verify again, sign as sponsor (`Transaction.sponsor`), submit, wait for finalization, and return
@@ -86,4 +103,4 @@ Verify again, sign as sponsor (`Transaction.sponsor`), submit, wait for finaliza
 
 ## /supported
 
-`{ "kinds": [{ "x402Version": 2, "scheme": "exact", "network": "ccd:…", "extra": { "feePayer": "<account>" } }] }`
+`{ "kinds": [{ "x402Version": 2, "scheme": "exact", "network": "ccd:…", "extra": { "feePayer": "<account>" } }], "extensions": ["concordium-identity"], "signers": { "ccd:…": ["<account>"] } }`
