@@ -19,7 +19,10 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
   let day = '', settled = 0;
 
-  const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
+  // Read-only GETs (the Agent Card, /supported, /health, /identity, /payments) may be read from any page, e.g. a
+  // registry's pin page fetching the card to hash it; POST /verify and /settle don't need it and don't get it.
+  const OPEN = { 'access-control-allow-origin': '*' };
+  const json = (res, status, body, extra = {}) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...extra }); res.end(JSON.stringify(body)); };
   const readBody = (req) => new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', (c) => { size += c.length; if (size > MAX_BODY) { reject(Object.assign(new Error('too large'), { status: 413 })); req.destroy(); } else chunks.push(c); });
@@ -82,7 +85,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
       }
       if (req.method === 'GET' && path === '/health') {
         const onChain = history ? await history.get().catch(() => null) : null;
-        return json(res, 200, { ok: true, network, sponsor, settled_today: settledToday(), daily_limit: dailyLimit, ...(onChain ? { sponsored: onChain.sponsored, sponsored_today: onChain.sponsored_today, fees_ccd: onChain.fees_ccd } : {}) });
+        return json(res, 200, { ok: true, network, sponsor, settled_today: settledToday(), daily_limit: dailyLimit, ...(onChain ? { sponsored: onChain.sponsored, sponsored_today: onChain.sponsored_today, fees_ccd: onChain.fees_ccd } : {}) }, OPEN);
       }
       // What Concordium says about a seller, before it goes live: /identity?url=<paid endpoint>&payTo=<account>.
       if (req.method === 'GET' && path === '/identity') {
@@ -90,14 +93,14 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         const payTo = q.get('payTo') || '';
         if (!identity || !/^[1-9A-HJ-NP-Za-km-z]{50}$/.test(payTo)) return json(res, 400, { error: 'give payTo (a Concordium account) and url (the paid endpoint)' });
         const id = await identity.check({ resourceUrl: q.get('url') || null, payTo }).catch(() => null);
-        return json(res, id ? 200 : 503, id ?? { error: 'could not read' });
+        return json(res, id ? 200 : 503, id ?? { error: 'could not read' }, OPEN);
       }
       if (req.method === 'GET' && path === '/payments') {
         const onChain = history ? await history.get().catch(() => null) : null;
-        return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' });
+        return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' }, OPEN);
       }
       if (req.method === 'GET' && path === '/supported') {
-        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: [], signers: { [network]: [sponsor] } });
+        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: [], signers: { [network]: [sponsor] } }, OPEN);
       }
       if (req.method === 'POST' && (path === '/verify' || path === '/settle')) {
         const { requirements, payload, resourceUrl } = parts(await readBody(req));
@@ -115,7 +118,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         return json(res, 200, await settleOne(requirements, payload, resourceUrl));
       }
       if (demo && req.method === 'GET' && path === '/.well-known/agent-card.json') {
-        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', ...OPEN });
         return res.end(demo.card);
       }
       if (demo && req.method === 'GET' && path === '/demo/paid') {

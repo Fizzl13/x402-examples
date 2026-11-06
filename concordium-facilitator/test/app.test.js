@@ -129,6 +129,7 @@ test('demo seller: its card byte for byte, a 402 with the facilitator as fee pay
   const node = stand();
   const s = await serve({ node, demo: { payTo: seller.address, card }, identity: { check: async () => ({ outcome: 'verified-agent' }) } });
   const got = await fetch(`${s.base}/.well-known/agent-card.json`);
+  assert.equal(got.headers.get('access-control-allow-origin'), '*', 'a pin page on another origin can read and hash it');
   assert.deepEqual(Buffer.from(await got.arrayBuffer()), card);
   const first = await fetch(`${s.base}/demo/paid`);
   assert.equal(first.status, 402);
