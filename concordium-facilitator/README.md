@@ -23,6 +23,7 @@ protocol 10) through `@concordium/web-sdk` 12.
 | `GET /schema/concordium-identity.json` | the JSON Schema of `extensions["concordium-identity"]` and of the /identity answer ([schema/concordium-identity.schema.json](schema/concordium-identity.schema.json)) |
 | `GET /.well-known/concordium-proof.json` | testnet: the demo seller's zero-knowledge proof (18 or older, EU resident), made in its owner's wallet |
 | `GET /payments` | the payments the sponsor account paid for, read from the chain (the wallet proxy's account history) |
+| `GET /statement` | `?account=<the account an agent pays from>`: what that agent paid through this facilitator (when, to whom, how much, totals per asset) and who each payee is (identity-backed, provider, expired), read from the account's own history on chain |
 | `GET /` | a page for people: what it is, its live state, and the 402 option a seller adds |
 
 What `/verify` checks: one plain transfer of exactly `amount` of `asset` to `payTo`; this facilitator as sole sponsor;
