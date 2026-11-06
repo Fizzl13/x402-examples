@@ -78,6 +78,25 @@ The result is `extensions["concordium-identity"]` in the /verify and /settle ans
 facilitator sponsors only `verified-agent` sellers (`seller_identity_not_verified` otherwise), before anything is
 signed. `GET /identity?url=&payTo=` gives the same answer for a seller to check itself.
 
+### A zero-knowledge proof about the person behind the payTo
+
+A seller can also prove facts about the identity behind its payTo, without revealing them: an adult (18 or older),
+an EU resident, an EU national, an identity document still valid. The owner makes the proof once in their own
+Concordium wallet (x402 Doctor's page https://x402-doctor.fizzl.eu/concordium-proof.html), for the challenge
+`sha256("concordium-x402-seller-proof:v1|<network>|<origin>|<payTo>")`, and serves the file at
+`/.well-known/concordium-proof.json`. Before sponsoring, this facilitator (src/proof.js):
+
+1. checks that the file is for this network, this site and this payTo, and that the presentation was made for that
+   challenge (a copied proof fails on another site or payTo);
+2. verifies the zero-knowledge proofs against the chain with its own node (`getPublicData` + `verifyPresentation`
+   from `@concordium/web-sdk`), and that the credential is active;
+3. checks that the credential that proved it is one of the payTo account's own credentials;
+4. reads the facts from the verified statements only (what the file claims doesn't count).
+
+The result is `proof: { status: "verified", facts, issuer, credential, created }` (or `status: "invalid"` with a
+`reason`) in `extensions["concordium-identity"]`. With `IDENTITY=proof` the facilitator sponsors only sellers with a
+verified proof. The demo seller serves one (adult, EU resident), made in its owner's wallet on 6 Nov 2026.
+
 The extension's exact shape is a JSON Schema: [schema/concordium-identity.schema.json](schema/concordium-identity.schema.json),
 also served at `GET /schema/concordium-identity.json`. `/supported` lists `"concordium-identity"` in `extensions` when
 the check is on. Example, the demo seller (testnet agent #993):

@@ -1,7 +1,8 @@
 // Run the facilitator against the live Concordium testnet (GitHub Actions can reach the node's gRPC port).
 //   node scripts/testnet.js read   no keys: the node runs protocol 10+ (sponsored transactions), the testnet genesis
 //                                  matches, EURR reads as a PLT, and a payment signed with a wrong key for a real
-//                                  account is refused on its real credentials.
+//                                  account is refused on its real credentials, and the demo seller's zero-knowledge
+//                                  proof (demo/concordium-proof.json) verifies against the chain.
 //   node scripts/testnet.js pay    real testnet payments: BUYER_ADDRESS/BUYER_KEY pays AMOUNT (default 1000, i.e.
 //                                  0.001 CCD) of ASSET (default CCD) to PAY_TO, COUNT times, sponsored by SPONSOR_ADDRESS
 //                                  (SPONSOR_KEY in process, or the deployed facilitator at FACILITATOR_URL).
@@ -11,6 +12,8 @@ import { buildBasicAccountSigner } from '@concordium/web-sdk';
 import { createNode } from '../src/node.js';
 import { buildPayment, settlePayment, verifyPayment } from '../src/scheme.js';
 import { createIdentity } from '../src/identity.js';
+import { createProofCheck } from '../src/proof.js';
+import { readFileSync } from 'node:fs';
 
 const TESTNET = 'ccd:4221332d34e1694168c2a0c0b3fd0f27';
 const KNOWN = '3dt3UMPzRASZndjmKpSWgCP2HhmoxZrgs8FDPtZjNHZzj13hhB'; // an existing testnet account (read only)
@@ -32,6 +35,11 @@ async function read() {
   // Who is being paid: the account's identity credential (provider, valid until), read from the node.
   const who = await createIdentity({ network: TESTNET, node }).check({ resourceUrl: null, payTo: KNOWN });
   who.credential ? ok(`identity of ${KNOWN.slice(0, 8)}…: ${who.outcome}, ${who.credential.provider}, valid to ${who.credential.validTo}`) : fail(`identity of ${KNOWN.slice(0, 8)}… not read`);
+  // The demo seller's zero-knowledge proof, as committed: verified against the chain with our own node.
+  const proofFile = readFileSync(new URL('../demo/concordium-proof.json', import.meta.url), 'utf8');
+  const { origin, payTo } = JSON.parse(proofFile);
+  const zk = await createProofCheck({ network: TESTNET, node, get: async () => proofFile })(origin, payTo);
+  zk?.status === 'verified' ? ok(`demo seller's proof: verified (${zk.facts.join(', ')}), credential ${zk.credential.slice(0, 12)}… of ${payTo.slice(0, 8)}…`) : fail(`demo seller's proof: ${zk?.reason ?? 'not read'}`);
   // A payment from a real account, signed with a key that isn't its: refused on its real on-chain credentials.
   const priv = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32).toString('hex');
   const req = { scheme: 'exact', network: TESTNET, amount: '1000', asset: 'CCD', payTo: KNOWN, maxTimeoutSeconds: 120, extra: { feePayer: KNOWN } };

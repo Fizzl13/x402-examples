@@ -124,6 +124,25 @@ test('identity: report mode adds what Concordium says about the seller; agent mo
   await off.close();
 });
 
+test('identity: proof mode sponsors only sellers with a verified zero-knowledge proof', async () => {
+  const id = (proof) => ({ check: async () => ({ outcome: 'identity-backed', ...(proof ? { proof } : {}) }) });
+  const node = stand();
+  const none = await serve({ node, identity: id(null), identityMode: 'proof' });
+  const refused = await none.call('/verify', await body(req()));
+  assert.deepEqual([refused.isValid, refused.invalidReason], [false, 'seller_identity_not_verified']);
+  assert.match(refused.invalidMessage, /concordium-proof\.json: none served/);
+  const bad = await serve({ node, identity: id({ status: 'invalid', reason: 'the proof is tied to another payTo' }), identityMode: 'proof' });
+  assert.match((await bad.call('/settle', await body(req()))).errorMessage, /another payTo/);
+  assert.equal(node.sent.length, 0, 'nothing sponsored');
+  await none.close(); await bad.close();
+
+  const proven = await serve({ node: stand(), identity: id({ status: 'verified', facts: ['adult', 'eu-residence'] }), identityMode: 'proof' });
+  const s = await proven.call('/settle', await body(req()));
+  assert.equal(s.success, true);
+  assert.deepEqual(s.extensions['concordium-identity'].proof.facts, ['adult', 'eu-residence']);
+  await proven.close();
+});
+
 test('demo seller: its card byte for byte, a 402 with the facilitator as fee payer, then paid and settled', async () => {
   const card = Buffer.from('{"name":"demo — seller"}');
   const node = stand();
