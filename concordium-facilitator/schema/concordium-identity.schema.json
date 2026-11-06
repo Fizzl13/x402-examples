@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://concordium-facilitator.onrender.com/schema/concordium-identity.json",
+  "title": "concordium-identity",
+  "description": "What Concordium says about the seller of an x402 payment: the payTo account's identity credential and, when the paid endpoint's Agent Card shows a Concordium badge, that agent in the Agent Registry (CIS-8004). Carried in x402 /verify and /settle answers as extensions[\"concordium-identity\"] and returned by GET /identity. Read-only facts, never a score.",
+  "type": "object",
+  "required": ["outcome"],
+  "additionalProperties": false,
+  "properties": {
+    "outcome": {
+      "description": "verified-agent: payTo is the agent wallet of an active, registered agent whose anchored card lists the paid endpoint's origin. identity-backed: no verified agent, but payTo has a valid identity credential. expired: payTo's identity credential has expired. not-read: nothing could be read (node or registry unreachable); never a pass or a fail.",
+      "enum": ["verified-agent", "identity-backed", "expired", "not-read"]
+    },
+    "credential": {
+      "description": "The payTo account's first identity credential, read from the node (account info). Absent when it could not be read.",
+      "type": "object",
+      "required": ["provider", "validTo", "expired", "revealed"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "description": "The identity provider's name from the chain (getIdentityProviders), or \"identity provider <n>\".", "type": "string" },
+        "validTo": { "description": "The credential's policy.validTo as YYYY-MM; valid through the end of that month.", "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}$" },
+        "expired": { "type": "boolean" },
+        "revealed": { "description": "Attributes the account itself revealed on chain (policy.revealedAttributes), or null. Nothing else about the person is shown.", "type": ["object", "null"] }
+      }
+    },
+    "agent": {
+      "description": "Present when the paid endpoint's origin serves /.well-known/agent-card.json with a Concordium badge.",
+      "type": "object",
+      "required": ["tokenAddress", "outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "tokenAddress": { "description": "The badge: the agent's CIS-2 token address in the registry.", "type": "string" },
+        "outcome": {
+          "description": "verified-wallet: payTo is the registered agent wallet. owner-only: no agent wallet is set and payTo is the owner. mismatch: payTo is not the agent's wallet. revoked: the agent is not Active. card-mismatch: the card at agent_uri doesn't hash to the metadata_hash on chain. endpoint-unlisted: the anchored card doesn't list this origin (a copied badge proves nothing). other-network: the badge belongs to another network's registry. not-read: the registry or the anchored card could not be read.",
+          "enum": ["verified-wallet", "owner-only", "mismatch", "revoked", "card-mismatch", "endpoint-unlisted", "other-network", "not-read"]
+        },
+        "tokenId": { "type": ["string", "null"] },
+        "status": { "description": "The registry status, e.g. Active.", "type": ["string", "null"] },
+        "agentWallet": { "type": ["string", "null"] },
+        "reason": { "description": "Why the outcome is not verified-wallet, in plain words.", "type": "string" }
+      }
+    }
+  },
+  "examples": [
+    {
+      "outcome": "verified-agent",
+      "credential": { "provider": "Concordium testnet IP", "validTo": "2027-11", "expired": false, "revealed": null },
+      "agent": { "tokenAddress": "JyP9Y8gHmf4U8QPMm1TkT", "tokenId": "993", "status": "Active", "agentWallet": "3HFbRLEGSVUsebprTBmTvpdbTkHg4ncutEYWf4EEaQfgQae9v3", "outcome": "verified-wallet" }
+    },
+    {
+      "outcome": "identity-backed",
+      "credential": { "provider": "Concordium testnet IP", "validTo": "2026-11", "expired": false, "revealed": null }
+    }
+  ]
+}

@@ -13,12 +13,13 @@ protocol 10) through `@concordium/web-sdk` 12.
 
 | Route | What |
 |---|---|
-| `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { feePayer } }] }` |
+| `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { feePayer } }], extensions: ["concordium-identity"] }` (no extension with `IDENTITY=off`) |
 | `POST /verify` | x402 v2 body `{ paymentPayload, paymentRequirements }` → `{ isValid, payer }` or `{ isValid: false, invalidReason, invalidMessage }` |
 | `POST /settle` | same body → `{ success, transaction, network, payer }` once the transfer is final on chain |
 | `GET /health` | `{ ok, network, sponsor, settled_today, daily_limit, sponsored, sponsored_today, fees_ccd }` |
 | `GET /identity` | `?url=<paid endpoint>&payTo=<account>`: what Concordium says about a seller (its identity credential; its agent in the Agent Registry) |
 | `GET /demo/paid` | testnet: a demo x402 seller (paid at agent #993's wallet), settled by this facilitator in-process; `GET /.well-known/agent-card.json` is its card, pinned in the Agent Registry |
+| `GET /schema/concordium-identity.json` | the JSON Schema of `extensions["concordium-identity"]` and of the /identity answer ([schema/concordium-identity.schema.json](schema/concordium-identity.schema.json)) |
 | `GET /payments` | the payments the sponsor account paid for, read from the chain (the wallet proxy's account history) |
 | `GET /` | a page for people: what it is, its live state, and the 402 option a seller adds |
 
