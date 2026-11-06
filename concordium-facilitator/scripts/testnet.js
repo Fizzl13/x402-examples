@@ -108,6 +108,10 @@ async function buy() {
   ok(`paid: ${body.transaction} (https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=${body.transaction})`);
   const id = body.identity;
   ok(`seller: ${id?.outcome ?? 'not reported'}${id?.agent ? ` (agent ${id.agent.tokenId ?? id.agent.tokenAddress}: ${id.agent.outcome}${id.agent.reason ? `, ${id.agent.reason}` : ''})` : ''}`);
+  // The demo seller serves its owner's zero-knowledge proof; a seller without one just has none to report.
+  if (id?.proof?.status === 'verified') ok(`seller proof: verified (${id.proof.facts.join(', ')})`);
+  else if (id?.proof) fail(`seller proof: ${id.proof.status}, ${id.proof.reason ?? ''}`);
+  else console.log('     seller proof: none served');
 }
 
 try { await (mode === 'buy' ? buy() : mode === 'pay' ? pay() : read()); } catch (err) { fail(err?.message ?? String(err)); }
