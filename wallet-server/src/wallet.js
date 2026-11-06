@@ -168,6 +168,36 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     await onAlert({ kind: "price", agentName: agent.name, purchaseId: p.id, host, text: `💸 ${agent.name} paid $${paid} to ${route}, ${times}× the usual $${usual} there. It was within your rules, so it went through. If the seller raised its price, lower the per-call limit or pause the agent.` });
   }
 
+  // After a purchase within the rules: has the price of the same API (host + path) gone up a little on every call?
+  // Each step stays under the 2x price-jump alert, and the median it compares with climbs along, so a slow ratchet
+  // (AgentCommerceBench E1: +5% a call) never trips it. A heads-up for the owner, at most once a day per agent and API:
+  // the last 5+ payments there never went down, at least 4 of them were raises, and the latest is 1.5x the first of
+  // that run and half a cent more. Not when the price-jump alert already went today. No AI, never blocks.
+  const RATCHET_RUN = 5, RATCHET_RAISES = 4, RATCHET_TIMES = 1.5, RATCHET_MIN_USD = 0.005;
+  const ratchetSent = new Map(); // `${agent}|${route}` -> day
+  const usd6 = (n) => Math.round(n * 1e6) / 1e6;
+  async function checkRatchet(agent, purchase, p) {
+    const route = routeOf(purchase?.url), paid = usdOfAmounts(p.amounts);
+    if (!route || !paid) return;
+    const key = `${agent.id}|${route}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (ratchetSent.get(key) === day || priceSent.get(key) === day) return;
+    const earlier = (await store.listPurchases(200))
+      .filter((x) => x.agent === agent.id && x.id !== p.id && routeOf(x.what?.url) === route)
+      .map((x) => usdOfAmounts(x.amounts)).filter((n) => n > 0).slice(0, 9);
+    const prices = [...earlier.reverse(), paid]; // oldest first, this payment last
+    let start = prices.length - 1, raises = 0;
+    while (start > 0 && prices[start - 1] <= prices[start]) { if (prices[start - 1] < prices[start]) raises++; start--; }
+    const first = prices[start], run = prices.length - start;
+    if (run < RATCHET_RUN || raises < RATCHET_RAISES || !(paid >= first * RATCHET_TIMES && paid - first >= RATCHET_MIN_USD)) return;
+    ratchetSent.set(key, day);
+    if (ratchetSent.size > 1000) ratchetSent.delete(ratchetSent.keys().next().value);
+    const host = hostOf(purchase.url);
+    const times = Math.round((paid / first) * 10) / 10;
+    await log("price_ratchet", { agent: agent.name, purchase: p.id, route, from: usd6(first), paid: usd6(paid), payments: run });
+    safeTrack("price_ratchet", { usd: paid, input: { host }, result: { from: usd6(first), times, payments: run } });
+    await onAlert({ kind: "ratchet", agentName: agent.name, purchaseId: p.id, host, text: `📈 ${agent.name} paid ${route} ${run} times in a row, a little more each time: from $${usd6(first)} to $${usd6(paid)} (${times}×). Each step was small and within your rules, so it went through. If the seller keeps raising its price, lower the per-call limit or pause the agent.` });
+  }
+
   // After a purchase within the rules: did this agent pay the same seller (host) several times in a few minutes,
   // together more than its per-call USDC limit? That is what a purchase split into parts under the limit looks like
   // (structuring: each part passes, the whole wouldn't). A heads-up for the owner, at most once a day per agent and
@@ -278,7 +308,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
         checkUnusual(agent, purchase, p).catch((err) => console.warn(`[unusual] ${err.message}`)); // in the background: the agent doesn't wait
-        checkPriceJump(agent, purchase, p).catch((err) => console.warn(`[price] ${err.message}`));
+        checkPriceJump(agent, purchase, p).then(() => checkRatchet(agent, purchase, p)).catch((err) => console.warn(`[price] ${err.message}`));
         checkSplit(agent, purchase, p, raw).catch((err) => console.warn(`[split] ${err.message}`));
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }

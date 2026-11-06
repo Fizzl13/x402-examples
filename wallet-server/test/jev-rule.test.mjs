@@ -140,6 +140,46 @@ test("price jump: paying the same API 2× its usual price (and a cent more) give
   assert.ok((await wallet.state()).events.some((e) => e.type === "price_jump"));
 });
 
+test("creeping price: +8% a call never trips the 2× price jump, but 7 rising payments (1.5× the first) give one heads-up a day; never blocked", async () => {
+  const alerts = [];
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "100" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("bot");
+  const agent = await wallet.agentForKey(key);
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const buy = (micro, url = "https://api.seller.test/quote") => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "quote", url } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  for (const m of [20000, 21600, 23300, 25200, 27200, 29400]) { assert.equal((await buy(m)).status, "ok"); await settle(); }
+  assert.equal(alerts.length, 0, "six steps of +8%: 1.47× the first, not yet");
+  const r = await buy(31700); await settle();
+  assert.equal(r.status, "ok", "never blocked");
+  assert.deepEqual(alerts.map((a) => a.kind), ["ratchet"], "no price-jump alert: each step is small");
+  assert.match(alerts[0].text, /paid api\.seller\.test\/quote 7 times in a row, a little more each time: from \$0\.02 to \$0\.0317 \(1\.6×\)/);
+  await buy(34200); await settle();
+  assert.equal(alerts.length, 1, "once a day per agent and API");
+  assert.ok((await wallet.state()).events.some((e) => e.type === "price_ratchet"));
+});
+
+test("creeping price: a price that went down, stays flat, or rises on another path gives no heads-up", async () => {
+  const alerts = [];
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "100" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("bot");
+  const agent = await wallet.agentForKey(key);
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const buy = (micro, path) => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "quote", url: `https://api.seller.test/${path}` } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  // Up, a dip, then up again: the run since the dip is too short.
+  for (const m of [20000, 22000, 24000, 26000, 21000, 23000, 25000, 27000]) { assert.equal((await buy(m, "a")).status, "ok"); await settle(); }
+  // Flat, with only three raises in the run.
+  for (const m of [20000, 20000, 20000, 20000, 25000, 28000, 32000]) { assert.equal((await buy(m, "b")).status, "ok"); await settle(); }
+  // Rising on alternating paths: each path has its own history.
+  for (const [i, m] of [20000, 22000, 24000, 26000, 28000, 30000, 32000, 34000].entries()) { assert.equal((await buy(m, i % 2 ? "c" : "d")).status, "ok"); await settle(); }
+  assert.deepEqual(alerts.filter((a) => a.kind === "ratchet"), []);
+});
+
 test("split purchase: 3+ payments to one seller within 10 minutes, together over the per-call limit, give one heads-up a day; never blocked", async () => {
   const alerts = [];
   let t = 1_000_000;
