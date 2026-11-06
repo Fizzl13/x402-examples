@@ -108,3 +108,31 @@ export function createTrustIndex({ url = TRUST_INDEX_URL, fetch: fetchImpl = glo
     },
   };
 }
+
+// What a seller asked x402 Doctor for one URL in its latest daily scan (the free per-URL lookup), so the wallet can
+// tell when an agent was charged more than that: { usd, date }, or null when the URL isn't in the index, has no
+// dollar price there, or Doctor didn't answer. Kept 6 hours per URL; at most 500 URLs.
+export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
+export function createPriceSeen({ url = DOCTOR_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), ttlMs = TTL_MS } = {}) {
+  const cache = new Map(); // url -> { at, value }
+  return async function priceSeen(resource) {
+    if (typeof resource !== "string" || !/^https?:\/\//.test(resource)) return null;
+    const hit = cache.get(resource);
+    if (hit && now() - hit.at < ttlMs) return hit.value;
+    let value = null;
+    try {
+      const r = await fetchImpl(`${url}/api/trust?url=${encodeURIComponent(resource)}`, { headers: { "user-agent": "fizzl-wallet/1.0 (+https://wallet.fizzl.eu)" }, signal: AbortSignal.timeout(10_000) });
+      if (r.status === 404) value = null;
+      else if (!r.ok) return null; // not cached: try again next time
+      else {
+        const j = await r.json();
+        const usd = Number(j?.last_scan?.price_usd);
+        const date = Array.isArray(j?.price) && typeof j.price[1] === "string" ? j.price[1] : String(j?.updated ?? "").slice(0, 10) || null;
+        value = Number.isFinite(usd) && usd > 0 ? { usd, date } : null;
+      }
+    } catch { return null; }
+    cache.set(resource, { at: now(), value });
+    if (cache.size > 500) cache.delete(cache.keys().next().value);
+    return value;
+  };
+}

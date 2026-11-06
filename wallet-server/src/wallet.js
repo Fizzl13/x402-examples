@@ -64,7 +64,7 @@ const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
 
 // track(route, { input, result, usd }): anonymous usage statistics (src/usage.js): the seller's host and
 // the amount of a purchase, never who, what for, or to which address.
-export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null, answerChecker = null, onAlert = async () => {}, mandateIssuer = null } = {}) {
+export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null, answerChecker = null, onAlert = async () => {}, mandateIssuer = null, priceSeen = null } = {}) {
   let queue = Promise.resolve();
   const locked = (fn) => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
   const waiters = new Map(); // approval id -> Set of resolve functions (long polls)
@@ -188,7 +188,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     let start = prices.length - 1, raises = 0;
     while (start > 0 && prices[start - 1] <= prices[start]) { if (prices[start - 1] < prices[start]) raises++; start--; }
     const first = prices[start], run = prices.length - start;
-    if (run < RATCHET_RUN || raises < RATCHET_RAISES || !(paid >= first * RATCHET_TIMES && paid - first >= RATCHET_MIN_USD)) return;
+    if (run < RATCHET_RUN || raises < RATCHET_RAISES || !(paid >= first * RATCHET_TIMES && usd6(paid - first) >= RATCHET_MIN_USD)) return;
     ratchetSent.set(key, day);
     if (ratchetSent.size > 1000) ratchetSent.delete(ratchetSent.keys().next().value);
     const host = hostOf(purchase.url);
@@ -196,6 +196,29 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     await log("price_ratchet", { agent: agent.name, purchase: p.id, route, from: usd6(first), paid: usd6(paid), payments: run });
     safeTrack("price_ratchet", { usd: paid, input: { host }, result: { from: usd6(first), times, payments: run } });
     await onAlert({ kind: "ratchet", agentName: agent.name, purchaseId: p.id, host, text: `📈 ${agent.name} paid ${route} ${run} times in a row, a little more each time: from $${usd6(first)} to $${usd6(paid)} (${times}×). Each step was small and within your rules, so it went through. If the seller keeps raising its price, lower the per-call limit or pause the agent.` });
+  }
+
+  // After a purchase within the rules: did this seller charge the agent more than it asks everyone else? x402 Doctor
+  // calls every paid URL daily like any buyer would; when the agent paid 1.25x that price and half a cent more for the
+  // same URL, the owner gets a heads-up (AgentCommerceBench F2, price discrimination), at most once a day per agent
+  // and API, and not when the price-jump or creeping-price alert already went that day. A seller that prices by the
+  // request, or changed its price since the scan, can look the same: a heads-up, never a block. No AI.
+  const OVER_SCAN_TIMES = 1.25, OVER_SCAN_MIN_USD = 0.005;
+  const overScanSent = new Map(); // `${agent}|${route}` -> day
+  async function checkOverScan(agent, purchase, p) {
+    const route = routeOf(purchase?.url), paid = usdOfAmounts(p.amounts);
+    if (!priceSeen || !route || !paid) return;
+    const key = `${agent.id}|${route}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (overScanSent.get(key) === day || priceSent.get(key) === day || ratchetSent.get(key) === day) return;
+    const seen = await priceSeen(purchase.url);
+    if (!seen || !(paid >= seen.usd * OVER_SCAN_TIMES && usd6(paid - seen.usd) >= OVER_SCAN_MIN_USD)) return;
+    overScanSent.set(key, day);
+    if (overScanSent.size > 1000) overScanSent.delete(overScanSent.keys().next().value);
+    const host = hostOf(purchase.url);
+    const times = Math.round((paid / seen.usd) * 10) / 10;
+    await log("over_scan", { agent: agent.name, purchase: p.id, route, paid: usd6(paid), seen: usd6(seen.usd), date: seen.date });
+    safeTrack("over_scan_price", { usd: paid, input: { host }, result: { seen: usd6(seen.usd), times } });
+    await onAlert({ kind: "overcharge", agentName: agent.name, purchaseId: p.id, host, text: `🏷️ ${agent.name} paid $${usd6(paid)} to ${route}, ${times}× the $${usd6(seen.usd)} the seller asked x402 Doctor there${seen.date ? ` (daily scan of ${seen.date})` : ""}. It may charge your agent more than other buyers, or price per request. It was within your rules, so it went through. If it happens again, lower the per-call limit or pause the agent.` });
   }
 
   // After a purchase within the rules: did this agent pay the same seller (host) several times in a few minutes,
@@ -308,7 +331,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
         checkUnusual(agent, purchase, p).catch((err) => console.warn(`[unusual] ${err.message}`)); // in the background: the agent doesn't wait
-        checkPriceJump(agent, purchase, p).then(() => checkRatchet(agent, purchase, p)).catch((err) => console.warn(`[price] ${err.message}`));
+        checkPriceJump(agent, purchase, p).then(() => checkRatchet(agent, purchase, p)).then(() => checkOverScan(agent, purchase, p)).catch((err) => console.warn(`[price] ${err.message}`));
         checkSplit(agent, purchase, p, raw).catch((err) => console.warn(`[split] ${err.message}`));
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }
