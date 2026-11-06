@@ -114,6 +114,39 @@ The agent outcomes: `verified-wallet`, `owner-only` (no agent wallet set; payTo 
 `card-mismatch`, `endpoint-unlisted`, `other-network` (a badge from the other network's registry) and `not-read`; any
 outcome but `verified-wallet` carries a `reason`.
 
+## Who is paying (beyond the spec): the buyer's proof
+
+The same zero-knowledge proof works the other way round. A seller can sell only to buyers with an adult behind the
+paying account (an age-restricted service), or an EU resident or national (an EU-only one), without learning anything
+else about them. It lists the facts in its requirements:
+
+```json
+"extra": { "feePayer": "<this facilitator>", "buyerProof": ["adult"] }
+```
+
+(`adult`, `eu-residence`, `eu-nationality`, `id-document-valid`; `{ "facts": [...] }` is accepted too.) The agent's
+owner makes the proof once in their own wallet (https://x402-doctor.fizzl.eu/concordium-proof.html?role=buyer), for
+the challenge `sha256("concordium-x402-buyer-proof:v1|<network>|<account>")`, tied to the account the agent pays from:
+
+```json
+{ "type": "concordium-x402-buyer-proof", "version": 1, "network": "testnet", "account": "<paying account>",
+  "proves": ["adult"], "challenge": "…", "created": "…", "presentation": { … } }
+```
+
+and the agent sends it with the payment as `paymentPayload.extensions["concordium-buyer-proof"]`. It is no secret: from
+any other account it is worthless, because the credential that proved it must be one of the paying account's own and
+the transfer is signed by that account. Once the payment itself verifies, and before anything is signed, this
+facilitator (src/proof.js `createBuyerProofCheck`) checks that the file is for this network and the paying account, that
+the presentation was made for that challenge, that the zero-knowledge proofs verify against the chain and the
+credential is active, that the credential is one of the paying account's own, and that the verified statements show
+every fact asked. Otherwise `/verify` answers `isValid: false` and `/settle` `success: false` with `buyer_proof_required`
+(none sent) or `buyer_proof_invalid` (and why), and nothing is submitted. A verified proof rides along in the answers as
+`extensions["concordium-buyer-proof"]`: `{ status: "verified", account, facts, issuer, credential, created, required }`.
+A verified file is checked against the chain once per account and file for ten minutes, not on every payment.
+
+The demo seller's `/demo/adult` (testnet) asks for `["adult"]` and also says so in the 402's top-level
+`extensions["concordium-buyer-proof"].info` (the facts, the challenge, where to make the proof).
+
 ## /settle
 
 Verify again, sign as sponsor (`Transaction.sponsor`), submit, wait for finalization, and return
@@ -122,4 +155,4 @@ Verify again, sign as sponsor (`Transaction.sponsor`), submit, wait for finaliza
 
 ## /supported
 
-`{ "kinds": [{ "x402Version": 2, "scheme": "exact", "network": "ccd:…", "extra": { "feePayer": "<account>" } }], "extensions": ["concordium-identity"], "signers": { "ccd:…": ["<account>"] } }`
+`{ "kinds": [{ "x402Version": 2, "scheme": "exact", "network": "ccd:…", "extra": { "feePayer": "<account>" } }], "extensions": ["concordium-identity", "concordium-buyer-proof"], "signers": { "ccd:…": ["<account>"] } }`

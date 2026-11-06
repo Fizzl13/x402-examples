@@ -8,6 +8,8 @@
 //   IDENTITY          off | report (default: who the seller is, in the verify/settle answers) | agent (sponsor only
 //                     sellers paid at the wallet of a registered Concordium agent for that endpoint) | proof (sponsor
 //                     only sellers serving a verified zero-knowledge proof about the person behind their payTo)
+//   BUYER_PROOF       on (default: sellers may ask the buyer for a zero-knowledge proof about the person behind the
+//                     paying account, extra.buyerProof, and this facilitator checks it before sponsoring) | off
 //   DEMO_PAY_TO       testnet only: the demo seller's payTo (default agent #993's wallet), or off
 //   WALLET_PROXY      optional: Concordium wallet proxy for the payment history on the page (default per network)
 //   PORT              HTTP port (default 10000)
@@ -16,6 +18,7 @@ import { createApp } from './src/app.js';
 import { createNode } from './src/node.js';
 import { createHistory } from './src/history.js';
 import { createIdentity } from './src/identity.js';
+import { createBuyerProofCheck } from './src/proof.js';
 import { readFileSync } from 'node:fs';
 
 const env = process.env;
@@ -35,6 +38,7 @@ const app = createApp({
   history: createHistory({ network, sponsor, url: env.WALLET_PROXY?.trim() || undefined }),
   identity: createIdentity({ network, node }),
   identityMode: ['off', 'report', 'agent', 'proof'].includes(env.IDENTITY?.trim()) ? env.IDENTITY.trim() : 'report',
+  buyerProof: env.BUYER_PROOF?.trim() === 'off' ? null : createBuyerProofCheck({ network, node }),
   // The demo seller: paid at DEMO_PAY_TO (testnet agent #993's wallet), its card pinned in the Agent Registry.
   demo: env.DEMO_PAY_TO?.trim() !== 'off' && network.endsWith('0c0b3fd0f27') ? {
     payTo: env.DEMO_PAY_TO?.trim() || '3HFbRLEGSVUsebprTBmTvpdbTkHg4ncutEYWf4EEaQfgQae9v3',

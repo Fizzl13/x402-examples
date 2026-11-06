@@ -144,9 +144,13 @@ export async function verifyPayment({ requirements: req, payload, sponsor, node,
 
 // Facilitator: verify, sign as sponsor, submit, and wait for the outcome. `sponsorSigner` signs for `sponsor`;
 // `node.send(signedTx)` returns the transaction hash, `node.waitFinal(hash)` the outcome { success, reason }.
-export async function settlePayment({ requirements, payload, sponsor, sponsorSigner, node, now = Date.now() }) {
+// `check(v)` (optional) runs once the payment verifies and before anything is signed: it returns null to go ahead, or
+// { errorReason, detail, ... } to refuse (e.g. the buyer proof a seller asks for).
+export async function settlePayment({ requirements, payload, sponsor, sponsorSigner, node, now = Date.now(), check = null }) {
   const v = await verifyPayment({ requirements, payload, sponsor, node, now });
   if (!v.isValid) return { success: false, errorReason: v.invalidReason, ...(v.detail ? { detail: v.detail } : {}), network: requirements?.network, transaction: '' };
+  const refused = check ? await check(v) : null;
+  if (refused) return { success: false, ...refused, network: requirements.network, transaction: '', payer: v.payer };
   const sponsored = await Transaction.sponsor(v.tx, sponsorSigner);
   const hash = await node.send(Transaction.finalize(sponsored));
   const outcome = await node.waitFinal(hash);

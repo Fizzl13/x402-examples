@@ -13,12 +13,13 @@ protocol 10) through `@concordium/web-sdk` 12.
 
 | Route | What |
 |---|---|
-| `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { feePayer } }], extensions: ["concordium-identity"] }` (no extension with `IDENTITY=off`) |
+| `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { feePayer } }], extensions: ["concordium-identity", "concordium-buyer-proof"] }` (each off with `IDENTITY=off` / `BUYER_PROOF=off`) |
 | `POST /verify` | x402 v2 body `{ paymentPayload, paymentRequirements }` → `{ isValid, payer }` or `{ isValid: false, invalidReason, invalidMessage }` |
 | `POST /settle` | same body → `{ success, transaction, network, payer }` once the transfer is final on chain |
 | `GET /health` | `{ ok, network, sponsor, settled_today, daily_limit, sponsored, sponsored_today, fees_ccd }` |
 | `GET /identity` | `?url=<paid endpoint>&payTo=<account>`: what Concordium says about a seller (its identity credential; its agent in the Agent Registry) |
 | `GET /demo/paid` | testnet: a demo x402 seller (paid at agent #993's wallet), settled by this facilitator in-process; `GET /.well-known/agent-card.json` is its card, pinned in the Agent Registry |
+| `GET /demo/adult` | testnet: the same seller, adults only: its 402 asks for a buyer proof (`extra.buyerProof: ["adult"]`), and a payment without one is refused before anything is signed |
 | `GET /schema/concordium-identity.json` | the JSON Schema of `extensions["concordium-identity"]` and of the /identity answer ([schema/concordium-identity.schema.json](schema/concordium-identity.schema.json)) |
 | `GET /.well-known/concordium-proof.json` | testnet: the demo seller's zero-knowledge proof (18 or older, EU resident), made in its owner's wallet |
 | `GET /payments` | the payments the sponsor account paid for, read from the chain (the wallet proxy's account history) |
@@ -49,6 +50,7 @@ SPONSOR_ADDRESS=… SPONSOR_KEY=… npm start
 | `SELLERS` | comma-separated payTo accounts it sponsors (empty: any) |
 | `DAILY_LIMIT` | settlements a day (default 500) |
 | `IDENTITY` | `report` (default): who the seller is rides along in /verify and /settle as `extensions["concordium-identity"]`; `agent`: sponsor only sellers paid at the wallet of a registered Concordium agent for that endpoint; `proof`: sponsor only sellers serving a verified zero-knowledge proof about the person behind their payTo (`/.well-known/concordium-proof.json`); `off` |
+| `BUYER_PROOF` | `on` (default): sellers may ask who stands behind the paying account (`extra.buyerProof`), and payments are sponsored only with a verified buyer proof (`paymentPayload.extensions["concordium-buyer-proof"]`); `off` |
 | `DEMO_PAY_TO` | testnet only: the demo seller's payTo (default agent #993's wallet), or `off` |
 | `WALLET_PROXY` | wallet proxy for the payment history (default: Concordium's, per network) |
 
@@ -58,6 +60,8 @@ SPONSOR_ADDRESS=… SPONSOR_KEY=… npm start
 import { buildPayment } from './src/scheme.js';
 const payload = await buildPayment({ requirements, sender, nonce, signer }); // { signedTransaction }; signer: buildBasicAccountSigner(key)
 // PAYMENT-SIGNATURE: base64 of { x402Version: 2, accepted: requirements, payload }
+// A seller that asks for a buyer proof (extra.buyerProof): add extensions: { "concordium-buyer-proof": <the proof file> },
+// made once by the owner at https://x402-doctor.fizzl.eu/concordium-proof.html?role=buyer for the account the agent pays from.
 ```
 
 ## Status

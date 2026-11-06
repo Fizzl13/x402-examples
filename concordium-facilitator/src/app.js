@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { NETWORKS, paymentKey, settlePayment, verifyPayment } from './scheme.js';
 import { page } from './page.js';
-import { PROOF_PATH } from './proof.js';
+import { BUYER_PROOF_EXTENSION, PROOF_PATH, requiredBuyerFacts } from './proof.js';
 
 const MAX_BODY = 64 * 1024;
 // The concordium-identity extension's JSON Schema, served at GET /schema/concordium-identity.json.
@@ -16,8 +16,11 @@ const IDENTITY_SCHEMA = fs.readFileSync(new URL('../schema/concordium-identity.s
 // whose payTo is the wallet of an active, registered agent for that endpoint are sponsored).
 // demo: { payTo, card, proof, amount = '1000', asset = 'CCD' } adds a paid demo endpoint (GET /demo/paid, a plain x402 seller
 // settled by this facilitator in-process) and its seller's Agent Card (GET /.well-known/agent-card.json, served byte for
-// byte so its SHA-256 matches the metadata_hash pinned in the Agent Registry).
-export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, identity = null, identityMode = 'report', demo = null, now = () => Date.now(), log = console } = {}) {
+// byte so its SHA-256 matches the metadata_hash pinned in the Agent Registry). With buyerProof (src/proof.js
+// createBuyerProofCheck) it also serves GET /demo/adult: the same seller, for buyers who prove they are 18 or older.
+// buyerProof: sellers whose requirements carry extra.buyerProof (the facts the buyer must prove) are sponsored only when
+// the paying account's proof, sent as paymentPayload.extensions["concordium-buyer-proof"], shows them.
+export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, identity = null, identityMode = 'report', buyerProof = null, demo = null, now = () => Date.now(), log = console } = {}) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const allowed = sellers && sellers.length ? new Set(sellers) : null;
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
@@ -33,13 +36,26 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch { reject(Object.assign(new Error('not JSON'), { status: 400 })); } });
     req.on('error', reject);
   });
-  // The x402 body: { paymentPayload: { payload, accepted? }, paymentRequirements }.
+  // The x402 body: { paymentPayload: { payload, accepted?, extensions? }, paymentRequirements }.
   function parts(body) {
     const requirements = body?.paymentRequirements ?? body?.paymentPayload?.accepted;
     const payload = body?.paymentPayload?.payload;
     const resourceUrl = body?.paymentPayload?.resource?.url ?? (typeof requirements?.resource === 'string' ? requirements.resource : null);
-    return { requirements, payload, resourceUrl };
+    const buyerFile = body?.paymentPayload?.extensions?.[BUYER_PROOF_EXTENSION] ?? null;
+    return { requirements, payload, resourceUrl, buyerFile };
   }
+  // The buyer proof a seller asks for (extra.buyerProof): null when it asks none; otherwise { refused, result }, where
+  // refused is null when the paying account's proof shows every fact asked, else { reason, message }.
+  async function buyerCheck(requirements, payer, buyerFile) {
+    const required = requiredBuyerFacts(requirements);
+    if (required && !required.length) return null;
+    if (!required) return { refused: { reason: 'invalid_payment_requirements', message: 'extra.buyerProof must list facts: adult, eu-residence, eu-nationality, id-document-valid' }, result: null };
+    if (!buyerProof) return { refused: { reason: 'buyer_proof_unsupported', message: 'this facilitator does not check buyer proofs' }, result: null };
+    const result = await buyerProof(buyerFile, payer, required).catch((err) => ({ status: 'invalid', reason: `could not be checked (${err?.message || err})`, required }));
+    if (result.status === 'verified') return { refused: null, result };
+    return { refused: { reason: result.status === 'missing' ? 'buyer_proof_required' : 'buyer_proof_invalid', message: `this seller sells only to buyers who prove ${required.join(', ')}: ${result.reason}` }, result };
+  }
+  const withBuyer = (body, b) => (b?.result ? { ...body, extensions: { ...(body.extensions || {}), [BUYER_PROOF_EXTENSION]: b.result } } : body);
   // What Concordium says about the seller, when identity checks are on; null when off or not available.
   async function sellerIdentity(requirements, resourceUrl) {
     if (!identity || identityMode === 'off' || typeof requirements?.payTo !== 'string') return null;
@@ -62,8 +78,9 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     return null;
   }
 
-  // Settle one payment for a seller: daily limit, the identity policy, at most one settlement of it at a time.
-  async function settleOne(requirements, payload, resourceUrl) {
+  // Settle one payment for a seller: daily limit, the identity policy, the buyer proof it asks for, at most one
+  // settlement of it at a time.
+  async function settleOne(requirements, payload, resourceUrl, buyerFile = null) {
     if (settledToday() >= dailyLimit) return { success: false, errorReason: 'facilitator_daily_limit', network, transaction: '' };
     const id = await sellerIdentity(requirements, resourceUrl);
     const no = identityRefusal(id);
@@ -72,10 +89,15 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     if (settling.has(key)) return { success: false, errorReason: 'already_settling', network, transaction: '' };
     settling.add(key);
     try {
-      const s = await settlePayment({ requirements, payload, sponsor, sponsorSigner, node, now: now() });
+      let buyer = null;
+      const check = async (v) => {
+        buyer = await buyerCheck(requirements, v.payer, buyerFile);
+        return buyer?.refused ? { errorReason: buyer.refused.reason, detail: buyer.refused.message } : null;
+      };
+      const s = await settlePayment({ requirements, payload, sponsor, sponsorSigner, node, now: now(), check });
       if (s.transaction) settled += 1; // a submitted transaction cost the sponsor a fee, settled or not
       log.info?.(`[settle] ${s.success ? 'ok' : s.errorReason} ${s.transaction || ''} payer=${s.payer ?? '-'}`);
-      return withIdentity(s.detail ? { ...s, errorMessage: String(s.detail), detail: undefined } : s, id);
+      return withBuyer(withIdentity(s.detail ? { ...s, errorMessage: String(s.detail), detail: undefined } : s, id), buyer);
     } finally { settling.delete(key); }
   }
 
@@ -86,7 +108,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         const host = String(req.headers.host ?? '').replace(/[^A-Za-z0-9.:-]/g, '');
         const proto = req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https';
         const onChain = history ? await history.get().catch(() => null) : null;
-        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain, identityMode: identity ? identityMode : 'off', demo: Boolean(demo) });
+        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain, identityMode: identity ? identityMode : 'off', demo: Boolean(demo), buyerProof: Boolean(buyerProof) });
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
       }
@@ -111,10 +133,11 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' }, OPEN);
       }
       if (req.method === 'GET' && path === '/supported') {
-        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: identity && identityMode !== 'off' ? ['concordium-identity'] : [], signers: { [network]: [sponsor] } }, OPEN);
+        const extensions = [...(identity && identityMode !== 'off' ? ['concordium-identity'] : []), ...(buyerProof ? [BUYER_PROOF_EXTENSION] : [])];
+        return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions, signers: { [network]: [sponsor] } }, OPEN);
       }
       if (req.method === 'POST' && (path === '/verify' || path === '/settle')) {
-        const { requirements, payload, resourceUrl } = parts(await readBody(req));
+        const { requirements, payload, resourceUrl, buyerFile } = parts(await readBody(req));
         const refused = refusedSeller(requirements);
         if (path === '/verify') {
           if (refused) return json(res, 200, { isValid: false, invalidReason: refused });
@@ -123,10 +146,12 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
           const id = await sellerIdentity(requirements, resourceUrl);
           const no = identityRefusal(id);
           if (no) return json(res, 200, withIdentity({ isValid: false, invalidReason: 'seller_identity_not_verified', invalidMessage: no }, id));
-          return json(res, 200, withIdentity({ isValid: true, payer: v.payer }, id));
+          const buyer = await buyerCheck(requirements, v.payer, buyerFile);
+          if (buyer?.refused) return json(res, 200, withBuyer(withIdentity({ isValid: false, invalidReason: buyer.refused.reason, invalidMessage: buyer.refused.message, payer: v.payer }, id), buyer));
+          return json(res, 200, withBuyer(withIdentity({ isValid: true, payer: v.payer }, id), buyer));
         }
         if (refused) return json(res, 200, { success: false, errorReason: refused, network: requirements?.network ?? network, transaction: '' });
-        return json(res, 200, await settleOne(requirements, payload, resourceUrl));
+        return json(res, 200, await settleOne(requirements, payload, resourceUrl, buyerFile));
       }
       if (demo?.proof && req.method === 'GET' && path === PROOF_PATH) {
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', ...OPEN });
@@ -136,13 +161,17 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', ...OPEN });
         return res.end(demo.card);
       }
-      if (demo && req.method === 'GET' && path === '/demo/paid') {
+      // /demo/adult: the same seller, selling only to buyers who prove they are 18 or older (extra.buyerProof).
+      const adult = path === '/demo/adult' && Boolean(buyerProof);
+      if (demo && req.method === 'GET' && (path === '/demo/paid' || adult)) {
         const host = String(req.headers.host ?? '').replace(/[^A-Za-z0-9.:-]/g, '');
         const proto = req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https';
-        const resource = { url: `${proto}://${host}/demo/paid`, description: 'Demo: a paid answer on Concordium testnet, settled by this facilitator', mimeType: 'application/json' };
-        const requirements = { scheme: 'exact', network, amount: demo.amount ?? '1000', asset: demo.asset ?? 'CCD', payTo: demo.payTo, maxTimeoutSeconds: 120, extra: { feePayer: sponsor } };
+        const resource = { url: `${proto}://${host}${path}`, description: adult ? 'Demo: a paid answer on Concordium testnet for adults only: the buyer proves, with zero knowledge, that an adult stands behind the paying account' : 'Demo: a paid answer on Concordium testnet, settled by this facilitator', mimeType: 'application/json' };
+        const requirements = { scheme: 'exact', network, amount: demo.amount ?? '1000', asset: demo.asset ?? 'CCD', payTo: demo.payTo, maxTimeoutSeconds: 120, extra: { feePayer: sponsor, ...(adult ? { buyerProof: ['adult'] } : {}) } };
+        // What a buyer needs to know to pay /demo/adult: the facts, the challenge its proof is made for, and where to make it.
+        const extensions = adult ? { [BUYER_PROOF_EXTENSION]: { info: { facts: ['adult'], challenge: 'sha256("concordium-x402-buyer-proof:v1|<network>|<the account you pay from>")', make: 'https://x402-doctor.fizzl.eu/concordium-proof.html?role=buyer' } } } : undefined;
         const required = (error) => {
-          const body = { x402Version: 2, error, resource, accepts: [requirements] };
+          const body = { x402Version: 2, error, resource, accepts: [requirements], ...(extensions ? { extensions } : {}) };
           res.writeHead(402, { 'content-type': 'application/json', 'payment-required': Buffer.from(JSON.stringify(body)).toString('base64'), 'cache-control': 'no-store' });
           return res.end(JSON.stringify(body));
         };
@@ -150,10 +179,10 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         if (!header) return required('payment required');
         let paymentPayload;
         try { paymentPayload = JSON.parse(Buffer.from(String(header), 'base64').toString('utf8')); } catch { return required('the payment header is not base64 JSON'); }
-        const s = await settleOne(requirements, paymentPayload?.payload, resource.url);
+        const s = await settleOne(requirements, paymentPayload?.payload, resource.url, paymentPayload?.extensions?.[BUYER_PROOF_EXTENSION] ?? null);
         if (!s.success) return required(`${s.errorReason}${s.errorMessage ? `: ${s.errorMessage}` : ''}`);
         res.writeHead(200, { 'content-type': 'application/json', 'payment-response': Buffer.from(JSON.stringify(s)).toString('base64'), 'cache-control': 'no-store' });
-        return res.end(JSON.stringify({ paid: true, message: 'Paid on Concordium: the buyer signed, this facilitator sponsored the fee.', transaction: s.transaction, payer: s.payer, identity: s.extensions?.['concordium-identity'] ?? null }));
+        return res.end(JSON.stringify({ paid: true, message: adult ? 'Paid on Concordium by a buyer who proved an adult stands behind the paying account; this facilitator sponsored the fee.' : 'Paid on Concordium: the buyer signed, this facilitator sponsored the fee.', transaction: s.transaction, payer: s.payer, identity: s.extensions?.['concordium-identity'] ?? null, ...(adult ? { buyer: s.extensions?.[BUYER_PROOF_EXTENSION] ?? null } : {}) }));
       }
       return json(res, 404, { error: 'not found' });
     } catch (err) {
