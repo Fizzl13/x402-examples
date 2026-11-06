@@ -7,7 +7,7 @@ import { page } from './page.js';
 
 const MAX_BODY = 64 * 1024;
 
-export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, now = () => Date.now(), log = console } = {}) {
+export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, now = () => Date.now(), log = console } = {}) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const allowed = sellers && sellers.length ? new Set(sellers) : null;
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
@@ -43,11 +43,19 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
       if (req.method === 'GET' && path === '/') {
         const host = String(req.headers.host ?? '').replace(/[^A-Za-z0-9.:-]/g, '');
         const proto = req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https';
-        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '' });
+        const onChain = history ? await history.get().catch(() => null) : null;
+        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain });
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
       }
-      if (req.method === 'GET' && path === '/health') return json(res, 200, { ok: true, network, sponsor, settled_today: settledToday(), daily_limit: dailyLimit });
+      if (req.method === 'GET' && path === '/health') {
+        const onChain = history ? await history.get().catch(() => null) : null;
+        return json(res, 200, { ok: true, network, sponsor, settled_today: settledToday(), daily_limit: dailyLimit, ...(onChain ? { sponsored: onChain.sponsored, sponsored_today: onChain.sponsored_today, fees_ccd: onChain.fees_ccd } : {}) });
+      }
+      if (req.method === 'GET' && path === '/payments') {
+        const onChain = history ? await history.get().catch(() => null) : null;
+        return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' });
+      }
       if (req.method === 'GET' && path === '/supported') {
         return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { sponsor } }], extensions: [], signers: { [network]: [sponsor] } });
       }

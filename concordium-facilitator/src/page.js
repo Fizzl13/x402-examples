@@ -15,7 +15,14 @@ const SOURCE = 'https://github.com/Fizzl13/x402-examples/tree/main/concordium-fa
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = (s) => (s.length > 16 ? `${s.slice(0, 8)}…${s.slice(-6)}` : s);
 
-export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sellersOnly = false, base = '' }) {
+// The latest sponsored payments, from the chain (src/history.js).
+function recentTable(history, net, tx, acct) {
+  if (!history?.recent?.length) return '';
+  const rows = history.recent.map((p) => `<tr><td>${p.time ? esc(p.time.slice(0, 16).replace('T', ' ')) : ''}</td><td>${p.amount !== null ? `${esc(p.amount)} ${esc(p.asset ?? '')}` : '–'}</td><td><a href="${esc(acct(p.to ?? ''))}">${esc(short(p.to ?? ''))}</a></td><td>${esc(p.fee_ccd ?? '')}</td><td><a href="${esc(tx(p.tx))}">${esc(short(p.tx))}</a>${p.ok ? '' : ' (failed)'}</td></tr>`).join('');
+  return `<h2>Latest payments</h2><p>Read from the chain: every transfer this facilitator's account sponsored. The buyer paid no fee; the fee column is what the sponsor paid (${esc(net.name)} CCD).</p><div class="scroll"><table class="pay"><tr><th>UTC</th><th>Amount</th><th>To</th><th>Fee</th><th>Transaction</th></tr>${rows}</table></div>`;
+}
+
+export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sellersOnly = false, base = '', history = null }) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const net = NAMES[network] ?? { name: network, scan: 'https://ccdscan.io' };
   const first = FIRST[network];
@@ -46,7 +53,7 @@ h2 { font-size:20px; margin:40px 0 12px; }
 p { margin:0 0 12px; color:var(--muted); }
 p strong, li strong { color:var(--text); }
 a { color:var(--accent); }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-top:24px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:24px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; min-width:0; }
 .k { font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
 .v { font-size:18px; font-weight:700; margin-top:4px; overflow-wrap:anywhere; }
@@ -57,6 +64,10 @@ code { font-family:ui-monospace,"JetBrains Mono",Menlo,monospace; font-size:.92e
 table { width:100%; border-collapse:collapse; font-size:15px; }
 td { border-top:1px solid var(--line); padding:10px 8px 10px 0; vertical-align:top; color:var(--muted); }
 td:first-child { white-space:nowrap; color:var(--text); }
+th { text-align:left; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); padding:8px 8px 8px 0; font-weight:600; }
+.scroll { overflow-x:auto; }
+table.pay td, table.pay th { white-space:nowrap; padding-right:16px; }
+table.pay td:first-child { color:var(--muted); }
 footer { margin-top:48px; font-size:14px; color:var(--muted); }
 </style></head>
 <body><main>
@@ -68,8 +79,10 @@ footer { margin-top:48px; font-size:14px; color:var(--muted); }
   <div class="card"><div class="k">Status</div><div class="v ok">Live</div></div>
   <div class="card"><div class="k">Network</div><div class="v">${esc(net.name)}</div></div>
   <div class="card"><div class="k">Sponsor</div><div class="v"><a href="${esc(acct(sponsor))}">${esc(short(sponsor))}</a></div></div>
-  <div class="card"><div class="k">Settled today</div><div class="v">${Number(settledToday)} / ${Number(dailyLimit)}</div></div>
+  <div class="card"><div class="k">Payments sponsored</div><div class="v">${history ? `${Number(history.sponsored)}${history.partial ? '+' : ''}` : '–'}</div></div>
+  <div class="card"><div class="k">Today</div><div class="v">${history ? Number(history.sponsored_today) : Number(settledToday)} <span style="font-weight:400;color:var(--muted);font-size:14px">/ ${Number(dailyLimit)} a day</span></div></div>
 </div>
+${recentTable(history, net, tx, acct)}
 ${first ? `<p style="margin-top:16px">First payment settled ${esc(first.when)}: <a href="${esc(tx(first.tx))}">${esc(short(first.tx))}</a> (${esc(first.what)}).</p>` : ''}
 
 <h2>How a payment works</h2>
@@ -91,6 +104,7 @@ ${first ? `<p style="margin-top:16px">First payment settled ${esc(first.when)}: 
   <tr><td><code>GET /supported</code></td><td>the scheme, network and sponsor account</td></tr>
   <tr><td><code>POST /verify</code></td><td><code>{ paymentPayload, paymentRequirements }</code> → <code>{ isValid, payer }</code> or <code>invalidReason</code></td></tr>
   <tr><td><code>POST /settle</code></td><td>same body → <code>{ success, transaction, network, payer }</code> once final on chain</td></tr>
+  <tr><td><code>GET /payments</code></td><td>the sponsored payments, read from the chain</td></tr>
   <tr><td><code>GET /health</code></td><td>live state as JSON</td></tr>
 </table>
 
