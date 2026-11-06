@@ -30,7 +30,7 @@ async function read() {
   // A payment from a real account, signed with a key that isn't its: refused on its real on-chain credentials.
   const priv = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32).toString('hex');
   const req = { scheme: 'exact', network: TESTNET, amount: '1000', asset: 'CCD', payTo: KNOWN, maxTimeoutSeconds: 120, extra: { sponsor: KNOWN } };
-  const sender = process.env.READ_SENDER || '3paEXqKpvG8MiHa9YphTDEkbLJNpJjdzJcJt2Jt623xqjCYidx' // a testnet token governance account;
+  const sender = process.env.READ_SENDER || '3paEXqKpvG8MiHa9YphTDEkbLJNpJjdzJcJt2Jt623xqjCYidx'; // a testnet token governance account
   const realSender = (await node.accountInfo(sender)) ? sender : null;
   if (!realSender) { console.log(`skip signature check: ${sender.slice(0, 8)}… is not a testnet account`); return; }
   const payload = await buildPayment({ requirements: { ...req, payTo: KNOWN }, sender: realSender, nonce, signer: buildBasicAccountSigner(priv) });
