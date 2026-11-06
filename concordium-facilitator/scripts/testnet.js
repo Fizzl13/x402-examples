@@ -77,4 +77,29 @@ async function pay() {
   }
 }
 
-try { await (mode === 'pay' ? pay() : read()); } catch (err) { fail(err?.message ?? String(err)); }
+// buy: an x402 buyer against the demo seller (DEMO_URL, default the deployed facilitator's /demo/paid): GET, read
+// the 402, sign the payment it asks for, send it in PAYMENT-SIGNATURE, and print the answer, the transaction and what
+// Concordium said about the seller. Needs only BUYER_ADDRESS and BUYER_KEY.
+async function buy() {
+  const missing = ['BUYER_ADDRESS', 'BUYER_KEY'].filter((k) => !process.env[k]?.trim());
+  if (missing.length) return fail(`set ${missing.join(', ')} (repository secrets)`);
+  const url = process.env.DEMO_URL?.trim() || 'https://concordium-facilitator.onrender.com/demo/paid';
+  const first = await fetch(url, { signal: AbortSignal.timeout(150_000) });
+  if (first.status !== 402) return fail(`${url}: expected 402, got ${first.status}`);
+  const required = JSON.parse(Buffer.from(first.headers.get('payment-required') || '', 'base64').toString('utf8'));
+  const req = required.accepts?.find((a) => a.network === TESTNET && a.scheme === 'exact');
+  if (!req) return fail('no Concordium testnet option in the 402');
+  ok(`402: ${req.amount} ${req.asset} to ${req.payTo.slice(0, 8)}…, fee payer ${req.extra?.feePayer?.slice(0, 8)}…`);
+  const buyer = process.env.BUYER_ADDRESS.trim();
+  const token = req.asset === 'CCD' ? null : await node.token(req.asset);
+  const payload = await buildPayment({ requirements: req, sender: buyer, nonce: await node.nextNonce(buyer), signer: buildBasicAccountSigner(process.env.BUYER_KEY.trim()), token });
+  const header = Buffer.from(JSON.stringify({ x402Version: 2, resource: required.resource, accepted: req, payload })).toString('base64');
+  const paid = await fetch(url, { headers: { 'payment-signature': header }, signal: AbortSignal.timeout(150_000) });
+  const body = await paid.json().catch(() => ({}));
+  if (paid.status !== 200) return fail(`paid request: ${paid.status} ${body.error ?? ''}`);
+  ok(`paid: ${body.transaction} (https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=${body.transaction})`);
+  const id = body.identity;
+  ok(`seller: ${id?.outcome ?? 'not reported'}${id?.agent ? ` (agent ${id.agent.tokenId ?? id.agent.tokenAddress}: ${id.agent.outcome}${id.agent.reason ? `, ${id.agent.reason}` : ''})` : ''}`);
+}
+
+try { await (mode === 'buy' ? buy() : mode === 'pay' ? pay() : read()); } catch (err) { fail(err?.message ?? String(err)); }
