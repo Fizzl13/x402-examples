@@ -7,7 +7,10 @@ import { page } from './page.js';
 
 const MAX_BODY = 64 * 1024;
 
-export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, now = () => Date.now(), log = console } = {}) {
+// identity (src/identity.js createIdentity) and identityMode: 'off'; 'report' (default: what Concordium says about the
+// seller rides along in the verify and settle answers, as extensions["concordium-identity"]); or 'agent' (only sellers
+// whose payTo is the wallet of an active, registered agent for that endpoint are sponsored).
+export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, identity = null, identityMode = 'report', now = () => Date.now(), log = console } = {}) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const allowed = sellers && sellers.length ? new Set(sellers) : null;
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
@@ -24,8 +27,17 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
   function parts(body) {
     const requirements = body?.paymentRequirements ?? body?.paymentPayload?.accepted;
     const payload = body?.paymentPayload?.payload;
-    return { requirements, payload };
+    const resourceUrl = body?.paymentPayload?.resource?.url ?? (typeof requirements?.resource === 'string' ? requirements.resource : null);
+    return { requirements, payload, resourceUrl };
   }
+  // What Concordium says about the seller, when identity checks are on; null when off or not available.
+  async function sellerIdentity(requirements, resourceUrl) {
+    if (!identity || identityMode === 'off' || typeof requirements?.payTo !== 'string') return null;
+    try { return await identity.check({ resourceUrl, payTo: requirements.payTo }); } catch { return null; }
+  }
+  const identityRefusal = (id) => (identityMode === 'agent' && id?.outcome !== 'verified-agent'
+    ? `this facilitator sponsors only sellers whose payTo is the wallet of a registered Concordium agent for this endpoint (${id?.agent?.reason || id?.outcome || 'not read'})` : null);
+  const withIdentity = (body, id) => (id ? { ...body, extensions: { ...(body.extensions || {}), 'concordium-identity': id } } : body);
   function settledToday() {
     const today = new Date(now()).toISOString().slice(0, 10);
     if (today !== day) { day = today; settled = 0; }
@@ -44,13 +56,21 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         const host = String(req.headers.host ?? '').replace(/[^A-Za-z0-9.:-]/g, '');
         const proto = req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https';
         const onChain = history ? await history.get().catch(() => null) : null;
-        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain });
+        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain, identityMode: identity ? identityMode : 'off' });
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
       }
       if (req.method === 'GET' && path === '/health') {
         const onChain = history ? await history.get().catch(() => null) : null;
         return json(res, 200, { ok: true, network, sponsor, settled_today: settledToday(), daily_limit: dailyLimit, ...(onChain ? { sponsored: onChain.sponsored, sponsored_today: onChain.sponsored_today, fees_ccd: onChain.fees_ccd } : {}) });
+      }
+      // What Concordium says about a seller, before it goes live: /identity?url=<paid endpoint>&payTo=<account>.
+      if (req.method === 'GET' && path === '/identity') {
+        const q = new URL(req.url, 'http://x').searchParams;
+        const payTo = q.get('payTo') || '';
+        if (!identity || !/^[1-9A-HJ-NP-Za-km-z]{50}$/.test(payTo)) return json(res, 400, { error: 'give payTo (a Concordium account) and url (the paid endpoint)' });
+        const id = await identity.check({ resourceUrl: q.get('url') || null, payTo }).catch(() => null);
+        return json(res, id ? 200 : 503, id ?? { error: 'could not read' });
       }
       if (req.method === 'GET' && path === '/payments') {
         const onChain = history ? await history.get().catch(() => null) : null;
@@ -60,15 +80,22 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { feePayer: sponsor } }], extensions: [], signers: { [network]: [sponsor] } });
       }
       if (req.method === 'POST' && (path === '/verify' || path === '/settle')) {
-        const { requirements, payload } = parts(await readBody(req));
+        const { requirements, payload, resourceUrl } = parts(await readBody(req));
         const refused = refusedSeller(requirements);
         if (path === '/verify') {
           if (refused) return json(res, 200, { isValid: false, invalidReason: refused });
           const v = await verifyPayment({ requirements, payload, sponsor, node, now: now() });
-          return json(res, 200, v.isValid ? { isValid: true, payer: v.payer } : { isValid: false, invalidReason: v.invalidReason, ...(v.detail ? { invalidMessage: v.detail } : {}) });
+          if (!v.isValid) return json(res, 200, { isValid: false, invalidReason: v.invalidReason, ...(v.detail ? { invalidMessage: v.detail } : {}) });
+          const id = await sellerIdentity(requirements, resourceUrl);
+          const no = identityRefusal(id);
+          if (no) return json(res, 200, withIdentity({ isValid: false, invalidReason: 'seller_identity_not_verified', invalidMessage: no }, id));
+          return json(res, 200, withIdentity({ isValid: true, payer: v.payer }, id));
         }
         if (refused) return json(res, 200, { success: false, errorReason: refused, network: requirements?.network ?? network, transaction: '' });
         if (settledToday() >= dailyLimit) return json(res, 200, { success: false, errorReason: 'facilitator_daily_limit', network, transaction: '' });
+        const id = await sellerIdentity(requirements, resourceUrl);
+        const no = identityRefusal(id);
+        if (no) return json(res, 200, withIdentity({ success: false, errorReason: 'seller_identity_not_verified', errorMessage: no, network, transaction: '' }, id));
         const key = paymentKey(payload);
         if (settling.has(key)) return json(res, 200, { success: false, errorReason: 'already_settling', network, transaction: '' });
         settling.add(key);
@@ -76,7 +103,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
           const s = await settlePayment({ requirements, payload, sponsor, sponsorSigner, node, now: now() });
           if (s.transaction) settled += 1; // a submitted transaction cost the sponsor a fee, settled or not
           log.info?.(`[settle] ${s.success ? 'ok' : s.errorReason} ${s.transaction || ''} payer=${s.payer ?? '-'}`);
-          return json(res, 200, s.detail ? { ...s, errorMessage: String(s.detail), detail: undefined } : s);
+          return json(res, 200, withIdentity(s.detail ? { ...s, errorMessage: String(s.detail), detail: undefined } : s, id));
         } finally { settling.delete(key); }
       }
       return json(res, 404, { error: 'not found' });

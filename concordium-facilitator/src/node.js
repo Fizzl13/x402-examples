@@ -13,6 +13,7 @@ export function createNode({ host = 'grpc.testnet.concordium.com', port = 20000,
   }
   return {
     grpc,
+    identityProviders() { return grpc.getIdentityProviders(); },
     async accountInfo(a) { try { return await grpc.getAccountInfo(addr(a)); } catch { return null; } },
     async nextNonce(a) { return (await grpc.getNextAccountNonce(addr(a))).nonce.value; },
     async balance(a, asset) {

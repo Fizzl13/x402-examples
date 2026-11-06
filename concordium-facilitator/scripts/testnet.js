@@ -10,6 +10,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { buildBasicAccountSigner } from '@concordium/web-sdk';
 import { createNode } from '../src/node.js';
 import { buildPayment, settlePayment, verifyPayment } from '../src/scheme.js';
+import { createIdentity } from '../src/identity.js';
 
 const TESTNET = 'ccd:4221332d34e1694168c2a0c0b3fd0f27';
 const KNOWN = '3dt3UMPzRASZndjmKpSWgCP2HhmoxZrgs8FDPtZjNHZzj13hhB'; // an existing testnet account (read only)
@@ -28,6 +29,9 @@ async function read() {
   eurr ? ok(`EURR: ${eurr.decimals} decimals, ${eurr.paused ? 'paused' : 'not paused'}`) : fail('EURR not found');
   const nonce = await node.nextNonce(KNOWN);
   ok(`next nonce of ${KNOWN.slice(0, 8)}…: ${nonce}`);
+  // Who is being paid: the account's identity credential (provider, valid until), read from the node.
+  const who = await createIdentity({ network: TESTNET, node }).check({ resourceUrl: null, payTo: KNOWN });
+  who.credential ? ok(`identity of ${KNOWN.slice(0, 8)}…: ${who.outcome}, ${who.credential.provider}, valid to ${who.credential.validTo}`) : fail(`identity of ${KNOWN.slice(0, 8)}… not read`);
   // A payment from a real account, signed with a key that isn't its: refused on its real on-chain credentials.
   const priv = generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32).toString('hex');
   const req = { scheme: 'exact', network: TESTNET, amount: '1000', asset: 'CCD', payTo: KNOWN, maxTimeoutSeconds: 120, extra: { feePayer: KNOWN } };
