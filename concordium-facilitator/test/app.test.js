@@ -36,7 +36,7 @@ async function serve(opts) {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const call = async (path, body) => (await fetch(`${base}${path}`, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})).json();
-  return { call, close: () => new Promise((r) => server.close(r)) };
+  return { base, call, close: () => new Promise((r) => server.close(r)) };
 }
 const req = (over = {}) => ({ scheme: 'exact', network: TESTNET, amount: '10000', asset: 'CCD', payTo: seller.address, maxTimeoutSeconds: 120, extra: { sponsor: sponsor.address }, ...over });
 const body = async (r, nonce = 1n) => ({ x402Version: 2, paymentPayload: { x402Version: 2, accepted: r, payload: await buildPayment({ requirements: r, sender: buyer.address, nonce, signer: buyer.signer }) }, paymentRequirements: r });
@@ -47,6 +47,22 @@ test('/supported names the network and the sponsor; /health answers', async () =
   assert.deepEqual(sup.kinds, [{ x402Version: 2, scheme: 'exact', network: TESTNET, extra: { sponsor: sponsor.address } }]);
   assert.equal((await s.call('/health')).ok, true);
   await s.close();
+});
+
+test('GET / is a page with the network, the sponsor and how to use it', async () => {
+  const s = await serve({ node: stand() });
+  try {
+    const res = await fetch(`${s.base}/`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /text\/html/);
+    const html = await res.text();
+    assert.match(html, /Concordium testnet/);
+    assert.ok(html.includes(sponsor.address));
+    assert.ok(html.includes('&quot;sponsor&quot;'), 'the 402 example names the sponsor');
+    assert.match(html, /\/settle/);
+    assert.ok(html.includes(new URL(s.base).host), 'shows its own host as the facilitator URL');
+    assert.equal((await s.call('/health')).settled_today, 0);
+  } finally { await s.close(); }
 });
 
 test('/verify then /settle: valid, settled once, the same payment again is refused (used nonce)', async () => {

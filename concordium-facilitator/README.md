@@ -14,7 +14,8 @@ The scheme is written up in [SPEC.md](SPEC.md).
 | `GET /supported` | `{ kinds: [{ x402Version: 2, scheme: "exact", network, extra: { sponsor } }] }` |
 | `POST /verify` | x402 v2 body `{ paymentPayload, paymentRequirements }` → `{ isValid, payer }` or `{ isValid: false, invalidReason, invalidMessage }` |
 | `POST /settle` | same body → `{ success, transaction, network, payer }` once the transfer is final on chain |
-| `GET /health` | `{ ok, network, sponsor }` |
+| `GET /health` | `{ ok, network, sponsor, settled_today, daily_limit }` |
+| `GET /` | a page for people: what it is, its live state, and the 402 option a seller adds |
 
 What `/verify` checks: one plain transfer of exactly `amount` of `asset` to `payTo`; this facilitator as sole sponsor;
 the buyer's signature against its on-chain keys; the buyer's next nonce; an expiry within `maxTimeoutSeconds`; no
@@ -51,5 +52,8 @@ const payload = await buildPayment({ requirements, sender, nonce, signer }); // 
 
 ## Status
 
-Built and tested against a stand-in node (`npm test`). Not yet run against the live testnet: that needs the
-facilitator's own testnet account (with test CCD from the faucet) and a deploy.
+Live on the Concordium testnet: https://concordium-facilitator.onrender.com (Render, free instance, so the first call
+after a quiet spell takes up to a minute). Its first payment, 0.001 CCD with the buyer paying no fee, settled on
+6 Nov 2026: [1b2edc98…](https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=1b2edc98d09914df0df49a96ff3371cdd6edbdf4c9390ce5d9e522b093254c98).
+`.github/workflows/concordium-testnet.yml` checks it against the live testnet (read-only on every pull request; one
+real testnet payment when started by hand with mode `pay`). PLT payments (e.g. EURR) are next.
