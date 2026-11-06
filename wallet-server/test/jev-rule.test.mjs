@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { memoryStore } from "../src/store.js";
 import { createWallet } from "../src/wallet.js";
 import { createRuleChecker, cleanRule, ruleOutcome } from "../src/jev-rule.js";
+import { createPriceSeen } from "../src/trust.js";
 
 const quiet = { warn() {} };
 // $1.50 USDC on Base: under the default $5 per purchase.
@@ -178,6 +179,70 @@ test("creeping price: a price that went down, stays flat, or rises on another pa
   // Rising on alternating paths: each path has its own history.
   for (const [i, m] of [20000, 22000, 24000, 26000, 28000, 30000, 32000, 34000].entries()) { assert.equal((await buy(m, i % 2 ? "c" : "d")).status, "ok"); await settle(); }
   assert.deepEqual(alerts.filter((a) => a.kind === "ratchet"), []);
+});
+
+test("charged more than others: paying 1.25× what the seller asked x402 Doctor for the same URL gives one heads-up a day; never blocked", async () => {
+  const alerts = [], asked = [];
+  const priceSeen = async (url) => { asked.push(url); return url.includes("/quote") ? { usd: 0.01, date: "2026-11-06" } : null; };
+  const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, priceSeen, onAlert: async (a) => alerts.push(a) });
+  await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "100" } }, unknownTokens: "ask", window: "24h" });
+  const { key } = await wallet.addAgent("bot");
+  const agent = await wallet.agentForKey(key);
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const buy = (micro, url = "https://api.seller.test/quote?pair=BTC") => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "quote", url } });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  assert.equal((await buy(10000)).status, "ok"); await settle();
+  assert.equal((await buy(12000)).status, "ok"); await settle();
+  assert.equal(alerts.length, 0, "the price Doctor saw, or a little more: no heads-up");
+  assert.equal((await buy(40000, "https://api.seller.test/unknown")).status, "ok"); await settle();
+  assert.equal(alerts.length, 0, "a URL Doctor doesn't know: no heads-up");
+  const r = await buy(15000); await settle();
+  assert.equal(r.status, "ok", "never blocked");
+  assert.deepEqual(alerts.map((a) => a.kind), ["overcharge"]);
+  assert.match(alerts[0].text, /paid \$0\.015 to api\.seller\.test\/quote, 1\.5× the \$0\.01 the seller asked x402 Doctor there \(daily scan of 2026-11-06\)/);
+  assert.equal(asked.at(-1), "https://api.seller.test/quote?pair=BTC", "looked up with the full URL the agent paid");
+  await buy(20000); await settle();
+  assert.equal(alerts.length, 1, "once a day per agent and API");
+  assert.ok((await wallet.state()).events.some((e) => e.type === "over_scan"));
+});
+
+test("charged more than others: without a price lookup, or after a price jump the same day, no second heads-up", async () => {
+  const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", SELLER = "0x1111111111111111111111111111111111111111";
+  const transfer = (micro) => ({ type: "transaction", chainId: 8453, to: USDC, value: "0", data: `0xa9059cbb${SELLER.slice(2).padStart(64, "0")}${BigInt(micro).toString(16).padStart(64, "0")}` });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  for (const priceSeen of [null, async () => ({ usd: 0.01, date: "2026-11-06" })]) {
+    const alerts = [];
+    const wallet = createWallet({ store: memoryStore(), signers: [], authority: null, priceSeen, onAlert: async (a) => alerts.push(a) });
+    await wallet.setPolicy({ tokens: { USDC: { perTx: "5", perDay: "100" } }, unknownTokens: "ask", window: "24h" });
+    const { key } = await wallet.addAgent("bot");
+    const agent = await wallet.agentForKey(key);
+    const buy = (micro) => wallet.reserve(agent, { method: "writeContract", request: transfer(micro), purchase: { description: "quote", url: "https://api.seller.test/quote" } });
+    for (const m of [10000, 10000, 50000]) { assert.equal((await buy(m)).status, "ok"); await settle(); }
+    assert.deepEqual(alerts.map((a) => a.kind), ["price"], "the price jump says it; no second heads-up for the same API that day");
+  }
+});
+
+test("createPriceSeen: the seller's price in Doctor's last scan, null for unknown URLs, kept per URL", async () => {
+  const calls = [];
+  const fetch = async (u) => {
+    calls.push(u);
+    if (u.includes(encodeURIComponent("https://known.test/a"))) return new Response(JSON.stringify({ price: [0.02, "2026-11-06"], last_scan: { verdict: "go", price_usd: 0.02 } }), { status: 200 });
+    if (u.includes(encodeURIComponent("https://free.test/a"))) return new Response(JSON.stringify({ last_scan: { verdict: "caution" } }), { status: 200 });
+    if (u.includes(encodeURIComponent("https://down.test/a"))) return new Response("busy", { status: 503 });
+    return new Response("{}", { status: 404 });
+  };
+  const seen = createPriceSeen({ url: "https://doctor.test", fetch });
+  assert.deepEqual(await seen("https://known.test/a"), { usd: 0.02, date: "2026-11-06" });
+  assert.equal(calls[0], "https://doctor.test/api/trust?url=https%3A%2F%2Fknown.test%2Fa");
+  assert.deepEqual(await seen("https://known.test/a"), { usd: 0.02, date: "2026-11-06" });
+  assert.equal(calls.length, 1, "kept, not asked again");
+  assert.equal(await seen("https://free.test/a"), null, "no dollar price");
+  assert.equal(await seen("https://nobody.test/a"), null, "not in the index");
+  assert.equal(await seen("https://down.test/a"), null);
+  assert.equal(await seen("https://down.test/a"), null);
+  assert.equal(calls.filter((u) => u.includes("down.test")).length, 2, "an error is not kept: asked again next time");
+  assert.equal(await seen("ftp://x"), null);
 });
 
 test("split purchase: 3+ payments to one seller within 10 minutes, together over the per-call limit, give one heads-up a day; never blocked", async () => {

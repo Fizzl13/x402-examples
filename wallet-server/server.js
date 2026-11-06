@@ -46,6 +46,7 @@
 //   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
 //                       and is the key the server uses to ask Doctor again right before it mails a draft about its findings
 //   DOCTOR_URL          optional: x402 Doctor's base URL for that recheck (default https://x402-doctor.fizzl.eu)
+//                       and for the price a seller asked Doctor (the charged-more-than-others heads-up)
 //   PASS_SALE_KEY       optional: long random string, the same on x402 Doctor; lets Doctor hand in Fizzl Passes it sold
 //                       over x402 (POST /hooks/pass-sale)
 //   DRAFT_KEY           optional: long random string, the same as the GitHub secret of the outreach-draft workflow;
@@ -75,7 +76,7 @@ import { createOutreach, doctorRecheck } from "./src/outreach.js";
 import { createPush } from "./src/push.js";
 import { createMailer } from "./src/mail.js";
 import { createAgentMessageCheck, createCatalog, createSkillChecker } from "./src/catalog.js";
-import { createTrustIndex } from "./src/trust.js";
+import { createPriceSeen, createTrustIndex } from "./src/trust.js";
 import { createUsage } from "./src/usage.js";
 import { createStats } from "./src/stats.js";
 import { createWalletClient, http } from "viem";
@@ -146,7 +147,7 @@ const accounts = createAccounts({
     solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null,
     xrpl: env.XRPL_PAY_TO === "off" ? null : { payTo: env.XRPL_PAY_TO?.trim() || "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", rpcUrl: env.XRPL_RPC_URL || undefined },
     algorand: env.ALGORAND_PAY_TO === "off" ? null : { payTo: env.ALGORAND_PAY_TO?.trim() || "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4", indexerUrl: env.ALGORAND_INDEXER_URL || undefined, algodUrl: env.ALGORAND_ALGOD_URL || undefined } },
-  walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET },
+  walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET, priceSeen: createPriceSeen({ url: env.DOCTOR_URL?.trim() || undefined }) },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
 // New sellers in the catalog go to the Telegram of accounts that follow their category.
