@@ -1,0 +1,50 @@
+{
+  "type": "concordium-x402-buyer-proof",
+  "version": 1,
+  "network": "testnet",
+  "account": "3acKWtGJQuFqoDgt16ghwvrcEVSQygj67fynVWaAKbmnEHaWeZ",
+  "proves": [
+    "adult"
+  ],
+  "challenge": "f589816711f1b4e34c8327c9a3c58074f45482a149d646238b230c0bc917e5b1",
+  "created": "2026-11-06T20:54:57.345Z",
+  "presentation": {
+    "presentationContext": "f589816711f1b4e34c8327c9a3c58074f45482a149d646238b230c0bc917e5b1",
+    "proof": {
+      "created": "2026-11-06T20:54:55.433Z",
+      "proofValue": [],
+      "type": "ConcordiumWeakLinkingProofV1"
+    },
+    "type": "VerifiablePresentation",
+    "verifiableCredential": [
+      {
+        "credentialSubject": {
+          "id": "did:ccd:testnet:cred:8ecfdb2065bf29ec5355c0119b0e4836c10fe31860a2f65e5bc45b34ee643af232da05672b43b3151ab7226e9a37d9f3",
+          "proof": {
+            "created": "2026-11-06T20:54:55.433Z",
+            "proofValue": [
+              {
+                "proof": "8f001ee756d5bff0c53804208b1c8da3735b306e83db590f7f185f11ecf389e58a1d30b6701bdbbd90fd8b3af1adaf9dab557a96e6949056aa00ffc8e7063cb2a2bbf71d234fd6c31ef851a6b1135c4660418c0206c5018f15762e46f390a1ec97339f0cf6ea9f8ab8fec999d11af92ed0135db88f397bef11077f265a6332c3f46ced2d7811d4204a5e0e191d7f1b14b989ba4fcaef7b033bdd72db6b1ff88848f0f4b0782700b75fb68e0e77142e2a61fafb1d66e6c4f477e53dcab720d1de5ea4bc976e7da3f831be9e4999eea2831b6711459cc32541c08307afbd73f8ef51280793291970b8b3a036bfd388154dacdc332982c7756fbc099ffced98ab230d37e928976387e1a36b892e447c710a001c9ed97f79813372144f1bd618ce0b000000078fe51c719c48f4379811ec4d725e99b51e6e5b2ac21a9b586f2c5cf1d35dd4370442129f56fcc3863fc41483c409329383e784412724facea322f979489d3ce0e718aae3548d509cd8694a3c0aa0bd00455988bbe19dddeb5062cb1f0d19165880c861a6c6a98c90720f3a546d8c4692a862bc6f4e261e28759a6eb00d30406d5d8060b06e9c16b227838b8d59a9b7ed8b7faeb38a7ee77d049eb97131a8d86234eb89c50e7a3252e586da56456816db27d8bdddcfa12755879eacc8569e7022ae28c8384adf46dcb7a7d93f48615efbd1a4b7acda239aa8a0889dd690ca4c2a324c1d744cf51ea7ee25c567eedcdd19832df0f8a2cc19fe9b229e62a021946f40b5f816784dc4496bdf2db8eff3fe5cd337602625d5611c160b02b41eac72fea4e1f93b7e21cf4326c610b591614c338c6130ae9b313a6421ce8c8025e25f22988dba2d9a9e03aeedfe55a3032d2277859a7f3bd89b61361b8b1b043c668e4015981ef10e2dfaaa5fe1019150cc46570177cacd55cb66e026cf4061ef4a74bfa6f1767b30fbe193619f4b351d491069350dea9dba2c38882aabbb58d967d69c552c351dff9e2af29e84e7fa57bd3d01b4a09749c4d068ffb47538a8a1584fa8ca8f8d32dfd40c95b09929e34d861b80bda7a3671d6ebeae6d66fbbc847852c8adeef6a284b2bcf169933c593a73be12db01dd8ad1c23b2fa878bde23811c21514fdab9d351cf4d46dc44d1ddc4c3fe6b14ddf7a50f39ab383ea570ccf14fb84241e3d53d540533d9ce157ffe0745851e7b1da095cb30bdbe52e05ba6ae537b79139ef04b5ebf597c82b8d0adc903cec5d824706f3532b5ca4cdc662e0e69f4c783612eb021c099fe4e589caa24f0ae3b0eec69993ca29ddca772984ca8f9d39bf37977c4cfe6351fcee54af6d4b6a761a3ddb56627a5c4298af891f6368cb1709832b765a760cc402f7384ef1ba38917961d596ddc3f29e4927c5a1988264bd606cbc976f4318cdd54129f9781c3367c110e08b2a903701ed9756dcb150c5cd",
+                "type": "AttributeInRange"
+              }
+            ],
+            "type": "ConcordiumZKProofV3"
+          },
+          "statement": [
+            {
+              "attributeTag": "dob",
+              "lower": "18000101",
+              "type": "AttributeInRange",
+              "upper": "20081107"
+            }
+          ]
+        },
+        "issuer": "did:ccd:testnet:idp:0",
+        "type": [
+          "VerifiableCredential",
+          "ConcordiumVerifiableCredential"
+        ]
+      }
+    ]
+  }
+}

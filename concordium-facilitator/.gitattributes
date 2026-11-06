@@ -1,2 +1,3 @@
 demo/agent-card.json -text
 demo/concordium-proof.json -text
+demo/concordium-buyer-proof.json -text
