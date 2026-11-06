@@ -3,6 +3,7 @@
 // stranger can't spend the sponsor's CCD on fees by paying themselves.
 import http from 'node:http';
 import { NETWORKS, settlePayment, verifyPayment } from './scheme.js';
+import { page } from './page.js';
 
 const MAX_BODY = 64 * 1024;
 
@@ -25,6 +26,11 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     const payload = body?.paymentPayload?.payload;
     return { requirements, payload };
   }
+  function settledToday() {
+    const today = new Date(now()).toISOString().slice(0, 10);
+    if (today !== day) { day = today; settled = 0; }
+    return settled;
+  }
   function refusedSeller(requirements) {
     if (requirements?.network !== network) return 'invalid_network';
     if (allowed && !allowed.has(requirements?.payTo)) return 'seller_not_sponsored';
@@ -34,7 +40,14 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
   return http.createServer(async (req, res) => {
     const path = new URL(req.url, 'http://x').pathname;
     try {
-      if (req.method === 'GET' && path === '/health') return json(res, 200, { ok: true, network, sponsor });
+      if (req.method === 'GET' && path === '/') {
+        const host = String(req.headers.host ?? '').replace(/[^A-Za-z0-9.:-]/g, '');
+        const proto = req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https';
+        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '' });
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(html);
+      }
+      if (req.method === 'GET' && path === '/health') return json(res, 200, { ok: true, network, sponsor, settled_today: settledToday(), daily_limit: dailyLimit });
       if (req.method === 'GET' && path === '/supported') {
         return json(res, 200, { kinds: [{ x402Version: 2, scheme: 'exact', network, extra: { sponsor } }], extensions: [], signers: { [network]: [sponsor] } });
       }
@@ -47,9 +60,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
           return json(res, 200, v.isValid ? { isValid: true, payer: v.payer } : { isValid: false, invalidReason: v.invalidReason, ...(v.detail ? { invalidMessage: v.detail } : {}) });
         }
         if (refused) return json(res, 200, { success: false, errorReason: refused, network: requirements?.network ?? network, transaction: '' });
-        const today = new Date(now()).toISOString().slice(0, 10);
-        if (today !== day) { day = today; settled = 0; }
-        if (settled >= dailyLimit) return json(res, 200, { success: false, errorReason: 'facilitator_daily_limit', network, transaction: '' });
+        if (settledToday() >= dailyLimit) return json(res, 200, { success: false, errorReason: 'facilitator_daily_limit', network, transaction: '' });
         const key = String(payload?.transaction ?? '');
         if (settling.has(key)) return json(res, 200, { success: false, errorReason: 'already_settling', network, transaction: '' });
         settling.add(key);
