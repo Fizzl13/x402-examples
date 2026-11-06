@@ -123,3 +123,29 @@ test('identity: report mode adds what Concordium says about the seller; agent mo
   assert.equal((await off.call('/verify', await body(req()))).extensions, undefined);
   await off.close();
 });
+
+test('demo seller: its card byte for byte, a 402 with the facilitator as fee payer, then paid and settled', async () => {
+  const card = Buffer.from('{"name":"demo — seller"}');
+  const node = stand();
+  const s = await serve({ node, demo: { payTo: seller.address, card }, identity: { check: async () => ({ outcome: 'verified-agent' }) } });
+  const got = await fetch(`${s.base}/.well-known/agent-card.json`);
+  assert.deepEqual(Buffer.from(await got.arrayBuffer()), card);
+  const first = await fetch(`${s.base}/demo/paid`);
+  assert.equal(first.status, 402);
+  const required = JSON.parse(Buffer.from(first.headers.get('payment-required'), 'base64').toString());
+  const r = required.accepts[0];
+  assert.deepEqual([r.payTo, r.extra.feePayer, r.amount, r.asset], [seller.address, sponsor.address, '1000', 'CCD']);
+  assert.match(required.resource.url, /\/demo\/paid$/);
+  const payload = await buildPayment({ requirements: r, sender: buyer.address, nonce: 1n, signer: buyer.signer });
+  const header = Buffer.from(JSON.stringify({ x402Version: 2, resource: required.resource, accepted: r, payload })).toString('base64');
+  const paid = await fetch(`${s.base}/demo/paid`, { headers: { 'payment-signature': header } });
+  assert.equal(paid.status, 200);
+  const answer = await paid.json();
+  assert.deepEqual([answer.paid, answer.transaction, answer.identity.outcome], [true, 'hash1', 'verified-agent']);
+  const receipt = JSON.parse(Buffer.from(paid.headers.get('payment-response'), 'base64').toString());
+  assert.equal(receipt.success, true);
+  assert.equal(node.sent.length, 1);
+  const again = await fetch(`${s.base}/demo/paid`, { headers: { 'payment-signature': header } });
+  assert.equal(again.status, 402, 'the same payment again: its nonce is used');
+  await s.close();
+});

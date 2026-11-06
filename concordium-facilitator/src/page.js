@@ -23,7 +23,7 @@ function recentTable(history, net, tx, acct) {
   return `<h2>Latest payments</h2><p>Read from the chain: every transfer this facilitator's account sponsored. The buyer paid no fee; the fee column is what the sponsor paid (${esc(net.name)} CCD).</p><div class="scroll"><table class="pay"><tr><th>UTC</th><th>Amount</th><th>To</th><th>Fee</th><th>Transaction</th></tr>${rows}</table></div>`;
 }
 
-export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sellersOnly = false, base = '', history = null, identityMode = 'report' }) {
+export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sellersOnly = false, base = '', history = null, identityMode = 'report', demo = false }) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const net = NAMES[network] ?? { name: network, scan: 'https://ccdscan.io' };
   const first = FIRST[network];
@@ -96,6 +96,7 @@ ${first ? `<p style="margin-top:16px">First payment settled ${esc(first.when)}: 
 <h2>Who you pay: checked with Concordium</h2>
 <p>Every Concordium account is opened from an identity a regulated identity provider verified. Before sponsoring a payment this facilitator reads <strong>the seller's own credential</strong> (which provider, valid until when) and, when the seller's endpoint shows a Concordium badge in its Agent Card, checks <strong>its agent in Concordium's Agent Registry</strong>: active, its anchored card unchanged, this endpoint listed, and the payTo its registered agent wallet. The answer rides along in every <code>/verify</code> and <code>/settle</code> response as <code>extensions["concordium-identity"]</code>: <code>verified-agent</code>, <code>identity-backed</code>, <code>expired</code> or <code>not-read</code>.</p>
 <p>${identityMode === 'agent' ? 'This instance sponsors <strong>only verified agents</strong>: payments to any other payTo are refused before anything is signed.' : identityMode === 'off' ? 'Identity checks are off on this instance.' : 'This instance reports it; set <code>IDENTITY=agent</code> to sponsor only verified agents.'} Check a seller before going live: <code>GET /identity?url=&lt;paid endpoint&gt;&amp;payTo=&lt;account&gt;</code>.</p>
+${demo ? `<p><strong>Try it:</strong> <a href="/demo/paid"><code>/demo/paid</code></a> is a demo seller on testnet, paid at the wallet of agent #993 in Concordium's Agent Registry, whose <a href="/.well-known/agent-card.json">Agent Card</a> is pinned on chain. It answers 402; pay it with any x402 client for Concordium and the answer shows what this facilitator found about the seller.</p>` : ''}
 
 <h2>For sellers: the 402 option</h2>
 <p>Add this to <code>accepts[]</code> (here 0.01 CCD; amounts are in the smallest unit, 6 decimals for CCD):</p>
