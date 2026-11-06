@@ -1,0 +1,19 @@
+{
+  "name": "concordium-x402-facilitator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An x402 facilitator for Concordium: verifies a buyer's signed, sponsorable CCD or PLT transfer and settles it, paying the fee as sponsor.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@concordium/web-sdk": "12.0.2",
+    "@grpc/grpc-js": "1.14.7"
+  }
+}

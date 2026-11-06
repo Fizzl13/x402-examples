@@ -1,0 +1,26 @@
+# concordium-facilitator: offline tests on every change (a stand-in Concordium node; no keys, no network after install).
+name: concordium-facilitator
+
+on:
+  push:
+    branches: [main]
+    paths: ["concordium-facilitator/**", ".github/workflows/concordium-facilitator.yml"]
+  pull_request:
+    paths: ["concordium-facilitator/**", ".github/workflows/concordium-facilitator.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: concordium-facilitator
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci --ignore-scripts
+      - run: npm test
