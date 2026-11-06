@@ -147,6 +147,15 @@ A verified file is checked against the chain once per account and file for ten m
 The demo seller's `/demo/adult` (testnet) asks for `["adult"]` and also says so in the 402's top-level
 `extensions["concordium-buyer-proof"].info` (the facts, the challenge, where to make the proof).
 
+## An agent's statement (beyond the spec)
+
+`GET /statement?account=<paying account>` answers what an agent paid through this facilitator: every transfer that
+account signed and this facilitator sponsored (`payments`: tx, time, ok, to, asset, amount, sponsor_fee_ccd), the
+totals per asset (successful transfers only), and per payee how many payments and what Concordium says about it now
+(`identity`: identity-backed, expired or not-read, with provider and validTo). It is read from the account's own
+history on Concordium's wallet proxy (the latest 100 transactions; `partial: true` when there are more), so it needs
+no log of the facilitator's and holds after restarts. Every entry is a transfer the account itself signed.
+
 ## /settle
 
 Verify again, sign as sponsor (`Transaction.sponsor`), submit, wait for finalization, and return

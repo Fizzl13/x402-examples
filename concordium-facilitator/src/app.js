@@ -20,7 +20,9 @@ const IDENTITY_SCHEMA = fs.readFileSync(new URL('../schema/concordium-identity.s
 // createBuyerProofCheck) it also serves GET /demo/adult: the same seller, for buyers who prove they are 18 or older.
 // buyerProof: sellers whose requirements carry extra.buyerProof (the facts the buyer must prove) are sponsored only when
 // the paying account's proof, sent as paymentPayload.extensions["concordium-buyer-proof"], shows them.
-export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, identity = null, identityMode = 'report', buyerProof = null, demo = null, now = () => Date.now(), log = console } = {}) {
+// statement (src/history.js createStatement): GET /statement?account= lists what one paying account (an agent) paid
+// through this facilitator, to whom, and who those payees are.
+export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, statement = null, identity = null, identityMode = 'report', buyerProof = null, demo = null, now = () => Date.now(), log = console } = {}) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const allowed = sellers && sellers.length ? new Set(sellers) : null;
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
@@ -108,7 +110,7 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
         const host = String(req.headers.host ?? '').replace(/[^A-Za-z0-9.:-]/g, '');
         const proto = req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https';
         const onChain = history ? await history.get().catch(() => null) : null;
-        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain, identityMode: identity ? identityMode : 'off', demo: Boolean(demo), buyerProof: Boolean(buyerProof) });
+        const html = page({ network, sponsor, settledToday: settledToday(), dailyLimit, sellersOnly: !!allowed, base: host ? `${proto}://${host}` : '', history: onChain, identityMode: identity ? identityMode : 'off', demo: Boolean(demo), buyerProof: Boolean(buyerProof), statement: Boolean(statement) });
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
       }
@@ -131,6 +133,13 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
       if (req.method === 'GET' && path === '/payments') {
         const onChain = history ? await history.get().catch(() => null) : null;
         return json(res, onChain ? 200 : 503, onChain ?? { error: 'payment history unavailable' }, OPEN);
+      }
+      // An agent's statement: what the paying account sent through this facilitator, read from the chain.
+      if (req.method === 'GET' && path === '/statement') {
+        const account = new URL(req.url, 'http://x').searchParams.get('account') || '';
+        if (!statement || !/^[1-9A-HJ-NP-Za-km-z]{50}$/.test(account)) return json(res, 400, { error: 'give account: the Concordium account an agent pays from' }, OPEN);
+        const s = await statement(account).catch(() => null);
+        return json(res, s ? 200 : 503, s ?? { error: 'could not read the account history' }, OPEN);
       }
       if (req.method === 'GET' && path === '/supported') {
         const extensions = [...(identity && identityMode !== 'off' ? ['concordium-identity'] : []), ...(buyerProof ? [BUYER_PROOF_EXTENSION] : [])];

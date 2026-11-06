@@ -16,7 +16,7 @@
 import { buildBasicAccountSigner } from '@concordium/web-sdk';
 import { createApp } from './src/app.js';
 import { createNode } from './src/node.js';
-import { createHistory } from './src/history.js';
+import { createHistory, createStatement } from './src/history.js';
 import { createIdentity } from './src/identity.js';
 import { createBuyerProofCheck } from './src/proof.js';
 import { readFileSync } from 'node:fs';
@@ -30,13 +30,15 @@ if (!sponsor || !/^[0-9a-fA-F]{64}$/.test(key ?? '')) {
   process.exit(1);
 }
 const node = createNode({ host: env.CONCORDIUM_NODE?.trim() || undefined, port: env.CONCORDIUM_PORT || 20000 });
+const identity = createIdentity({ network, node });
 const app = createApp({
   network, sponsor, node,
   sponsorSigner: buildBasicAccountSigner(key),
   sellers: (env.SELLERS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   dailyLimit: Number(env.DAILY_LIMIT || 500),
   history: createHistory({ network, sponsor, url: env.WALLET_PROXY?.trim() || undefined }),
-  identity: createIdentity({ network, node }),
+  identity,
+  statement: createStatement({ network, sponsor, url: env.WALLET_PROXY?.trim() || undefined, identity }),
   identityMode: ['off', 'report', 'agent', 'proof'].includes(env.IDENTITY?.trim()) ? env.IDENTITY.trim() : 'report',
   buyerProof: env.BUYER_PROOF?.trim() === 'off' ? null : createBuyerProofCheck({ network, node }),
   // The demo seller: paid at DEMO_PAY_TO (testnet agent #993's wallet), its card pinned in the Agent Registry.

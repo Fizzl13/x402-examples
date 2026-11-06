@@ -66,3 +66,48 @@ export function createHistory({ network, sponsor, url = WALLET_PROXY[network], f
     },
   };
 }
+
+// Sums decimal strings exactly ("0.001" + "0.25" = "0.251").
+function addDecimals(a, b) {
+  const d = Math.max((a.split('.')[1] || '').length, (b.split('.')[1] || '').length);
+  const scale = (s) => BigInt((s.split('.')[0] || '0') + (s.split('.')[1] || '').padEnd(d, '0'));
+  return fromAtomic(String(scale(a) + scale(b)), d) ?? '0';
+}
+
+// An agent's statement: everything one paying account paid through this facilitator, read from that account's own
+// history on chain (so it holds after restarts and needs no log of ours), and who each payee is, from the payee's
+// identity credential (`identity`, src/identity.js). The owner of an agent, or anyone auditing it, sees what it paid,
+// to whom, how much in all, and whether each payee is backed by a verified identity.
+// statementOf(account) -> { account, network, sponsor, payments, totals, payees, partial }.
+export function createStatement({ network, sponsor, url = WALLET_PROXY[network], fetch = globalThis.fetch, identity = null, ttlMs = 60_000, now = () => Date.now(), limit = 100, maxPayees = 20 } = {}) {
+  const cache = new Map();
+  async function load(account) {
+    const res = await fetch(`${url}/v0/accTransactions/${encodeURIComponent(account)}?limit=${limit}&order=descending`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`wallet proxy ${res.status}`);
+    const body = await res.json();
+    // Only transfers this account sent and this facilitator sponsored.
+    const payments = (body.transactions || []).map((t) => sponsoredPayment(t, sponsor)).filter((p) => p && p.from === account)
+      .map(({ fee_ccd, from, ...p }) => ({ ...p, sponsor_fee_ccd: fee_ccd }));
+    const paid = payments.filter((p) => p.ok && p.asset && p.amount !== null);
+    const totals = new Map();
+    for (const p of paid) {
+      const t = totals.get(p.asset) ?? { asset: p.asset, amount: '0', count: 0 };
+      totals.set(p.asset, { ...t, amount: addDecimals(t.amount, p.amount), count: t.count + 1 });
+    }
+    const byPayee = new Map();
+    for (const p of paid) byPayee.set(p.to, (byPayee.get(p.to) ?? 0) + 1);
+    const payees = await Promise.all([...byPayee].sort((a, b) => b[1] - a[1]).slice(0, maxPayees).map(async ([to, count]) => {
+      const id = identity ? await identity.check({ resourceUrl: null, payTo: to }).catch(() => null) : null;
+      return { account: to, payments: count, identity: id?.outcome ?? 'not-read', ...(id?.credential ? { provider: id.credential.provider, validTo: id.credential.validTo, expired: id.credential.expired } : {}) };
+    }));
+    return { account, network, sponsor, payments, totals: [...totals.values()], payees, partial: (body.transactions || []).length >= limit };
+  }
+  return async function statementOf(account) {
+    const hit = cache.get(account);
+    if (hit && now() - hit.at < ttlMs) return hit.value;
+    const value = await load(account);
+    if (cache.size > 200) cache.delete(cache.keys().next().value);
+    cache.set(account, { at: now(), value });
+    return value;
+  };
+}

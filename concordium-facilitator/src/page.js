@@ -23,7 +23,7 @@ function recentTable(history, net, tx, acct) {
   return `<h2>Latest payments</h2><p>Read from the chain: every transfer this facilitator's account sponsored. The buyer paid no fee; the fee column is what the sponsor paid (${esc(net.name)} CCD).</p><div class="scroll"><table class="pay"><tr><th>UTC</th><th>Amount</th><th>To</th><th>Fee</th><th>Transaction</th></tr>${rows}</table></div>`;
 }
 
-export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sellersOnly = false, base = '', history = null, identityMode = 'report', demo = false, buyerProof = false }) {
+export function page({ network, sponsor, settledToday = 0, dailyLimit = 500, sellersOnly = false, base = '', history = null, identityMode = 'report', demo = false, buyerProof = false, statement = false }) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const net = NAMES[network] ?? { name: network, scan: 'https://ccdscan.io' };
   const first = FIRST[network];
@@ -102,6 +102,9 @@ ${buyerProof ? `<h2>Who pays: the buyer's proof</h2>
 <p>It works the other way round too. A seller that may only sell to adults, or only to people living in the EU, adds <code>"buyerProof": ["adult"]</code> to its 402's <code>extra</code>. The paying agent's owner proves it once from their own Concordium wallet (<a href="https://x402-doctor.fizzl.eu/concordium-proof.html?role=buyer">make one</a>), tied to the account the agent pays from, and the agent sends that file with its payments as <code>extensions["concordium-buyer-proof"]</code>. Before sponsoring, this facilitator verifies it against the chain, checks that it came from the paying account's own credential and shows what the seller asked; otherwise it refuses (<code>buyer_proof_required</code> or <code>buyer_proof_invalid</code>) and nothing is signed. The seller learns that the fact holds, and nothing else about the buyer.</p>
 ${demo ? `<p><strong>Try it:</strong> <a href="/demo/adult"><code>/demo/adult</code></a> is the demo seller for adults only.</p>` : ''}` : ''}
 
+${statement ? `<h2>What did my agent pay?</h2>
+<p>Every payment this facilitator sponsors is a transfer the agent's own account signed, so it is on chain for good. <code>GET /statement?account=&lt;the account your agent pays from&gt;</code> lists them: when, to whom, how much (with totals per asset), and for each payee what Concordium says about it now (an identity-backed account, its identity provider, an expired credential). Read from the chain, it needs no log of ours and holds after restarts. ${demo ? `Example: <a href="/statement?account=3acKWtGJQuFqoDgt16ghwvrcEVSQygj67fynVWaAKbmnEHaWeZ">the demo buyer's statement</a>.` : ''}</p>` : ''}
+
 <h2>For sellers: the 402 option</h2>
 <p>Add this to <code>accepts[]</code> (here 0.01 CCD; amounts are in the smallest unit, 6 decimals for CCD):</p>
 <pre>${esc(requirements)}</pre>
@@ -116,6 +119,7 @@ ${demo ? `<p><strong>Try it:</strong> <a href="/demo/adult"><code>/demo/adult</c
   <tr><td><code>POST /settle</code></td><td>same body → <code>{ success, transaction, network, payer }</code> once final on chain</td></tr>
   <tr><td><code>GET /identity</code></td><td><code>?url=&amp;payTo=</code>: what Concordium says about a seller (credential, registered agent, zero-knowledge proof)</td></tr>
   <tr><td><code>GET /payments</code></td><td>the sponsored payments, read from the chain</td></tr>
+${statement ? '  <tr><td><code>GET /statement</code></td><td><code>?account=</code>: what one agent paid through this facilitator, to whom, and who those payees are</td></tr>\n' : ''}
   <tr><td><code>GET /health</code></td><td>live state as JSON</td></tr>
 </table>
 
