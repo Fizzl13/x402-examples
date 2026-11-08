@@ -186,7 +186,8 @@ test("live view: a watch link shows every request and answer, never the exam id;
   const sheet = await (await freeExam(origin)).json();
   const w = sheet.watch.split("/live/")[1];
   assert.match(w, /^[0-9a-f]{18}$/);
-  const t = sheet.tasks[0];
+  // The order of the tasks is random: take one whose seller answers a plain GET (the summary task takes a POST).
+  const t = sheet.tasks.find((x) => !/\bPOST\b/.test(x.task));
   const url = t.task.match(/https?:\/\/\S+?\/e\/\S+?(?=[\s)]|$)/)[0].replace(/[.,;]$/, "");
   assert.equal((await fetch(url)).status, 402);
   await post(`${origin}/v1/exams/${sheet.exam}/answers`, { task: t.id, answer: "refused" });
