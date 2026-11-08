@@ -17,7 +17,7 @@ x402 Doctor never pays the endpoint you ask about. Its checks only read the 402 
 curl -s "https://x402-doctor.fizzl.eu/api/trust?url=<endpoint, URL-encoded>"
 ```
 
-The answer covers resources listed in the CDP Bazaar or the MPP directory, which are scanned once a day:
+The answer covers resources listed in the CDP Bazaar, Circle's Agent Marketplace, GoPlausible's discovery list, the XRPL AI Hub or the MPP directory, which are scanned once a day:
 
 | Field | Meaning |
 | --- | --- |
@@ -37,8 +37,8 @@ A long run of `g` with a recent go verdict is a good sign for a small payment. F
 GET https://x402-doctor.fizzl.eu/api/v1/preflight?url=<endpoint>&max_usd=<your budget>
 ```
 
-- **Optional parameters:** `method=POST` when the endpoint is called with POST, and `network=<CAIP-2 id>` to check one network only (for example `eip155:8453` for Base).
-- **Paying for it:** use the x402 client you already pay with. It costs $0.001 in USDC on Base, Solana or Algorand, RLUSD on the XRP Ledger, or MPP. For example, with Coinbase's Agentic Wallet:
+- **Optional parameters:** `method=POST` when the endpoint is called with POST, `network=<CAIP-2 id>` to check one network only (for example `eip155:8453` for Base), and `client=gateway` when your agent pays with Circle's Gateway client (`@circle-fin/x402-batching`) from a Gateway balance: an endpoint with only Circle Gateway options is then not a caution, and a Gateway option is recommended first.
+- **Paying for it:** use the x402 client you already pay with. It costs $0.001 in USDC on Base, Solana, Monad, Polygon, Arbitrum, Avalanche or Algorand, RLUSD on the XRP Ledger, or MPP. For example, with Coinbase's Agentic Wallet:
 
 ```bash
 npx awal@2.12.1 x402 pay "https://x402-doctor.fizzl.eu/api/v1/preflight?url=<endpoint, URL-encoded>&max_usd=0.05" --max-amount 1000
@@ -52,20 +52,29 @@ The answer:
 | --- | --- |
 | `verdict` | `go`, `caution` or `no_go`. `safe_to_pay` is false only for no_go. |
 | `summary` | One line to show the user. |
-| `reasons` | `[{ level, code, message }]`, for example `no_402`, `over_budget`, `payto_sanctioned` (the payout address is on the OFAC SDN list), `testnet_only`, `price_above_advertised`, `price_far_above_advertised` (10 times the advertised price or more), `suspicious_amount`, or `payments_fail_after_preflight` (other buyers paid and it failed). |
+| `reasons` | `[{ level, code, message }]`, for example `no_402`, `server_error` (it answers only with server errors: down or failing), `over_budget`, `payto_sanctioned` (the payout address is on the OFAC SDN list), `payto_burn` (an option pays out to the zero address or another burn address), `nevermined_plan` (only payable with a Nevermined account and plan, not with a standard x402 client), `custom_scheme_only` (only options in a scheme standard x402 clients don't pay), `gateway_only` (only Circle Gateway options: payable with Circle's client from a Gateway balance), `cloudflare_crawler_only` (only Cloudflare pay per crawl: payable by agents registered with Cloudflare), `testnet_only`, `price_above_advertised`, `price_far_above_advertised` (10 times the advertised price or more), `suspicious_amount`, `quote_expired` (the 402 is a quote whose own expiry has passed: request the endpoint again for a fresh quote, and never pay the expired one), or `payments_fail_after_preflight` (other buyers paid and it failed). |
 | `recommended_option` | The cheapest payment option that will settle. Pay that one. |
+| `checked`, `not_checked` | What the verdict covered and what it didn't. "go" never means the seller will deliver: Doctor doesn't pay. Each `not_checked` item has `because`: `unavailable` (a check couldn't run; `checks_complete` is then false), `no_data` (a new seller: no track record or purchases yet), `not_sent` (add the parameter in `send`, such as `max_usd`) or `out_of_scope` (your own request's answer, and what you sign: check the payment with presign-guard before signing). |
 | `receipt` | Signed by Doctor. Keep it: it proves which verdict you got, for example to explain later why you paid. |
 
 **Several endpoints at once:** `GET /api/v1/preflight/batch?url=<a>&url=<b>` checks up to 10 for $0.005.
 
 **Before an expensive call:** `GET /api/v1/preflight/deep?url=<endpoint>` costs $0.01. It adds the full diagnosis, the daily history, the seller's other endpoints and domain moves.
 
+**Building the agent yourself?** With the official x402 client, one line runs this preflight before every payment and aborts on no_go (and on caution unless you opt in), so the decision below doesn't depend on the model remembering it:
+
+- JavaScript (`@x402/core`, used by `@x402/fetch` and `@x402/axios`): `client.onBeforePaymentCreation(doctorPreflight({ client, maxUsd: 0.05 }))`, with `import { doctorPreflight } from "x402-safe-fetch/hook"`.
+- Python (`x402ClientSync`): `payer.on_before_payment_creation(doctor_preflight(session=session, max_usd=0.05))`, with `from fizzl.hook import doctor_preflight` (`pip install "fizzl[x402]"`).
+
 ## 3. Decide
 
-- **go:** pay, with `recommended_option`.
+- **go:** pay, with `recommended_option`. With `checks_complete: false`, or a `no_data` track record and purchases (a seller nobody has paid yet), keep the first payment small.
 - **caution:** show the user the `summary` and the `reasons`. Pay only if they agree, or if the amount is within what they already approved.
 - **caution because the price is far above the advertised one:** don't pay, even within the budget, unless the user agrees after seeing both prices. This applies when a reason is `price_above_advertised` and the price is more than twice the advertised one; its message gives both. From 10 times the advertised price, Doctor says no_go (`price_far_above_advertised`). A small difference, such as $0.012 for an advertised $0.01, is the caution above.
+- **caution because the price is very high (`price_very_high`):** the endpoint asks more than $100 a call and you passed no max_usd. Don't pay unless the user agrees to that price; a hostile 402 can ask for the whole wallet. Pass max_usd to let the budget decide.
 - **caution because others lost their money:** don't pay, even within the budget, unless the user agrees after seeing this warning. A task that names the endpoint is not that agreement. This applies when a reason is `charged_without_answer` (Doctor's own test purchase was charged and got no answer) or `payments_fail_after_preflight` (other buyers' payments failed). It also applies when the free track record has a `spot_buy` with result `charged_not_delivered`. The payment would most likely be lost.
+- **slow_after_payment (info):** Doctor's test purchase got its answer, but only after the seconds in the message. Pay only with a timeout longer than that, or the payment goes out and the answer never arrives.
+- **onchain_payments (info):** how many different wallets paid the seller's payout address on Base in the last 7 days, with signed USDC payments (the way x402 settles). Many different payers is a good sign; zero is not a bad sign by itself, because new sellers start there. A few wallets making most of the payments can be the seller testing itself.
 - **no_go:** don't pay. Tell the user why, using the `reasons`.
 
 ## 4. After paying
@@ -79,7 +88,7 @@ curl -s -X POST https://x402-doctor.fizzl.eu/api/v1/outcome -H 'content-type: ap
   -d '{"outcome":"paid_ok","status":200,"query":{"url":"<endpoint>","max_usd":"0.05"},"preflight":<the preflight answer, unchanged>}'
 ```
 
-- **`outcome`:** `paid_ok` means it answered 2xx, `paid_failed` means it answered 402 again, `paid_error` means another error after paying.
+- **`outcome`:** `paid_ok` means it answered 2xx, `paid_failed` means it answered 402 again, `paid_error` means another error after paying, `refused` means you decided not to pay. Send `reason` with it (the reason code that stopped you, e.g. `payto_changed`) and `source` (`doctor`, `presign-guard`, `policy` or `other`): the seller then learns why nobody pays.
 - **`query`:** the parameters you sent to the preflight, as strings.
 
 ## Input safety
