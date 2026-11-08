@@ -22,7 +22,8 @@ import { createExam, EXAM_MINUTES, PASS } from "./exam.js";
 import { memoryStore } from "./store.js";
 import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
-import { indexPage, badgeSvg, livePage, llmsTxt } from "./pages.js";
+import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt } from "./pages.js";
+import { createHash } from "node:crypto";
 import { createMcpHandler, serverCard } from "./mcp.js";
 import { fileURLToPath } from "node:url";
 import { createFeed } from "./feed.js";
@@ -56,6 +57,12 @@ export function agentUrlOf(v) {
     return { error: "agent.url must be an https address of at most 200 characters, like https://your-agent.example" };
   }
   return { url: u.href };
+}
+
+// An agent's stable key: its operator wallet (or "reference") and its name, not a version or one result. The badge at
+// /badge/agent/<key>.svg and the page /a/<key> always show the agent's latest finished exam.
+export function agentKey(r) {
+  return createHash("sha256").update(`${r.reference ? "reference" : String(r.operator || "").toLowerCase()}|${String(r.agent?.name || "").toLowerCase()}`).digest("hex").slice(0, 16);
 }
 
 export function examMessage({ name, version, operator, date }) {
@@ -340,10 +347,38 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     res.set("access-control-allow-origin", "*").json({ ...r, current: r.admitted && Date.parse(r.valid_until) > now() });
   });
 
+  const styleOf = (req) => (req.query.style === "fizzl" ? "fizzl" : undefined);
+  const withCurrent = (r) => r && { ...r, current: r.admitted && Date.parse(r.valid_until) > now() };
+
   app.get("/badge/:id.svg", async (req, res) => {
     const r = /^[0-9a-f]{24}$/.test(req.params.id) ? await store.get(`result:${req.params.id}`) : null;
-    usage.record("badge", { req, via: "web", input: { found: Boolean(r) } });
-    res.set("content-type", "image/svg+xml").set("cache-control", "max-age=3600").send(badgeSvg(r && { ...r, current: r.admitted && Date.parse(r.valid_until) > now() }));
+    usage.record("badge", { req, via: "web", input: { found: Boolean(r), style: styleOf(req) || "flat" } });
+    res.set("content-type", "image/svg+xml").set("cache-control", "max-age=3600").send(badgeSvg(withCurrent(r), { style: styleOf(req) }));
+  });
+
+  // The latest finished exam of one agent (agentKey), or null.
+  async function latestOf(key) {
+    if (!/^[0-9a-f]{16}$/.test(String(key))) return null;
+    let latest = null;
+    for (const r of await store.list("result:")) {
+      if (agentKey(r) === key && (!latest || latest.finished_at < r.finished_at)) latest = r;
+    }
+    return latest;
+  }
+
+  // The agent's badge: it follows the agent, so a new exam or an expired admission shows without a new link. Cached
+  // ten minutes, so a new result shows soon after it is signed.
+  app.get("/badge/agent/:key.svg", async (req, res) => {
+    const r = await latestOf(req.params.key);
+    usage.record("badge", { req, via: "web", input: { found: Boolean(r), style: styleOf(req) || "flat", agent: true } });
+    res.set("content-type", "image/svg+xml").set("cache-control", "max-age=600").set("access-control-allow-origin", "*").send(badgeSvg(withCurrent(r), { style: styleOf(req) }));
+  });
+
+  // The page the badge links to: the agent's latest result.
+  app.get("/a/:key", async (req, res) => {
+    const r = await latestOf(req.params.key);
+    if (!r) return res.status(404).type("text").send("This agent has no finished exam yet.");
+    res.redirect(302, `/r/${r.id}`);
   });
 
   // ---- Following a sitting -------------------------------------------------------------------------------------------
@@ -450,6 +485,8 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     result: `${origin}/v1/results/${r.id}`,
     replay: `${origin}/r/${r.id}`,
     badge: `${origin}/badge/${r.id}.svg`,
+    agent_badge: `${origin}/badge/agent/${agentKey(r)}.svg`,
+    agent_page: `${origin}/a/${agentKey(r)}`,
   });
 
   const mcp = createMcpHandler({
@@ -516,10 +553,12 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     res.type("html").send(livePage({ mode: "live", id: req.params.w, origin }));
   });
 
-  app.get("/r/:id", (req, res) => {
+  app.get("/r/:id", async (req, res) => {
     if (!/^[0-9a-f]{24}$/.test(req.params.id)) return res.status(404).type("text").send("no such result");
     usage.record("page", { req, via: "web", input: { page: "replay" } });
-    res.type("html").send(livePage({ mode: "result", id: req.params.id, origin }));
+    const r = await store.get(`result:${req.params.id}`);
+    const badge = r ? badgeBlock({ origin, key: agentKey(r), name: r.agent.name }) : "";
+    res.type("html").send(livePage({ mode: "result", id: req.params.id, origin, badge }));
   });
 
   app.get("/v1/signer", (_req, res) => res.json({ signer: signer?.address ?? null, signs: "EIP-191 personal_sign over the canonical JSON (sorted keys) of the result without signer and signature" }));

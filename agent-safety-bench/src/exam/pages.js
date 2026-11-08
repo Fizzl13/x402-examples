@@ -7,13 +7,46 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
 const day = (iso) => String(iso || "").slice(0, 10);
 
-export function badgeSvg(r) {
+// The badge. style "fizzl": Fizzl's own look (dark, mint outline, uppercase); otherwise the flat two-tone kind that
+// README badges use. An <img> can't load fonts, so text widths are set with textLength and always fit.
+export function badgeSvg(r, { style } = {}) {
+  if (style === "fizzl") return fizzlBadge(r);
   const label = "agent safety";
   const value = !r ? "not tested" : r.current ? `admitted · ${r.score}` : r.admitted ? `expired · ${r.score}` : `not admitted · ${r.score}`;
   const color = !r ? "#8a8f98" : r.current ? "#1f9d6b" : r.admitted ? "#b7791f" : "#c0392b";
   const lw = 88;
   const vw = Math.max(70, value.length * 7 + 14);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${lw + vw}" height="20" role="img" aria-label="${esc(label)}: ${esc(value)}"><title>${esc(label)}: ${esc(value)}</title><rect width="${lw}" height="20" fill="#20232a"/><rect x="${lw}" width="${vw}" height="20" fill="${color}"/><g fill="#fff" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11"><text x="8" y="14">${esc(label)}</text><text x="${lw + 7}" y="14">${esc(value)}</text></g></svg>`;
+}
+
+function fizzlBadge(r) {
+  const state = !r ? "none" : r.current ? "ok" : r.admitted ? "old" : "no";
+  const value = (!r ? "not tested" : r.current ? `admitted · ${r.score}` : r.admitted ? `expired · ${r.score}` : `not admitted · ${r.score}`).toUpperCase();
+  const color = { ok: "#61f5c3", old: "#ffb547", no: "#ff5d6c", none: "#82918f" }[state];
+  const label = "AGENT SAFETY";
+  const lw = Math.round(label.length * 6.9);
+  const vw = Math.round(value.length * 7.3);
+  const w = 34 + lw + 22 + vw + 16;
+  const mark = state === "ok" ? `<path d="M15 14.2l2.6 2.6 5.2-5.6" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : state === "no" ? `<path d="M15.4 11.4l5.2 5.2M20.6 11.4l-5.2 5.2" stroke="${color}" stroke-width="2" stroke-linecap="round"/>` : `<circle cx="18" cy="14" r="2" fill="${color}"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="28" viewBox="0 0 ${w} 28" role="img" aria-label="Agent Safety Index: ${esc(value.toLowerCase())}"><title>Agent Safety Index: ${esc(value.toLowerCase())} (exam.fizzl.eu)</title><rect x=".5" y=".5" width="${w - 1}" height="27" rx="13.5" fill="#020708" stroke="${color}" stroke-opacity=".75"/><circle cx="18" cy="14" r="8.5" fill="${color}" fill-opacity=".12" stroke="${color}" stroke-opacity=".6"/>${mark}<g font-family="Unbounded,Lexend,Verdana,DejaVu Sans,sans-serif" font-size="10.5" font-weight="700"><text x="34" y="18" fill="${color}" textLength="${lw}" lengthAdjust="spacingAndGlyphs">${label}</text><line x1="${34 + lw + 11}" y1="8" x2="${34 + lw + 11}" y2="20" stroke="${color}" stroke-opacity=".35"/><text x="${34 + lw + 22}" y="18" fill="#f4f8f7" textLength="${vw}" lengthAdjust="spacingAndGlyphs">${esc(value)}</text></g></svg>`;
+}
+
+// The block under a result: the agent's badge for its own site, with HTML and Markdown to copy. The badge and the link
+// follow the agent (its operator and name), not this one result, so they show its latest exam.
+export function badgeBlock({ origin, key, name }) {
+  if (!/^[0-9a-f]{16}$/.test(String(key))) return "";
+  const page = `${origin}/a/${key}`;
+  const img = (style) => `${origin}/badge/agent/${key}.svg${style ? `?style=${style}` : ""}`;
+  const alt = `Agent Safety Index: ${name}`;
+  const html = `<a href="${page}"><img src="${img("fizzl")}" alt="${esc(alt)}" height="28"></a>`;
+  const md = `[![${alt.replace(/[\[\]]/g, "")}](${img("")})](${page})`;
+  const box = (id, label, text) => `<div class="snip"><div class="snip-h"><span>${label}</span><button class="btn ghost" type="button" data-copy="${id}">Copy</button></div><pre id="${id}">${esc(text)}</pre></div>`;
+  return `<section class="wrap badges" id="badge"><h2 class="sec">Badge for your site</h2>
+<p class="muted">Put it on your agent's site or README. It always shows the agent's latest exam (admitted, expired or not admitted, with the score) and links to it, so it never goes stale.</p>
+<div class="badge-row"><a href="${esc(page)}"><img src="${esc(img("fizzl"))}" alt="${esc(alt)}" height="28"></a><a href="${esc(page)}"><img src="${esc(img(""))}" alt="${esc(alt)}" height="20"></a></div>
+${box("snip-html", "HTML (Fizzl style)", html)}${box("snip-md", "Markdown (README style)", md)}
+</section>
+<script>document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById(b.getAttribute("data-copy")).textContent;var done=function(){var o=b.textContent;b.textContent="Copied";setTimeout(function(){b.textContent=o},1500)};if(navigator.clipboard){navigator.clipboard.writeText(t).then(done,function(){})}else{var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");done()}catch(e){}a.remove()}})})</script>`;
 }
 
 // ---- Shared look ------------------------------------------------------------------------------------------------------
@@ -157,7 +190,7 @@ ${NAV(origin)}
 <div class="card step"><h3>Sign</h3><p><code>GET /v1/exams/message?agent=NAME&amp;version=1&amp;operator=0x…</code> and sign it with the operator wallet.</p></div>
 <div class="card step"><h3>Start</h3><p><code>POST /v1/exams</code> with <code>{ agent, operator, signature }</code>, or pay the POST with your x402 client. Add <code>agent.url</code> (https) and the index links your agent's page.</p></div>
 <div class="card step"><h3>Let it work</h3><p>Hand the task sheet to your agent. It pays in USDC on <b>Base Sepolia</b> with a throwaway key. Share the <code>watch</code> link to let anyone follow live.</p></div>
-<div class="card step"><h3>Finish</h3><p>Answers go to <code>…/answers</code>, then <code>…/finish</code>, within 30 minutes. The result is signed; badge at <code>/badge/&lt;result&gt;.svg</code>.</p></div>
+<div class="card step"><h3>Finish</h3><p>Answers go to <code>…/answers</code>, then <code>…/finish</code>, within 30 minutes. The result is signed, and its page has a badge for your site that always shows your agent's latest exam.</p></div>
 </div></section>
 </main>
 ${FOOT}<div class="toast" id="toast"></div>
@@ -184,7 +217,7 @@ const EXAM_MINUTES_TEXT = "30 minutes";
 
 // ---- The live view (and the replay of a finished result) ---------------------------------------------------------------
 
-export function livePage({ mode, id, origin }) {
+export function livePage({ mode, id, origin, badge = "" }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${mode === "live" ? "Live exam" : "Exam replay"} · Agent Safety Index</title>
 <meta name="description" content="Follow an AI agent through the x402 Agent Safety exam: every request, every 402, every check and every payment.">
@@ -231,6 +264,9 @@ h2.sec{font-size:20px;font-weight:600;margin:26px 0 12px;display:flex;flex-wrap:
 .c-dim{color:var(--faint)}.c-m{color:var(--mint)}.c-a{color:var(--amber)}.c-r{color:var(--red)}.c-b{color:var(--blue)}.c-g{color:var(--gold)}
 .ctl{display:flex;gap:8px;align-items:center}@media (max-width:600px){.stage .cap>span:first-child{display:none}.stage .cap{justify-content:flex-end}}.ctl .btn{min-height:36px;padding:0 16px;font-size:10px}
 .msg{padding:40px 22px;text-align:center}.msg h2{font-size:24px;margin-bottom:12px}.msg .ctas{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:18px}
+.badges{padding-bottom:30px}.badges .muted{color:var(--soft);max-width:760px}.badge-row{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:14px 0}
+.snip{border:1px solid var(--line2);border-radius:14px;background:linear-gradient(145deg,var(--card),var(--card2));margin-top:10px;overflow:hidden}.snip-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-bottom:1px solid var(--line2);font:500 10px var(--body);letter-spacing:2px;text-transform:uppercase;color:var(--mint)}.snip-h .btn{min-height:32px;padding:0 14px;font-size:10px}
+.snip pre{margin:0;padding:12px 14px;font:12px/1.6 var(--mono);color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .legend{display:flex;flex-wrap:wrap;gap:14px;font:12px var(--mono);color:var(--faint)}.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
 @media (max-width:860px){.grid{grid-template-columns:1fr}.scorecard{flex-direction:row;flex-wrap:wrap;justify-content:center}.ring{width:150px;height:150px}.ring svg{width:150px;height:150px}.ring .val b{font-size:42px}.kpis{flex:1;min-width:220px}}
 @media (max-width:600px){.ln{grid-template-columns:44px 30px 1fr;padding:2px 10px;font-size:11.5px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.tile{min-height:116px}.clock{font-size:22px}}
@@ -240,6 +276,7 @@ ${NAV(origin)}
 <main class="wrap" id="app">
 <div class="card msg" id="loading"><h2>Loading the sitting…</h2></div>
 </main>
+${badge}
 ${FOOT}<div class="toast" id="toast"></div>
 <script>${DEMO_SCRIPT}
 const MODE=${JSON.stringify(mode)},ID=${JSON.stringify(id)};
@@ -587,7 +624,8 @@ Not being listed says nothing either way: the agent was not entered. Before trus
 - [Server card](${origin}/.well-known/mcp/server-card.json)
 - [The index as JSON](${origin}/v1/index): every agent's latest result
 - \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address and what it signs
-- \`GET ${origin}/badge/<id>.svg\`: an agent's badge (admitted, expired or not admitted, with its score)
+- \`GET ${origin}/badge/<id>.svg\`: the badge of one result (admitted, expired or not admitted, with its score); \`?style=fizzl\` for Fizzl's look
+- \`GET ${origin}/badge/agent/<key>.svg\` and \`${origin}/a/<key>\`: an agent's badge and page, always its latest exam (\`agent_badge\` and \`agent_page\` in the MCP answers); the result page has HTML and Markdown to copy
 
 ## Take the exam
 - The first exam per operator wallet is free; every next one costs $${Number(feeUsd).toFixed(2)} over x402 (USDC on Base). At most 5 exams per wallet per day.
