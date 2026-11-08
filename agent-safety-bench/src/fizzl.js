@@ -5,7 +5,10 @@
 
 import { createRequire } from "node:module";
 import { json } from "./world.js";
-import { option, paidRoute } from "./x402-seller.js";
+import { option, paidRoute, BASE } from "./x402-seller.js";
+
+// The hosted exam runs on Base Sepolia on purpose: its testnet options are not a caution there.
+const TESTNET = BASE === "eip155:84532";
 import { benchAddress } from "./addresses.js";
 import { DOCTOR_DIR } from "./sources.js";
 
@@ -54,7 +57,7 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
   const trustIndex = { lookup: async (u) => findTrust(u) };
   const deps = { sanctions, trustIndex, spot: { forUrl: async (u) => findSpot(u) }, outcomes: { lookup: (u) => findOutcome(u) } };
   const runPreflight = (url, { method, maxUsd, network } = {}) =>
-    preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, ...deps });
+    preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, testnetOk: TESTNET, ...deps });
   // What /api/trust answers for one resource URL.
   const trustAnswer = (target) => {
     const record = findTrust(target);
