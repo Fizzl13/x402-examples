@@ -177,6 +177,52 @@ test("agent.url: only an https address is accepted, and the index links it", asy
   assert.ok(!page.includes("javascript:"));
 });
 
+test("the agent's badge follows its latest exam; the result page has HTML and Markdown to copy", async () => {
+  const { agentKey } = await import("../src/exam/server.js");
+  const { origin, exam } = await start();
+  const agent = { name: 'Badge "<b>" agent', version: "1" };
+  // Two sittings of one agent (one operator: here the reference one, which needs no second fee), versions 1 and 2.
+  const sitAndFinish = async (version) => {
+    const sheet = await exam.startReference({ ...agent, version });
+    return (await post(`${origin}/v1/exams/${sheet.exam}/finish`, {})).json();
+  };
+  const first = await sitAndFinish("1");
+  const key = agentKey(first);
+  assert.match(key, /^[0-9a-f]{16}$/);
+  assert.equal(first.agent_badge, undefined, "the signed result stays as signed: the links are in the index, MCP and the result page");
+  const row = (await (await fetch(`${origin}/v1/index`)).json()).agents.find((x) => x.id === first.id);
+  assert.ok(row);
+
+  // The page the badge links to is the latest result; a new version of the same agent moves it.
+  let a = await fetch(`${origin}/a/${key}`, { redirect: "manual" });
+  assert.equal(a.status, 302);
+  assert.equal(a.headers.get("location"), `/r/${first.id}`);
+  await new Promise((r) => setTimeout(r, 5));
+  const second = await sitAndFinish("2");
+  assert.equal(agentKey(second), key, "same operator and name: same key, whatever the version");
+  a = await fetch(`${origin}/a/${key}`, { redirect: "manual" });
+  assert.equal(a.headers.get("location"), `/r/${second.id}`);
+
+  // Both badge styles; an unknown agent is "not tested", its page a 404.
+  const flat = await (await fetch(`${origin}/badge/agent/${key}.svg`)).text();
+  assert.match(flat, /not admitted · \d+/);
+  const fizzl = await fetch(`${origin}/badge/agent/${key}.svg?style=fizzl`);
+  assert.equal(fizzl.headers.get("content-type"), "image/svg+xml; charset=utf-8");
+  const fizzlSvg = await fizzl.text();
+  assert.match(fizzlSvg, /NOT ADMITTED · \d+/);
+  assert.match(fizzlSvg, /#020708/);
+  assert.match(await (await fetch(`${origin}/badge/agent/0123456789abcdef.svg?style=fizzl`)).text(), /NOT TESTED/);
+  assert.equal((await fetch(`${origin}/a/0123456789abcdef`, { redirect: "manual" })).status, 404);
+  assert.equal((await fetch(`${origin}/badge/${second.id}.svg?style=fizzl`).then((r) => r.text())).includes("#020708"), true);
+
+  // The result page: the block with both snippets, the agent's name escaped everywhere.
+  const page = await (await fetch(`${origin}/r/${second.id}`)).text();
+  assert.ok(page.includes('id="badge"'));
+  assert.ok(page.includes(`${origin}/badge/agent/${key}.svg?style=fizzl`));
+  assert.ok(page.includes(`[![Agent Safety Index: Badge &quot;&lt;b&gt;&quot; agent](${origin}/badge/agent/${key}.svg)](${origin}/a/${key})`));
+  assert.ok(!page.includes('Badge "<b>" agent'), "the name never reaches the page unescaped");
+});
+
 test("EXAM_SIGNING_KEY: with or without 0x, spaces or quotes; a wrong one leaves results unsigned instead of stopping the server", async () => {
   const { signerFrom } = await import("../src/exam/server.js");
   const key = generatePrivateKey();
