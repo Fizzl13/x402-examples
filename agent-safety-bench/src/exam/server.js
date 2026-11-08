@@ -21,7 +21,9 @@ import { verifyMessage, getAddress, isAddress } from "viem";
 import { createExam, EXAM_MINUTES, PASS } from "./exam.js";
 import { memoryStore } from "./store.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
-import { indexPage, badgeSvg, livePage } from "./pages.js";
+import { indexPage, badgeSvg, livePage, llmsTxt } from "./pages.js";
+import { createMcpHandler, serverCard } from "./mcp.js";
+import { fileURLToPath } from "node:url";
 import { createFeed } from "./feed.js";
 import { EXAM_SCENARIOS } from "./catalog.js";
 import { randomBytes } from "node:crypto";
@@ -31,6 +33,7 @@ const DAY = 86400;
 export const VALID_DAYS = 30;
 export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6 };
 export const DEMO_PACE_MS = 650;
+const OG_IMAGE = fileURLToPath(new URL("./og.png", import.meta.url));
 const KINDS = { trap: EXAM_SCENARIOS.filter((s) => s.kind === "trap").length, honest: EXAM_SCENARIOS.filter((s) => s.kind === "honest").length };
 
 const today = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
@@ -371,12 +374,13 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     "always-pay": { name: "Demo agent: pays every 402", version: "demo" },
   };
 
-  app.post("/v1/demo", async (req, res) => {
-    const which = DEMO_AGENTS[req.body?.agent] ? req.body.agent : "follow-preflight";
+  // Starts a demo sitting; { page } or { status, error }.
+  async function launchDemo(agent, ip) {
+    const which = DEMO_AGENTS[agent] ? agent : "follow-preflight";
     const running = [...exams.values()].filter((e) => e.meta.demo && !e.finished).length;
-    if (running >= LIMITS.demosAtOnce) return res.status(429).json({ error: "a few demos are running already: watch one of those, or try again in a minute" });
+    if (running >= LIMITS.demosAtOnce) return { status: 429, error: "a few demos are running already: watch one of those, or try again in a minute" };
     const hour = new Date(now()).toISOString().slice(0, 13);
-    if ((await store.incr(`demo:${req.ip}:${hour}`, 3600)) > LIMITS.demosPerIpPerHour) return res.status(429).json({ error: `at most ${LIMITS.demosPerIpPerHour} demos per hour` });
+    if ((await store.incr(`demo:${ip}:${hour}`, 3600)) > LIMITS.demosPerIpPerHour) return { status: 429, error: `at most ${LIMITS.demosPerIpPerHour} demos per hour` };
     const { sitAsReference } = await import("./reference.js");
     let started;
     const ready = new Promise((resolve) => (started = resolve));
@@ -391,8 +395,89 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       },
     }).catch((err) => log.error?.(`[exam] demo failed: ${err.message}`));
     const s = await ready;
-    res.status(201).json({ watch: s.watch, page: s.watch.slice(origin.length) });
+    return { watch: s.watch, page: s.watch.slice(origin.length), agent: DEMO_AGENTS[which].name };
+  }
+
+  app.post("/v1/demo", async (req, res) => {
+    const d = await launchDemo(req.body?.agent, req.ip);
+    if (d.error) return res.status(d.status).json({ error: d.error });
+    res.status(201).json({ watch: d.watch, page: d.page });
   });
+
+  // ---- Findable: MCP, llms.txt, robots, sitemap, share image ---------------------------------------------------------
+
+  const publicRow = (r) => ({
+    agent: r.agent,
+    reference: Boolean(r.reference),
+    score: r.score,
+    admitted: r.admitted,
+    current: r.current,
+    traps_avoided: `${r.traps.avoided}/${r.traps.of}`,
+    honest_done: `${r.honest.done}/${r.honest.of}`,
+    lost_usd: r.lost_usd,
+    finished_at: r.finished_at,
+    valid_until: r.valid_until,
+    result: `${origin}/v1/results/${r.id}`,
+    replay: `${origin}/r/${r.id}`,
+    badge: `${origin}/badge/${r.id}.svg`,
+  });
+
+  const mcp = createMcpHandler({
+    handlers: {
+      async check({ agent, result_id }) {
+        if (result_id) {
+          const r = /^[0-9a-f]{24}$/.test(String(result_id)) ? await store.get(`result:${result_id}`) : null;
+          if (!r) throw new Error("no result with that id");
+          return { found: true, ...publicRow({ ...r, current: r.admitted && Date.parse(r.valid_until) > now() }), signer: r.signer ?? null, signature: r.signature ?? null };
+        }
+        const q = clean(agent).toLowerCase();
+        if (!q) throw new Error("give agent (its name) or result_id");
+        const rows = (await indexRows()).filter((r) => r.agent.name.toLowerCase().includes(q));
+        if (!rows.length) return { found: false, agent: clean(agent), message: "This agent has not taken the x402 Agent Safety exam. Not being listed says nothing either way: ask its operator to enter it.", take_the_exam: `${origin}/#take` };
+        return { found: true, ...publicRow(rows[0]), others: rows.slice(1, 6).map(publicRow) };
+      },
+      async index({ admitted_only }) {
+        const rows = (await indexRows()).filter((r) => !admitted_only || r.current);
+        return { index: `${origin}/`, pass: PASS, valid_days: VALID_DAYS, signer: signer?.address ?? null, agents: rows.map(publicRow) };
+      },
+      async howto({ agent, version, operator }) {
+        const name = clean(agent);
+        const v = clean(version || "1", 40);
+        const op = isAddress(String(operator || "")) ? getAddress(operator) : null;
+        const used = op ? await store.get(`free:${op.toLowerCase()}`) : null;
+        return {
+          exam: `${origin}/`,
+          what: `19 tasks at simulated x402 sellers (5 honest, 14 cheating), paid in USDC on Base Sepolia with a throwaway key: nothing is ever settled. ${EXAM_MINUTES} minutes. Admitted with at least ${PASS.traps * 100}% of the traps avoided, ${PASS.honest * 100}% of the honest tasks done and at most $${PASS.maxLostUsd} lost; valid ${VALID_DAYS} days.`,
+          price: `The first exam per operator wallet is free; every next one costs $${FEE_USD} over x402 (USDC on Base). At most ${LIMITS.perWalletPerDay} exams per wallet per day.`,
+          steps: [
+            `GET ${origin}/v1/exams/message?agent=NAME&version=1&operator=0x... and sign the message with the operator wallet (personal_sign)`,
+            `POST ${origin}/v1/exams with { "agent": { "name", "version", "url"? }, "operator", "signature" } (or pay the same POST with an x402 client): you get the task sheet and a watch link`,
+            "Give the task sheet to the agent; it pays the exam's sellers with its own x402 client",
+            `POST ${origin}/v1/exams/<exam>/answers with { task, answer } for each task, then POST ${origin}/v1/exams/<exam>/finish`,
+          ],
+          ...(name && op ? { message_to_sign: examMessage({ name, version: v, operator: op, date: today(now()) }), free_exam_available: !used } : {}),
+          ...(op && !name ? { free_exam_available: !used } : {}),
+        };
+      },
+      async demo({ agent }, req) {
+        const d = await launchDemo(agent, req.ip);
+        if (d.error) throw new Error(d.error);
+        return { watch_live: d.watch, agent: d.agent, note: "Open the link to follow every request, 402, x402 Doctor check and signed payment. The demo takes about a minute and is not stored." };
+      },
+    },
+  });
+  app.post("/mcp", mcp);
+  app.all("/mcp", (req, res) => res.status(405).set("allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "POST JSON-RPC to /mcp" }, id: null }));
+  app.get("/.well-known/mcp/server-card.json", (_req, res) => res.set("access-control-allow-origin", "*").set("cache-control", "public, max-age=3600").json(serverCard()));
+
+  app.get("/llms.txt", (_req, res) => res.type("text/plain").set("cache-control", "public, max-age=3600").send(llmsTxt({ origin, pass: PASS, validDays: VALID_DAYS, feeUsd: FEE_USD })));
+  app.get("/robots.txt", (_req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /e/\nDisallow: /live/\nDisallow: /v1/exams\n\nSitemap: ${origin}/sitemap.xml\n`));
+  app.get("/sitemap.xml", async (_req, res) => {
+    const rows = await indexRows();
+    const urls = [`${origin}/`, `${origin}/llms.txt`, ...rows.map((r) => `${origin}/r/${r.id}`)];
+    res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>\n`);
+  });
+  app.get("/og.png", (_req, res) => res.type("image/png").set("cache-control", "public, max-age=86400").sendFile(OG_IMAGE));
 
   app.get("/live/:w", (req, res) => {
     if (!watchId(req.params.w)) return res.status(404).type("text").send("no such sitting");

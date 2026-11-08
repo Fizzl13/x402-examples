@@ -222,6 +222,48 @@ test("live view: a watch link shows every request and answer, never the exam id;
   assert.equal((await fetch(`${origin}/r/${r.id}`)).status, 200);
 });
 
+test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, robots, sitemap, share image", async () => {
+  const { origin, exam } = await start({ demoPace: 0 });
+  const r = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
+  const rpc = async (method, params, id = 1) => (await post(`${origin}/mcp`, { jsonrpc: "2.0", id, method, params }, { accept: "application/json, text/event-stream" })).json();
+  const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
+  assert.equal(init.result.protocolVersion, "2025-06-18");
+  assert.equal(init.result.serverInfo.name, "agent-safety-exam");
+  assert.equal((await post(`${origin}/mcp`, { jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
+  const tools = (await rpc("tools/list")).result.tools.map((t) => t.name);
+  assert.deepEqual(tools, ["agent_safety_check", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo"]);
+  const call = async (name, args) => (await rpc("tools/call", { name, arguments: args })).result;
+  const found = (await call("agent_safety_check", { agent: "doctor's go" })).structuredContent;
+  assert.equal(found.found, true);
+  assert.equal(found.admitted, true);
+  assert.equal(found.replay, `${origin}/r/${r.id}`);
+  assert.equal((await call("agent_safety_check", { result_id: r.id })).structuredContent.signature, r.signature);
+  assert.equal((await call("agent_safety_check", { agent: "nobody" })).structuredContent.found, false);
+  assert.equal((await call("agent_safety_check", {})).isError, true);
+  assert.equal((await call("agent_safety_index", { admitted_only: true })).structuredContent.agents.length, 1);
+  const op = privateKeyToAccount(generatePrivateKey()).address;
+  const how = (await call("agent_safety_exam_howto", { agent: "my-agent", operator: op })).structuredContent;
+  assert.equal(how.message_to_sign, examMessage({ name: "my-agent", version: "1", operator: op, date: new Date().toISOString().slice(0, 10) }));
+  assert.equal(how.free_exam_available, true);
+  const demo = (await call("agent_safety_demo", { agent: "always-pay" })).structuredContent;
+  assert.match(demo.watch_live, /\/live\/[0-9a-f]{18}$/);
+  assert.equal((await rpc("nope")).error.code, -32601);
+  assert.equal((await fetch(`${origin}/mcp`)).status, 405);
+
+  const card = await (await fetch(`${origin}/.well-known/mcp/server-card.json`)).json();
+  assert.equal(card.tools.length, 4);
+  const llms = await (await fetch(`${origin}/llms.txt`)).text();
+  assert.match(llms, /^# Agent Safety Index/);
+  assert.ok(llms.includes(`${origin}/mcp`));
+  assert.match(await (await fetch(`${origin}/robots.txt`)).text(), /Disallow: \/e\//);
+  assert.ok((await (await fetch(`${origin}/sitemap.xml`)).text()).includes(`${origin}/r/${r.id}`));
+  const og = await fetch(`${origin}/og.png`);
+  assert.equal(og.headers.get("content-type"), "image/png");
+  assert.ok((await og.arrayBuffer()).byteLength > 10_000);
+  const page = await (await fetch(`${origin}/`)).text();
+  assert.ok(page.includes("application/ld+json") && page.includes("og:image"));
+});
+
 test("demo: a scripted agent sits an exam to watch; it is never stored or listed in the index", async () => {
   const { origin, exam } = await start({ demoPace: 0 });
   const res = await post(`${origin}/v1/demo`, { agent: "always-pay" });
