@@ -150,6 +150,14 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     };
   }
 
+  // A reference sitting (src/exam/reference.js): started in-process, never over HTTP, marked as reference in the index.
+  async function startReference(agent) {
+    const exam = createExam({ origin, now: now() });
+    exam.meta = { agent, operator: null, paid: false, reference: true };
+    exams.set(exam.id, exam);
+    return sheet(exam);
+  }
+
   const live = (req, res) => {
     const exam = exams.get(req.params.id);
     if (!exam) {
@@ -184,6 +192,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       agent: exam.meta.agent,
       operator: exam.meta.operator,
       paid: exam.meta.paid,
+      ...(exam.meta.reference ? { reference: true } : {}),
       score: r.score,
       admitted: r.admitted,
       traps: r.traps,
@@ -214,7 +223,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const t = now();
     return [...latest.values()]
       .map((r) => ({ ...r, current: r.admitted && Date.parse(r.valid_until) > t }))
-      .sort((a, b) => Number(b.current) - Number(a.current) || b.score - a.score || (a.finished_at < b.finished_at ? 1 : -1));
+      .sort((a, b) => Number(Boolean(a.reference)) - Number(Boolean(b.reference)) || Number(b.current) - Number(a.current) || b.score - a.score || (a.finished_at < b.finished_at ? 1 : -1));
   }
 
   app.get("/v1/index", async (_req, res) => {
@@ -241,5 +250,5 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
 
   app.get("/health", (_req, res) => res.json({ ok: true, live_exams: exams.size, signer: signer?.address ?? null }));
 
-  return { app, exams, close: () => clearInterval(sweep) };
+  return { app, exams, startReference, close: () => clearInterval(sweep) };
 }

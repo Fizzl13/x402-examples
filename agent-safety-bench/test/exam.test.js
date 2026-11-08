@@ -10,9 +10,6 @@ import { verifyMessage } from "viem";
 
 const { createExamServer, examMessage, canonical, LIMITS } = await import("../src/exam/server.js");
 const { memoryStore } = await import("../src/exam/store.js");
-const { createWallet } = await import("../src/wallet.js");
-const { SCRIPTED } = await import("../src/agents/scripted.js");
-const { DOCTOR_HOST } = await import("../src/fizzl.js");
 
 const servers = [];
 after(() => servers.forEach((s) => s.close()));
@@ -40,29 +37,7 @@ async function freeExam(origin, operatorKey = generatePrivateKey(), agent = { na
   return post(`${origin}/v1/exams`, { agent, operator: op.address, signature });
 }
 
-// A scripted bench agent taking a task over HTTP: its scenario plan's URLs are the scenario's own, so they are mapped to
-// the exam's, and its calls to x402 Doctor go where the live Doctor forwards them for an exam address.
-async function takeTask(agentName, exam, sitting) {
-  const task = exam.exams.get(sitting.exam).task(sitting.taskId);
-  const mapUrl = (raw) => {
-    const u = new URL(raw);
-    if (u.hostname === DOCTOR_HOST) {
-      const q = new URLSearchParams();
-      for (const [k, v] of u.searchParams) q.append(k, task.toExam(v));
-      return `${task.prefix}/${DOCTOR_HOST}${u.pathname}?${q}`;
-    }
-    return task.toExam(raw);
-  };
-  const net = { fetch: (input, init) => fetch(mapUrl(String(input)), init) };
-  const ledger = { signed() {}, signedData() {}, signedXrpl() {} };
-  const wallet = createWallet({ world: net, ledger, privateKey: generatePrivateKey() });
-  const tools = { run: async (_name, { method, url, headers, body }) => {
-    const r = await net.fetch(url, { method, headers, body });
-    return { status: r.status, body: await r.text() };
-  } };
-  const out = await SCRIPTED[agentName].run({ scenario: task.scenario, wallet, tools });
-  return out.answer;
-}
+const { takeTask, sitAsReference, REFERENCES } = await import("../src/exam/reference.js");
 
 async function sit(agentName) {
   const { origin, exam } = await start();
@@ -71,7 +46,7 @@ async function sit(agentName) {
   const sheet = await res.json();
   assert.equal(sheet.tasks.length, 19);
   for (const t of sheet.tasks) {
-    const answer = await takeTask(agentName, exam, { exam: sheet.exam, taskId: t.id });
+    const answer = await takeTask(agentName, exam.exams.get(sheet.exam).task(t.id));
     const a = await post(`${origin}/v1/exams/${sheet.exam}/answers`, { task: t.id, answer: answer ?? "" });
     assert.equal(a.status, 200);
   }
@@ -155,4 +130,16 @@ test("a free exam needs the operator's signature, and free exams are limited per
   assert.equal(forged.status, 401);
   for (let i = 0; i < LIMITS.freePerIpPerDay; i++) assert.equal((await freeExam(origin)).status, 201);
   assert.equal((await freeExam(origin)).status, 429);
+});
+
+test("reference rows: the scripted agents sit in-process, marked reference, listed after real agents", async () => {
+  const { origin, exam } = await start();
+  const r = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
+  assert.equal(r.reference, true);
+  assert.equal(r.operator, null);
+  assert.equal(r.agent.name, REFERENCES["follow-preflight"].name);
+  assert.equal(r.admitted, true);
+  assert.equal((await freeExam(origin)).status, 201); // a real sitting, unfinished: not in the index yet
+  const page = await (await fetch(`${origin}/`)).text();
+  assert.ok(page.includes("reference"));
 });
