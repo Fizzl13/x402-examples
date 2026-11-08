@@ -39,9 +39,27 @@ export function canonical(value) {
   return JSON.stringify(value);
 }
 
+// The result signer from EXAM_SIGNING_KEY: 64 hex characters, with or without 0x, spaces and quotes around it
+// forgiven. A key that still isn't one never stops the server: results are then unsigned, and the log says why
+// (without the key).
+export function signerFrom(raw, log = console) {
+  if (!raw) return null;
+  const hex = String(raw).trim().replace(/^["']|["']$/g, "").trim().replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    log.error?.(`[exam] EXAM_SIGNING_KEY is not a private key (expected 64 hex characters, with or without 0x; got ${hex.length} characters): results are not signed`);
+    return null;
+  }
+  try {
+    return privateKeyToAccount(`0x${hex.toLowerCase()}`);
+  } catch (err) {
+    log.error?.(`[exam] EXAM_SIGNING_KEY was refused (${err.message.split("\n")[0]}): results are not signed`);
+    return null;
+  }
+}
+
 export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
-  const signer = signingKey ? privateKeyToAccount(signingKey) : null;
+  const signer = signerFrom(signingKey, log);
   const exams = new Map(); // live sittings, in memory: a restart ends them
   const app = express();
   app.set("trust proxy", true);
