@@ -21,6 +21,7 @@ export const TOOLS = [
       properties: {
         agent: { type: "string", description: "The agent's name as it was entered (case-insensitive; a part of the name works too)" },
         result_id: { type: "string", description: "Or a result id (24 hex characters) from a badge or result link" },
+        site: { type: "string", description: "Or a website (example.com): every agent that names it, each marked verified when the site's /.well-known/agent-safety.json lists its operator wallet" },
       },
     },
     annotations: { readOnlyHint: true, openWorldHint: false },

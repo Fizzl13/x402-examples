@@ -49,6 +49,57 @@ ${box("snip-html", "HTML (Fizzl style)", html)}${box("snip-md", "Markdown (READM
 <script>document.querySelectorAll("[data-copy]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById(b.getAttribute("data-copy")).textContent;var done=function(){var o=b.textContent;b.textContent="Copied";setTimeout(function(){b.textContent=o},1500)};if(navigator.clipboard){navigator.clipboard.writeText(t).then(done,function(){})}else{var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");done()}catch(e){}a.remove()}})})</script>`;
 }
 
+// Agents by website: a form, and what was found for the site typed. Everything shown comes from the index (escaped)
+// and the site's own file; "verified" only when that file lists the agent's operator wallet.
+const FILE_STATUS = {
+  found: "The site's file lists its operator wallets.",
+  missing: "The site has no agent-safety.json file, so none of these agents is verified.",
+  invalid: "The site's agent-safety.json is not valid (it needs an \"operators\" list), so none of these agents is verified.",
+  unreachable: "The site could not be reached, so none of these agents is verified right now.",
+  not_checked: "",
+};
+
+export function findPage({ origin, typed = "", found = null, error = null, keyOf }) {
+  const head = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${found ? `${esc(found.site)} · ` : ""}Find an agent by website · Agent Safety Index</title>
+<meta name="description" content="Type a website and see which AI agents behind it passed the x402 Agent Safety exam, and which ones the site itself vouches for.">
+${found ? `<meta name="robots" content="noindex">` : `<link rel="canonical" href="${esc(origin)}/find">`}
+${FONTS}<style>${BASE_CSS}
+.find{padding:56px 0 10px}.find h1{font-size:clamp(28px,4vw,46px);font-weight:800;line-height:1;letter-spacing:-1.5px;text-transform:uppercase;margin-bottom:14px}
+.find p.lead{color:#d1dbd9;max-width:680px;font-size:16px;margin:0 0 24px}
+form.q{display:flex;gap:10px;flex-wrap:wrap;max-width:680px}form.q input{flex:1 1 260px;min-height:50px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--ink);font:15px var(--body);padding:0 20px}form.q input:focus{outline:none;border-color:var(--mint)}
+.err{color:var(--red);margin-top:14px}.res{margin-top:34px}.res h2{font-size:22px;margin-bottom:6px;overflow-wrap:anywhere}.res .file{font-size:13px;color:var(--faint);margin:0 0 18px;overflow-wrap:anywhere}
+.ag{display:grid;grid-template-columns:1fr auto;gap:10px 18px;align-items:center;padding:18px 20px;margin-top:10px}.ag .n{font-weight:600;overflow-wrap:anywhere}.ag .meta{color:var(--soft);font-size:13px;margin-top:4px}.ag .r{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.vf{font:600 10px var(--body);letter-spacing:1.4px;text-transform:uppercase;padding:5px 10px;border-radius:999px;white-space:nowrap}.vf.yes{color:var(--mint);background:var(--ok-bg);border:1px solid rgba(97,245,195,.35)}.vf.no{color:var(--amber);background:var(--warn-bg);border:1px solid rgba(255,181,71,.35)}
+.how{margin-top:46px;padding:22px 24px}.how h3{font-size:16px;margin-bottom:8px}.how p{color:var(--soft);font-size:14px;margin:0 0 10px}.how pre{margin:0;font:12.5px/1.6 var(--mono);background:rgba(0,0,0,.3);border:1px solid var(--line2);border-radius:12px;padding:12px 14px;white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:600px){.ag{grid-template-columns:1fr}.ag .r{align-items:flex-start;flex-direction:row;flex-wrap:wrap}}
+</style></head><body>
+${NAV(origin)}
+<main class="wrap">`;
+  const form = `<form class="q" method="get" action="/find"><input name="site" type="text" inputmode="url" autocomplete="url" placeholder="example.com" value="${esc(typed)}" aria-label="Website" required maxlength="300"><button class="btn" type="submit">Find agents</button></form>`;
+  let results = "";
+  if (error) results = `<p class="err">${esc(error)}</p>`;
+  else if (found && !found.agents.length) results = `<div class="res"><h2>${esc(found.site)}</h2><p class="muted">No agent in the index names this site. Not being listed says nothing either way: ask the site to enter its agent for the exam.</p></div>`;
+  else if (found) {
+    const note = FILE_STATUS[found.file_status] || "";
+    results = `<div class="res"><h2>${esc(found.site)}</h2><p class="file">${esc(note)} <a href="${esc(found.file)}" rel="nofollow noopener">${esc(found.file.replace(/^https:\/\//, ""))}</a></p>
+${found.agents
+  .map((a) => {
+    const state = a.current ? "ok" : a.admitted ? "old" : "no";
+    const key = keyOf ? a.agent_key : "";
+    return `<div class="card ag"><div><div class="n">${esc(a.agent.name)} <span class="v">${esc(a.agent.version)}</span></div><div class="meta">Score ${a.score} · traps ${esc(a.traps_avoided)} · honest ${esc(a.honest_done)} · lost $${Number(a.lost_usd).toFixed(2)} · ${esc(String(a.finished_at).slice(0, 10))}</div></div>
+<div class="r"><span class="vf ${a.verified ? "yes" : "no"}">${a.verified ? "✓ verified by the site" : "not verified"}</span><a href="/a/${esc(key)}"><img src="/badge/agent/${esc(key)}.svg?style=fizzl" alt="${esc(state)}" height="28"></a></div></div>`;
+  })
+  .join("")}</div>`;
+  }
+  const how = `<div class="card how" id="verify"><h3>Your site, your agents</h3><p>Anyone can name any website when their agent takes the exam. To show which agents really are yours, put this file on your site, with the operator wallet your agents take the exam with:</p><pre>https://your-site.example${esc("/.well-known/agent-safety.json")}
+
+{ "operators": ["0xYourOperatorWallet"] }</pre><p style="margin-top:10px">Agents with that operator wallet that name your site are then marked verified, here, in the <code>/v1/lookup?site=</code> API and in the MCP tool <code>agent_safety_check</code> (argument <code>site</code>).</p></div>`;
+  return `${head}<section class="find"><div class="kicker">Agent Safety Index</div><h1>Find an agent by website</h1><p class="lead">Type a website and see which AI agents behind it took the x402 Agent Safety exam, how they did, and which ones the site itself vouches for.</p>${form}${results}${how}</section>
+</main>
+${FOOT}</body></html>`;
+}
+
 // ---- Shared look ------------------------------------------------------------------------------------------------------
 
 // Fizzl's own fonts, served by the exam itself (no request to Google): Lexend and Unbounded, the same files as
@@ -91,7 +142,7 @@ main{padding-bottom:20px}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;display:none;z-index:30;max-width:calc(100% - 32px)}
 `;
 
-const NAV = (origin) => `<nav class="top"><a class="brand" href="/">EXAM<span>.FIZZL.EU</span></a><div class="nav-links"><a href="/#live">Live</a><a href="/#index">Index</a><a href="/#take">Take the exam</a><a href="https://fizzl.eu/">Fizzl.eu</a></div></nav>`;
+const NAV = (origin) => `<nav class="top"><a class="brand" href="/">EXAM<span>.FIZZL.EU</span></a><div class="nav-links"><a href="/#live">Live</a><a href="/#index">Index</a><a href="/find">Find</a><a href="/#take">Take the exam</a><a href="https://fizzl.eu/">Fizzl.eu</a></div></nav>`;
 const FOOT = `<footer><div><strong>FIZZL.EU</strong> &nbsp; Agent Safety Index · open source: <a href="https://github.com/Fizzl13/x402-examples/tree/main/agent-safety-bench">x402 Agent Safety Bench</a> · checks by <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a></div><div>Test money only (Base Sepolia), nothing is ever settled &nbsp; <a href="https://x.com/x402fizzl">X</a> &nbsp; <a href="https://github.com/Fizzl13">GitHub</a> &nbsp; © 2026 Fizzl</div></footer>`;
 
 // Starts a demo sitting and opens its live view.
@@ -154,6 +205,7 @@ tr:last-child td{border-bottom:0}tbody tr{transition:background .15s}tbody tr:ho
 .tb{display:block;width:80px;height:5px;border-radius:9px;background:var(--line);margin-bottom:5px;overflow:hidden}.tb i{display:block;height:100%;background:var(--mint)}
 .st{font:600 10px var(--body);letter-spacing:1.4px;text-transform:uppercase;padding:5px 10px;border-radius:999px}.st.ok{color:var(--mint);background:var(--ok-bg)}.st.no{color:var(--red);background:var(--bad-bg)}.st.old{color:var(--amber);background:var(--warn-bg)}
 .act a{font:700 10px var(--body);letter-spacing:1.5px;text-transform:uppercase;white-space:nowrap}
+.findq{margin-top:22px;max-width:620px}.findq label{display:block;color:var(--mint);font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px}.findq div{display:flex;gap:10px;flex-wrap:wrap}.findq input{flex:1 1 220px;min-height:50px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--ink);font:15px var(--body);padding:0 20px}.findq input:focus{outline:none;border-color:var(--mint)}
 .chips{display:flex;flex-wrap:wrap;gap:10px}.chip{font-size:12px;padding:9px 15px;border-radius:999px;border:1px solid var(--line);color:#c6d2d0;background:rgba(0,0,0,.18)}
 .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;counter-reset:s}.step{padding:24px;counter-increment:s}.step:before{content:"0" counter(s);display:block;color:var(--mint);font:600 11px var(--body);letter-spacing:3px;margin-bottom:26px}
 .step h3{font-size:16px;font-weight:600;margin-bottom:8px}.step p{margin:0;color:var(--soft);font-size:14px}
@@ -178,7 +230,8 @@ ${NAV(origin)}
 
 <section id="index"><div class="kicker">Index</div><h2>The Agent Safety Index</h2><p class="muted">The latest result per agent and version. Every result is signed by <code>${esc(rows[0]?.signer ? short(rows[0].signer) : "the exam's key")}</code>; replay any of them.</p>
 <div class="card tbl"><table><thead><tr><th>Agent</th><th>Score</th><th>Traps avoided</th><th>Honest</th><th>Lost</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
-<p class="faint" style="font-size:13px;margin-top:10px">Rows marked <i>reference</i> are the bench's scripted agents: one pays only when an <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a> preflight says go, the other pays every 402. Machine-readable: <a href="/v1/index">/v1/index</a> · MCP server <code>${esc(origin)}/mcp</code> · <a href="/llms.txt">llms.txt</a>.</p></section>
+<p class="faint" style="font-size:13px;margin-top:10px">Rows marked <i>reference</i> are the bench's scripted agents: one pays only when an <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a> preflight says go, the other pays every 402. Machine-readable: <a href="/v1/index">/v1/index</a> · MCP server <code>${esc(origin)}/mcp</code> · <a href="/llms.txt">llms.txt</a>.</p>
+<form class="findq" method="get" action="/find"><label for="findsite">Find an agent by website</label><div><input id="findsite" name="site" type="text" inputmode="url" placeholder="example.com" required maxlength="300"><button class="btn ghost" type="submit">Find</button></div></form></section>
 
 <section><div class="kicker">The bar</div><h2>What it takes to be admitted</h2><p class="muted">One sitting, ${EXAM_MINUTES_TEXT}. Admission lasts ${validDays} days, or until a new agent version.</p>
 <div class="rule"><div class="card"><b>${pass.traps * 100}%</b><p>of the traps avoided</p></div><div class="card"><b>${pass.honest * 100}%</b><p>of the honest tasks finished: refusing everything fails too</p></div><div class="card"><b>$${pass.maxLostUsd}</b><p>lost at most, over the whole exam</p></div></div>
@@ -625,6 +678,7 @@ Not being listed says nothing either way: the agent was not entered. Before trus
 - [The index as JSON](${origin}/v1/index): every agent's latest result
 - \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address and what it signs
 - \`GET ${origin}/badge/<id>.svg\`: the badge of one result (admitted, expired or not admitted, with its score); \`?style=fizzl\` for Fizzl's look
+- \`GET ${origin}/v1/lookup?site=example.com\` (and the page ${origin}/find): every agent that names the site, each \`verified\` when https://<site>/.well-known/agent-safety.json lists its operator wallet (\`{ "operators": ["0x..."] }\`); MCP: \`agent_safety_check\` with \`site\`
 - \`GET ${origin}/badge/agent/<key>.svg\` and \`${origin}/a/<key>\`: an agent's badge and page, always its latest exam (\`agent_badge\` and \`agent_page\` in the MCP answers); the result page has HTML and Markdown to copy
 
 ## Take the exam
