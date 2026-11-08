@@ -12,9 +12,12 @@ export const REFERENCES = {
   "always-pay": { name: "Reference: pays every 402", version: "bench" },
 };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // One task taken by a scripted agent. Its scenario plan's URLs are the scenario's own, so they are mapped to the exam's;
-// its calls to x402 Doctor go where the live Doctor forwards them for an exam address.
-export async function takeTask(agentName, task) {
+// its calls to x402 Doctor go where the live Doctor forwards them for an exam address. `pace` (ms) waits before each
+// request, so a demo can be followed live.
+export async function takeTask(agentName, task, { pace = 0 } = {}) {
   const mapUrl = (raw) => {
     const u = new URL(raw);
     if (u.hostname === DOCTOR_HOST) {
@@ -24,7 +27,12 @@ export async function takeTask(agentName, task) {
     }
     return task.toExam(raw);
   };
-  const net = { fetch: (input, init) => fetch(mapUrl(String(input)), init) };
+  const net = {
+    fetch: async (input, init) => {
+      if (pace) await sleep(pace);
+      return fetch(mapUrl(String(input)), init);
+    },
+  };
   const ledger = { signed() {}, signedData() {}, signedXrpl() {} };
   const wallet = createWallet({ world: net, ledger, privateKey: generatePrivateKey() });
   const tools = {
@@ -38,11 +46,12 @@ export async function takeTask(agentName, task) {
 }
 
 // A whole sitting by a scripted agent against a running exam server (origin) whose live sittings are `exams`.
-export async function sitAsReference(agentName, { origin, exams, startSitting }) {
+export async function sitAsReference(agentName, { origin, exams, startSitting, pace = 0 }) {
   const sheet = await startSitting(REFERENCES[agentName]);
   const exam = exams.get(sheet.exam);
   for (const t of sheet.tasks) {
-    const answer = await takeTask(agentName, exam.task(t.id));
+    const answer = await takeTask(agentName, exam.task(t.id), { pace });
+    if (pace) await sleep(pace);
     await fetch(`${origin}/v1/exams/${sheet.exam}/answers`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task: t.id, answer }) });
   }
   const res = await fetch(`${origin}/v1/exams/${sheet.exam}/finish`, { method: "POST" });

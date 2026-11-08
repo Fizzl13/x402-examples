@@ -8,6 +8,9 @@
 //   POST /v1/exams/:id/finish                              the scored, signed result; admitted agents enter the index
 //   ALL  /e/:exam/:task/:host/*                            the exam's sellers (and its x402 Doctor)
 //   GET  /v1/index, /v1/results/:id, /badge/:id.svg, /    the index
+//   GET  /live/:watch, /v1/watch/:watch(/stream)           a sitting followed live (its watch link, never the exam id)
+//   GET  /r/:id, /v1/replay/:id                            a finished result, and its sitting replayed
+//   GET  /v1/live, POST /v1/demo                           sittings under way; a scripted demo agent to watch
 //
 // Limits: one free exam per operator wallet, ever; at most 3 free exams per IP per day; at most 5 exams per wallet per
 // day. A result expires after 30 days (or with a new agent version): admission must be renewed.
@@ -18,12 +21,17 @@ import { verifyMessage, getAddress, isAddress } from "viem";
 import { createExam, EXAM_MINUTES, PASS } from "./exam.js";
 import { memoryStore } from "./store.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
-import { indexPage, badgeSvg } from "./pages.js";
+import { indexPage, badgeSvg, livePage } from "./pages.js";
+import { createFeed } from "./feed.js";
+import { EXAM_SCENARIOS } from "./catalog.js";
+import { randomBytes } from "node:crypto";
 import { BASE } from "../x402-seller.js";
 
 const DAY = 86400;
 export const VALID_DAYS = 30;
-export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5 };
+export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6 };
+export const DEMO_PACE_MS = 650;
+const KINDS = { trap: EXAM_SCENARIOS.filter((s) => s.kind === "trap").length, honest: EXAM_SCENARIOS.filter((s) => s.kind === "honest").length };
 
 const today = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
 const clean = (v, max = 80) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
@@ -57,17 +65,24 @@ export function signerFrom(raw, log = console) {
   }
 }
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   const exams = new Map(); // live sittings, in memory: a restart ends them
+  const watching = new Map(); // watch id -> sitting
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
 
   // Sittings end EXAM_MINUTES after they start; an unfinished one is dropped an hour after that.
   const sweep = setInterval(() => {
-    for (const [id, e] of exams) if (now() > e.endsAt + 3600_000) exams.delete(id);
+    for (const [id, e] of exams) {
+      // A finished demo goes after ten minutes; anything else an hour after its time is up.
+      if (now() > e.endsAt + 3600_000 || (e.meta.demo && e.finished && now() > e.finishedAt + 600_000)) {
+        exams.delete(id);
+        watching.delete(e.watch);
+      }
+    }
   }, 60_000);
   sweep.unref?.();
 
@@ -143,16 +158,46 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       return res.status(409).json({ error: "this wallet's free exam was just used" });
     }
 
-    const exam = createExam({ origin, now: now() });
-    exam.meta = { agent: { name, version, ...(agentUrl ? { url: agentUrl } : {}) }, operator, paid: Boolean(fee), ...(fee ? { fee_tx: fee.transaction } : {}) };
-    exams.set(exam.id, exam);
+    const exam = sitting({ agent: { name, version, ...(agentUrl ? { url: agentUrl } : {}) }, operator, paid: Boolean(fee), ...(fee ? { fee_tx: fee.transaction } : {}) });
     log.info?.(`[exam] ${exam.id} started: ${name} ${version} (${operator}, ${fee ? "paid" : "free"})`);
     res.status(201).json(sheet(exam));
   });
 
+  // A new sitting with its live feed and watch link. References and demos show each task's verdict as soon as it is
+  // answered; a real examinee's verdicts appear only when it finishes (an operator watching must learn nothing early).
+  function sitting(meta) {
+    const feed = createFeed();
+    const exam = createExam({ origin, now: now(), onEvent: (ev) => feed.push(ev) });
+    exam.meta = meta;
+    exam.feed = feed;
+    exam.watch = randomBytes(9).toString("hex");
+    exam.reveal = Boolean(meta.reference || meta.demo);
+    exams.set(exam.id, exam);
+    watching.set(exam.watch, exam);
+    feed.push({ type: "start", at: 0, ...startInfo(exam) });
+    return exam;
+  }
+
+  function startInfo(exam) {
+    return {
+      agent: exam.meta.agent,
+      reference: Boolean(exam.meta.reference),
+      demo: Boolean(exam.meta.demo),
+      reveal: exam.reveal,
+      started_at: new Date(exam.startedAt).toISOString(),
+      ends_at: new Date(exam.endsAt).toISOString(),
+      tasks: exam.publicSheet(),
+      traps_of: KINDS.trap,
+      honest_of: KINDS.honest,
+    };
+  }
+
+  const pickVerdict = (v) => ({ kind: v.kind, scenario: v.scenario, title: v.title, safe: v.safe, done: v.done, lost_usd: v.lost_usd, spent_usd: v.spent_usd, checks_usd: v.checks_usd });
+
   function sheet(exam) {
     return {
       exam: exam.id,
+      watch: `${origin}/live/${exam.watch}`,
       agent: exam.meta.agent,
       operator: exam.meta.operator,
       ends_at: new Date(exam.endsAt).toISOString(),
@@ -170,10 +215,12 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
 
   // A reference sitting (src/exam/reference.js): started in-process, never over HTTP, marked as reference in the index.
   async function startReference(agent) {
-    const exam = createExam({ origin, now: now() });
-    exam.meta = { agent, operator: null, paid: false, reference: true };
-    exams.set(exam.id, exam);
-    return sheet(exam);
+    return sheet(sitting({ agent, operator: null, paid: false, reference: true }));
+  }
+
+  // A demo: a scripted agent sits an exam slowly enough to follow. Not stored, not in the index.
+  async function startDemo(agent) {
+    return sheet(sitting({ agent, operator: null, paid: false, demo: true }));
   }
 
   const live = (req, res) => {
@@ -196,6 +243,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const b = req.body || {};
     const pairs = b.answers && typeof b.answers === "object" ? Object.entries(b.answers) : [[b.task, b.answer]];
     const out = pairs.map(([task, answer]) => ({ task, ...exam.answer(String(task), typeof answer === "string" ? answer : JSON.stringify(answer)) }));
+    for (const o of out) if (o.ok) exam.feed.push({ type: "answer", at: now() - exam.startedAt, task: String(o.task), ...(exam.reveal ? { verdict: pickVerdict(exam.verdict(String(o.task))) } : {}) });
     const failed = out.filter((o) => o.error);
     res.status(failed.length === out.length ? 400 : 200).json({ answered: out.filter((o) => o.ok).map((o) => o.task), ...(failed.length ? { errors: failed } : {}) });
   });
@@ -224,7 +272,13 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     };
     const signed = signer ? { ...record, signer: signer.address, signature: await signer.signMessage({ message: canonical(record) }) } : record;
     if (!already) {
+      exam.finishedAt = now();
+      exam.feed.push({ type: "finish", at: now() - exam.startedAt, result: { id: exam.meta.demo ? null : exam.id, score: r.score, admitted: r.admitted, late: r.late, traps: r.traps, honest: r.honest, lost_usd: r.lost_usd, spent_usd: r.spent_usd, checks_usd: r.checks_usd, tasks: r.tasks.map((t) => ({ task: t.task, ...pickVerdict(t) })) } });
+    }
+    if (!already && !exam.meta.demo) {
       await store.set(`result:${exam.id}`, signed);
+      await store.set(`feed:${exam.id}`, exam.feed.events);
+      await store.set(`watch:${exam.watch}`, exam.id);
       log.info?.(`[exam] ${exam.id} finished: ${record.agent.name} ${record.agent.version} score ${r.score}, ${r.admitted ? "admitted" : "not admitted"}`);
     }
     res.json({ ...signed, details: r.tasks });
@@ -258,6 +312,96 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   app.get("/badge/:id.svg", async (req, res) => {
     const r = /^[0-9a-f]{24}$/.test(req.params.id) ? await store.get(`result:${req.params.id}`) : null;
     res.set("content-type", "image/svg+xml").set("cache-control", "max-age=3600").send(badgeSvg(r && { ...r, current: r.admitted && Date.parse(r.valid_until) > now() }));
+  });
+
+  // ---- Following a sitting -------------------------------------------------------------------------------------------
+
+  const watchId = (raw) => (/^[0-9a-f]{18}$/.test(String(raw)) ? String(raw) : null);
+
+  app.get("/v1/watch/:w", async (req, res) => {
+    const w = watchId(req.params.w);
+    const exam = w && watching.get(w);
+    if (!exam) {
+      const id = w ? await store.get(`watch:${w}`) : null;
+      return id ? res.json({ ended: true, result: `/r/${id}` }) : res.status(404).json({ error: "no such sitting (a demo is kept ten minutes after it ends)" });
+    }
+    res.set("cache-control", "no-store").json({ ...startInfo(exam), finished: exam.finished, events: exam.feed.events });
+  });
+
+  // Server-sent events: every event after ?after=n, then each new one as it happens.
+  app.get("/v1/watch/:w/stream", (req, res) => {
+    const w = watchId(req.params.w);
+    const exam = w && watching.get(w);
+    if (!exam) return res.status(404).json({ error: "no such sitting" });
+    res.set({ "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", "x-accel-buffering": "no" });
+    res.flushHeaders?.();
+    const after = Number(req.query.after) || 0;
+    const send = (e) => res.write(`id: ${e.n}\ndata: ${JSON.stringify(e)}\n\n`);
+    for (const e of exam.feed.events) if (e.n > after) send(e);
+    if (exam.finished) return res.end();
+    const off = exam.feed.subscribe((e) => {
+      send(e);
+      if (e.type === "finish") setTimeout(() => res.end(), 100);
+    });
+    const beat = setInterval(() => res.write(": beat\n\n"), 15_000);
+    req.on("close", () => {
+      off();
+      clearInterval(beat);
+    });
+  });
+
+  // Sittings under way, for the index page: watch links only.
+  app.get("/v1/live", (_req, res) => {
+    const list = [...exams.values()]
+      .filter((e) => !e.finished && now() <= e.endsAt)
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, 12)
+      .map((e) => ({ watch: e.watch, agent: e.meta.agent, reference: Boolean(e.meta.reference), demo: Boolean(e.meta.demo), answered: e.answered(), tasks: e.publicSheet().length, started_at: new Date(e.startedAt).toISOString() }));
+    res.set("cache-control", "no-store").json({ live: list });
+  });
+
+  app.get("/v1/replay/:id", async (req, res) => {
+    const events = /^[0-9a-f]{24}$/.test(req.params.id) ? await store.get(`feed:${req.params.id}`) : null;
+    if (!events) return res.status(404).json({ error: "no replay for this result" });
+    res.set("access-control-allow-origin", "*").set("cache-control", "max-age=300").json({ events });
+  });
+
+  const DEMO_AGENTS = {
+    "follow-preflight": { name: "Demo agent: pays only on x402 Doctor's go", version: "demo" },
+    "always-pay": { name: "Demo agent: pays every 402", version: "demo" },
+  };
+
+  app.post("/v1/demo", async (req, res) => {
+    const which = DEMO_AGENTS[req.body?.agent] ? req.body.agent : "follow-preflight";
+    const running = [...exams.values()].filter((e) => e.meta.demo && !e.finished).length;
+    if (running >= LIMITS.demosAtOnce) return res.status(429).json({ error: "a few demos are running already: watch one of those, or try again in a minute" });
+    const hour = new Date(now()).toISOString().slice(0, 13);
+    if ((await store.incr(`demo:${req.ip}:${hour}`, 3600)) > LIMITS.demosPerIpPerHour) return res.status(429).json({ error: `at most ${LIMITS.demosPerIpPerHour} demos per hour` });
+    const { sitAsReference } = await import("./reference.js");
+    let started;
+    const ready = new Promise((resolve) => (started = resolve));
+    sitAsReference(which, {
+      origin,
+      exams,
+      pace: demoPace,
+      startSitting: async () => {
+        const s = await startDemo(DEMO_AGENTS[which]);
+        started(s);
+        return s;
+      },
+    }).catch((err) => log.error?.(`[exam] demo failed: ${err.message}`));
+    const s = await ready;
+    res.status(201).json({ watch: s.watch, page: s.watch.slice(origin.length) });
+  });
+
+  app.get("/live/:w", (req, res) => {
+    if (!watchId(req.params.w)) return res.status(404).type("text").send("no such sitting");
+    res.type("html").send(livePage({ mode: "live", id: req.params.w, origin }));
+  });
+
+  app.get("/r/:id", (req, res) => {
+    if (!/^[0-9a-f]{24}$/.test(req.params.id)) return res.status(404).type("text").send("no such result");
+    res.type("html").send(livePage({ mode: "result", id: req.params.id, origin }));
   });
 
   app.get("/v1/signer", (_req, res) => res.json({ signer: signer?.address ?? null, signs: "EIP-191 personal_sign over the canonical JSON (sorted keys) of the result without signer and signature" }));

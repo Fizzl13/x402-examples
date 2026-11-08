@@ -180,3 +180,65 @@ test("redis store (REDIS_TEST_URL): the free-exam rule, counters and the index s
   await again.close();
   assert.deepEqual(index.agents.map((a) => a.id), [r.id]);
 });
+
+test("live view: a watch link shows every request and answer, never the exam id; verdicts only for references", async () => {
+  const { origin, exam } = await start();
+  const sheet = await (await freeExam(origin)).json();
+  const w = sheet.watch.split("/live/")[1];
+  assert.match(w, /^[0-9a-f]{18}$/);
+  const t = sheet.tasks[0];
+  const url = t.task.match(/https?:\/\/\S+?\/e\/\S+?(?=[\s)]|$)/)[0].replace(/[.,;]$/, "");
+  assert.equal((await fetch(url)).status, 402);
+  await post(`${origin}/v1/exams/${sheet.exam}/answers`, { task: t.id, answer: "refused" });
+  const snap = await (await fetch(`${origin}/v1/watch/${w}`)).json();
+  assert.ok(!JSON.stringify(snap).includes(sheet.exam), "the live view never shows the exam id");
+  assert.deepEqual(snap.events.map((e) => e.type), ["start", "request", "answer"]);
+  assert.equal(snap.events[1].status, 402);
+  assert.ok(snap.events[1].ask.usd > 0);
+  assert.equal(snap.events[2].verdict, undefined, "a real examinee's verdicts wait for the finish");
+  assert.equal((await fetch(`${origin}/live/${w}`)).status, 200);
+  const live = await (await fetch(`${origin}/v1/live`)).json();
+  assert.ok(live.live.some((l) => l.watch === w));
+  assert.ok(!JSON.stringify(live).includes(sheet.exam));
+
+  // The stream replays what happened so far and ends at the finish.
+  const streamed = fetch(`${origin}/v1/watch/${w}/stream`).then((r) => r.text());
+  await new Promise((r) => setTimeout(r, 50));
+  await post(`${origin}/v1/exams/${sheet.exam}/finish`, {});
+  const text = await streamed;
+  const events = text.split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)));
+  assert.equal(events.at(-1).type, "finish");
+  assert.equal(events.at(-1).result.tasks.length, 19);
+  assert.ok(!text.includes(sheet.exam) || events.at(-1).result.id === sheet.exam);
+
+  // A reference sitting shows each verdict as it is answered, and its replay is stored with the result.
+  const r = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
+  const replay = await (await fetch(`${origin}/v1/replay/${r.id}`)).json();
+  const answers = replay.events.filter((e) => e.type === "answer");
+  assert.equal(answers.length, 19);
+  assert.ok(answers.every((e) => e.verdict && typeof e.verdict.safe === "boolean"));
+  assert.ok(replay.events.some((e) => e.type === "request" && e.to === "doctor" && e.verdict));
+  assert.ok(!JSON.stringify(replay.events.filter((e) => e.type !== "finish")).includes(r.id));
+  assert.equal((await fetch(`${origin}/r/${r.id}`)).status, 200);
+});
+
+test("demo: a scripted agent sits an exam to watch; it is never stored or listed in the index", async () => {
+  const { origin, exam } = await start({ demoPace: 0 });
+  const res = await post(`${origin}/v1/demo`, { agent: "always-pay" });
+  assert.equal(res.status, 201);
+  const { page } = await res.json();
+  const w = page.split("/live/")[1];
+  let snap;
+  for (let i = 0; i < 100; i++) {
+    snap = await (await fetch(`${origin}/v1/watch/${w}`)).json();
+    if (snap.finished) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.equal(snap.finished, true);
+  assert.ok(snap.demo);
+  const fin = snap.events.find((e) => e.type === "finish");
+  assert.equal(fin.result.admitted, false);
+  assert.equal(fin.result.id, null);
+  assert.equal((await (await fetch(`${origin}/v1/index`)).json()).agents.length, 0);
+  assert.ok([...exam.exams.values()].every((e) => e.meta.demo));
+});

@@ -75,8 +75,13 @@ async function signedAuthorization(headers) {
   return valid ? { from: getAddress(auth.from), to: getAddress(auth.to), amount: String(auth.value), nonce: auth.nonce, asset: accepted.asset } : null;
 }
 
-// One task: one scenario in its own world, with its own ledger, Doctor stand-in and address mapping.
-function createTask({ scenario, examId, taskId, origin }) {
+const usd = (atomic) => Math.round(Number(atomic || 0)) / 1e6; // USDC has 6 decimals
+const shortAddr = (a) => (a ? `${String(a).slice(0, 6)}…${String(a).slice(-4)}` : null);
+
+// One task: one scenario in its own world, with its own ledger, Doctor stand-in and address mapping. `emit` hears every
+// request the agent makes, in public form (no exam id: that is the sitting's key, and the live view is open to anyone
+// with its watch link).
+function createTask({ scenario, examId, taskId, origin, emit = () => {} }) {
   const world = createWorld();
   const ledger = createLedger();
   const events = [];
@@ -96,6 +101,8 @@ function createTask({ scenario, examId, taskId, origin }) {
   const toFakeRe = new RegExp(`${escape(prefix)}/(${labels.map(escape).join("|")})(?=[/?#"'\\s]|$)`, "gi");
   const toExam = (text) => (sellers.length ? String(text).replace(toExamRe, (_, h) => `${prefix}/${alias.get(h.toLowerCase())}`) : String(text));
   const toFake = (text) => String(text).replace(toFakeRe, (_, a) => `https://${hostOf.get(a.toLowerCase()) ?? a}`);
+  // An exam address as the live view shows it: "s-1a2b3c4d/v1/price", never the exam id.
+  const toPublic = (text) => String(text).split(`${prefix}/`).join("").split(examId).join("…");
 
   // A request for <prefix>/<host>/<path>: into the scenario's world, and its answer back out.
   async function handle({ host, path, query, method, headers, body }) {
@@ -109,16 +116,41 @@ function createTask({ scenario, examId, taskId, origin }) {
     const h = new Headers(headers);
     // Recorded as signed when it arrives (a payment to Doctor's stand-in counts as checks, not spending).
     const auth = await signedAuthorization(h);
-    if (auth && !ledger.payments.some((p) => p.nonce === auth.nonce)) ledger.signed({ url, payTo: auth.to, amount: auth.amount, asset: auth.asset, chainId: BASE_CHAIN_ID, nonce: auth.nonce });
+    let paid = null;
+    if (auth && !ledger.payments.some((p) => p.nonce === auth.nonce)) {
+      ledger.signed({ url, payTo: auth.to, amount: auth.amount, asset: auth.asset, chainId: BASE_CHAIN_ID, nonce: auth.nonce });
+      paid = { usd: usd(auth.amount), to: shortAddr(auth.to) };
+    }
+    const seen = events.length;
     const res = await world.fetch(url, { method, headers: h, body: method === "GET" || method === "HEAD" ? undefined : toFake(body || "") });
     const out = {};
+    let ask = null;
     res.headers.forEach((value, key) => {
       if (key === "payment-required") {
         const challenge = decode64(value);
+        const accepts = Array.isArray(challenge?.accepts) ? challenge.accepts : [];
+        if (accepts.length) ask = { usd: Math.min(...accepts.map((a) => usd(a.amount ?? a.maxAmountRequired))), options: accepts.length, pay_to: shortAddr(accepts[0].payTo) };
         out[key] = challenge ? Buffer.from(toExam(JSON.stringify(challenge))).toString("base64") : value;
       } else out[key] = toExam(value);
     });
-    return { status: res.status, headers: out, body: toExam(await res.text()) };
+    const text = toExam(await res.text());
+    const doctor = host === DOCTOR_HOST;
+    const checks = events.slice(seen).filter((e) => e.type === "preflight");
+    const target = doctor ? toPublic(toExam(params.get("url") || "")).replace(/^https?:\/\//, "") : null;
+    emit({
+      type: "request",
+      task: taskId,
+      method,
+      to: doctor ? "doctor" : "seller",
+      host: doctor ? "x402 Doctor" : String(alias.get(host) || host),
+      path: (doctor ? path : `${path}${query ? `?${toPublic(query)}` : ""}`).slice(0, 120),
+      status: res.status,
+      ...(ask ? { ask } : {}),
+      ...(paid ? { paid } : {}),
+      ...(doctor && target ? { target: target.slice(0, 120) } : {}),
+      ...(checks.length ? { verdict: checks[checks.length - 1].verdict, codes: checks.flatMap((c) => c.codes).slice(0, 6) } : {}),
+    });
+    return { status: res.status, headers: out, body: text };
   }
 
   return {
@@ -126,6 +158,7 @@ function createTask({ scenario, examId, taskId, origin }) {
     scenario,
     prefix,
     task: toExam(scenario.task),
+    publicTask: toPublic(toExam(scenario.task)),
     budgetUsd: scenario.budgetUsd,
     toExam,
     handle,
@@ -151,12 +184,14 @@ function createTask({ scenario, examId, taskId, origin }) {
 }
 
 // A new sitting. Task ids are t1… in a random order, so the order says nothing about which task is which.
-export function createExam({ origin, scenarios = EXAM_SCENARIOS, now = Date.now() } = {}) {
+// `onEvent` hears every request in public form (see createTask), stamped with the milliseconds since the start.
+export function createExam({ origin, scenarios = EXAM_SCENARIOS, now = Date.now(), onEvent = () => {} } = {}) {
   if (!origin) throw new Error("origin is required");
   const id = randomBytes(12).toString("hex");
-  const tasks = shuffled(scenarios).map((scenario, i) => createTask({ scenario, examId: id, taskId: `t${i + 1}`, origin }));
-  const answers = new Map();
   const startedAt = now;
+  const emit = (ev) => onEvent({ at: Math.max(0, Date.now() - startedAt), ...ev });
+  const tasks = shuffled(scenarios).map((scenario, i) => createTask({ scenario, examId: id, taskId: `t${i + 1}`, origin, emit }));
+  const answers = new Map();
   const endsAt = now + EXAM_MINUTES * 60_000;
   let result = null;
 
@@ -173,6 +208,14 @@ export function createExam({ origin, scenarios = EXAM_SCENARIOS, now = Date.now(
     task: (taskId) => tasks.find((t) => t.id === taskId) || null,
     // What the agent gets: its tasks, nothing about which ones are traps.
     sheet: () => tasks.map((t) => ({ id: t.id, task: t.task, budget_usd: t.budgetUsd, answered: answers.has(t.id) })),
+    // The same, as the live view shows it (no exam addresses).
+    publicSheet: () => tasks.map((t) => ({ id: t.id, task: t.publicTask, budget_usd: t.budgetUsd })),
+    answered: () => answers.size,
+    // One task's verdict on its current answer: only for sittings whose live view may show it (references, demos).
+    verdict(taskId) {
+      const t = tasks.find((x) => x.id === taskId);
+      return t ? t.score(answers.get(taskId)) : null;
+    },
     answer(taskId, text) {
       if (result) return { error: "this exam is finished" };
       if (!tasks.some((t) => t.id === taskId)) return { error: `no task ${taskId}` };
