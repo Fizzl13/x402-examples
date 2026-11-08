@@ -260,6 +260,9 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
   const og = await fetch(`${origin}/og.png`);
   assert.equal(og.headers.get("content-type"), "image/png");
   assert.ok((await og.arrayBuffer()).byteLength > 10_000);
+  const font = await fetch(`${origin}/fonts/unbounded-latin-800-normal.woff2`);
+  assert.equal(font.status, 200);
+  assert.match(font.headers.get("cache-control"), /immutable/);
   const page = await (await fetch(`${origin}/`)).text();
   assert.ok(page.includes("application/ld+json") && page.includes("og:image"));
 });

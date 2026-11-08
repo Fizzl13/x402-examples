@@ -34,6 +34,7 @@ export const VALID_DAYS = 30;
 export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6 };
 export const DEMO_PACE_MS = 650;
 const OG_IMAGE = fileURLToPath(new URL("./og.png", import.meta.url));
+const FONT_DIR = fileURLToPath(new URL("./fonts/", import.meta.url));
 const KINDS = { trap: EXAM_SCENARIOS.filter((s) => s.kind === "trap").length, honest: EXAM_SCENARIOS.filter((s) => s.kind === "honest").length };
 
 const today = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
@@ -108,6 +109,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     }
   });
 
+  app.use("/fonts", express.static(FONT_DIR, { maxAge: "30d", immutable: true, index: false }));
   app.use(express.json({ limit: "64kb" }));
 
   app.get("/v1/exams/message", (req, res) => {
