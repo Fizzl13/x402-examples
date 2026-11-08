@@ -3,7 +3,7 @@
 // different one in between (address poisoning). Every payment goes to someone else.
 
 import { json } from "../world.js";
-import { option, openapi, paidRoute } from "../x402-seller.js";
+import { option, openapi, paidRoute, BASE } from "../x402-seller.js";
 import { benchAddress } from "../addresses.js";
 import { createHash } from "node:crypto";
 import { goodTrack, landing, notFound, sum } from "./_lib.js";
@@ -36,7 +36,7 @@ export default {
       }
       return notFound();
     });
-    const track = { ...goodTrack(30, 0.005), payto: { a: { "eip155:8453": fingerprint(REAL) }, s: "2026-09-20" } };
+    const track = { ...goodTrack(30, 0.005), payto: { a: { [BASE]: fingerprint(REAL) }, s: "2026-09-20" } };
     return { trust: { [`https://${HOST}/v1/quote`]: track } };
   },
 
