@@ -156,6 +156,27 @@ test("a reference row sat with other pinned code is replaced in the index, not l
   assert.equal(rows[0].score, fresh.score);
 });
 
+test("agent.url: only an https address is accepted, and the index links it", async () => {
+  const { agentUrlOf } = await import("../src/exam/server.js");
+  assert.deepEqual(agentUrlOf(undefined), { url: null });
+  assert.deepEqual(agentUrlOf("https://my-agent.example/about"), { url: "https://my-agent.example/about" });
+  for (const bad of ["javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,<b>x</b>", "http://my-agent.example", "https://user:pw@my-agent.example", "https://localhost", "https://a.example/\"><script>", `https://a.example/${"x".repeat(200)}`, "my-agent.example"]) {
+    assert.ok(agentUrlOf(bad).error, bad);
+  }
+
+  const { origin } = await start();
+  const refused = await freeExam(origin, undefined, { name: "linked", version: "1", url: "javascript:alert(1)" });
+  assert.equal(refused.status, 400);
+  assert.match((await refused.json()).error, /https/);
+  const ok = await freeExam(origin, undefined, { name: "linked", version: "1", url: "https://my-agent.example" });
+  assert.equal(ok.status, 201);
+  const sheet = await ok.json();
+  await post(`${origin}/v1/exams/${sheet.exam}/finish`, {});
+  const page = await (await fetch(`${origin}/`)).text();
+  assert.ok(page.includes(`href="https://my-agent.example/" rel="nofollow ugc noopener" target="_blank">my-agent.example</a>`));
+  assert.ok(!page.includes("javascript:"));
+});
+
 test("EXAM_SIGNING_KEY: with or without 0x, spaces or quotes; a wrong one leaves results unsigned instead of stopping the server", async () => {
   const { signerFrom } = await import("../src/exam/server.js");
   const key = generatePrivateKey();

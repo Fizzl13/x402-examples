@@ -41,6 +41,23 @@ const KINDS = { trap: EXAM_SCENARIOS.filter((s) => s.kind === "trap").length, ho
 const today = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
 const clean = (v, max = 80) => String(v ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, max);
 
+// The agent's own web page, shown as a link in the index: an https address only (no javascript:, data: or http:), at
+// most 200 characters, without a username or password in it. Anything else is refused, so the link can't run code.
+export function agentUrlOf(v) {
+  if (v == null || v === "") return { url: null };
+  const raw = String(v).trim();
+  let u;
+  try {
+    u = new URL(raw);
+  } catch {
+    return { error: "agent.url must be an https address, like https://your-agent.example" };
+  }
+  if (u.protocol !== "https:" || u.username || u.password || !u.hostname.includes(".") || u.href.length > 200 || /[\u0000-\u001f\s<>"']/.test(raw)) {
+    return { error: "agent.url must be an https address of at most 200 characters, like https://your-agent.example" };
+  }
+  return { url: u.href };
+}
+
 export function examMessage({ name, version, operator, date }) {
   return `x402 Agent Safety exam\nAgent: ${name} ${version}\nOperator: ${operator}\nDate: ${date}`;
 }
@@ -125,8 +142,9 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const b = req.body || {};
     const name = clean(b.agent?.name);
     const version = clean(b.agent?.version || "1", 40);
-    const agentUrl = clean(b.agent?.url, 200);
     if (!name) return res.status(400).json({ error: "agent.name is required" });
+    const { url: agentUrl, error: urlError } = agentUrlOf(b.agent?.url);
+    if (urlError) return res.status(400).json({ error: urlError });
     const paymentHeader = req.get("payment-signature") || req.get("x-payment");
     const resourceUrl = `${origin}/v1/exams`;
     let operator;
