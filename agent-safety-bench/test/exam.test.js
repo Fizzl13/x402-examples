@@ -180,3 +180,110 @@ test("redis store (REDIS_TEST_URL): the free-exam rule, counters and the index s
   await again.close();
   assert.deepEqual(index.agents.map((a) => a.id), [r.id]);
 });
+
+test("live view: a watch link shows every request and answer, never the exam id; verdicts only for references", async () => {
+  const { origin, exam } = await start();
+  const sheet = await (await freeExam(origin)).json();
+  const w = sheet.watch.split("/live/")[1];
+  assert.match(w, /^[0-9a-f]{18}$/);
+  const t = sheet.tasks[0];
+  const url = t.task.match(/https?:\/\/\S+?\/e\/\S+?(?=[\s)]|$)/)[0].replace(/[.,;]$/, "");
+  assert.equal((await fetch(url)).status, 402);
+  await post(`${origin}/v1/exams/${sheet.exam}/answers`, { task: t.id, answer: "refused" });
+  const snap = await (await fetch(`${origin}/v1/watch/${w}`)).json();
+  assert.ok(!JSON.stringify(snap).includes(sheet.exam), "the live view never shows the exam id");
+  assert.deepEqual(snap.events.map((e) => e.type), ["start", "request", "answer"]);
+  assert.equal(snap.events[1].status, 402);
+  assert.ok(snap.events[1].ask.usd > 0);
+  assert.equal(snap.events[2].verdict, undefined, "a real examinee's verdicts wait for the finish");
+  assert.equal((await fetch(`${origin}/live/${w}`)).status, 200);
+  const live = await (await fetch(`${origin}/v1/live`)).json();
+  assert.ok(live.live.some((l) => l.watch === w));
+  assert.ok(!JSON.stringify(live).includes(sheet.exam));
+
+  // The stream replays what happened so far and ends at the finish.
+  const streamed = fetch(`${origin}/v1/watch/${w}/stream`).then((r) => r.text());
+  await new Promise((r) => setTimeout(r, 50));
+  await post(`${origin}/v1/exams/${sheet.exam}/finish`, {});
+  const text = await streamed;
+  const events = text.split("\n").filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)));
+  assert.equal(events.at(-1).type, "finish");
+  assert.equal(events.at(-1).result.tasks.length, 19);
+  assert.ok(!text.includes(sheet.exam) || events.at(-1).result.id === sheet.exam);
+
+  // A reference sitting shows each verdict as it is answered, and its replay is stored with the result.
+  const r = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
+  const replay = await (await fetch(`${origin}/v1/replay/${r.id}`)).json();
+  const answers = replay.events.filter((e) => e.type === "answer");
+  assert.equal(answers.length, 19);
+  assert.ok(answers.every((e) => e.verdict && typeof e.verdict.safe === "boolean"));
+  assert.ok(replay.events.some((e) => e.type === "request" && e.to === "doctor" && e.verdict));
+  assert.ok(!JSON.stringify(replay.events.filter((e) => e.type !== "finish")).includes(r.id));
+  assert.equal((await fetch(`${origin}/r/${r.id}`)).status, 200);
+});
+
+test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, robots, sitemap, share image", async () => {
+  const { origin, exam } = await start({ demoPace: 0 });
+  const r = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
+  const rpc = async (method, params, id = 1) => (await post(`${origin}/mcp`, { jsonrpc: "2.0", id, method, params }, { accept: "application/json, text/event-stream" })).json();
+  const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
+  assert.equal(init.result.protocolVersion, "2025-06-18");
+  assert.equal(init.result.serverInfo.name, "agent-safety-exam");
+  assert.equal((await post(`${origin}/mcp`, { jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
+  const tools = (await rpc("tools/list")).result.tools.map((t) => t.name);
+  assert.deepEqual(tools, ["agent_safety_check", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo"]);
+  const call = async (name, args) => (await rpc("tools/call", { name, arguments: args })).result;
+  const found = (await call("agent_safety_check", { agent: "doctor's go" })).structuredContent;
+  assert.equal(found.found, true);
+  assert.equal(found.admitted, true);
+  assert.equal(found.replay, `${origin}/r/${r.id}`);
+  assert.equal((await call("agent_safety_check", { result_id: r.id })).structuredContent.signature, r.signature);
+  assert.equal((await call("agent_safety_check", { agent: "nobody" })).structuredContent.found, false);
+  assert.equal((await call("agent_safety_check", {})).isError, true);
+  assert.equal((await call("agent_safety_index", { admitted_only: true })).structuredContent.agents.length, 1);
+  const op = privateKeyToAccount(generatePrivateKey()).address;
+  const how = (await call("agent_safety_exam_howto", { agent: "my-agent", operator: op })).structuredContent;
+  assert.equal(how.message_to_sign, examMessage({ name: "my-agent", version: "1", operator: op, date: new Date().toISOString().slice(0, 10) }));
+  assert.equal(how.free_exam_available, true);
+  const demo = (await call("agent_safety_demo", { agent: "always-pay" })).structuredContent;
+  assert.match(demo.watch_live, /\/live\/[0-9a-f]{18}$/);
+  assert.equal((await rpc("nope")).error.code, -32601);
+  assert.equal((await fetch(`${origin}/mcp`)).status, 405);
+
+  const card = await (await fetch(`${origin}/.well-known/mcp/server-card.json`)).json();
+  assert.equal(card.tools.length, 4);
+  const llms = await (await fetch(`${origin}/llms.txt`)).text();
+  assert.match(llms, /^# Agent Safety Index/);
+  assert.ok(llms.includes(`${origin}/mcp`));
+  assert.match(await (await fetch(`${origin}/robots.txt`)).text(), /Disallow: \/e\//);
+  assert.ok((await (await fetch(`${origin}/sitemap.xml`)).text()).includes(`${origin}/r/${r.id}`));
+  const og = await fetch(`${origin}/og.png`);
+  assert.equal(og.headers.get("content-type"), "image/png");
+  assert.ok((await og.arrayBuffer()).byteLength > 10_000);
+  const font = await fetch(`${origin}/fonts/unbounded-latin-800-normal.woff2`);
+  assert.equal(font.status, 200);
+  assert.match(font.headers.get("cache-control"), /immutable/);
+  const page = await (await fetch(`${origin}/`)).text();
+  assert.ok(page.includes("application/ld+json") && page.includes("og:image"));
+});
+
+test("demo: a scripted agent sits an exam to watch; it is never stored or listed in the index", async () => {
+  const { origin, exam } = await start({ demoPace: 0 });
+  const res = await post(`${origin}/v1/demo`, { agent: "always-pay" });
+  assert.equal(res.status, 201);
+  const { page } = await res.json();
+  const w = page.split("/live/")[1];
+  let snap;
+  for (let i = 0; i < 100; i++) {
+    snap = await (await fetch(`${origin}/v1/watch/${w}`)).json();
+    if (snap.finished) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.equal(snap.finished, true);
+  assert.ok(snap.demo);
+  const fin = snap.events.find((e) => e.type === "finish");
+  assert.equal(fin.result.admitted, false);
+  assert.equal(fin.result.id, null);
+  assert.equal((await (await fetch(`${origin}/v1/index`)).json()).agents.length, 0);
+  assert.ok([...exam.exams.values()].every((e) => e.meta.demo));
+});
