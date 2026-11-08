@@ -223,6 +223,96 @@ test("the agent's badge follows its latest exam; the result page has HTML and Ma
   assert.ok(!page.includes('Badge "<b>" agent'), "the name never reaches the page unescaped");
 });
 
+test("site.js: a website as a public host name; private addresses refused; the operators file", async () => {
+  const { siteHost, isPrivateAddress, operatorsOf, publicLookup, createSiteVerifier } = await import("../src/exam/site.js");
+  assert.equal(siteHost("Example.com"), "example.com");
+  assert.equal(siteHost("https://www.Agent-Shop.dev/agents?x=1"), "agent-shop.dev");
+  assert.equal(siteHost("agent-shop.dev:443"), "agent-shop.dev");
+  for (const bad of ["", "localhost", "127.0.0.1", "http://[::1]/", "10.0.0.1", "intranet", "router.local", "a.internal", "javascript:alert(1)", "shop.example", "x".repeat(400)]) assert.equal(siteHost(bad), null, bad);
+  for (const ip of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1"]) assert.equal(isPrivateAddress(ip), true, ip);
+  for (const ip of ["93.184.216.34", "1.1.1.1", "2606:4700::1111"]) assert.equal(isPrivateAddress(ip), false, ip);
+  const op = privateKeyToAccount(generatePrivateKey()).address;
+  assert.deepEqual(operatorsOf(JSON.stringify({ operators: [op, "nope"] })), [op.toLowerCase()]);
+  assert.equal(operatorsOf("not json"), null);
+  assert.equal(operatorsOf("{}"), null);
+
+  // A name that resolves to a private address is refused before any connection.
+  const toLoopback = (_h, _o, cb) => cb(null, [{ address: "127.0.0.1", family: 4 }]);
+  const refused = await new Promise((r) => publicLookup(toLoopback)("agent-shop.dev", {}, (err) => r(err)));
+  assert.equal(refused.code, "EPRIVATE");
+  const verify = createSiteVerifier({ lookup: toLoopback });
+  assert.equal((await verify("agent-shop.dev")).status, "unreachable");
+
+  // The answer is kept: one fetch for two lookups.
+  let fetched = 0;
+  const cached = createSiteVerifier({ fetchFile: async () => (fetched++, { status: "ok", text: JSON.stringify({ operators: [op] }) }) });
+  assert.deepEqual((await cached("agent-shop.dev")).operators, [op.toLowerCase()]);
+  await cached("agent-shop.dev");
+  assert.equal(fetched, 1);
+});
+
+test("find by website: every agent that names the site, verified ones first; the site's file is only fetched when one does", async () => {
+  const mine = privateKeyToAccount(generatePrivateKey());
+  const asked = [];
+  const siteCheck = async (host) => (asked.push(host), { file: `https://${host}/.well-known/agent-safety.json`, status: "found", operators: host === "agent-shop.dev" ? [mine.address.toLowerCase()] : [] });
+  const { origin } = await start({ siteCheck });
+  const enter = async (key, name, url) => {
+    const res = await freeExam(origin, key, { name, version: "1", url });
+    assert.equal(res.status, 201);
+    const sheet = await res.json();
+    return (await post(`${origin}/v1/exams/${sheet.exam}/finish`, {})).json();
+  };
+  const realKey = generatePrivateKey();
+  const real = privateKeyToAccount(realKey);
+  // The site's file lists `mine`, a wallet none of these agents uses; a stranger names the same site; a third agent
+  // names another one.
+  await enter(realKey, "shop-agent", "https://www.agent-shop.dev/bot");
+  await enter(generatePrivateKey(), "copycat", "https://agent-shop.dev");
+  await enter(generatePrivateKey(), "elsewhere", "https://other-site.dev");
+
+  // Verified needs the operator in the file: `real` is not `mine`, so nobody is verified yet.
+  let out = await (await fetch(`${origin}/v1/lookup?site=AGENT-SHOP.dev`)).json();
+  assert.equal(out.site, "agent-shop.dev");
+  assert.equal(out.file_status, "found");
+  assert.deepEqual(out.agents.map((a) => [a.agent.name, a.verified]).sort(), [["copycat", false], ["shop-agent", false]]);
+
+  // A second server whose site file lists the real operator.
+  const { origin: o2 } = await start({ siteCheck: async (host) => ({ file: `https://${host}/.well-known/agent-safety.json`, status: "found", operators: [real.address.toLowerCase()] }) });
+  const enter2 = async (key, name, url) => {
+    const res = await freeExam(o2, key, { name, version: "1", url });
+    const sheet = await res.json();
+    return (await post(`${o2}/v1/exams/${sheet.exam}/finish`, {})).json();
+  };
+  await enter2(generatePrivateKey(), "copycat", "https://agent-shop.dev");
+  await enter2(realKey, "shop-agent", "https://agent-shop.dev/bot");
+  out = await (await fetch(`${o2}/v1/lookup?site=https://agent-shop.dev/`)).json();
+  assert.deepEqual(out.agents.map((a) => [a.agent.name, a.verified]), [["shop-agent", true], ["copycat", false]], "verified first");
+  assert.match(out.agents[0].agent_page, /\/a\/[0-9a-f]{16}$/);
+
+  // The page shows both, marked; a bad site is refused; a site nobody names is never fetched.
+  const page = await (await fetch(`${o2}/find?site=agent-shop.dev`)).text();
+  assert.ok(page.includes("✓ verified by the site"));
+  assert.ok(page.includes("not verified"));
+  assert.ok(page.includes("copycat"));
+  assert.equal((await fetch(`${origin}/v1/lookup?site=localhost`)).status, 400);
+  assert.ok((await (await fetch(`${origin}/find?site=10.0.0.1`)).text()).includes("not a website address"));
+  asked.length = 0;
+  const none = await (await fetch(`${origin}/v1/lookup?site=nobody-here.dev`)).json();
+  assert.deepEqual(none.agents, []);
+  assert.equal(none.file_status, "not_checked");
+  assert.deepEqual(asked, [], "no agent names it: the site is not fetched");
+
+  // MCP: agent_safety_check with site.
+  const rpc = await (await post(`${o2}/mcp`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "agent_safety_check", arguments: { site: "agent-shop.dev" } } }, { accept: "application/json, text/event-stream" })).json();
+  const sc = rpc.result.structuredContent;
+  assert.equal(sc.found, true);
+  assert.equal(sc.agents[0].verified, true);
+
+  // The homepage has the form; the nav links the page.
+  const home = await (await fetch(`${o2}/`)).text();
+  assert.ok(home.includes('action="/find"'));
+});
+
 test("EXAM_SIGNING_KEY: with or without 0x, spaces or quotes; a wrong one leaves results unsigned instead of stopping the server", async () => {
   const { signerFrom } = await import("../src/exam/server.js");
   const key = generatePrivateKey();

@@ -22,7 +22,8 @@ import { createExam, EXAM_MINUTES, PASS } from "./exam.js";
 import { memoryStore } from "./store.js";
 import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
-import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt } from "./pages.js";
+import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage } from "./pages.js";
+import { siteHost, createSiteVerifier, WELL_KNOWN } from "./site.js";
 import { createHash } from "node:crypto";
 import { createMcpHandler, serverCard } from "./mcp.js";
 import { fileURLToPath } from "node:url";
@@ -33,7 +34,7 @@ import { BASE } from "../x402-seller.js";
 
 const DAY = 86400;
 export const VALID_DAYS = 30;
-export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6 };
+export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6, lookupsPerIpPerHour: 60 };
 export const DEMO_PACE_MS = 650;
 const OG_IMAGE = fileURLToPath(new URL("./og.png", import.meta.url));
 const FONT_DIR = fileURLToPath(new URL("./fonts/", import.meta.url));
@@ -94,7 +95,7 @@ export function signerFrom(raw, log = console) {
   }
 }
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier() } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   const exams = new Map(); // live sittings, in memory: a restart ends them
@@ -374,6 +375,51 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     res.set("content-type", "image/svg+xml").set("cache-control", "max-age=600").set("access-control-allow-origin", "*").send(badgeSvg(withCurrent(r), { style: styleOf(req) }));
   });
 
+  // Agents by website (src/exam/site.js): the latest result of every agent whose agent.url is on the site, each marked
+  // verified when the site's /.well-known/agent-safety.json lists its operator wallet. The file is only fetched when
+  // some agent names the site, so the lookup can't be used to make the exam fetch any address.
+  async function agentsOfSite(host) {
+    const latest = new Map();
+    for (const r of await store.list("result:")) {
+      if (r.reference || siteHost(r.agent?.url) !== host) continue;
+      const key = agentKey(r);
+      if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
+    }
+    const rows = [...latest.values()].map(withCurrent);
+    const check = rows.length ? await siteCheck(host) : { file: `https://${host}${WELL_KNOWN}`, status: "not_checked", operators: [] };
+    const agents = rows
+      .map((r) => ({ ...publicRow(r), url: r.agent.url, verified: check.operators.includes(String(r.operator || "").toLowerCase()) }))
+      .sort((a, b) => Number(b.verified) - Number(a.verified) || Number(b.current) - Number(a.current) || b.score - a.score);
+    return { site: host, file: check.file, file_status: check.status, agents };
+  }
+
+  async function lookupLimited(req) {
+    const hour = new Date(now()).toISOString().slice(0, 13);
+    return (await store.incr(`lookup:${req.ip}:${hour}`, 3600)) > LIMITS.lookupsPerIpPerHour;
+  }
+
+  app.get("/v1/lookup", async (req, res) => {
+    res.set("access-control-allow-origin", "*");
+    const host = siteHost(req.query.site);
+    if (!host) return res.status(400).json({ error: "site must be a website address, like example.com" });
+    if (await lookupLimited(req)) return res.status(429).json({ error: `at most ${LIMITS.lookupsPerIpPerHour} lookups per hour` });
+    const out = await agentsOfSite(host);
+    usage.record("lookup", { req, via: "api", input: { site: host }, result: { agents: out.agents.length, verified: out.agents.filter((a) => a.verified).length } });
+    res.json(out);
+  });
+
+  app.get("/find", async (req, res) => {
+    const typed = String(req.query.site ?? "").slice(0, 300);
+    const host = typed ? siteHost(typed) : null;
+    let found = null;
+    let error = null;
+    if (typed && !host) error = "That is not a website address. Try something like example.com.";
+    else if (host && (await lookupLimited(req))) error = `At most ${LIMITS.lookupsPerIpPerHour} lookups per hour. Try again later.`;
+    else if (host) found = await agentsOfSite(host);
+    usage.record("page", { req, via: "web", input: { page: "find", ...(host ? { site: host } : {}) } });
+    res.type("html").send(findPage({ origin, typed, found, error, keyOf: agentKey }));
+  });
+
   // The page the badge links to: the agent's latest result.
   app.get("/a/:key", async (req, res) => {
     const r = await latestOf(req.params.key);
@@ -485,6 +531,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     result: `${origin}/v1/results/${r.id}`,
     replay: `${origin}/r/${r.id}`,
     badge: `${origin}/badge/${r.id}.svg`,
+    agent_key: agentKey(r),
     agent_badge: `${origin}/badge/agent/${agentKey(r)}.svg`,
     agent_page: `${origin}/a/${agentKey(r)}`,
   });
@@ -492,7 +539,14 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   const mcp = createMcpHandler({
     onCall: (tool, req, ok) => usage.record("mcp", { req, via: "mcp", status: ok ? 200 : 400, input: { tool } }),
     handlers: {
-      async check({ agent, result_id }) {
+      async check({ agent, result_id, site }) {
+        if (site) {
+          const host = siteHost(site);
+          if (!host) throw new Error("site must be a website address, like example.com");
+          const out = await agentsOfSite(host);
+          if (!out.agents.length) return { found: false, site: host, message: "No agent in the Agent Safety Index names this site. Not being listed says nothing either way: ask its operator to enter it.", take_the_exam: `${origin}/#take` };
+          return { found: true, ...out, note: "verified: the site's own /.well-known/agent-safety.json lists the agent's operator wallet. An agent that is not verified only claims the site." };
+        }
         if (result_id) {
           const r = /^[0-9a-f]{24}$/.test(String(result_id)) ? await store.get(`result:${result_id}`) : null;
           if (!r) throw new Error("no result with that id");
@@ -542,7 +596,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   app.get("/robots.txt", (_req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /e/\nDisallow: /live/\nDisallow: /v1/exams\n\nSitemap: ${origin}/sitemap.xml\n`));
   app.get("/sitemap.xml", async (_req, res) => {
     const rows = await indexRows();
-    const urls = [`${origin}/`, `${origin}/llms.txt`, ...rows.map((r) => `${origin}/r/${r.id}`)];
+    const urls = [`${origin}/`, `${origin}/find`, `${origin}/llms.txt`, ...rows.map((r) => `${origin}/r/${r.id}`)];
     res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>\n`);
   });
   app.get("/og.png", (_req, res) => res.type("image/png").set("cache-control", "public, max-age=86400").sendFile(OG_IMAGE));
