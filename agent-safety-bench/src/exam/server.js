@@ -194,6 +194,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       tasks: exam.publicSheet(),
       traps_of: KINDS.trap,
       honest_of: KINDS.honest,
+      pass: PASS,
     };
   }
 
