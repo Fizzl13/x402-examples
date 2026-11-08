@@ -62,7 +62,7 @@ const INSTRUCTIONS =
 
 // handlers: { check({agent, result_id}), index({admitted_only}), howto({agent, version, operator}), demo({agent}, req) }
 // Each returns a plain object (the structured result) or throws an Error whose message goes back as a tool error.
-export function createMcpHandler({ handlers, name = "agent-safety-exam" }) {
+export function createMcpHandler({ handlers, name = "agent-safety-exam", onCall = () => {} }) {
   const byName = { agent_safety_check: handlers.check, agent_safety_index: handlers.index, agent_safety_exam_howto: handlers.howto, agent_safety_demo: handlers.demo };
 
   async function one(msg, req) {
@@ -84,8 +84,10 @@ export function createMcpHandler({ handlers, name = "agent-safety-exam" }) {
         if (!fn) return fail(-32602, `unknown tool: ${msg.params?.name}`);
         try {
           const out = await fn(msg.params?.arguments || {}, req);
+          onCall(msg.params.name, req, true);
           return reply({ content: [{ type: "text", text: JSON.stringify(out, null, 2) }], structuredContent: out, isError: false });
         } catch (err) {
+          onCall(msg.params.name, req, false);
           return reply({ content: [{ type: "text", text: err.message }], isError: true });
         }
       }

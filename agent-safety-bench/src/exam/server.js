@@ -20,6 +20,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { verifyMessage, getAddress, isAddress } from "viem";
 import { createExam, EXAM_MINUTES, PASS } from "./exam.js";
 import { memoryStore } from "./store.js";
+import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
 import { indexPage, badgeSvg, livePage, llmsTxt } from "./pages.js";
 import { createMcpHandler, serverCard } from "./mcp.js";
@@ -69,7 +70,7 @@ export function signerFrom(raw, log = console) {
   }
 }
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   const exams = new Map(); // live sittings, in memory: a restart ends them
@@ -136,27 +137,27 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       const payload = decodePayment(paymentHeader);
       if (!payload) return res.status(400).json({ error: "the payment header is not base64 JSON" });
       const v = await facilitator.verify(payload);
-      if (!v.valid || !isAddress(v.payer || "")) return res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl, v.reason))).toString("base64")).json(feeChallenge(resourceUrl, v.reason));
+      if (!v.valid || !isAddress(v.payer || "")) return usage.record("exam refused", { req, status: 402, input: { reason: "payment not valid" } }), res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl, v.reason))).toString("base64")).json(feeChallenge(resourceUrl, v.reason));
       operator = getAddress(v.payer);
       fee = { payload };
     } else {
       if (!isAddress(String(b.operator || ""))) return res.status(400).json({ error: "operator (the wallet that answers for this agent) is required" });
       operator = getAddress(b.operator);
       const used = await store.get(`free:${operator.toLowerCase()}`);
-      if (used) return res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl))).toString("base64")).json({ ...feeChallenge(resourceUrl, `this wallet used its free exam on ${used.date}; every next exam costs $${FEE_USD}`) });
+      if (used) return usage.record("exam refused", { req, operator, status: 402, input: { reason: "free exam used" } }), res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl))).toString("base64")).json({ ...feeChallenge(resourceUrl, `this wallet used its free exam on ${used.date}; every next exam costs $${FEE_USD}`) });
       const message = examMessage({ name, version, operator, date: today(now()) });
       const ok = typeof b.signature === "string" && (await verifyMessage({ address: operator, message, signature: b.signature }).catch(() => false));
-      if (!ok) return res.status(401).json({ error: "sign the exam message with the operator wallet (GET /v1/exams/message) and send it as signature", message });
+      if (!ok) return usage.record("exam refused", { req, operator, status: 401, input: { reason: "no signature" } }), res.status(401).json({ error: "sign the exam message with the operator wallet (GET /v1/exams/message) and send it as signature", message });
       const ipCount = await store.incr(`ip:${req.ip}:${today(now())}`, DAY);
-      if (ipCount > LIMITS.freePerIpPerDay) return res.status(429).json({ error: `at most ${LIMITS.freePerIpPerDay} free exams per IP address per day` });
+      if (ipCount > LIMITS.freePerIpPerDay) return usage.record("exam refused", { req, operator, status: 429, input: { reason: "free exams per IP" } }), res.status(429).json({ error: `at most ${LIMITS.freePerIpPerDay} free exams per IP address per day` });
     }
 
     const perDay = await store.incr(`wallet:${operator.toLowerCase()}:${today(now())}`, DAY);
-    if (perDay > LIMITS.perWalletPerDay) return res.status(429).json({ error: `at most ${LIMITS.perWalletPerDay} exams per wallet per day` });
+    if (perDay > LIMITS.perWalletPerDay) return usage.record("exam refused", { req, operator, status: 429, input: { reason: "exams per wallet" } }), res.status(429).json({ error: `at most ${LIMITS.perWalletPerDay} exams per wallet per day` });
 
     if (fee) {
       const s = await facilitator.settle(fee.payload);
-      if (!s.settled) return res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl, s.reason))).toString("base64")).json(feeChallenge(resourceUrl, s.reason));
+      if (!s.settled) return usage.record("exam refused", { req, operator, status: 402, input: { reason: "payment not settled" } }), res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl, s.reason))).toString("base64")).json(feeChallenge(resourceUrl, s.reason));
       res.set("PAYMENT-RESPONSE", Buffer.from(JSON.stringify({ success: true, transaction: s.transaction, network: "eip155:8453", payer: operator })).toString("base64"));
       fee = { transaction: s.transaction };
     } else if (!(await store.setOnce(`free:${operator.toLowerCase()}`, { date: today(now()) }))) {
@@ -165,6 +166,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
 
     const exam = sitting({ agent: { name, version, ...(agentUrl ? { url: agentUrl } : {}) }, operator, paid: Boolean(fee), ...(fee ? { fee_tx: fee.transaction } : {}) });
     log.info?.(`[exam] ${exam.id} started: ${name} ${version} (${operator}, ${fee ? "paid" : "free"})`);
+    usage.record("exam started", { req, operator, ...(fee ? { payer: operator, usd: FEE_USD } : {}), status: 201, input: { kind: fee ? "paid" : "free", agent: name, version } });
     res.status(201).json(sheet(exam));
   });
 
@@ -280,6 +282,10 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       exam.finishedAt = now();
       exam.feed.push({ type: "finish", at: now() - exam.startedAt, result: { id: exam.meta.demo ? null : exam.id, score: r.score, admitted: r.admitted, late: r.late, traps: r.traps, honest: r.honest, lost_usd: r.lost_usd, spent_usd: r.spent_usd, checks_usd: r.checks_usd, tasks: r.tasks.map((t) => ({ task: t.task, ...pickVerdict(t) })) } });
     }
+    if (!already) {
+      const kind = exam.meta.demo ? "demo" : exam.meta.reference ? "reference" : exam.meta.paid ? "paid" : "free";
+      usage.record("exam finished", { req, operator: exam.meta.operator, input: { kind, agent: record.agent.name }, result: { score: r.score, admitted: r.admitted, traps: `${r.traps.avoided}/${r.traps.of}`, honest: `${r.honest.done}/${r.honest.of}`, lost_usd: r.lost_usd, late: r.late || undefined } });
+    }
     if (!already && !exam.meta.demo) {
       await store.set(`result:${exam.id}`, signed);
       await store.set(`feed:${exam.id}`, exam.feed.events);
@@ -316,6 +322,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
 
   app.get("/badge/:id.svg", async (req, res) => {
     const r = /^[0-9a-f]{24}$/.test(req.params.id) ? await store.get(`result:${req.params.id}`) : null;
+    usage.record("badge", { req, via: "web", input: { found: Boolean(r) } });
     res.set("content-type", "image/svg+xml").set("cache-control", "max-age=3600").send(badgeSvg(r && { ...r, current: r.admitted && Date.parse(r.valid_until) > now() }));
   });
 
@@ -402,6 +409,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
 
   app.post("/v1/demo", async (req, res) => {
     const d = await launchDemo(req.body?.agent, req.ip);
+    usage.record("demo", { req, via: "web", status: d.error ? d.status : 201, input: { agent: req.body?.agent === "always-pay" ? "always-pay" : "follow-preflight" } });
     if (d.error) return res.status(d.status).json({ error: d.error });
     res.status(201).json({ watch: d.watch, page: d.page });
   });
@@ -425,6 +433,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   });
 
   const mcp = createMcpHandler({
+    onCall: (tool, req, ok) => usage.record("mcp", { req, via: "mcp", status: ok ? 200 : 400, input: { tool } }),
     handlers: {
       async check({ agent, result_id }) {
         if (result_id) {
@@ -483,17 +492,20 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
 
   app.get("/live/:w", (req, res) => {
     if (!watchId(req.params.w)) return res.status(404).type("text").send("no such sitting");
+    usage.record("page", { req, via: "web", input: { page: "live", kind: watching.get(req.params.w)?.meta.demo ? "demo" : watching.get(req.params.w)?.meta.reference ? "reference" : "exam" } });
     res.type("html").send(livePage({ mode: "live", id: req.params.w, origin }));
   });
 
   app.get("/r/:id", (req, res) => {
     if (!/^[0-9a-f]{24}$/.test(req.params.id)) return res.status(404).type("text").send("no such result");
+    usage.record("page", { req, via: "web", input: { page: "replay" } });
     res.type("html").send(livePage({ mode: "result", id: req.params.id, origin }));
   });
 
   app.get("/v1/signer", (_req, res) => res.json({ signer: signer?.address ?? null, signs: "EIP-191 personal_sign over the canonical JSON (sorted keys) of the result without signer and signature" }));
 
-  app.get("/", async (_req, res) => {
+  app.get("/", async (req, res) => {
+    usage.record("page", { req, via: "web", input: { page: "index" } });
     res.type("html").send(indexPage({ rows: await indexRows(), origin, pass: PASS, validDays: VALID_DAYS, feeUsd: FEE_USD }));
   });
 
