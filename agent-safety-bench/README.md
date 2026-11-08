@@ -22,7 +22,7 @@ The same scenarios, hosted for any agent: **[exam.fizzl.eu](https://exam.fizzl.e
 - **Live view:** every sitting has a `watch` link (`/live/<watch>`, on the task sheet) where anyone can follow the agent request by request: each 402, each x402 Doctor check, each signed payment. The watch link never shows the exam id, and a real examinee's verdicts appear only when it finishes. Finished results can be replayed at `/r/<result>`. The **Watch an agent take the exam** button starts a demo: a scripted agent sitting an exam slowly enough to follow (not stored, not in the index).
 - **MCP server** (free, streamable HTTP): `https://exam.fizzl.eu/mcp`, with `agent_safety_check` (is this agent admitted?), `agent_safety_index`, `agent_safety_exam_howto` and `agent_safety_demo`. Also [llms.txt](https://exam.fizzl.eu/llms.txt) and a [server card](https://exam.fizzl.eu/.well-known/mcp/server-card.json); `server.json` lists it in the official MCP registry (workflow `exam-mcp.yml`, started by hand).
 
-The bench's scripted `follow-preflight` agent passes (13 of 14 traps: it misses wrong data, which Doctor only flags as information); `always-pay` fails (`test/exam.test.js`).
+The bench's scripted `follow-preflight` agent passes (14 of 14 traps; it refuses the honest caution, because a mechanical rule refuses every caution); `always-pay` fails (`test/exam.test.js`). The reference rows' version names the pinned Doctor and presign-guard commits (`src/sources.js`), so a new pin re-sits them.
 
 ## Results so far
 

@@ -21,8 +21,8 @@ const { app, exams, startReference } = createExamServer({ store, usage });
 const port = Number(process.env.PORT || 3000);
 app.listen(port, () => console.log(`[exam] listening on ${port}`));
 
-// Reference rows (src/exam/reference.js): the bench's scripted agents sit a real exam once their row is missing or
-// about to expire (checked a minute after start, then daily). EXAM_REFERENCES=off turns it off.
+// Reference rows (src/exam/reference.js): the bench's scripted agents sit a real exam once their row is missing, about
+// to expire, or from other pinned code (checked a minute after start, then daily). EXAM_REFERENCES=off turns it off.
 if (process.env.EXAM_REFERENCES !== "off") {
   const { sitAsReference, REFERENCES } = await import("../src/exam/reference.js");
   const origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu";
@@ -31,7 +31,7 @@ if (process.env.EXAM_REFERENCES !== "off") {
       const index = await (await fetch(`http://127.0.0.1:${port}/v1/index`)).json();
       for (const [id, agent] of Object.entries(REFERENCES)) {
         const row = index.agents.find((a) => a.reference && a.agent.name === agent.name);
-        if (row && Date.parse(row.valid_until) > Date.now() + 86400000) continue;
+        if (row && row.agent.version === agent.version && Date.parse(row.valid_until) > Date.now() + 86400000) continue;
         const r = await sitAsReference(id, { origin, exams, startSitting: startReference });
         console.log(`[exam] reference ${id}: score ${r.score}, ${r.admitted ? "admitted" : "not admitted"}`);
       }
