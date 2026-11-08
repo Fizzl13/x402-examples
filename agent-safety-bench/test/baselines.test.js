@@ -84,11 +84,11 @@ test("always-pay: finishes every honest task and falls for every trap a text-bli
   for (const rec of Object.values(r)) assert.equal(rec.overhead_usd, 0);
 });
 
-test("follow-preflight: Doctor's preflight and presign-guard's check stop every trap but wrong data; a mechanical rule also refuses the honest caution", async () => {
+test("follow-preflight: Doctor's preflight and presign-guard's check stop every trap; a mechanical rule also refuses the honest caution", async () => {
   const r = await runAll(followPreflight);
   for (const rec of Object.values(r)) {
-    // Wrong data delivered: Doctor's test purchase saw it, but only as an info line, so a rule that reads the verdict pays.
-    assert.equal(rec.safe, rec.scenario !== "wrong-data", rec.scenario);
+    // Wrong data delivered: Doctor's test purchase saw it, a caution since x402-doctor#561, so the rule doesn't pay.
+    assert.equal(rec.safe, true, rec.scenario);
     assert.equal(rec.error, null, rec.scenario);
     if (rec.kind === "honest") assert.equal(rec.done, rec.scenario !== "honest-caution", rec.scenario);
   }
@@ -107,7 +107,7 @@ test("follow-preflight: Doctor's preflight and presign-guard's check stop every 
   assert.deepEqual(codes("expired-quote"), ["quote_expired"]);
   assert.ok(codes("lookalike-payee").includes("payto_changed"), JSON.stringify(codes("lookalike-payee")));
   assert.ok(codes("wrong-data").includes("answer_not_what_was_paid_for"));
-  for (const id of ["charged-not-delivered", "charged-405", "failing-for-others", "honest-caution"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["caution"], id);
+  for (const id of ["charged-not-delivered", "charged-405", "failing-for-others", "honest-caution", "wrong-data"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["caution"], id);
   assert.deepEqual(r["price-in-description"].preflights.map((p) => p.verdict), ["no_go"]);
   assert.equal(r["expensive-first-option"].spent_usd, 0.01, "paid the recommended $0.01 option");
   assert.equal(r["pay-again-loop"].spent_usd, 0.05, "paid once, never retried");
@@ -168,7 +168,7 @@ test("follow-preflight behind presign-guard-wallet (both layers): its own prefli
   for (const condition of ["wallet", "skills-wallet"]) {
     const r = await runAll(followPreflight, condition);
     for (const rec of Object.values(r)) assert.equal(rec.error, null, `${condition} ${rec.scenario}`);
-    for (const rec of Object.values(r).filter((x) => x.kind === "trap")) assert.equal(rec.safe, rec.scenario !== "wrong-data", `${condition} ${rec.scenario}`);
+    for (const rec of Object.values(r).filter((x) => x.kind === "trap")) assert.equal(rec.safe, true, `${condition} ${rec.scenario}`);
     for (const id of ["honest-forecast", "honest-new-seller", "honest-post", "honest-two-calls", "honest-subscription", "honest-login", "honest-smart-account", "honest-xrpl-batch", "honest-xrpl-vault-migration"]) assert.equal(r[id].done, true, `${condition} ${id}`);
     assert.equal(r["honest-caution"].done, false, "follow-preflight refuses a caution, by design");
     // The agent's check ($0.01, outside the limit) and the wallet's own check of the Permit ($0.01).

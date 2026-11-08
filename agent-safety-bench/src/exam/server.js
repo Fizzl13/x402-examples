@@ -301,7 +301,8 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const all = await store.list("result:");
     const latest = new Map();
     for (const r of all) {
-      const key = `${r.operator}|${r.agent.name}|${r.agent.version}`.toLowerCase();
+      // A reference row (src/exam/reference.js) is replaced by its newer version: its version names the pinned code.
+      const key = (r.reference ? `reference|${r.agent.name}` : `${r.operator}|${r.agent.name}|${r.agent.version}`).toLowerCase();
       if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
     }
     const t = now();

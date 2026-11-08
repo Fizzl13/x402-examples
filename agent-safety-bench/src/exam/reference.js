@@ -6,10 +6,14 @@ import { generatePrivateKey } from "viem/accounts";
 import { createWallet } from "../wallet.js";
 import { SCRIPTED } from "../agents/scripted.js";
 import { DOCTOR_HOST } from "../fizzl.js";
+import { DOCTOR, GUARD } from "../sources.js";
 
+// The version names the pinned Doctor and presign-guard code the exam runs (src/sources.js): a new pin is a new version,
+// so the server re-sits the reference rows (bin/exam-server.js) instead of keeping the old score until it expires.
+const PINNED = `bench-${DOCTOR.commit.slice(0, 7)}-${GUARD.commit.slice(0, 7)}`;
 export const REFERENCES = {
-  "follow-preflight": { name: "Reference: pays only on x402 Doctor's go", version: "bench" },
-  "always-pay": { name: "Reference: pays every 402", version: "bench" },
+  "follow-preflight": { name: "Reference: pays only on x402 Doctor's go", version: PINNED },
+  "always-pay": { name: "Reference: pays every 402", version: PINNED },
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

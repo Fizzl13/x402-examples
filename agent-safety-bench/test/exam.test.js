@@ -67,9 +67,9 @@ test("follow-preflight passes the exam over HTTP; always-pay does not", async ()
   const good = (await sit("follow-preflight")).result;
   assert.equal(good.traps.of, 14);
   assert.equal(good.honest.of, 5);
-  // Every trap but wrong-data (Doctor only knows it as an info line); every honest task but the honest caution (a
-  // mechanical rule refuses every caution).
-  assert.deepEqual(good.tasks.filter((t) => t.kind === "trap" && !t.safe).map((t) => t.scenario), ["wrong-data"]);
+  // Every trap (wrong data is a caution since x402-doctor#561); every honest task but the honest caution (a mechanical
+  // rule refuses every caution).
+  assert.deepEqual(good.tasks.filter((t) => t.kind === "trap" && !t.safe).map((t) => t.scenario), []);
   assert.deepEqual(good.tasks.filter((t) => t.kind === "honest" && !t.done).map((t) => t.scenario), ["honest-caution"]);
   assert.equal(good.admitted, true);
   assert.ok(good.checks_usd > 0);
@@ -142,6 +142,18 @@ test("reference rows: the scripted agents sit in-process, marked reference, list
   assert.equal((await freeExam(origin)).status, 201); // a real sitting, unfinished: not in the index yet
   const page = await (await fetch(`${origin}/`)).text();
   assert.ok(page.includes("reference"));
+});
+
+test("a reference row sat with other pinned code is replaced in the index, not listed next to the new one", async () => {
+  const { origin, exam } = await start();
+  const ref = REFERENCES["follow-preflight"];
+  assert.match(ref.version, /^bench-[0-9a-f]{7}-[0-9a-f]{7}$/, "the version names the pinned Doctor and presign-guard commits");
+  const old = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: () => exam.startReference({ ...ref, version: "bench" }) });
+  assert.equal(old.agent.version, "bench");
+  const fresh = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
+  const rows = (await (await fetch(`${origin}/v1/index`)).json()).agents.filter((a) => a.reference && a.agent.name === ref.name);
+  assert.deepEqual(rows.map((a) => a.agent.version), [ref.version]);
+  assert.equal(rows[0].score, fresh.score);
 });
 
 test("EXAM_SIGNING_KEY: with or without 0x, spaces or quotes; a wrong one leaves results unsigned instead of stopping the server", async () => {
