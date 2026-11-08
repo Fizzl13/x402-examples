@@ -388,6 +388,9 @@ test("live view: a watch link shows every request and answer, never the exam id;
   assert.equal(answers.length, 19);
   assert.ok(answers.every((e) => e.verdict && typeof e.verdict.safe === "boolean"));
   assert.ok(replay.events.some((e) => e.type === "request" && e.to === "doctor" && e.verdict));
+  // The wrong-data trap's caution comes from Jev's answer check on Doctor's own test purchase; the view says so.
+  assert.ok(replay.events.some((e) => e.to === "doctor" && (e.codes || []).includes("answer_not_what_was_paid_for")));
+  assert.match(await (await fetch(`${origin}/r/${r.id}`)).text(), /Jev \(TypeSafe\) judged the answer to x402 Doctor's own test purchase/);
   assert.ok(!JSON.stringify(replay.events.filter((e) => e.type !== "finish")).includes(r.id));
   assert.equal((await fetch(`${origin}/r/${r.id}`)).status, 200);
 });
