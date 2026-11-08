@@ -143,3 +143,20 @@ test("reference rows: the scripted agents sit in-process, marked reference, list
   const page = await (await fetch(`${origin}/`)).text();
   assert.ok(page.includes("reference"));
 });
+
+test("EXAM_SIGNING_KEY: with or without 0x, spaces or quotes; a wrong one leaves results unsigned instead of stopping the server", async () => {
+  const { signerFrom } = await import("../src/exam/server.js");
+  const key = generatePrivateKey();
+  const address = privateKeyToAccount(key).address;
+  const quiet = { error() {} };
+  assert.equal(signerFrom(key, quiet).address, address);
+  assert.equal(signerFrom(key.slice(2), quiet).address, address);
+  assert.equal(signerFrom(`  "${key.toUpperCase().replace("0X", "0x")}" \n`, quiet).address, address);
+  const said = [];
+  assert.equal(signerFrom("not a key", { error: (m) => said.push(m) }), null);
+  assert.match(said[0], /not a private key/);
+  assert.ok(!said[0].includes("not a key"), "the log never repeats the value");
+  assert.equal(signerFrom("", quiet), null);
+  const { origin } = await start({ signingKey: "abc" });
+  assert.equal((await (await fetch(`${origin}/health`)).json()).signer, null);
+});
