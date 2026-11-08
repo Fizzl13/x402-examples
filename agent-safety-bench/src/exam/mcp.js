@@ -10,6 +10,73 @@
 export const MCP_VERSION = "1.0.0";
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
+// Output schemas: what each tool returns (MCP clients and directories read them from tools/list). Loose on purpose:
+// no field is required and extra fields pass, so a new field never breaks a client's check.
+const str = (description) => ({ type: "string", description });
+const ROW = {
+  type: "object",
+  properties: {
+    agent: { type: ["object", "string"], description: "name, version and (if given) url, as entered (just the name asked for when nothing was found)", properties: { name: { type: "string" }, version: { type: "string" }, url: { type: ["string", "null"] } } },
+    reference: { type: "boolean", description: "A reference sitting run by the exam itself" },
+    score: { type: "number", description: "0 to 100" },
+    admitted: { type: "boolean", description: "Passed the exam" },
+    current: { type: "boolean", description: "Admitted and not expired" },
+    traps_avoided: str("Cheating sellers refused, as avoided/of"),
+    honest_done: str("Honest tasks done, as done/of"),
+    lost_usd: { type: "number", description: "Test money paid to cheating sellers" },
+    finished_at: str("ISO time"),
+    valid_until: str("ISO time"),
+    result: str("The signed result (JSON)"),
+    replay: str("Watch the sitting again"),
+    badge: str("Badge for this result (SVG)"),
+    agent_key: str("Stable key for this agent"),
+    agent_badge: str("Badge that always shows the agent's latest result (SVG)"),
+    agent_page: str("Link that always opens the agent's latest result"),
+  },
+};
+const OUTPUT = {
+  agent_safety_check: {
+    type: "object",
+    properties: {
+      found: { type: "boolean", description: "false: not in the index (which says nothing either way)" },
+      ...ROW.properties,
+      others: { type: "array", items: ROW, description: "Other agents whose name matched" },
+      signer: { type: ["string", "null"], description: "With result_id: the exam's signing address" },
+      signature: { type: ["string", "null"], description: "With result_id: EIP-191 signature over the result" },
+      site: str("With site: the website looked up"),
+      file_status: str("With site: what its /.well-known/agent-safety.json said"),
+      agents: { type: "array", items: { type: "object" }, description: "With site: every agent that names it, each marked verified or not" },
+      message: str("Why nothing was found"),
+      take_the_exam: str("Where to enter an agent"),
+    },
+  },
+  agent_safety_index: {
+    type: "object",
+    properties: {
+      index: str("The index page"),
+      pass: { type: "object", description: "The pass marks" },
+      valid_days: { type: "number" },
+      signer: { type: ["string", "null"], description: "The exam's signing address" },
+      agents: { type: "array", items: ROW },
+    },
+  },
+  agent_safety_exam_howto: {
+    type: "object",
+    properties: {
+      exam: str("The exam site"),
+      what: str("What the exam is and the pass marks"),
+      price: str("What it costs"),
+      steps: { type: "array", items: { type: "string" } },
+      message_to_sign: str("With agent and operator: the message the operator wallet signs for the free exam"),
+      free_exam_available: { type: "boolean" },
+    },
+  },
+  agent_safety_demo: {
+    type: "object",
+    properties: { watch_live: str("Open to follow the demo live"), agent: str("Which scripted agent"), note: { type: "string" } },
+  },
+};
+
 export const TOOLS = [
   {
     name: "agent_safety_check",
@@ -25,6 +92,7 @@ export const TOOLS = [
       },
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
+    outputSchema: OUTPUT.agent_safety_check,
   },
   {
     name: "agent_safety_index",
@@ -32,6 +100,7 @@ export const TOOLS = [
     description: "Every agent's latest result in the Agent Safety Index (admitted ones first): score, traps avoided, honest tasks done, money lost, admitted or not, valid until. Free.",
     inputSchema: { type: "object", properties: { admitted_only: { type: "boolean", description: "Only agents whose admission is current" } } },
     annotations: { readOnlyHint: true, openWorldHint: false },
+    outputSchema: OUTPUT.agent_safety_index,
   },
   {
     name: "agent_safety_exam_howto",
@@ -47,6 +116,7 @@ export const TOOLS = [
       },
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
+    outputSchema: OUTPUT.agent_safety_exam_howto,
   },
   {
     name: "agent_safety_demo",
@@ -55,6 +125,7 @@ export const TOOLS = [
       "Start a demo: a scripted agent takes the x402 Agent Safety exam slowly enough to follow, and you get a link to watch it live (every request, every 402, every x402 Doctor check, every signed payment). `follow-preflight` pays only when x402 Doctor's preflight says go; `always-pay` pays every 402. Demos are not stored. Free.",
     inputSchema: { type: "object", properties: { agent: { type: "string", enum: ["follow-preflight", "always-pay"], description: "Which scripted agent (default follow-preflight)" } } },
     annotations: { readOnlyHint: false, openWorldHint: false },
+    outputSchema: OUTPUT.agent_safety_demo,
   },
 ];
 

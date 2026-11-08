@@ -400,8 +400,10 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
   assert.equal(init.result.protocolVersion, "2025-06-18");
   assert.equal(init.result.serverInfo.name, "agent-safety-exam");
   assert.equal((await post(`${origin}/mcp`, { jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
-  const tools = (await rpc("tools/list")).result.tools.map((t) => t.name);
+  const listed = (await rpc("tools/list")).result.tools;
+  const tools = listed.map((t) => t.name);
   assert.deepEqual(tools, ["agent_safety_check", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo"]);
+  for (const t of listed) assert.equal(t.outputSchema?.type, "object", t.name);
   const call = async (name, args) => (await rpc("tools/call", { name, arguments: args })).result;
   const found = (await call("agent_safety_check", { agent: "doctor's go" })).structuredContent;
   assert.equal(found.found, true);
