@@ -313,7 +313,7 @@ h2.sec{font-size:20px;font-weight:600;margin:26px 0 12px;display:flex;flex-wrap:
 .tile.open{grid-column:1/-1;cursor:default;min-height:0}.tile.open .q{-webkit-line-clamp:unset}.tile .log{display:none;font:12px/1.7 var(--mono);border-top:1px solid var(--line);padding-top:8px;margin-top:4px;max-height:260px;overflow:auto}.tile.open .log{display:block}
 .feed{padding:6px 0;font:12.5px/1.75 var(--mono);max-height:420px;overflow:auto}
 .ln{display:grid;grid-template-columns:52px 40px 1fr;gap:8px;padding:2px 16px;animation:in .35s}.ln:hover{background:rgba(97,245,195,.04)}
-.ln .tm{color:var(--faint)}.ln .tk{color:var(--violet)}.ln .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ln .tm{color:var(--faint)}.ln .tk{color:var(--violet)}.ln .tx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ln .tx.c-dim{white-space:normal}
 @keyframes in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 .c-dim{color:var(--faint)}.c-m{color:var(--mint)}.c-a{color:var(--amber)}.c-r{color:var(--red)}.c-b{color:var(--blue)}.c-g{color:var(--gold)}
 .ctl{display:flex;gap:8px;align-items:center}@media (max-width:600px){.stage .cap>span:first-child{display:none}.stage .cap{justify-content:flex-end}}.ctl .btn{min-height:36px;padding:0 16px;font-size:10px}
@@ -468,6 +468,8 @@ function describe(e){
     out.push(['c-b','→ x402 Doctor '+(e.path||'').replace(/^\/api\/v1\//,'').replace(/^\/api\//,'')+(e.target?' · '+e.target:'')]);
     if(e.paid)out.push(['c-g','  pays '+money(e.paid.usd)+' for the check']);
     if(e.verdict)out.push([e.verdict==='go'?'c-m':e.verdict==='caution'?'c-a':'c-r','← '+e.verdict+(e.codes&&e.codes.length?' · '+e.codes.join(', '):'')]);
+    if(e.codes&&e.codes.indexOf('answer_not_what_was_paid_for')>=0)out.push(['c-dim',"  ⓘ Jev (TypeSafe) judged the answer to x402 Doctor's own test purchase from this seller: not what was paid for."]);
+    if(e.codes&&e.codes.indexOf('answer_carried_instructions')>=0)out.push(['c-dim',"  ⓘ Jev (TypeSafe) found text aimed at AI agents in the answer to x402 Doctor's own test purchase from this seller."]);
     else out.push([e.status===402?'c-a':e.status<300?'c-m':'c-r','← '+e.status+(e.ask?' · asks '+money(e.ask.usd):'')]);
   }else{
     out.push(['c-b','→ '+e.method+' '+e.host+(e.path||'')]);
