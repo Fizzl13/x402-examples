@@ -64,5 +64,8 @@ export async function redisStore(url, { prefix = "exam:" } = {}) {
       }
       return out;
     },
+    async close() {
+      await client.quit().catch(() => client.disconnect());
+    },
   };
 }
