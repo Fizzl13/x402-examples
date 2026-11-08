@@ -287,3 +287,41 @@ test("demo: a scripted agent sits an exam to watch; it is never stored or listed
   assert.equal((await (await fetch(`${origin}/v1/index`)).json()).agents.length, 0);
   assert.ok([...exam.exams.values()].every((e) => e.meta.demo));
 });
+
+test("usage log: exams, refusals, finishes, demos, pages and MCP calls, anonymous, into events/exam/<day>/<HH>.jsonl", async () => {
+  const { createUsage } = await import("../src/exam/usage.js");
+  const files = new Map();
+  const fakeGitHub = async (url, init = {}) => {
+    const path = decodeURIComponent(new URL(url).pathname.split("/contents/")[1]);
+    if (!init.method) return files.has(path) ? new Response(JSON.stringify({ sha: "x", content: Buffer.from(files.get(path)).toString("base64") }), { status: 200 }) : new Response("{}", { status: 404 });
+    files.set(path, Buffer.from(JSON.parse(init.body).content, "base64").toString("utf8"));
+    return new Response("{}", { status: 201 });
+  };
+  const opKey = generatePrivateKey();
+  const usage = createUsage({ token: "t", salt: "s", ownWallets: [], fetch: fakeGitHub, batchMs: 0, log: {} });
+  const { origin } = await start({ usage, demoPace: 0 });
+  const sheet = await (await freeExam(origin, opKey)).json();
+  assert.equal((await freeExam(origin, opKey)).status, 402); // the free exam is used: a refusal
+  await post(`${origin}/v1/exams/${sheet.exam}/finish`, {});
+  await fetch(`${origin}/`);
+  await post(`${origin}/mcp`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "agent_safety_index", arguments: {} } });
+  await post(`${origin}/v1/demo`, { agent: "always-pay" });
+  for (let i = 0; i < 40 && ![...files.values()].join("").includes('"demo"'); i++) await new Promise((r) => setTimeout(r, 25));
+  await usage.flush();
+  const paths = [...files.keys()];
+  assert.ok(paths.every((p) => /^events\/exam\/\d{4}-\d{2}-\d{2}\/\d{2}\.jsonl$/.test(p)), paths.join());
+  const events = [...files.values()].join("").trim().split("\n").map((l) => JSON.parse(l));
+  const by = (route) => events.filter((e) => e.route === route);
+  assert.equal(by("exam started")[0].input.kind, "free");
+  assert.equal(by("exam refused")[0].input.reason, "free exam used");
+  assert.equal(by("exam finished")[0].input.kind, "free");
+  assert.equal(typeof by("exam finished")[0].result.score, "number");
+  assert.ok(by("page").some((e) => e.input.page === "index"));
+  assert.ok(by("mcp").some((e) => e.input.tool === "agent_safety_index"));
+  assert.equal(by("demo")[0].input.agent, "always-pay");
+  // Anonymous: no operator address, no IP, no exam id.
+  const text = JSON.stringify(events);
+  assert.ok(!text.toLowerCase().includes(privateKeyToAccount(opKey).address.toLowerCase().slice(2)));
+  assert.ok(!text.includes("127.0.0.1") && !text.includes(sheet.exam));
+  assert.ok(events.every((e) => e.service === "exam" && (!e.visitor || /^[0-9a-f]{12}$/.test(e.visitor))));
+});
