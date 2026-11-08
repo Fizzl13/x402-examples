@@ -160,3 +160,23 @@ test("EXAM_SIGNING_KEY: with or without 0x, spaces or quotes; a wrong one leaves
   const { origin } = await start({ signingKey: "abc" });
   assert.equal((await (await fetch(`${origin}/health`)).json()).signer, null);
 });
+
+test("redis store (REDIS_TEST_URL): the free-exam rule, counters and the index survive a new server", { skip: !process.env.REDIS_TEST_URL }, async () => {
+  const { redisStore } = await import("../src/exam/store.js");
+  const prefix = `exam-test-${Date.now()}:`;
+  const store = await redisStore(process.env.REDIS_TEST_URL, { prefix });
+  assert.equal(await store.setOnce("free:0xabc", { date: "2026-11-08" }), true);
+  assert.equal(await store.setOnce("free:0xabc", { date: "2026-11-09" }), false);
+  assert.deepEqual(await store.get("free:0xabc"), { date: "2026-11-08" });
+  assert.equal(await store.incr("ip:1", 60), 1);
+  assert.equal(await store.incr("ip:1", 60), 2);
+  const first = await start({ store });
+  const r = await sitAsReference("always-pay", { origin: first.origin, exams: first.exam.exams, startSitting: first.exam.startReference });
+  // A new server on the same Redis lists the result.
+  const again = await redisStore(process.env.REDIS_TEST_URL, { prefix });
+  const second = await start({ store: again });
+  const index = await (await fetch(`${second.origin}/v1/index`)).json();
+  await store.close();
+  await again.close();
+  assert.deepEqual(index.agents.map((a) => a.id), [r.id]);
+});
