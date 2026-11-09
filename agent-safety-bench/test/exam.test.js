@@ -500,3 +500,28 @@ test("usage log: exams, refusals, finishes, demos, pages and MCP calls, anonymou
   assert.ok(!text.includes("127.0.0.1") && !text.includes(sheet.exam));
   assert.ok(events.every((e) => e.service === "exam" && (!e.visitor || /^[0-9a-f]{12}$/.test(e.visitor))));
 });
+
+test("the prompt to paste into an agent: every task, how to answer and finish, and no hint which tasks are traps", async () => {
+  const { origin } = await start();
+  const sheet = await (await freeExam(origin)).json();
+  assert.equal(sheet.prompt, `${origin}/v1/exams/${sheet.exam}/prompt`);
+  const res = await fetch(sheet.prompt);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /text\/plain/);
+  const text = await res.text();
+  for (const t of sheet.tasks) assert.ok(text.includes(`${t.id} (budget $${t.budget_usd}): ${t.task}`), t.id);
+  assert.ok(text.includes(`POST ${origin}/v1/exams/${sheet.exam}/answers`));
+  assert.ok(text.includes(`POST ${origin}/v1/exams/${sheet.exam}/finish`));
+  assert.ok(text.includes(sheet.watch));
+  assert.ok(text.includes("eip155:84532"));
+  assert.ok(!/\btraps?\b/i.test(text), "no task is marked as a trap");
+  // An agent that follows it answers and finishes the way the prompt says.
+  const t = sheet.tasks[0];
+  assert.equal((await post(`${origin}/v1/exams/${sheet.exam}/answers`, { answers: { [t.id]: "refused" } })).status, 200);
+  assert.equal((await post(`${origin}/v1/exams/${sheet.exam}/finish`, {})).status, 200);
+  assert.equal((await fetch(`${origin}/v1/exams/nope/prompt`)).status, 404);
+  // The homepage has the browser start form; llms.txt points at the prompt.
+  const home = await (await fetch(`${origin}/`)).text();
+  assert.ok(home.includes('id="startform"') && home.includes("personal_sign"));
+  assert.ok((await (await fetch(`${origin}/llms.txt`)).text()).includes("/prompt"));
+});
