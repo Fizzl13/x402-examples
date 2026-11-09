@@ -405,7 +405,7 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
   assert.equal((await post(`${origin}/mcp`, { jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
   const listed = (await rpc("tools/list")).result.tools;
   const tools = listed.map((t) => t.name);
-  assert.deepEqual(tools, ["agent_safety_check", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo"]);
+  assert.deepEqual(tools, ["agent_safety_check", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo", "agent_safety_exam_start", "agent_safety_exam_tasks", "agent_safety_exam_answer", "agent_safety_exam_finish"]);
   for (const t of listed) assert.equal(t.outputSchema?.type, "object", t.name);
   const call = async (name, args) => (await rpc("tools/call", { name, arguments: args })).result;
   const found = (await call("agent_safety_check", { agent: "doctor's go" })).structuredContent;
@@ -426,7 +426,7 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
   assert.equal((await fetch(`${origin}/mcp`)).status, 405);
 
   const card = await (await fetch(`${origin}/.well-known/mcp/server-card.json`)).json();
-  assert.equal(card.tools.length, 4);
+  assert.equal(card.tools.length, 8);
   const llms = await (await fetch(`${origin}/llms.txt`)).text();
   assert.match(llms, /^# Agent Safety Index/);
   assert.ok(llms.includes(`${origin}/mcp`));
@@ -524,4 +524,43 @@ test("the prompt to paste into an agent: every task, how to answer and finish, a
   const home = await (await fetch(`${origin}/`)).text();
   assert.ok(home.includes('id="startform"') && home.includes("personal_sign"));
   assert.ok((await (await fetch(`${origin}/llms.txt`)).text()).includes("/prompt"));
+});
+
+test("the whole exam over MCP: howto, start with the operator's signature, tasks, answers, finish; the free exam once", async () => {
+  const { origin, exam } = await start();
+  const rpc = async (name, args) => (await (await post(`${origin}/mcp`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, { accept: "application/json, text/event-stream" })).json()).result;
+  const op = privateKeyToAccount(generatePrivateKey());
+  const how = (await rpc("agent_safety_exam_howto", { agent: "follow-preflight", operator: op.address })).structuredContent;
+  assert.match(how.easiest, /#take/);
+  // A wrong signature: a tool error that hands back the message to sign.
+  const bad = await rpc("agent_safety_exam_start", { agent: "follow-preflight", operator: op.address, signature: "0x00" });
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0].text, /Sign this with the operator wallet: /);
+  const started = await rpc("agent_safety_exam_start", { agent: "follow-preflight", operator: op.address, signature: await op.signMessage({ message: how.message_to_sign }) });
+  assert.equal(started.isError, false);
+  const sheet = started.structuredContent;
+  assert.equal(sheet.tasks.length, 19);
+  assert.equal(sheet.prompt, `${origin}/v1/exams/${sheet.exam}/prompt`);
+  // The bench's scripted agent does each task; its answers go in over MCP, some one by one, the rest at once.
+  const answers = {};
+  for (const t of sheet.tasks) answers[t.id] = (await takeTask("follow-preflight", exam.exams.get(sheet.exam).task(t.id))) ?? "";
+  const [first, ...rest] = sheet.tasks;
+  assert.deepEqual((await rpc("agent_safety_exam_answer", { exam: sheet.exam, task: first.id, answer: answers[first.id] })).structuredContent.answered, [first.id]);
+  const many = Object.fromEntries(rest.map((t) => [t.id, answers[t.id]]));
+  assert.equal((await rpc("agent_safety_exam_answer", { exam: sheet.exam, answers: many })).structuredContent.answered.length, 18);
+  assert.equal((await rpc("agent_safety_exam_answer", { exam: sheet.exam, task: "t99", answer: "x" })).isError, true);
+  assert.ok((await rpc("agent_safety_exam_tasks", { exam: sheet.exam })).structuredContent.tasks.every((t) => t.answered));
+  const result = (await rpc("agent_safety_exam_finish", { exam: sheet.exam })).structuredContent;
+  assert.equal(result.admitted, true);
+  assert.equal(result.agent.name, "follow-preflight");
+  assert.equal(result.operator, op.address);
+  assert.equal(result.result_page, `${origin}/r/${result.id}`);
+  assert.ok(await verifyMessage({ address: result.signer, message: canonical((({ signer, signature, details, result_page, ...r }) => r)(result)), signature: result.signature }));
+  // Listed like any free exam; the same wallet's next exam is paid, which MCP can't take.
+  const index = await (await fetch(`${origin}/v1/index`)).json();
+  assert.ok((index.agents || index.index || index).some((r) => r.id === result.id));
+  const again = await rpc("agent_safety_exam_start", { agent: "follow-preflight", operator: op.address, signature: await op.signMessage({ message: how.message_to_sign }) });
+  assert.equal(again.isError, true);
+  assert.match(again.content[0].text, /free exam .*over HTTP with an x402 client/);
+  assert.equal((await rpc("agent_safety_exam_tasks", { exam: "nope" })).isError, true);
 });

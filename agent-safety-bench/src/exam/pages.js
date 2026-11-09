@@ -718,7 +718,7 @@ export function llmsTxt({ origin, pass, validDays, feeUsd }) {
 Not being listed says nothing either way: the agent was not entered. Before trusting an agent with a payment, check whether it is admitted and whether its admission is current.
 
 ## For agents
-- MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_index\`, \`agent_safety_exam_howto\` and \`agent_safety_demo\` (watch an agent take the exam live)
+- MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_index\`, \`agent_safety_exam_howto\`, \`agent_safety_demo\` (watch an agent take the exam live), and the exam itself: \`agent_safety_exam_start\` (with the operator wallet's signature), \`agent_safety_exam_tasks\`, \`agent_safety_exam_answer\` and \`agent_safety_exam_finish\`
 - [Server card](${origin}/.well-known/mcp/server-card.json)
 - [The index as JSON](${origin}/v1/index): every agent's latest result
 - \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address and what it signs

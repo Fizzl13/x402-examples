@@ -147,7 +147,8 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     res.json({ message: examMessage({ name, version, operator: getAddress(operator), date: today(now()) }), sign_with: "personal_sign (EIP-191) by the operator wallet" });
   });
 
-  app.post("/v1/exams", async (req, res) => {
+  // The routes that take an exam are named so the MCP tools (agent_safety_exam_*) run the very same code.
+  const startRoute = async (req, res) => {
     const b = req.body || {};
     const name = clean(b.agent?.name);
     const version = clean(b.agent?.version || "1", 40);
@@ -195,7 +196,8 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     log.info?.(`[exam] ${exam.id} started: ${name} ${version} (${operator}, ${fee ? "paid" : "free"})`);
     usage.record("exam started", { req, operator, ...(fee ? { payer: operator, usd: FEE_USD } : {}), status: 201, input: { kind: fee ? "paid" : "free", agent: name, version } });
     res.status(201).json(sheet(exam));
-  });
+  };
+  app.post("/v1/exams", startRoute);
 
   // A new sitting with its live feed and watch link. References and demos show each task's verdict as soon as it is
   // answered; a real examinee's verdicts appear only when it finishes (an operator watching must learn nothing early).
@@ -268,10 +270,11 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     return exam;
   };
 
-  app.get("/v1/exams/:id", (req, res) => {
+  const sheetRoute = (req, res) => {
     const exam = live(req, res);
     if (exam) res.json(exam.finished ? { ...sheet(exam), result: exam.result } : sheet(exam));
-  });
+  };
+  app.get("/v1/exams/:id", sheetRoute);
 
   // The whole exam as one prompt to paste into the agent (src/exam/prompt.js).
   app.get("/v1/exams/:id/prompt", (req, res) => {
@@ -279,7 +282,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     if (exam) res.type("text/plain").set("cache-control", "no-store").send(agentPrompt({ origin, sheet: sheet(exam) }));
   });
 
-  app.post("/v1/exams/:id/answers", (req, res) => {
+  const answersRoute = (req, res) => {
     const exam = live(req, res);
     if (!exam) return;
     const b = req.body || {};
@@ -288,9 +291,10 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     for (const o of out) if (o.ok) exam.feed.push({ type: "answer", at: now() - exam.startedAt, task: String(o.task), ...(exam.reveal ? { verdict: pickVerdict(exam.verdict(String(o.task))) } : {}) });
     const failed = out.filter((o) => o.error);
     res.status(failed.length === out.length ? 400 : 200).json({ answered: out.filter((o) => o.ok).map((o) => o.task), ...(failed.length ? { errors: failed } : {}) });
-  });
+  };
+  app.post("/v1/exams/:id/answers", answersRoute);
 
-  app.post("/v1/exams/:id/finish", async (req, res) => {
+  const finishRoute = async (req, res) => {
     const exam = live(req, res);
     if (!exam) return;
     const already = exam.finished;
@@ -328,7 +332,34 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       log.info?.(`[exam] ${exam.id} finished: ${record.agent.name} ${record.agent.version} score ${r.score}, ${r.admitted ? "admitted" : "not admitted"}`);
     }
     res.json({ ...signed, details: r.tasks });
-  });
+  };
+  app.post("/v1/exams/:id/finish", finishRoute);
+
+  // Run one of the routes above for an MCP tool: the MCP request stands in for the HTTP one (same address and client
+  // for the limits and the usage log), with the tool's arguments as body and params. A payment header is never read
+  // from it: over MCP only the free exam (the operator's signature) can be started. Returns the route's answer; an
+  // error status becomes a tool error with the route's own message.
+  async function viaRoute(route, req, { body = {}, params = {} } = {}) {
+    const proxy = Object.create(req);
+    proxy.body = body;
+    proxy.params = params;
+    proxy.get = (h) => (/payment|^x-payment$/i.test(String(h)) ? undefined : req.get(h));
+    const out = { status: 200 };
+    const res = {
+      status(c) { out.status = c; return res; },
+      set() { return res; },
+      type() { return res; },
+      json(o) { out.body = o; return res; },
+      send(o) { out.body = o; return res; },
+    };
+    await route(proxy, res);
+    if (out.status >= 400) {
+      const b = out.body || {};
+      const more = out.status === 402 ? ` Every next exam is paid ($${Number(FEE_USD).toFixed(2)}): pay POST ${origin}/v1/exams over HTTP with an x402 client.` : b.message ? ` Sign this with the operator wallet: ${b.message}` : "";
+      throw new Error(`${b.error || `failed (${out.status})`}${b.errors ? `: ${b.errors.map((e) => `${e.task}: ${e.error}`).join("; ")}` : ""}.${more}`);
+    }
+    return out.body;
+  }
 
   // The index: the latest result per agent and version, admitted ones first.
   async function indexRows() {
@@ -594,6 +625,20 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         const d = await launchDemo(agent, req.ip);
         if (d.error) throw new Error(d.error);
         return { watch_live: d.watch, agent: d.agent, note: "Open the link to follow every request, 402, x402 Doctor check and signed payment. The demo takes about a minute and is not stored." };
+      },
+      // Taking the exam over MCP: the same routes as over HTTP (viaRoute).
+      async start({ agent, version, url, operator, signature }, req) {
+        return viaRoute(startRoute, req, { body: { agent: { name: agent, version, ...(url ? { url } : {}) }, operator, signature } });
+      },
+      async sheet({ exam }, req) {
+        return viaRoute(sheetRoute, req, { params: { id: String(exam || "") } });
+      },
+      async answer({ exam, task, answer, answers }, req) {
+        return viaRoute(answersRoute, req, { params: { id: String(exam || "") }, body: answers && typeof answers === "object" ? { answers } : { task, answer } });
+      },
+      async finish({ exam }, req) {
+        const r = await viaRoute(finishRoute, req, { params: { id: String(exam || "") } });
+        return { ...r, result_page: `${origin}/r/${r.id}` };
       },
     },
   });
