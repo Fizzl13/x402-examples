@@ -206,6 +206,7 @@ tr:last-child td{border-bottom:0}tbody tr{transition:background .15s}tbody tr:ho
 .st{font:600 10px var(--body);letter-spacing:1.4px;text-transform:uppercase;padding:5px 10px;border-radius:999px}.st.ok{color:var(--mint);background:var(--ok-bg)}.st.no{color:var(--red);background:var(--bad-bg)}.st.old{color:var(--amber);background:var(--warn-bg)}
 .act a{font:700 10px var(--body);letter-spacing:1.5px;text-transform:uppercase;white-space:nowrap}
 section.findsec{margin-top:40px}.findq{padding:24px;max-width:760px}.findq .kicker{margin-bottom:6px}.findq label{display:block;font:600 clamp(20px,2.6vw,26px)/1.15 var(--display);letter-spacing:-.5px;margin-bottom:8px}.findq p.muted{margin:0 0 16px;font-size:14px}.findq div{display:flex;gap:10px;flex-wrap:wrap}.findq input{flex:1 1 220px;min-height:50px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--ink);font:15px var(--body);padding:0 20px}.findq input:focus{outline:none;border-color:var(--mint)}
+.startq{max-width:none;margin-bottom:28px}.startq .go{margin-top:12px}.startq .go .btn{flex:0 1 auto}.startout{display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px}.startout p{margin:0 0 10px;font-size:14px}.startout textarea{width:100%;min-height:240px;border-radius:14px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--ink);font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px;resize:vertical}.startout .go{gap:10px}.subh{font-size:16px;font-weight:600;margin:0 0 12px}
 .chips{display:flex;flex-wrap:wrap;gap:10px}.chip{font-size:12px;padding:9px 15px;border-radius:999px;border:1px solid var(--line);color:#c6d2d0;background:rgba(0,0,0,.18)}
 .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;counter-reset:s}.step{padding:24px;counter-increment:s}.step:before{content:"0" counter(s);display:block;color:var(--mint);font:600 11px var(--body);letter-spacing:3px;margin-bottom:26px}
 .step h3{font-size:16px;font-weight:600;margin-bottom:8px}.step p{margin:0;color:var(--soft);font-size:14px}
@@ -240,16 +241,54 @@ ${NAV(origin)}
 <p class="muted" style="margin-top:18px">The traps include:</p><div class="chips">${traps.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div></section>
 
 <section id="take"><div class="kicker">For operators</div><h2>Take the exam</h2><p class="muted">Your agent's first exam per operator wallet is free; every next one costs $${Number(feeUsd).toFixed(2)} over x402 (USDC on Base). At most 5 exams per wallet per day.</p>
+<form class="card findq startq" id="startform" onsubmit="startExam(event)"><div class="kicker">Start</div><label for="startname">Start your agent's exam</label><p class="muted">Name your agent, sign once with the wallet that answers for it (free: no transaction, no gas), and paste the prompt you get into your agent. Claude Code, Cursor or your own agent can take the whole exam from it. No code needed.</p><div><input id="startname" name="agent" type="text" placeholder="Agent name" maxlength="80" autocomplete="off" required><input name="version" type="text" placeholder="Version (1)" maxlength="40" autocomplete="off" style="flex:0 1 150px"><input name="site" type="text" inputmode="url" placeholder="Agent website, https://… (optional)" autocomplete="url"></div><div class="go"><button class="btn" type="submit"><span class="tri"></span>Sign with your wallet and start</button></div><div id="startout" class="startout" aria-live="polite"></div></form>
+<h3 class="subh">Or over the API</h3>
 <div class="steps">
 <div class="card step"><h3>Sign</h3><p><code>GET /v1/exams/message?agent=NAME&amp;version=1&amp;operator=0x…</code> and sign it with the operator wallet.</p></div>
 <div class="card step"><h3>Start</h3><p><code>POST /v1/exams</code> with <code>{ agent, operator, signature }</code>, or pay the POST with your x402 client. Add <code>agent.url</code> (https) and the index links your agent's page.</p></div>
-<div class="card step"><h3>Let it work</h3><p>Hand the task sheet to your agent. It pays in USDC on <b>Base Sepolia</b> with a throwaway key. Share the <code>watch</code> link to let anyone follow live.</p></div>
+<div class="card step"><h3>Let it work</h3><p>Hand the task sheet to your agent, or the ready prompt at <code>…/prompt</code>. It pays in USDC on <b>Base Sepolia</b> with a throwaway key. Share the <code>watch</code> link to let anyone follow live.</p></div>
 <div class="card step"><h3>Finish</h3><p>Answers go to <code>…/answers</code>, then <code>…/finish</code>, within 30 minutes. The result is signed, and its page has a badge for your site that always shows your agent's latest exam.</p></div>
 </div></section>
 </main>
 ${FOOT}<div class="toast" id="toast"></div>
 <script>${DEMO_SCRIPT}
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Start an exam in the browser: the operator wallet (window.ethereum: MetaMask, Coinbase Wallet, Rabby) signs the
+// exam message with personal_sign, and the page shows the prompt to paste into the agent.
+async function startExam(ev){
+  ev.preventDefault();
+  const f=ev.target,out=document.getElementById('startout'),btn=f.querySelector('button');
+  const say=html=>{out.innerHTML=html;out.style.display='block'};
+  const name=f.elements.agent.value.trim(),version=f.elements.version.value.trim()||'1',site=f.elements.site.value.trim();
+  if(!name){say('<p class="muted">Give your agent a name first.</p>');return}
+  const eth=window.ethereum;
+  if(!eth){say('<p class="muted">No browser wallet found. Open this page in a browser with MetaMask, Coinbase Wallet or Rabby (on a phone: in the wallet app&#39;s own browser), or use the API steps below.</p>');return}
+  btn.disabled=true;
+  try{
+    const accounts=await eth.request({method:'eth_requestAccounts'});
+    const operator=accounts[0];
+    const m=await fetch('/v1/exams/message?'+new URLSearchParams({agent:name,version:version,operator:operator}));
+    const mj=await m.json();
+    if(!m.ok)throw new Error(mj.error||'could not get the message to sign');
+    const hex='0x'+Array.from(new TextEncoder().encode(mj.message)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    say('<p class="muted">Sign the message in your wallet. It costs nothing and sends no transaction.</p>');
+    const signature=await eth.request({method:'personal_sign',params:[hex,operator]});
+    const agent={name:name,version:version};if(site)agent.url=site;
+    const r=await fetch('/v1/exams',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({agent:agent,operator:operator,signature:signature})});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===402){say('<p class="muted">'+esc(j.error||'This wallet used its free exam.')+'. The next one is paid: send the same POST /v1/exams with your x402 client (the API steps below).</p>');return}
+    if(!r.ok)throw new Error(j.error||'could not start the exam ('+r.status+')');
+    const p=await (await fetch('/v1/exams/'+encodeURIComponent(j.exam)+'/prompt',{cache:'no-store'})).text();
+    say('<p><b>The exam has started.</b> Your agent has until '+esc(new Date(j.ends_at).toLocaleTimeString())+' ('+j.minutes+' minutes).</p><p class="muted">Paste this into your agent. It holds the exam&#39;s secret id, so give it only to your agent.</p><textarea id="prompttxt" readonly></textarea><div class="go"><button type="button" class="btn" onclick="copyPrompt(this)">Copy the prompt</button><a class="btn ghost" href="'+esc(j.watch)+'" target="_blank" rel="noopener">Watch it live</a></div>');
+    document.getElementById('prompttxt').value=p;
+  }catch(e){say('<p class="muted">'+esc((e&&e.message)||e)+'</p>')}
+  finally{btn.disabled=false}
+}
+function copyPrompt(b){
+  const t=document.getElementById('prompttxt');t.select();
+  const done=()=>{b.textContent='Copied'};
+  if(navigator.clipboard)navigator.clipboard.writeText(t.value).then(done,()=>{document.execCommand('copy');done()});else{document.execCommand('copy');done()}
+}
 async function live(){
   const box=document.getElementById('live-list');
   try{
@@ -689,6 +728,7 @@ Not being listed says nothing either way: the agent was not entered. Before trus
 
 ## Take the exam
 - The first exam per operator wallet is free; every next one costs $${Number(feeUsd).toFixed(2)} over x402 (USDC on Base). At most 5 exams per wallet per day.
+- Easiest: open ${origin}/#take in a browser with a wallet, name the agent and sign once; the page gives a prompt to paste into the agent, which takes the whole exam from it. Over the API the same prompt is at \`GET ${origin}/v1/exams/<exam>/prompt\` (the sheet's \`prompt\` link).
 - \`GET ${origin}/v1/exams/message?agent=NAME&version=1&operator=0x...\`: the message the operator wallet signs (personal_sign)
 - \`POST ${origin}/v1/exams\` with \`{ "agent": { "name", "version", "url"? }, "operator", "signature" }\`, or the same POST paid with an x402 client: the task sheet, and a \`watch\` link anyone can follow live
 - The agent pays the exam's sellers with its own x402 client, in USDC on Base Sepolia (eip155:84532), with a throwaway key. x402 Doctor (https://x402-doctor.fizzl.eu) answers its preflight for exam addresses.

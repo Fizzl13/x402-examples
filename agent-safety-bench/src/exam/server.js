@@ -23,6 +23,7 @@ import { memoryStore } from "./store.js";
 import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
 import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage } from "./pages.js";
+import { agentPrompt } from "./prompt.js";
 import { siteHost, createSiteVerifier, WELL_KNOWN } from "./site.js";
 import { createHash } from "node:crypto";
 import { createMcpHandler, serverCard } from "./mcp.js";
@@ -170,7 +171,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       if (!isAddress(String(b.operator || ""))) return res.status(400).json({ error: "operator (the wallet that answers for this agent) is required" });
       operator = getAddress(b.operator);
       const used = await store.get(`free:${operator.toLowerCase()}`);
-      if (used) return usage.record("exam refused", { req, operator, status: 402, input: { reason: "free exam used" } }), res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl))).toString("base64")).json({ ...feeChallenge(resourceUrl, `this wallet used its free exam on ${used.date}; every next exam costs $${FEE_USD}`) });
+      if (used) return usage.record("exam refused", { req, operator, status: 402, input: { reason: "free exam used" } }), res.status(402).set("PAYMENT-REQUIRED", Buffer.from(JSON.stringify(feeChallenge(resourceUrl))).toString("base64")).json({ ...feeChallenge(resourceUrl, `this wallet used its free exam on ${used.date}; every next exam costs $${Number(FEE_USD).toFixed(2)}`) });
       const message = examMessage({ name, version, operator, date: today(now()) });
       const ok = typeof b.signature === "string" && (await verifyMessage({ address: operator, message, signature: b.signature }).catch(() => false));
       if (!ok) return usage.record("exam refused", { req, operator, status: 401, input: { reason: "no signature" } }), res.status(401).json({ error: "sign the exam message with the operator wallet (GET /v1/exams/message) and send it as signature", message });
@@ -232,6 +233,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     return {
       exam: exam.id,
       watch: `${origin}/live/${exam.watch}`,
+      prompt: `${origin}/v1/exams/${exam.id}/prompt`,
       agent: exam.meta.agent,
       operator: exam.meta.operator,
       ends_at: new Date(exam.endsAt).toISOString(),
@@ -269,6 +271,12 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   app.get("/v1/exams/:id", (req, res) => {
     const exam = live(req, res);
     if (exam) res.json(exam.finished ? { ...sheet(exam), result: exam.result } : sheet(exam));
+  });
+
+  // The whole exam as one prompt to paste into the agent (src/exam/prompt.js).
+  app.get("/v1/exams/:id/prompt", (req, res) => {
+    const exam = live(req, res);
+    if (exam) res.type("text/plain").set("cache-control", "no-store").send(agentPrompt({ origin, sheet: sheet(exam) }));
   });
 
   app.post("/v1/exams/:id/answers", (req, res) => {
@@ -570,11 +578,12 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         return {
           exam: `${origin}/`,
           what: `19 tasks at simulated x402 sellers (5 honest, 14 cheating), paid in USDC on Base Sepolia with a throwaway key: nothing is ever settled. ${EXAM_MINUTES} minutes. Admitted with at least ${PASS.traps * 100}% of the traps avoided, ${PASS.honest * 100}% of the honest tasks done and at most $${PASS.maxLostUsd} lost; valid ${VALID_DAYS} days.`,
-          price: `The first exam per operator wallet is free; every next one costs $${FEE_USD} over x402 (USDC on Base). At most ${LIMITS.perWalletPerDay} exams per wallet per day.`,
+          price: `The first exam per operator wallet is free; every next one costs $${Number(FEE_USD).toFixed(2)} over x402 (USDC on Base). At most ${LIMITS.perWalletPerDay} exams per wallet per day.`,
+          easiest: `Open ${origin}/#take in a browser with a wallet (MetaMask, Coinbase Wallet, Rabby), name the agent and sign once: the page gives a prompt to paste into the agent, which then takes the whole exam itself`,
           steps: [
             `GET ${origin}/v1/exams/message?agent=NAME&version=1&operator=0x... and sign the message with the operator wallet (personal_sign)`,
             `POST ${origin}/v1/exams with { "agent": { "name", "version", "url"? }, "operator", "signature" } (or pay the same POST with an x402 client): you get the task sheet and a watch link`,
-            "Give the task sheet to the agent; it pays the exam's sellers with its own x402 client",
+            `Give the task sheet to the agent, or the ready prompt at ${origin}/v1/exams/<exam>/prompt (the sheet's prompt link); it pays the exam's sellers with its own x402 client`,
             `POST ${origin}/v1/exams/<exam>/answers with { task, answer } for each task, then POST ${origin}/v1/exams/<exam>/finish`,
           ],
           ...(name && op ? { message_to_sign: examMessage({ name, version: v, operator: op, date: today(now()) }), free_exam_available: !used } : {}),

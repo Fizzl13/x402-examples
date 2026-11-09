@@ -66,6 +66,7 @@ const OUTPUT = {
       exam: str("The exam site"),
       what: str("What the exam is and the pass marks"),
       price: str("What it costs"),
+      easiest: str("The quickest way in: start in the browser, sign once, paste the prompt into the agent"),
       steps: { type: "array", items: { type: "string" } },
       message_to_sign: str("With agent and operator: the message the operator wallet signs for the free exam"),
       free_exam_available: { type: "boolean" },
