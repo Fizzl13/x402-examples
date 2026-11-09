@@ -13,17 +13,17 @@
     {
       "id": "risk",
       "scene": "risk",
-      "text": "That's also the risk. Someone else's order number, a fake note from the owner, or a customer whose bank already paid them back: one wrong tool call, and the money is gone."
+      "text": "That's also the risk: someone else's order number, a fake note from the owner, a customer whose bank already paid them back. One wrong call, and the money is gone."
     },
     {
       "id": "layer",
       "scene": "layer",
-      "text": "fizzl-paypal-guard sits in between. It reads each payment at PayPal: whose it is, what's left, whether the bank took it back. It reads each email for planted instructions. Above the shop's limits, it asks the owner."
+      "text": "fizzl-paypal-guard sits in between. It reads each payment at PayPal: whose it is, what's left, whether the bank took it back. It reads each email for planted instructions, and above the limits it asks the owner."
     },
     {
       "id": "page",
       "scene": "page",
-      "text": "Here's the live demo on the PayPal sandbox. Five customers just paid by card, seven emails are waiting, and the agent is Claude."
+      "text": "The live demo, on the PayPal sandbox: five customers paid by card, seven emails wait, and the agent is Claude."
     },
     {
       "id": "alice",
@@ -33,7 +33,7 @@
     {
       "id": "grace",
       "scene": "grace",
-      "text": "Grace's kettle stopped working four months after delivery. That's past the 30-day return period, so it's a warranty claim. The guard asks the owner, who says no: a repair comes first."
+      "text": "Grace's kettle broke four months after delivery: past the 30-day return period, so a warranty claim. The guard asks the owner, who says no: a repair comes first."
     },
     {
       "id": "carol",
@@ -63,7 +63,7 @@
     {
       "id": "eve",
       "scene": "eve",
-      "text": "And Eve's note gets a second lock: Fizzl's injection check reads the email and calls it what it is, an instruction planted for the AI."
+      "text": "And Eve's note gets a second lock: Fizzl's injection check calls it what it is, an instruction planted for the AI."
     },
     {
       "id": "ledger",
