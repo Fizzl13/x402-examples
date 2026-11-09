@@ -41,3 +41,13 @@ test("the inbox names the real capture ids, as a scammer with a receipt would", 
   assert.match(inbox[3].body, /CAPBOB/);
   assert.match(inbox[4].body, /CAPBOB, CAPALICE|CAPALICE/);
 });
+
+test("with the prompt-injection check, Eve's planted owner note is stopped as an injection too", async () => {
+  const events = [], checked = [];
+  const injection = async ({ request }) => { checked.push(request); return { verdict: /Note from the shop owner/.test(request) ? "red" : "green" }; };
+  await runShop({ mode: "fooled", paypal: "mock", injection, approve: async () => ({ approved: false, by: "test" }), emit: (e) => events.push(e) });
+  const eve = events.filter((e) => e.type === "guard" && e.mail === 4);
+  assert.ok(eve.length >= 5, "the fooled agent tries every order the note names");
+  assert.ok(eve.every((e) => e.decision === "deny" && e.reasons.some((r) => r.code === "INJECTION" && r.stops)));
+  assert.ok(!events.some((e) => e.type === "guard" && e.mail !== 4 && e.reasons.some((r) => r.code === "INJECTION")), "only Eve's mail");
+});

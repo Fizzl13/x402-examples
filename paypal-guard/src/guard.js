@@ -38,7 +38,7 @@ function mergePolicy(p = {}) {
     const v = out[k];
     if (!(["allow", "ask", "deny"].includes(v) || (v && typeof v === "object"))) throw new TypeError(`policy.${k}: "allow", "ask", "deny" or a limit object`);
   }
-  for (const k of ["otherCustomer", "openDispute", "afterReturnDays", "offIntent"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
+  for (const k of ["otherCustomer", "openDispute", "afterReturnDays", "offIntent", "injection"]) if (!["ask", "deny"].includes(out[k])) throw new TypeError(`policy.${k}: "ask" or "deny"`);
   if (out.returnDays !== null && !(Number.isInteger(out.returnDays) && out.returnDays > 0)) throw new TypeError("policy.returnDays: a whole number of days, or null");
   const cr = out.customerRefunds;
   if (cr !== null && !(cr && Number.isInteger(cr.max) && cr.max >= 0 && Number.isInteger(cr.days) && cr.days > 0)) throw new TypeError("policy.customerRefunds: { max, days } in whole numbers, or null");
@@ -55,7 +55,7 @@ function recipientsIn(args) {
 }
 
 export function createGuard({
-  policy: rawPolicy = {}, reader = null, approve = null, intent = null, agent = "Support agent",
+  policy: rawPolicy = {}, reader = null, approve = null, intent = null, injection = null, agent = "Support agent",
   store = memoryStore(), onEvent = () => {}, customerOf = null, purchaseDateOf = null, now = () => Date.now(), keepEvents = 200,
 } = {}) {
   const policy = mergePolicy(rawPolicy);
@@ -161,6 +161,11 @@ export function createGuard({
       else if (currency && currency !== policy.currency) add("CURRENCY", `the refund is in ${currency}; the limits are in ${policy.currency}`, "ask");
     }
 
+    // The customer's message carries instructions planted for the AI: whatever it asks for is not a customer request.
+    if (injection && kind !== "read" && kind !== "other" && ctx?.request) {
+      const r = await injection({ request: ctx.request, customer: ctx.customer ?? null });
+      if (r?.verdict === "red") add("INJECTION", "the message in this conversation carries instructions planted for the AI (Fizzl prompt-injection check: red), so it doesn't count as a customer's request", policy.injection);
+    }
     if (intent && kind !== "read" && kind !== "other" && ctx?.request && !reasons.some((r) => r.action === "deny")) {
       const r = await intent({ request: ctx.request, customer: ctx.customer ?? null, action: describe(tool, args, { ...(facts ?? {}), payer: facts?.payer ?? owner }) });
       if (r && r.fits < 0.5) add("OFF_INTENT", `this doesn't look like what the customer asked for (AI check: ${Math.round((1 - r.fits) * 100)}% sure)`, policy.offIntent);

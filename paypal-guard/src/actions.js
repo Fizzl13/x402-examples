@@ -58,6 +58,9 @@ export const DEFAULT_POLICY = Object.freeze({
   customerRefunds: { max: 2, days: 30 },
   // A refund of a payment the buyer already disputed or charged back: they would get the money twice.
   openDispute: "deny",
+  // The customer's message tries to steer the AI (fizzlInjection says red): a planted "note from the owner", a fake
+  // approval, hidden instructions. "ask": the owner decides; "deny": stop the action.
+  injection: "ask",
   // The shop's return period in days (14 days' withdrawal, or a longer money-back promise), counted from the
   // purchase date (purchaseDateOf, else the day PayPal took the payment). null: no return period is checked.
   returnDays: null,

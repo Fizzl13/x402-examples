@@ -4,5 +4,6 @@ export { createGuard, memoryStore } from "./src/guard.js";
 export { paypalReader, toMilli, fromMilli } from "./src/paypal.js";
 export { consoleApproval, telegramApproval, fizzlWalletApproval } from "./src/approvals.js";
 export { jevIntent } from "./src/intent.js";
+export { fizzlInjection } from "./src/injection.js";
 export { ACTIONS, DEFAULT_POLICY, kindOf, describe } from "./src/actions.js";
-export const VERSION = "0.1.0";
+export const VERSION = "0.5.0";
