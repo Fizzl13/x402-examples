@@ -17,10 +17,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "read (no keys), pay (testnet payments) or buy (an x402 buyer against the demo seller)"
+        description: "read (no keys), pay (testnet payments), buy (an x402 buyer against the demo seller) or official (the same buy with x402's own @x402/concordium client)"
         default: read
         type: choice
-        options: [read, pay, buy]
+        options: [read, pay, buy, official]
       asset:
         description: "CCD or a testnet PLT id (e.g. EURR)"
         default: CCD
@@ -77,3 +77,12 @@ jobs:
           BUYER_KEY: ${{ secrets.CCD_TESTNET_BUYER_KEY }}
           DEMO_URL: ${{ inputs.url }}
         run: node scripts/testnet.js buy
+      - name: Buy with x402's own client (@x402/concordium, interop)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'official'
+        env:
+          BUYER_ADDRESS: ${{ secrets.CCD_TESTNET_BUYER_ADDRESS }}
+          BUYER_KEY: ${{ secrets.CCD_TESTNET_BUYER_KEY }}
+          DEMO_URL: ${{ inputs.url }}
+        run: |
+          npm install --no-save --ignore-scripts @x402/concordium@2.30.0 @x402/fetch@2.30.0
+          node scripts/official-client.mjs
