@@ -1,0 +1,72 @@
+# concordium-testnet: the facilitator against the live Concordium testnet.
+# On a pull request (and by hand, mode "read"): read-only checks, no keys.
+# Daily (10:37 UTC): an x402 buyer buys the demo seller's answer (/demo/paid, 0.001 test CCD) through the deployed
+# facilitator, so a broken deploy, an empty sponsor or a changed node shows up as a failed run (GitHub mails the owner);
+# it also shows on the facilitator's page, with what Concordium says about the seller.
+# By hand with mode "pay": real testnet payments (count, 0.001 CCD each by default), sponsored by the facilitator's
+# testnet account, through the deployed facilitator (input facilitator) or in the job itself (facilitator empty).
+# Its keys are repository secrets set by the owner: CCD_TESTNET_BUYER_ADDRESS, CCD_TESTNET_BUYER_KEY,
+# CCD_TESTNET_SPONSOR_ADDRESS, CCD_TESTNET_SPONSOR_KEY, CCD_TESTNET_PAY_TO. Testnet only.
+name: concordium-testnet
+
+on:
+  schedule:
+    - cron: "37 10 * * *" # daily: buy the demo seller's answer through the deployed facilitator (an end-to-end check)
+  pull_request:
+    paths: ["concordium-facilitator/**", ".github/workflows/concordium-testnet.yml"]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "read (no keys), pay (testnet payments) or buy (an x402 buyer against the demo seller)"
+        default: read
+        type: choice
+        options: [read, pay, buy]
+      asset:
+        description: "CCD or a testnet PLT id (e.g. EURR)"
+        default: CCD
+      amount:
+        description: "in the asset's smallest unit (1000 = 0.001 CCD)"
+        default: "1000"
+      count:
+        description: "pay mode: how many payments (1 to 5)"
+        default: "1"
+      facilitator:
+        description: "pay mode: through this deployed facilitator (empty = in the job itself)"
+        default: "https://concordium-facilitator.onrender.com"
+
+permissions:
+  contents: read
+
+jobs:
+  testnet:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: concordium-facilitator
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci --ignore-scripts
+      - name: Read-only checks
+        if: github.event_name == 'pull_request' || inputs.mode == 'read'
+        run: node scripts/testnet.js read
+      - name: One testnet payment
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'pay'
+        env:
+          BUYER_ADDRESS: ${{ secrets.CCD_TESTNET_BUYER_ADDRESS }}
+          BUYER_KEY: ${{ secrets.CCD_TESTNET_BUYER_KEY }}
+          SPONSOR_ADDRESS: ${{ secrets.CCD_TESTNET_SPONSOR_ADDRESS }}
+          SPONSOR_KEY: ${{ secrets.CCD_TESTNET_SPONSOR_KEY }}
+          PAY_TO: ${{ secrets.CCD_TESTNET_PAY_TO }}
+          ASSET: ${{ inputs.asset || 'CCD' }}
+          AMOUNT: ${{ inputs.amount || '1000' }}
+          COUNT: ${{ inputs.count || '1' }}
+          FACILITATOR_URL: ${{ github.event_name == 'schedule' && 'https://concordium-facilitator.onrender.com' || inputs.facilitator }}
+        run: node scripts/testnet.js pay
+      - name: Buy from the demo seller (x402, 402 -> pay -> answer)
+        if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'buy') || github.event_name == 'schedule'
+        env:
+          BUYER_ADDRESS: ${{ secrets.CCD_TESTNET_BUYER_ADDRESS }}
+          BUYER_KEY: ${{ secrets.CCD_TESTNET_BUYER_KEY }}
+        run: node scripts/testnet.js buy

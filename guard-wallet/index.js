@@ -75,7 +75,7 @@ export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
-export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161];
+export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161, 4663, 43114];
 // Tempo: the stablecoins the wallet may send there (the ones the USDC limit covers).
 export const TEMPO_TOKENS = {
   4217: ["0x20c000000000000000000000b9537d11c60e8b50"],
@@ -238,6 +238,15 @@ function cleanPurchase(info) {
   return out;
 }
 
+// presign-guard's fix for the first orange or red reason that has one (what to change to get green), for the error
+// message: an agent that reads only the error still learns whether to rebuild the request or not sign at all.
+function fixHint(verdict) {
+  const fix = (verdict?.reasons || []).find((r) => r?.severity !== "info" && r?.fix?.change)?.fix;
+  if (!fix) return "";
+  const what = fix.retry === "change" ? "to fix" : fix.retry === "never" ? "don't retry" : fix.retry === "elsewhere" ? "use another contract, pool or site" : "ask the user";
+  return `; ${what}: ${String(fix.change).slice(0, 240)}`;
+}
+
 /**
  * @param {object} wallet  a viem WalletClient
  * @param {object} options
@@ -246,6 +255,8 @@ function cleanPurchase(info) {
  * @param {typeof fetch} [options.fetch]  plain fetch for credit-paid checks (default globalThis.fetch)
  * @param {"stop"|"allow"|((verdict: object, info: object) => boolean|Promise<boolean>)} [options.onOrange]
  * @param {"stop"|"allow"} [options.onError]  when the check cannot be done (default "stop")
+ * @param {"allow"|"stop"|((verdict: object, info: object) => boolean|Promise<boolean>)} [options.onIncomplete]  a green whose
+ *   checks_complete is false (a check that applies couldn't run): "allow" (default) signs, "stop" throws, a function decides
  * @param {string} [options.origin]  the site asking for the signature, if any (domain age, phishing lists)
  * @param {(verdict: object, info: {method: string, request: object}) => void} [options.onVerdict]
  * @param {string} [options.presignUrl]
@@ -263,6 +274,7 @@ export function guardWallet(wallet, {
   pay,
   onOrange = "stop",
   onError = "stop",
+  onIncomplete = "allow",
   origin,
   onVerdict,
   presignUrl = PRESIGN_URL,
@@ -283,6 +295,7 @@ export function guardWallet(wallet, {
   if (typeof pay !== "function" && !creditKey) throw new TypeError("pay is required: a fetch that pays x402, e.g. wrapFetchWithPayment(fetch, client), or a creditKey");
   if (!["stop", "allow"].includes(onOrange) && typeof onOrange !== "function") throw new TypeError('onOrange must be "stop", "allow" or a function');
   if (!["stop", "allow"].includes(onError)) throw new TypeError('onError must be "stop" or "allow"');
+  if (!["stop", "allow"].includes(onIncomplete) && typeof onIncomplete !== "function") throw new TypeError('onIncomplete must be "allow", "stop" or a function');
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
   if (typeof checkMessages !== "boolean") throw new TypeError("checkMessages must be true or false");
 
@@ -345,15 +358,20 @@ export function guardWallet(wallet, {
     }
     onVerdict?.(verdict, { method, request, paidWith: verdict.paidWith, creditsLeft });
     const why = (verdict.reasons || []).filter((r) => r.severity !== "info").map((r) => r.code).join(", ") || verdict.verdict;
-    if (verdict.verdict === "red") throw new PresignBlockedError(`not signed: red (${why})`, { code: "red", verdict, request });
+    if (verdict.verdict === "red") throw new PresignBlockedError(`not signed: red (${why})${fixHint(verdict)}`, { code: "red", verdict, request });
     if (verdict.verdict === "orange") {
       // onOrange "allow" does not cover an EIP-7702 authorization: only your function's yes does.
       const authorization = request.type === "authorization";
       const ok = (onOrange === "allow" && !authorization) || (typeof onOrange === "function" && (await onOrange(verdict, { method, request })) === true);
       const hint = authorization && onOrange === "allow" ? '; an EIP-7702 authorization is signed on orange only when your onOrange function says yes' : "";
-      if (!ok) throw new PresignBlockedError(`not signed: orange (${why})${hint}`, { code: "orange", verdict, request });
+      if (!ok) throw new PresignBlockedError(`not signed: orange (${why})${hint}${fixHint(verdict)}`, { code: "orange", verdict, request });
     } else if (verdict.verdict !== "green") {
       throw new PresignBlockedError(`not signed: unknown verdict ${verdict.verdict}`, { code: "check_failed", verdict, request });
+    } else if (verdict.checks_complete === false && onIncomplete !== "allow") {
+      // Green on less than usual: a check that applies couldn't run this time (presign-guard's not_checked says which).
+      const ok = typeof onIncomplete === "function" && (await onIncomplete(verdict, { method, request })) === true;
+      const missing = (verdict.not_checked || []).filter((n) => n?.because === "unavailable").map((n) => n.check).join(", ") || "unknown";
+      if (!ok) throw new PresignBlockedError(`not signed: green, but not every check ran (${missing}); check again in a moment`, { code: "incomplete", verdict, request });
     }
     return verdict;
   }

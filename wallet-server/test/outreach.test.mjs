@@ -82,6 +82,12 @@ test("compose caps the findings at four", () => {
   assert.match(body, /4\. m3\n\(and 2 more in the report\)/);
 });
 
+test("compose offers the seller's badge, linking its Trust Index record", () => {
+  const { body } = composeFromFindings({ host: "h.test", url: "https://h.test/paid?a=1", findings: [{ message: "m" }], reportUrl: "https://r" });
+  assert.match(body, /free badge that updates daily: https:\/\/x402-doctor\.fizzl\.eu\/trust\?url=https%3A%2F%2Fh\.test%2Fpaid%3Fa%3D1\n/);
+  assert.ok(body.indexOf("badge") > body.indexOf("Full report") && body.indexOf("badge") < body.indexOf("gateway"), "after the report, before the gateway offer");
+});
+
 test("the Doctor hook needs OUTREACH_KEY and only makes drafts", async () => {
   const s = setup();
   const accounts = new Proxy({}, { get: () => async () => null });
@@ -193,4 +199,44 @@ test("doctorRecheck: asks Doctor with the outreach key; no key, no recheck", asy
   assert.deepEqual(JSON.parse(calls[0].init.body), { url: "https://a.test", ids: ["x", "y"] });
   const bad = doctorRecheck({ key: "k1", fetchImpl: async () => new Response("no", { status: 401 }) });
   await assert.rejects(bad("https://a.test", ["x"]), /401/);
+});
+
+test("the owner-report hook: DRAFT_KEY only, plain Telegram messages to the owner's chat, split under 4,096 characters", async () => {
+  const sent = [];
+  const telegram = { async send(chatId, text) { sent.push({ chatId, text }); } };
+  const accounts = new Proxy({}, { get: () => async () => null });
+  const app = createApp({ accounts, auth: { middleware: () => (_q, _s, n) => n() }, telegram, draftKey: "draft-key-456", outreachKey: "doctor-key", ownerChatId: "777" });
+  const server = await new Promise((r) => { const sv = app.listen(0, () => r(sv)); });
+  const post = (auth, body) => fetch(`http://127.0.0.1:${server.address().port}/hooks/owner-report`, { method: "POST", headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify(body) });
+  try {
+    assert.equal((await post(null, { text: "x" })).status, 401);
+    assert.equal((await post("Bearer doctor-key", { text: "x" })).status, 401);
+    assert.equal((await post("Bearer draft-key-456", { title: "Grok taak A" })).status, 400);
+    const ok = await post("Bearer draft-key-456", { title: "Grok taak A", text: "Niets nieuws vandaag." });
+    assert.deepEqual(await ok.json(), { sent: 1 });
+    assert.deepEqual(sent[0], { chatId: "777", text: "Grok taak A\n\nNiets nieuws vandaag." });
+    const long = await post("Bearer draft-key-456", { title: "Lang", text: "a".repeat(9000) });
+    assert.equal((await long.json()).sent, 3);
+    assert.ok(sent.slice(1).every((m) => m.text.length <= 3900));
+  } finally { server.close(); }
+  const noChat = createApp({ accounts: new Proxy({}, { get: () => async () => null }), auth: { middleware: () => (_q, _s, n) => n() }, telegram, draftKey: "draft-key-456" });
+  const sv2 = await new Promise((r) => { const sv = noChat.listen(0, () => r(sv)); });
+  try { assert.equal((await fetch(`http://127.0.0.1:${sv2.address().port}/hooks/owner-report`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer draft-key-456" }, body: "{\"text\":\"x\"}" })).status, 404); } finally { sv2.close(); }
+});
+
+test("telegram: a network error is tried once more, a Telegram error is not", async () => {
+  const { createTelegram } = await import("../src/telegram.js");
+  let n = 0;
+  const flaky = async () => { n++; if (n === 1) throw new TypeError("fetch failed"); return new Response(JSON.stringify({ ok: true, result: { message_id: 7 } })); };
+  const tg = createTelegram({ token: "1:abc", fetch: flaky, retryMs: 1 });
+  assert.equal(await tg.sendButtons("1", "hi", [[{ text: "OK", data: "x" }]]), 7);
+  assert.equal(n, 2);
+  let m = 0;
+  const refused = async () => { m++; return new Response(JSON.stringify({ ok: false, description: "Bad Request: can't parse entities" }), { status: 400 }); };
+  await assert.rejects(createTelegram({ token: "1:abc", fetch: refused, retryMs: 1 }).send("1", "hi"), /can't parse entities/);
+  assert.equal(m, 1);
+  let k = 0;
+  const down = async () => { k++; throw new TypeError("fetch failed"); };
+  await assert.rejects(createTelegram({ token: "1:abc", fetch: down, retryMs: 1 }).send("1", "hi"), /fetch failed/);
+  assert.equal(k, 2);
 });

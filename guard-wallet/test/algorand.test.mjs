@@ -57,6 +57,14 @@ test("algorandSigner: a USDC transfer is signed (only its own transaction) and c
   await assert.rejects(signer.signTransactions(group(axfer({ amount: 20_000n })), [1]), (err) => err instanceof PresignBlockedError && err.code === "over_limit");
 });
 
+test("algorandSigner: takes the network by the whole genesis hash or by its CAIP-2 id; other networks are refused", async () => {
+  const guard = make({ limits: { tokens: { USDC: { perTx: "1" } } } });
+  const signer = guard.algorandSigner(toClientAvmSigner(agent.b64), { network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k" });
+  const signed = await signer.signTransactions(group(axfer({ amount: 10_000n })), [1]);
+  assert.ok(signed[1] instanceof Uint8Array);
+  assert.throws(() => guard.algorandSigner(toClientAvmSigner(agent.b64), { network: "algorand:betanet" }), TypeError);
+});
+
 test("algorandSigner: anything but one USDC transfer from this account is refused, and pause covers it", async () => {
   const guard = make({ limits: { tokens: { USDC: { perTx: "100" } } } });
   const signer = guard.algorandSigner(toClientAvmSigner(agent.b64));

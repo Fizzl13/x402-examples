@@ -6,7 +6,7 @@ A free endpoint is answered as is. For a paid one (HTTP 402), your agent first p
 
 | Preflight | What `safeFetch` does |
 |---|---|
-| `go` | Pays the endpoint, never more than `maxUsd` |
+| `go` | Pays the endpoint, never more than `maxUsd`; with `onIncomplete: "stop"`, not when Doctor says a check couldn't run (`checks_complete: false`) |
 | `caution` | `onCaution`: `"stop"` (default, throws), `"pay"`, or your own function (e.g. ask the user) |
 | `no_go` | Throws `SafePayError`; the endpoint is not paid |
 
@@ -45,7 +45,7 @@ try {
 
 Solana works the same way: `network: "solana"` and register an `ExactSvmScheme` from `@x402/svm/exact/client` with a `@solana/kit` signer.
 
-Algorand and the XRP Ledger work the same way, and only their dollar stablecoin is ever paid. On Algorand that is USDC (ASA 31566704), never ALGO or another ASA. On the XRP Ledger it is RLUSD from Ripple's issuer, never XRP or a look-alike token. RLUSD prices are decimal dollars, so the budget is checked in dollars. The Doctor preflight is paid on the same network.
+Algorand and the XRP Ledger work the same way, and only their dollar stablecoin is ever paid. On Algorand that is USDC (ASA 31566704), never ALGO or another ASA. Sellers name Algorand mainnet either by the whole genesis hash or by its CAIP-2 id (`algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k`); both are paid, also with `@x402/avm` 2.29.0, which on its own accepts only the short id. On the XRP Ledger it is RLUSD from Ripple's issuer, never XRP or a look-alike token. RLUSD prices are decimal dollars, so the budget is checked in dollars. The Doctor preflight is paid on the same network.
 
 ```js
 import { toClientAvmSigner } from "@x402/avm";
@@ -57,23 +57,78 @@ const safeFetch = createSafeFetch({
 });
 // XRP Ledger: network: "xrpl" and an ExactXrplScheme from @x402/xrpl/exact/client
 // (createXrplWalletSigner(Wallet.fromSeed(process.env.XRPL_SEED))); needs an RLUSD trust line.
+// Stellar: network: "stellar" and an ExactStellarScheme from @x402/stellar/exact/client
+// (createEd25519Signer(process.env.STELLAR_SECRET, "stellar:pubnet")); needs a USDC trustline.
+// Only Circle's USDC contract is paid, never XLM; the facilitator pays the network fee.
+// X Layer (OKX): network: "xlayer" and an ExactEvmScheme from @x402/evm/exact/client with your viem account.
+// Only USD₮0 (0x779d…3736) or USDC (0x74b7…6d22) is paid, never OKB or another token named USDC; the
+// facilitator (PayAI) pays the gas.
 ```
+
+### Escrowed payments (auth-capture)
+
+Some sellers on Base take payment through Coinbase's escrow instead of a direct transfer: the x402 scheme
+`auth-capture`. Your wallet signs once, the USDC is held, and the seller captures it only after it has delivered
+(Atom's domain checkout, for instance, captures once the domain is registered, and releases it if registration
+fails). Register that scheme next to the exact one to pay such sellers (`@x402/evm` 2.27 or later):
+
+```js
+import { AuthCaptureEvmScheme } from "@x402/evm/auth-capture/client";
+
+const safeFetch = createSafeFetch({
+  register: (client) => {
+    client.register("eip155:8453", new ExactEvmScheme(account));
+    client.register("eip155:8453", new AuthCaptureEvmScheme(account));
+  },
+  maxUsd: 25, // the budget caps the most that can be captured
+});
+```
+
+When a seller offers both, the exact option is paid. The preflight and the budget apply the same way.
+
+## Already have an x402 client? One line
+
+If your agent already pays with the official x402 client (`x402Client` from `@x402/core`, used by `@x402/fetch`, `@x402/axios` and the other transports), you don't have to switch to `safeFetch`. Add the preflight as a hook, and every payment that client makes is checked first:
+
+```js
+import { x402Client } from "@x402/core/client";
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { doctorPreflight } from "x402-safe-fetch/hook";
+
+const client = new x402Client();
+// … register your schemes as before (registerExactEvmScheme(client, { signer }), …)
+client.onBeforePaymentCreation(doctorPreflight({ client, maxUsd: 0.05 }));
+
+const fetchWithPayment = wrapFetchWithPayment(fetch, client); // unchanged
+```
+
+Before the client signs a payment, the hook asks x402 Doctor ($0.001, paid by the same client, or 1 prepaid credit with `creditKey`). Then:
+
+- `no_go`: the payment is aborted (`Payment creation aborted: x402 Doctor: …`). Nothing is signed.
+- `caution`: aborted, unless `onCaution` is `"pay"` or your function says yes.
+- `go`: the payment goes ahead. With `onIncomplete: "stop"`, a `go` whose `checks_complete` is false is aborted too.
+
+The verdict is signed by Doctor and checked, and reused while the endpoint asks the same thing (same payTo, amount, token and network). Doctor's own 402 for the preflight is never checked again and is paid only up to $0.002. Options: `client`, `pay` or `creditKey` (how the preflight is paid), `maxUsd`, `method`, `onCaution`, `onIncomplete`, `onError` (`"stop"` by default), `trusted`, `onPreflight`, `cacheMs`.
+
+The hook can't see your request, only the 402, so Doctor checks the endpoint with `method` (GET by default; it tries the other method too).
 
 ## Options
 
 | Option | Default | |
 |---|---|---|
 | `register` | required | `(client) => client.register(network, scheme)`: your payment schemes; your keys stay in your code |
-| `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
+| `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), `"stellar"` (USDC), `"xlayer"` (USD₮0 or USDC), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
 | `maxUsd` | `0.05` | Budget per endpoint call; the payment is capped at it and the preflight says `no_go` above it |
 | `onCaution` | `"stop"` | `"stop"`, `"pay"` or `async (preflight) => boolean` |
+| `onIncomplete` | `"pay"` | A `go` whose `checks_complete` is `false` (a check that applies couldn't run this time, named in `not_checked`): `"pay"`, `"stop"` (throws code `incomplete`; not reported to the seller as a refusal) or `async (preflight) => boolean`. Such a verdict is reused for at most 10 minutes |
 | `trusted` | `[]` | Hosts paid without a preflight |
 | `onPreflight` | | `(preflight, { url, method, cached }) => void`, e.g. for logging |
 | `cacheMs` | 1 hour | How long a verdict is reused per method and URL while the 402 offers the same thing (at most 10 minutes when the offer can't be read); any change in price, payout address, token or network means a new preflight |
 | `verifyReceipts` | `"require"` | Check Doctor's signed receipt on every preflight; `"off"` skips it |
 | `doctorSigners` | Doctor's published signer | Accepted signer addresses (for a self-hosted Doctor) |
 | `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
-| `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it (see below) |
+| `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it; when not paying, tell it why (see below) |
+| `tellSellers` | `false` | When not paying, tell the seller itself why, if its 402 takes refusals (draft refusal extension, see below) |
 | `onDiagnosis` | | `(report, { url, method, status, error }) => void`, e.g. for logging or alerting |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
@@ -110,6 +165,15 @@ With `shareOutcomes: true`, safe-fetch tells x402 Doctor what happened after it 
 - What is sent: the outcome, the HTTP status, the signed preflight you already received and its query (endpoint, method, budget, network). No keys, no response content.
 - A report only counts with a real, paid preflight for that endpoint, once per preflight, so reports cannot be made up for free.
 - It is sent after the answer and never delays or changes it. Off by default.
+
+When safe-fetch does **not** pay (a `no_go`, or a `caution` that `onCaution` stops), it reports `refused` with the reason code that stopped it (for example `payto_changed`, `price_changed` or `payee_mismatch`). That is the seller's signal back: Doctor shows sellers how often agents refused to pay their endpoint and why (in the free web check and `GET https://x402-doctor.fizzl.eu/api/v1/refusals?url=…`), as counts only, never who.
+
+With `tellSellers: true`, a refusal also goes straight to the seller, when its 402 names a refusal url on its own site (the draft refusal extension, [x402-foundation/x402#4087](https://github.com/x402-foundation/x402/issues/4087)). safe-fetch posts the ready report from Doctor's preflight:
+- the reason code (for example `price_above_limit`, `network_unsupported` or `trust_low`);
+- the sha256 of the refused offer;
+- the endpoint without its query.
+
+No keys, no amounts from your wallet, nothing about you, and no `by` naming safe-fetch, so buyers aren't grouped by the client they use. A `screening_hit` (sanctioned payout address) isn't sent: the draft takes it only signed, and safe-fetch holds no key to sign with. It goes only to the endpoint's own site, with redirects refused, at most once a day per endpoint and reason, and never delays the error you get. It works with or without `shareOutcomes`.
 
 ## Signed verdicts
 

@@ -2,10 +2,13 @@
 // client hands them to the signer) and to write addresses, without an Algorand SDK.
 import { createHash } from "node:crypto";
 
-// x402 network ids and the USDC asset (ASA) on each.
+// x402 network ids and the USDC asset (ASA) on each. Sellers name a network by the whole genesis hash or by its
+// CAIP-2 id (the first 32 characters; the only form @x402/avm 2.29.0 takes), so both are listed.
 export const ALGORAND_USDC = {
   "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": 31566704n, // mainnet
+  "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k": 31566704n,
   "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=": 10458941n, // testnet
+  "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDe": 10458941n,
 };
 
 // A small msgpack decoder: maps, strings, binary, integers (as BigInt above 2^53), booleans, nil, arrays.

@@ -1,0 +1,79 @@
+{
+  "title": "Fizzl: checked payments for AI agents (ad, ~60 seconds, Higgsfield footage and voice)",
+  "output": "fizzl-ad",
+  "voice": {
+    "model": "elevenlabs_v4",
+    "voice": "Juno",
+    "voice_id": "a3ce02fe-4d3e-55bc-b4d4-a4801b9acdb4"
+  },
+  "scenes": [
+    {
+      "id": "s1-open",
+      "clip": "hf-open-2",
+      "title": "Your agent pays now.",
+      "text": "AI agents now pay for things on their own."
+    },
+    {
+      "id": "s2-stream",
+      "clip": "hf-stream",
+      "title": "Who checks what it pays?",
+      "text": "Thousands of paid APIs. Most are honest. Some are not."
+    },
+    {
+      "id": "s3-shield",
+      "clip": "hf-shield-k",
+      "title": "Checked before every signature",
+      "text": "Fizzl checks every payment before your agent signs it. Drainers, scams and sanctioned addresses are never signed."
+    },
+    {
+      "id": "s4-scan",
+      "clip": "hf-scan",
+      "title": "Checked after every payment",
+      "text": "And every paid answer is checked before your agent reads it. Hidden instructions are caught."
+    },
+    {
+      "id": "s5-phone",
+      "clip": "hf-phone",
+      "title": "Your rules.\nOne tap to approve.",
+      "text": "You set the rules, in your own words. Above them, you approve with one tap on your phone."
+    },
+    {
+      "id": "s6-wallets",
+      "image": "approve",
+      "title": "Pay from the wallet you already have",
+      "sub": "In ChatGPT, Claude or Grok · MetaMask · Phantom · Xaman",
+      "text": "Use it in ChatGPT, Claude or Grok, and pay from the wallet you already have: MetaMask, Phantom or Xaman."
+    },
+    {
+      "id": "s7-keys",
+      "clip": "hf-vault",
+      "title": "Your keys. Never ours.",
+      "text": "Your keys and your money stay with you. Always."
+    },
+    {
+      "id": "s8-doctor",
+      "clip": "hf-city",
+      "title": "35,000+",
+      "sub": "paid APIs checked every day by x402 Doctor",
+      "text": "And x402 Doctor checks over thirty-five thousand paid APIs every day, so your agent knows which ones really work."
+    },
+    {
+      "id": "s9-end",
+      "clip": "hf-end",
+      "end": true,
+      "title": "Fizzl",
+      "sub": "Checked payments for AI agents",
+      "note": "Free to start · fizzl.eu",
+      "text": "Fizzl. Checked payments for AI agents. Free to start, at fizzl.eu."
+    }
+  ],
+  "clips": {
+    "note": "Higgsfield, 1280x720, 5 s, no sound. hf-open-2 and hf-city are the earlier Seedance clips (higgsfield/clips.json); the others are Kling 3.0 (mode std), made on 24 Oct 2026. All are on the media-clips branch.",
+    "hf-stream": "Cinematic shot inside a dark fiber-optic tunnel: thousands of tiny glowing payment packets stream past the camera at speed, almost all mint-green, a few red ones among them. Light trails, motion blur, deep black-green background, smooth forward dolly, premium fintech commercial look, photorealistic lighting. No text, no logos, no letters, no people.",
+    "hf-shield-k": "Cinematic macro shot: a large glowing heraldic shield made of translucent mint-green light floats in a dark black-green void, seen from the front. Small red glowing data packets fly toward it and dissolve into red sparks on impact. Small mint-green data packets pass smoothly through the shield and continue intact. Slow gentle camera push-in, shallow depth of field, volumetric light, premium tech commercial look. The shield keeps a classic shield silhouette the whole time. No text, no logos, no letters.",
+    "hf-scan": "Cinematic close-up: a floating translucent panel of abstract glowing mint-green data bars scrolls slowly upward in a dark room. A thin horizontal scanning beam of white light sweeps down across it. One bar among them suddenly glows red, lifts out of the panel and dissolves into red particles while the rest stay calm and green. Dark black-green background, shallow depth of field, volumetric light, premium tech commercial look. Abstract shapes only: no readable text, no letters, no numbers, no logos.",
+    "hf-phone": "Cinematic close-up at night: a hand holds a modern smartphone, the screen glows soft mint-green and shows one large round button. The thumb taps the button and a soft ring of mint light pulses outward from the screen. Warm blurred city lights in the background, shallow depth of field, photorealistic skin and glass, premium commercial look. The screen shows no readable text, no letters, no logos.",
+    "hf-vault": "Cinematic macro shot: a small key made of glowing mint-green light rests inside an open vault box of thick glass and brushed steel on a dark desk. The heavy vault door slowly swings closed and locks with a soft glow along its seams. Dark black-green background, photorealistic metal reflections, shallow depth of field, slow push-in, premium commercial look. No text, no logos.",
+    "hf-end": "Slow cinematic aerial drift over a calm dark landscape made of countless tiny mint-green lights at night, a soft glowing horizon, gentle light particles drifting upward, peaceful and trustworthy mood, deep black-green palette, lots of empty dark space in the upper center of the frame. Photorealistic, premium commercial look. No text, no logos, no letters."
+  }
+}

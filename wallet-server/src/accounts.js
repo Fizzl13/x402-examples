@@ -26,6 +26,7 @@ import { weekOf, formatDigest } from "./digest.js";
 import { createAlertHook, createEndpointMonitor, hookKind, urlProblem } from "./monitor.js";
 import { cleanSubscription } from "./push.js";
 import { readRegistration, readAssertion } from "./passkey.js";
+import { PASS_TIERS, signPass, walletKey, isWallet, PASS_FOREVER } from "./pass.js";
 
 // Categories an account can follow for new-provider alerts ("all" = every new seller).
 const FOLLOWABLE = new Set(["all", "other", ...CATEGORIES.map((c) => c.id)]);
@@ -112,7 +113,7 @@ export function welcomeMail(origin) {
   };
 }
 
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null }) {
+export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null, passKey = null }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -134,7 +135,13 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   const TIERS = {
     pro20: { label: "Pro 20", units: BigInt(Math.round(Number(billing.price20Usdc ?? 9) * 1e6)) },
     unlimited: { label: "Pro Unlimited", units: BigInt(Math.round(Number(billing.priceUnlimitedUsdc ?? 20) * 1e6)) },
+    // Fizzl Pass Silver and Gold: one payment buys 90 or 180 days (3 or 6 periods) of the pass, with Pro for that time.
+    silver: { label: PASS_TIERS.silver.label, units: BigInt(Math.round(Number(billing.priceSilverUsdc ?? PASS_TIERS.silver.usdc) * 1e6)), periods: 3 },
+    gold: { label: PASS_TIERS.gold.label, units: BigInt(Math.round(Number(billing.priceGoldUsdc ?? PASS_TIERS.gold.usdc) * 1e6)), periods: 6 },
   };
+  const periodsOf = (tier) => TIERS[tier]?.periods ?? 1;
+  // The prices the dashboard shows, per plan.
+  const prices = () => ({ priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, priceSilverUsdc: Number(TIERS.silver.units) / 1e6, priceGoldUsdc: Number(TIERS.gold.units) / 1e6 });
   const unitOf = (tier) => TIERS[tier]?.units ?? priceUnits;
   const labelOf = (tier) => TIERS[tier]?.label ?? "Pro";
   const tierActive = (a, tier) => (a?.tierUntil?.[tier] ?? 0) + GRACE_MS > now();
@@ -188,7 +195,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     const deadline = paid[0].at + WITHDRAW_MS;
     if (now() > deadline) return null;
     const total = paid.reduce((n, p) => n + (Number(p.amount) || 0), 0);
-    const used = ((Number(unitOf(paid[0].tier)) / 1e6) * (now() - paid[0].at)) / PERIOD_MS; // pro rata at the price of the plan first paid for
+    const used = ((Number(unitOf(paid[0].tier)) / 1e6 / periodsOf(paid[0].tier)) * (now() - paid[0].at)) / PERIOD_MS; // pro rata at the price of the plan first paid for
     return { done: false, deadline, refundUsdc: Math.max(0, Math.floor((total - used) * 100) / 100) };
   }
   const subscription = billing.subscription && isAddress(billing.subscription) ? getAddress(billing.subscription) : null;
@@ -238,7 +245,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       onAlert: async ({ kind, purchaseId, text }) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, text).catch((err) => console.warn(`[answer] telegram: ${err.message}`));
-        await pushAll(id, { title: kind === "injection" ? "Instructions aimed at your agent" : kind === "unusual" ? "An unusual purchase by your agent" : kind === "price" ? "A seller charged your agent more than usual" : kind === "blocked" ? "Your agent was stopped" : "Your agent didn't get what it paid for", body: text, url: kind === "blocked" ? "/#/overview" : "/#/purchases", tag: `${kind === "unusual" || kind === "price" || kind === "blocked" ? kind : "answer"}-${purchaseId ?? kind}` });
+        await pushAll(id, { title: kind === "injection" ? "Instructions aimed at your agent" : kind === "unusual" ? "An unusual purchase by your agent" : kind === "price" ? "A seller charged your agent more than usual" : kind === "split" ? "Your agent paid one seller several times in a row" : kind === "ratchet" ? "A seller keeps raising its price" : kind === "overcharge" ? "A seller charged your agent more than others" : kind === "blocked" ? "Your agent was stopped" : "Your agent didn't get what it paid for", body: text, url: kind === "blocked" ? "/#/overview" : "/#/purchases", tag: `${kind === "unusual" || kind === "price" || kind === "split" || kind === "ratchet" || kind === "overcharge" || kind === "blocked" ? kind : "answer"}-${purchaseId ?? kind}` });
       },
       onSettled: (approval) => telegram?.decided(approval),
     });
@@ -316,6 +323,30 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
 
   const api = {
     walletFor,
+    // The Ethereum address an account signs in with, or linked to an e-mail account; null: none (the server
+    // owner's account, e-mail without a wallet, Solana, XRPL, Algorand). The connector's payments are signed from
+    // it; without one the owner picks the wallet on the page where they sign.
+    async payer(id) {
+      if (/^0x[0-9a-f]{40}$/.test(id)) return id;
+      const a = await account(id);
+      return a?.payChain === "ethereum" && /^0x[0-9a-fA-F]{40}$/.test(a.address ?? "") ? a.address.toLowerCase() : null;
+    },
+    // The Xaman user token from the owner's last signature in Xaman (connector payments): the next sign request
+    // is pushed to their phone with it. Xaman ends it after 30 days without use.
+    async xamanToken(id) { return (await g.getAccount(id))?.xamanToken?.token ?? null; },
+    async setXamanToken(id, token) {
+      if (typeof token !== "string" || !/^[0-9a-f-]{36}$/i.test(token)) return;
+      if (id === ADMIN) { await g.putAccount({ ...((await g.getAccount(ADMIN)) ?? { id: ADMIN }), xamanToken: { token, at: now() } }); return; }
+      await serial(id, async () => { const a = await g.getAccount(id); if (a && !a.deletedAt) await g.putAccount({ ...a, xamanToken: { token, at: now() } }); });
+    },
+    // A message to the owner on their phone (Telegram if linked, and the installed app): the connector's payment
+    // requests (src/connector.js), with the link to sign them.
+    async tellOwner(id, { title, text, url, tag }) {
+      const a = await account(id);
+      const link = new URL(url, site.origin).toString();
+      if (telegram && a?.telegram?.chatId) await telegram.send(a.telegram.chatId, `${text}\n\n${link}`).catch((err) => console.warn(`[connector] telegram: ${err.message}`));
+      await pushAll(id, { title, body: text, url, tag, requireInteraction: true }).catch((err) => console.warn(`[connector] push: ${err.message}`));
+    },
     emailEnabled: !!mailer,
     solanaEnabled: !!solPayTo,
     xamanEnabled: !!xamanRedirect,
@@ -477,9 +508,10 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
       try { a = await syncAuto(a, fresh ? { maxAgeMs: 0 } : {}); } catch (err) { console.warn(`[subscription] ${err.message}`); }
       const plan = planOf(a);
+      if (passOf(a)) indexPass(id).catch(() => {}); // agents' wallets learned since are covered too
       return {
         id, admin: !!a.admin, address: a.address ?? null, plan: plan.name, tier: plan.tier ?? null, tierUntil: plan.tier ? a.tierUntil[plan.tier] : null, limits: { maxAgents: plan.maxAgents, receiptDays: plan.receiptDays, maxMonitors: plan.maxMonitors },
-        paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
+        pass: passOf(a), paidUntil: a.paidUntil ?? null, proUntil: proUntil(a) || null, graceUntil: proUntil(a) ? proUntil(a) + GRACE_MS : null,
         chain: a.admin ? null : isXrplAcct(a) ? "xrpl" : isAlgoAcct(a) ? "algorand" : isSol(a) ? "solana" : "ethereum",
         signedInWith: a.admin ? "password" : a.chain === "email" ? "email" : isXrplAcct(a) ? "xaman" : isAlgoAcct(a) ? "pera" : isSol(a) ? "solana" : "ethereum",
         email: a.emailHint ?? null, emailSignIn: !!mailer,
@@ -493,14 +525,107 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
         pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
+        // Whether the connector tells sellers why it didn't pay (refusal extension): off until the owner turns it on.
+        tellSellers: a.tellSellers === true,
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
-        xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY },
+        xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, ...prices(), periodDays: PERIOD_MS / DAY },
         // USDC on Algorand: for accounts that signed in with Pera (the payment must come from that address).
-        algoPay: isAlgoAcct(a) && algoPayTo ? { payTo: algoPayTo, asset: ALGO_USDC, token: "USDC", priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, periodDays: PERIOD_MS / DAY } : null,
+        algoPay: isAlgoAcct(a) && algoPayTo ? { payTo: algoPayTo, asset: ALGO_USDC, token: "USDC", ...prices(), periodDays: PERIOD_MS / DAY } : null,
         billing: a.admin || !a.address || isXrplAcct(a) || isAlgoAcct(a) ? null : isSol(a)
-          ? (solPayTo ? { chain: "solana", payTo: solPayTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
-          : { chain: "base", payTo, priceUsdc: Number(priceUnits) / 1e6, price20Usdc: Number(TIERS.pro20.units) / 1e6, priceUnlimitedUsdc: Number(TIERS.unlimited.units) / 1e6, token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
+          ? (solPayTo ? { chain: "solana", payTo: solPayTo, ...prices(), token: "USDC", mint: USDC_MINT, periodDays: PERIOD_MS / DAY } : null)
+          : { chain: "base", payTo, ...prices(), token: "USDC", chainId: 8453, tokenAddress: token, periodDays: PERIOD_MS / DAY, chains: chainList },
       };
+    },
+
+    // The account's pass: tier, end, the wallets it covers, and a signed proof (when PASS_SIGNING_KEY is set).
+    async pass(id) {
+      const p = await indexPass(id);
+      if (!p) return { pass: null, how: `Fizzl Pass Bronze comes with Pro ($${Number(priceUnits) / 1e6} for 30 days); Silver is $${Number(TIERS.silver.units) / 1e6} for 90 days and Gold $${Number(TIERS.gold.units) / 1e6} for 180 days, Pro included.` };
+      const t = PASS_TIERS[p.tier];
+      const token = passKey ? signPass({ iss: "wallet.fizzl.eu", tier: p.tier, until: p.until, wallets: p.wallets, iat: now() }, passKey) : null;
+      return { pass: { tier: p.tier, name: t.label, until: p.until, wallets: p.wallets, token } };
+    },
+    // The account's signed pass proof, for the X-Fizzl-Pass header on calls to Fizzl's services (higher free limits).
+    // Kept 10 minutes per account; null without a pass or a signing key.
+    async passToken(id) {
+      const hit = passTokens.get(id);
+      if (hit && hit.at > now() - 10 * 60_000 && (!hit.until || hit.until > now())) return hit.token;
+      const p = passKey ? (await api.pass(id).catch(() => null))?.pass : null;
+      const token = p?.token ?? null;
+      passTokens.set(id, { token, until: p?.until ?? null, at: now() });
+      if (passTokens.size > 5000) passTokens.delete(passTokens.keys().next().value);
+      return token;
+    },
+    // Anyone: is this wallet covered by a pass? Only the tier and the end, never whose it is. A wallet can have an
+    // account's pass and one it bought itself over x402 (passSale): the higher tier counts.
+    async passStatus(wallet) {
+      const w = walletKey(wallet);
+      if (!isWallet(w)) throw Object.assign(new Error("wallet must be a wallet address (EVM 0x…, Solana, XRPL r… or Algorand)"), { status: 400 });
+      const v = await currentPass(w);
+      return { wallet: w, pass: v ? { tier: v.tier, name: PASS_TIERS[v.tier]?.label ?? v.tier, until: v.until } : null };
+    },
+    // x402 Doctor sold a pass over x402 to this wallet (after the payment settled): the pass is the wallet's own,
+    // without an account. Extends a pass of the same tier; another tier starts now. The signed proof waits under the
+    // buyer's claim id (GET /v1/pass/claim/<id>) until the pass ends. Once per payment.
+    async passSale({ wallet, tier, tx, claim } = {}) {
+      const w = walletKey(wallet);
+      const t = PASS_TIERS[tier];
+      if (!isWallet(w) || !t || typeof tx !== "string" || !tx || tx.length > 200 || !/^[A-Za-z0-9_-]{22,64}$/.test(String(claim ?? ""))) throw Object.assign(new Error("needs wallet, tier (bronze, silver or gold), tx and claim"), { status: 400 });
+      if (!(await g.claimTx(`passsale:${tx}`))) return { ok: true, duplicate: true, claim: await g.peekOnce("passclaim", claim) };
+      const prev = await g.peekOnce("walletpass", w);
+      const start = prev && prev.tier === tier && prev.until > now() ? prev.until : now();
+      const until = start + t.days * DAY;
+      const ttl = Math.ceil((until - now()) / 1000);
+      await g.putOnce("walletpass", w, { tier, until }, ttl);
+      const token = passKey ? signPass({ iss: "wallet.fizzl.eu", tier, until, wallets: [w], iat: now() }, passKey) : null;
+      await g.putOnce("passclaim", claim, { wallet: w, tier, until, token }, ttl);
+      usage.record("pass_sold", { usd: t.usdc, input: { tier, via: "x402" } });
+      return { ok: true, pass: { tier, until, wallet: w } };
+    },
+    // ---------- passes the owner gives away (a partner, a project): no payment, revocable ----------
+    // A grant covers one wallet, Gold unless another tier is asked, with no end date unless days is given. Its id
+    // (gid) is in the signed proof; revoking it puts the id in the list /.well-known/fizzl-pass.json publishes, and
+    // the services refuse that proof from their next key refresh (at most 6 hours). The proof is signed with the
+    // grant's own time, so it is the same text every time the owner looks it up.
+    async passGrant({ wallet, tier = "gold", days = null, note = "" } = {}) {
+      const w = walletKey(wallet);
+      if (!isWallet(w)) throw Object.assign(new Error("wallet must be a wallet address (EVM 0x…, Solana, XRPL r… or Algorand)"), { status: 400 });
+      if (!PASS_TIERS[tier]) throw Object.assign(new Error("tier must be bronze, silver or gold"), { status: 400 });
+      const d = days === null || days === undefined || days === "" || Number(days) === 0 ? null : Math.floor(Number(days));
+      if (d !== null && !(d >= 1 && d <= 3650)) throw Object.assign(new Error("days must be 1 to 3650, or empty for no end date"), { status: 400 });
+      const who = String(note ?? "").replace(/[^\p{L}\p{N} @·.,()/_-]/gu, "").trim().slice(0, 60);
+      return serial(ADMIN, async () => {
+        const rec = (await g.getAccount(ADMIN)) ?? { id: ADMIN };
+        const grants = rec.passGrants ?? [];
+        if (grants.some((x) => x.wallet === w && !x.revokedAt && x.until > now())) throw Object.assign(new Error("This wallet has a pass from you already: revoke that one first."), { status: 409 });
+        if (grants.length >= 500) throw Object.assign(new Error("Too many passes given away (500)."), { status: 409 });
+        const grant = { id: `g_${randomBytes(9).toString("base64url")}`, wallet: w, tier, until: d ? now() + d * DAY : PASS_FOREVER, at: now(), ...(who ? { note: who } : {}) };
+        await g.putAccount({ ...rec, passGrants: [...grants, grant] });
+        usage.record("pass_granted", { input: { tier, forever: !d } });
+        return api.passGrants();
+      });
+    },
+    async passGrants() {
+      const grants = (await g.getAccount(ADMIN))?.passGrants ?? [];
+      return { grants: grants.slice().reverse().map((x) => ({ ...x, forever: x.until >= PASS_FOREVER, token: !x.revokedAt && passKey ? grantToken(x) : null })) };
+    },
+    async passRevoke(gid) {
+      return serial(ADMIN, async () => {
+        const rec = await g.getAccount(ADMIN);
+        if (!(rec?.passGrants ?? []).some((x) => x.id === gid && !x.revokedAt)) throw Object.assign(new Error("No such pass, or it was revoked already."), { status: 404 });
+        await g.putAccount({ ...rec, passGrants: rec.passGrants.map((x) => (x.id === gid ? { ...x, revokedAt: now() } : x)) });
+        return api.passGrants();
+      });
+    },
+    // The ids of revoked grants that would otherwise still be valid: published with the public key.
+    async passRevoked() {
+      return ((await g.getAccount(ADMIN))?.passGrants ?? []).filter((x) => x.revokedAt && x.until > now()).map((x) => x.id);
+    },
+    // The buyer's proof after an x402 purchase; null until x402 Doctor has passed the sale on.
+    async passClaim(claim) {
+      if (!/^[A-Za-z0-9_-]{22,64}$/.test(String(claim ?? ""))) return null;
+      const c = await g.peekOnce("passclaim", claim);
+      return c && c.until > now() ? c : null;
     },
 
     // ---------- agents (routing an agent key to its account) ----------
@@ -610,6 +735,21 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     },
 
     // ---------- new providers in the x402 catalog, on Telegram, for the categories an account follows ----------
+    // Telling sellers why the connector didn't pay (the draft refusal extension, x402-foundation/x402#4087) is the owner's
+    // choice: off until they turn it on. A report carries the reason only: no amounts, no wallet, nothing about the owner.
+    async setTellSellers(id, on) {
+      if (typeof on !== "boolean") throw Object.assign(new Error("on: true or false"), { status: 400 });
+      const a = id === ADMIN ? ((await g.getAccount(ADMIN)) ?? { id: ADMIN }) : await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      if (id === ADMIN) await g.putAccount({ ...a, tellSellers: on });
+      else await serial(id, async () => touch((await g.getAccount(id)) ?? a, { tellSellers: on }));
+      usage.record("tell_sellers", { account: id, input: { on } });
+      return { tellSellers: on };
+    },
+    async tellsSellers(id) {
+      const a = id ? await g.getAccount(id).catch(() => null) : null;
+      return a?.tellSellers === true;
+    },
     async setFollow(id, categories) {
       if (!Array.isArray(categories) || categories.length > 20 || categories.some((c) => !FOLLOWABLE.has(c))) throw Object.assign(new Error(`categories: a list of ${[...FOLLOWABLE].join(", ")}`), { status: 400 });
       const follow = [...new Set(categories)];
@@ -637,7 +777,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         for (const p of mine.slice(0, 8)) {
           lines.push(`${names[p.category] ?? names.other} · ${p.host}`);
           if (p.description) lines.push(p.description.length > 160 ? `${p.description.slice(0, 157)}…` : p.description);
-          lines.push(`from ${money(p.cheapest)} · ${p.networks.join(", ")}${p.skill ? ` · skill.md: ${p.skill.replace(/^https:\/\//, "")}` : ""}`, "");
+          lines.push(`from ${money(p.cheapest)} · ${p.networks.join(", ")}${p.skill ? ` · skill.md: ${p.skill.replace(/^https:\/\//, "")}${p.skillCheck?.verdict === "suspicious" ? " (⚠ flagged by an injection check: read it before your agent does)" : ""}` : ""}`, "");
         }
         if (mine.length > 8) lines.push(`…and ${mine.length - 8} more.`, "");
         lines.push(`Listings are written by the sellers, not recommendations. Search them in your wallet: ${site.origin}`, "Change which categories you follow there, under Find services.");
@@ -1050,7 +1190,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(id);
       if (!a || !isSol(a) || !a.address) throw Object.assign(new Error("only for accounts signed in with a Solana wallet"), { status: 400 });
       if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
-      const m = Math.min(12, Math.max(1, Math.floor(Number(months) || 1)));
+      const m = Math.min(Math.floor(12 / periodsOf(tier)), Math.max(1, Math.floor(Number(months) || 1)));
       const { value } = await solRpc("getLatestBlockhash", [{ commitment: "confirmed" }]);
       const unit = unitOf(tier);
       return { message: usdcTransferMessage({ from: a.address, to: solPayTo, amount: unit * BigInt(m), blockhash: value.blockhash }), amountUsdc: (Number(unit) * m) / 1e6, months: m, payTo: solPayTo };
@@ -1194,7 +1334,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   }
   // Which plan a payment buys: the one asked for, or (asked for nothing, e.g. a pasted hash) Pro 20 when the
   // amount is a whole number of Pro 20 months and not of Pro months.
-  const tierFor = (tier, paid) => (["pro", "pro20", "unlimited"].includes(tier) ? tier : paid >= TIERS.pro20.units && paid % TIERS.pro20.units === 0n && paid % priceUnits !== 0n ? "pro20" : "pro");
+  const tierFor = (tier, paid) => (["pro", "pro20", "unlimited", "silver", "gold"].includes(tier) ? tier : paid >= TIERS.pro20.units && paid % TIERS.pro20.units === 0n && paid % priceUnits !== 0n ? "pro20" : "pro");
   async function claimSolana(a, signature, tier) {
     if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
     if (!isSolanaSignature(signature)) throw Object.assign(new Error("that is not a Solana transaction signature"), { status: 400 });
@@ -1218,14 +1358,60 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
   // Pro for what was paid (whole months, at most 12), after any time already paid for. Months of a bigger plan
   // also add time on that plan (from now, or after what's left of it); the Pro time they add comes after any Pro left.
   async function credit(a, tx, paid, chainId = null, tier = "pro", from = null) {
-    const months = Math.min(12, Number(paid / unitOf(tier)));
+    const months = Math.min(12, Number(paid / unitOf(tier)) * periodsOf(tier));
     const start = Math.max(now(), proUntil(a));
     const paidUntil = start + months * PERIOD_MS;
     const bigger = TIERS[tier] ? { tierUntil: { ...(a.tierUntil ?? {}), [tier]: Math.max(now(), a.tierUntil?.[tier] ?? 0) + months * PERIOD_MS } } : {};
     await touch(a, { paidUntil, ...bigger, payments: [...(a.payments ?? []), { tx, amount: (Number(paid) / 1e6).toString(), months, at: now(), paidUntil, ...(TIERS[tier] ? { tier } : {}), ...(chainId === "xrpl" ? { chain: "xrpl", ...(from ? { from } : {}) } : chainId === "algorand" ? { chain: "algorand", ...(from ? { from } : {}) } : isSol(a) ? { chain: "solana" } : chainId && chainId !== 8453 ? { chainId } : {}) }], reminded: null });
     usage.record("pro_paid", { account: a.id, ref: a.ref, usd: Number(paid) / 1e6, input: { network: netName(a, chainId), months, ...(TIERS[tier] ? { tier } : {}) } });
+    indexPass(a.id).catch((err) => console.warn(`[pass] ${err.message}`)); // the pass is checkable at once
     await store.scope(a.id).addEvent({ at: now(), type: "plan", summary: `${labelOf(tier)} paid: ${Number(paid) / 1e6} ${chainId === "xrpl" ? "RLUSD on the XRP Ledger" : chainId === "algorand" ? "USDC on Algorand" : `USDC${isSol(a) ? " on Solana" : chainId && chainId !== 8453 ? ` on ${chains[chainId].name}` : ""}`}, ${months} month${months === 1 ? "" : "s"}, until ${date(paidUntil)}` });
     return api.me(a.id);
+  }
+
+  // ---------- Fizzl Pass (src/pass.js) ----------
+  const TIER_RANK = { bronze: 1, silver: 2, gold: 3 };
+  // The wallet's pass now: the account's (with Bronze after a Silver or Gold that ended) or the one it bought itself.
+  const grantToken = (x) => signPass({ iss: "wallet.fizzl.eu", tier: x.tier, until: x.until, wallets: [x.wallet], iat: x.at, gid: x.id }, passKey);
+  async function currentPass(w) {
+    const given = ((await g.getAccount(ADMIN))?.passGrants ?? []).find((x) => x.wallet === w && !x.revokedAt && x.until > now());
+    const other = await accountOrBoughtPass(w);
+    if (!given) return other;
+    return other && TIER_RANK[other.tier] > TIER_RANK[given.tier] ? other : { tier: given.tier, until: given.until };
+  }
+  async function accountOrBoughtPass(w) {
+    const e = await g.peekOnce("pass", w);
+    const fromAccount = e && e.until > now() ? e : e?.next && e.next.until > now() ? e.next : null;
+    const own = await g.peekOnce("walletpass", w);
+    const bought = own && own.until > now() ? own : null;
+    if (!fromAccount || !bought) return fromAccount ?? bought;
+    return TIER_RANK[bought.tier] > TIER_RANK[fromAccount.tier] ? bought : fromAccount;
+  }
+  const passTokens = new Map(); // account -> { token, until, at }
+  // Phase 1: Pro is the Bronze pass. It covers the account's own wallet and its agents' wallets, indexed by wallet
+  // until the pass ends, so GET /v1/pass/status answers without knowing the account.
+  // Gold or Silver while bought (and Pro, which they include, hasn't been withdrawn); otherwise Pro is Bronze.
+  const passOf = (a) => {
+    const until = proUntil(a);
+    if (!a || a.admin || !(until > now())) return null;
+    for (const tier of ["gold", "silver"]) { const end = Math.min(a.tierUntil?.[tier] ?? 0, until); if (end > now()) return { tier, until: end }; }
+    return { tier: "bronze", until };
+  };
+  async function passWallets(a) {
+    const agents = await store.scope(a.id).listAgents().catch(() => []);
+    return [...new Set([a.address, ...agents.map((x) => x.address)].filter((w) => w && isWallet(w)).map(walletKey))];
+  }
+  async function indexPass(id) {
+    const a = await account(id);
+    const p = passOf(a);
+    if (!p) return null;
+    const wallets = await passWallets(a);
+    // Silver or Gold that ends before Pro does: Bronze follows, so the public check stays right without a new index.
+    const end = proUntil(a);
+    const next = p.tier !== "bronze" && end > p.until ? { tier: "bronze", until: end } : null;
+    const ttl = Math.max(60, Math.ceil(((next?.until ?? p.until) - now()) / 1000));
+    for (const w of wallets) await g.putOnce("pass", w, { tier: p.tier, until: p.until, ...(next ? { next } : {}) }, ttl);
+    return { ...p, wallets };
   }
 
   const netName = (a, chainId) => (chainId === "xrpl" ? "XRPL" : chainId === "algorand" ? "Algorand" : isSol(a) ? "Solana" : chains[chainId ?? 8453]?.name ?? "Base");

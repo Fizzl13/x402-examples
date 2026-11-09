@@ -13,7 +13,8 @@
   "scripts": {
     "postinstall": "node scripts/fetch-sources.js",
     "bench": "node bin/bench.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "exam": "node bin/exam-server.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -26,6 +27,7 @@
     "algosdk": "^3.8.0",
     "express": "^5.3.0",
     "presign-guard-wallet": "0.24.0",
+    "redis": "^5.12.1",
     "viem": "^2.57.6",
     "xrpl": "^4.7.0"
   }

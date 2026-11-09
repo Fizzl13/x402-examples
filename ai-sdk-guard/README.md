@@ -18,6 +18,14 @@ Nine tools you add to `generateText`, `streamText` or an agent in one line:
 
 The tools only check. They never sign, pay or move anything themselves. A failed check comes back to the model as `{ error, message }`, so the agent can tell the user instead of crashing.
 
+One more tool, off unless you ask for it, because it buys:
+
+| Tool | What the agent gets | Service | Price |
+|---|---|---|---|
+| `buy_live_data` | live data it can't get itself (a weather forecast, a crypto or stock price, an exchange rate, web search results, news, a company or address lookup) in one call: say what you need; Fizzl Buy picks the paid x402 API x402 Doctor has seen paying out day after day at a fair price, pays it and returns the answer, checked for hidden instructions. Nothing is charged when no seller delivers | [Fizzl Buy](https://buy.fizzl.eu) | $0.02 |
+
+Turn it on with `fizzlTools({ fetch: pay, buy: true })`, or name it in `only`. Without a paying fetch it answers with a free preview: the seller Fizzl Buy would buy from, not the data itself.
+
 ## See it in 10 seconds (offline, free)
 
 ```sh
@@ -83,10 +91,11 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 |---|---|---|
 | `fetch` | global `fetch` | An x402-paying fetch (`wrapFetchWithPayment` from `@x402/fetch`), or plain fetch with credit keys |
 | `creditKeys` | none | `{ presign, doctor }`, sent as `x-credit-key` |
-| `only` | all nine | Tool names to include |
+| `only` | the nine checks | Tool names to include |
+| `buy` | `false` | Add `buy_live_data` ($0.02 a purchase, paid through `fetch`) |
 | `free` | `true` | Fall back to the free quick check (verdict only) when a check can't be paid |
-| `timeoutMs` | 30000 | Per check |
-| `presignUrl`, `doctorUrl` | the fizzl.eu services | For tests or self-hosting |
+| `timeoutMs` | 30000 | Per check (a purchase gets at least 180000: it may try three sellers) |
+| `presignUrl`, `doctorUrl`, `buyUrl` | the fizzl.eu services | For tests or self-hosting |
 
 Works with AI SDK 5, 6 and 7: the tools are plain `{ description, inputSchema, execute }` objects, as `tool()` returns them, with zod 3.25+ or 4 schemas.
 

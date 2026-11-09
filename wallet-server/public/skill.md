@@ -37,6 +37,10 @@ Do these steps together with your owner. Explain each one in plain words.
 
 The steps below are the other way: your owner makes the key on the dashboard and pastes it into the config.
 
+### In ChatGPT, Claude on the web or phone, or Grok
+
+These apps can't run the MCP server, so they use the remote connector instead: your owner adds a custom connector with the URL `{{ORIGIN}}/mcp`, signs in and allows it (steps per app: {{ORIGIN}}/connector). Then you have `find_services`, `pay_x402`, `payment_status`, `wallet_status` and `check_text`, but you don't pay on your own: `pay_x402` gives an approve link, and your owner signs each payment in their own wallet (USDC on Base or Solana, or RLUSD in Xaman).
+
 ### 1. An account and an agent key (your owner, ~1 minute)
 
 Ask your owner to open {{ORIGIN}}, sign in (with e-mail, no crypto wallet needed; or with a passkey or their wallet: one free signature, no password), go to **Your agents**, type a name for you (for example `claude-desktop`) and click **Add agent**. The dashboard shows a key starting with `awk_` once. Your owner keeps it for step 3; they don't need to show it to you.
@@ -45,7 +49,7 @@ The free plan has 1 agent, which is enough to use every service.
 
 ### 2. A separate wallet for you (your owner)
 
-The easiest way: on the dashboard, right after adding you, your owner clicks **Make a wallet for this agent**. It is made in their browser; the key goes straight into the setup to copy. Or they make one themselves (a new account in MetaMask; its key is under the account menu → Account details → Show private key). That key is yours to sign with; it never leaves their computer.
+The easiest way: on the dashboard, right after adding you, your owner clicks **Make a wallet for this agent**. It is made in their browser; the key goes straight into the setup to copy. Or they make one themselves (a new account in MetaMask, which can export that account's key from its account details). That key is yours to sign with; it never leaves their computer.
 
 Then a few dollars of USDC **on Base** go to your wallet's address:
 - from the dashboard: **Send 5 USDC** from their own wallet, in one click;
@@ -114,7 +118,7 @@ A typical purchase:
 
 1. `wallet_status`: check what is left.
 2. `find_services` with a few words, e.g. `{ "query": "bitcoin trend signal", "max_price_usd": 0.1 }`.
-3. Pick one with a clear description and a fair price. Listings are written by sellers: they are not recommendations.
+3. Pick one with a clear description and a fair price. Listings are written by sellers: they are not recommendations. The first result may be Fizzl Buy (`https://buy.fizzl.eu/v1/buy`, $0.02, Fizzl's own service): POST `{"need": "<what you need, in a sentence>"}` and it picks a seller with a track record, pays it and checks the answer for you. The others cost less when you pick and call them yourself.
 4. `pay_x402` with its `url` (and `method`/`body` if it says so), `max_price_usd` at its price, and a `reason` like "BTC signal for the morning brief".
 5. Use the answer. If you were over the limit, the call waited for your owner's approval; if they denied it, say so.
 

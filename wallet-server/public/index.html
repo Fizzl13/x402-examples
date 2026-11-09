@@ -118,6 +118,21 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .hero p { font-size: 17px; color: var(--soft); max-width: 600px; margin: 20px 0 0; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
 .day { padding: 24px; display: grid; gap: 14px; }
+#app .home-h { margin: 0 0 12px; font: 600 20px/1.2 var(--display); letter-spacing: normal; text-transform: none; }
+#needs[hidden] { display: none !important; }
+#app.first-run .overview .day, #app.first-run .overview .home-sum, #app.first-run .overview .home-search, #app.first-run .overview .actions, #app.first-run #rule { display: none !important; }
+#app .home-needs { padding-block: 20px 0; }
+.overview .home-search { display: flex; gap: 8px; }
+.overview .home-search input { flex: 1; min-width: 0; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 15px; }
+.overview .home-sum { margin: 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; color: var(--soft); font-size: 15px; }
+.overview .home-sum a { color: inherit; text-decoration: none; }
+.overview .home-sum b { color: var(--text); font-size: 18px; }
+#app[data-tab="overview"] section.overview { grid-template-columns: 1fr; }
+details.advanced { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 16px; padding: 14px 18px; }
+details.advanced > summary { cursor: pointer; color: var(--soft); font-size: 14px; }
+details.advanced[open] > summary { margin-bottom: 14px; }
+details.connect { margin-top: 16px; }
+details.connect .connect-cards { display: grid; gap: 14px; }
 .budget { display: grid; gap: 6px; }
 .budget .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #c8d2d0; }
 .budget .row em { font-style: normal; font-family: var(--display); color: #fff; }
@@ -389,6 +404,19 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .paste { display: flex; gap: 8px; flex-wrap: wrap; }
 .paste input { flex: 1 1 200px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); font: 12px ui-monospace, Menlo, monospace; }
 .login .card { padding: 30px; width: min(420px, 100%); display: grid; gap: 14px; }
+.login .signin .login-title { font-size: 28px; margin: 0; }
+.login .signin .intro { margin: 0; }
+.signin-label { font-size: 14px; color: var(--text); font-weight: 600; }
+.paste.big input { min-height: 46px; font: 15px var(--body, inherit); }
+.paste.big .button { min-height: 46px; flex: 1 1 100%; }
+.wallet-toggle { width: 100%; min-height: 46px; }
+.signin-foot { margin: 4px 0 0; text-align: center; }
+.signin-foot a { text-decoration: underline; text-underline-offset: 3px; }
+.how-it-works { width: min(760px, 100%); display: grid; gap: 12px; scroll-margin-top: 80px; }
+.how-it-works h3 { margin: 0; font: 700 clamp(22px, 3vw, 30px)/1.1 var(--display); letter-spacing: -1px; }
+.how-it-works h3 span { color: var(--mint); }
+.how-it-works .intro-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--soft); font-size: 15px; line-height: 1.5; }
+.how-it-works .intro-steps b { color: var(--text); }
 .login { gap: 22px; align-content: center; padding-block: 32px; }
 /* Why keys stay with you: shown under the sign-in, and in "How it works" */
 .yourkeys { width: min(760px, 100%); display: grid; gap: 14px; }
@@ -568,24 +596,24 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 <div class="demo-banner" id="demoBanner" hidden><div class="wrap">LIVE DEMO · example agents and example data · nothing here moves money · <a href="https://github.com/Fizzl13/x402-examples/tree/main/wallet-server">run your own ↗</a></div></div>
 <main class="wrap">
   <section class="login" id="loginView" hidden>
-    <div class="card">
+    <div class="card signin">
       <span class="tag">Fizzl Agent Wallet</span>
-      <h1 class="login-title">Spending limits and phone approvals for your AI agents</h1>
-      <p class="intro">For anyone whose AI agent (Claude, Cursor or one you built) pays for APIs and data in USDC. The agent keeps its own wallet; you set the limits and say yes or no to the rest on your phone.</p>
-      <ol class="intro-steps"><li><b>Sign in</b> with e-mail, a passkey or a crypto wallet.</li><li><b>Add your agent.</b> It gets its own wallet, made in your browser, and a setup to paste into your app.</li><li><b>Set your limits.</b> Under them it pays by itself; above them it asks you first.</li></ol>
-      <p class="note" style="margin:0 0 4px"><a class="button ghost small" href="/demo">Open the demo</a> &nbsp;No sign-in: example agents, nothing moves money.</p>
-      <p class="note" id="watchHint" hidden style="margin:-4px 0 12px"></p>
+      <h1 class="login-title">Sign in</h1>
+      <p class="intro">Spending limits and phone approvals for your AI agents.</p>
+      <p class="note" id="watchHint" hidden style="margin:0"></p>
       <div id="passkeyLogin" hidden style="display:grid;gap:8px"><button class="button primary" type="button" id="passkeyGo">🙂 Sign in with Face ID</button><p class="note" style="margin:0" id="passkeyNote">Or Touch ID, a fingerprint or your screen lock.</p><div class="err" id="passkeyErr"></div></div>
       <div id="deviceLogin" hidden></div>
       <div id="emailLogin" hidden style="display:grid;gap:10px">
-        <div class="or">or with e-mail</div>
-        <form id="emailForm" class="paste"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" aria-label="E-mail address" required><button class="button small" type="submit">Send code</button></form>
-        <form id="emailCodeForm" class="paste" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
-        <p class="note" id="emailNote" style="margin:0">No crypto wallet needed: we mail you a 6-digit code. Your agents get their own wallets after you sign in.</p>
+        <label class="signin-label" for="emailIn">With your e-mail</label>
+        <form id="emailForm" class="paste big"><input id="emailIn" type="email" autocomplete="email" placeholder="you@example.com" required><button class="button primary small" type="submit">Send code</button></form>
+        <form id="emailCodeForm" class="paste big" hidden><input id="emailCode" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6-digit code" aria-label="Code from the e-mail" required><button class="button primary small" type="submit">Sign in</button></form>
+        <p class="note" id="emailNote" style="margin:0">We mail you a 6-digit code. No password, no crypto wallet needed.</p>
         <div class="err" id="emailErr"></div>
       </div>
       <div id="walletLogin">
-        <div class="or" id="walletOr">or with a crypto wallet</div>
+        <div class="or" id="walletOr">or</div>
+        <button class="button ghost wallet-toggle" type="button" id="walletToggle" aria-expanded="false" aria-controls="walletBox">Sign in with a crypto wallet <span aria-hidden="true">▾</span></button>
+        <div id="walletBox" hidden style="display:grid;gap:8px;margin-top:10px">
         <div class="wallets" id="walletList"></div>
         <button class="button ghost wallet-more" type="button" id="moreWallets" aria-expanded="false" aria-controls="morePanel">Other wallets <span aria-hidden="true">▾</span></button>
         <div class="more-wallets" id="morePanel" hidden>
@@ -603,18 +631,25 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
             <a href="https://trustwallet.com/download" target="_blank" rel="noopener noreferrer"><img src="/icons/trust.svg" alt="">Trust Wallet</a>
           </div><p class="note" style="margin:6px 0 0">Install one, reload this page, and it shows up above. Use a separate wallet for your agents, never your savings.</p></div>
         </div>
-        <p class="note" style="margin:10px 0 0">One free signature: no password, no transaction. Free: 1 agent. Pro: unlimited agents, $5 a month.</p>
+          <p class="note" style="margin:4px 0 0">One free signature: no password, no transaction.</p>
+        </div>
       </div>
       <div class="err" id="walletErr"></div>
+      <button class="link" type="button" id="passkeyLink" hidden>Sign in with Face ID or a passkey</button>
       <div class="or" id="orLine" hidden>or</div>
       <button class="link" type="button" id="showPassword" hidden>Server owner? Log in with the password</button>
-      <p class="note" style="margin:0">By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no tracking cookies; with e-mail we keep only a fingerprint of your address, not the address.</p>
       <form id="loginForm" hidden style="display:grid;gap:12px">
         <label for="password" class="note">Password (ADMIN_PASSWORD)</label>
         <input id="password" type="password" autocomplete="current-password" required>
         <button class="button" type="submit">Log in</button>
         <div class="err" id="loginErr"></div>
       </form>
+      <p class="note signin-foot">New here? <a href="#how">How it works</a> · <a href="/demo">Try the demo</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
+    </div>
+    <div class="how-it-works" id="how">
+      <h3>How it works <span>in three steps.</span></h3>
+      <ol class="intro-steps"><li><b>Sign in</b> with e-mail, a passkey or a crypto wallet.</li><li><b>Add your agent.</b> It gets its own wallet, made in your browser, and a setup to paste into Claude, Cursor or your own app.</li><li><b>Set your limits.</b> Under them it pays by itself; above them it asks you first, on your phone.</li></ol>
+      <p class="note" style="margin:0">Free for 1 agent. Pro: unlimited agents, $5 a month. By signing in you agree to the <a href="/terms" style="text-decoration:underline">terms</a>. <a href="/privacy" style="text-decoration:underline">Privacy</a>: no passwords, no tracking cookies; with e-mail we keep only a fingerprint of your address.</p>
     </div>
     <div class="yourkeys">
       <h3>Your agent's money stays <span>in your agent's wallet.</span></h3>
@@ -655,8 +690,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   <div id="app" hidden>
     <nav class="tabs" id="tabs" role="tablist" aria-label="Wallet sections">
-      <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Overview</span><i class="tbadge" id="tabPending" hidden>0</i></button>
-      <button type="button" role="tab" data-go="find" aria-selected="false"><span class="ti" aria-hidden="true">⌕</span><span>Find</span></button>
+      <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Home</span><i class="tbadge" id="tabPending" hidden>0</i></button>
       <button type="button" role="tab" data-go="agents" aria-selected="false"><span class="ti" aria-hidden="true">◎</span><span>Agents</span></button>
       <button type="button" role="tab" data-go="purchases" aria-selected="false"><span class="ti" aria-hidden="true">≡</span><span>Purchases</span></button>
       <button type="button" role="tab" data-go="account" aria-selected="false"><span class="ti" aria-hidden="true">◐</span><span>Account</span></button>
@@ -665,6 +699,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
     <div class="card pushbar" id="linkBar" hidden></div>
     <div class="card pushbar" id="pushBar" hidden><span>📱 Get approvals as a notification on this phone, and approve with one tap.</span><button class="button primary small" type="button" data-push="on">Turn on</button><button class="link" type="button" id="pushBarLater">Later</button></div>
+    <section class="section home-needs" id="needs" data-tab="overview" hidden>
+      <h3 class="home-h">Waiting for you</h3>
+      <div class="list" id="approvals"></div>
+    </section>
     <section class="overview" id="overviewSec" data-tab="overview">
       <div class="card start" id="startCard" hidden>
         <span class="tag">GET STARTED · 3 STEPS, ABOUT 5 MINUTES</span>
@@ -683,8 +721,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div id="budgets"></div>
         <span class="note" id="pausedNote"></span>
       </div>
-      <a class="card stat" href="#needs"><span class="tag">NEEDS YOU</span><b id="pendingN">0</b><span class="note">requests over your rule</span></a>
-      <a class="card stat" href="#agentsSec"><span class="tag">AGENTS</span><b id="agentsActive">0</b><span class="note" id="agentsNote">active</span></a>
+      <form class="home-search" id="homeSearch" role="search"><input id="homeQ" type="search" placeholder="e.g. weather, bitcoin price" maxlength="200" aria-label="Find a paid service" autocomplete="off"><button class="button small" type="submit">Search</button></form>
+      <p class="home-sum"><a href="#agentsSec"><b id="agentsActive">0</b> <span id="agentsNote">active</span></a><span aria-hidden="true">·</span><a href="#needs"><b id="pendingN">0</b> waiting for you</a></p>
       <div class="actions">
         <button class="button stop small" id="pauseAll">Pause all agents</button>
         <button class="button ghost small" type="button" id="setupTop">Test my setup</button>
@@ -692,8 +730,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="findSec" data-tab="find">
-      <div class="eyebrow"><i></i>FIND SERVICES</div>
-      <h2>WHAT DO YOUR AGENTS NEED?<br><span>FIND IT HERE.</span></h2>
+      <p class="note" style="margin:0 0 8px"><a href="#/overview" class="link">← Home</a></p>
+      <h3 class="home-h">Find a paid service</h3>
       <div class="finder" id="finder">
         <form class="searchbar" id="searchForm" role="search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -723,15 +761,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
 
-    <section class="section" id="needs" data-tab="overview">
-      <div class="eyebrow"><i></i>01 / NEEDS YOU</div>
-      <h2>YOUR CALL.<br><span>YES OR NO.</span></h2>
-      <div class="list" id="approvals"></div>
-    </section>
 
     <section class="section" id="rule" data-tab="overview">
-      <div class="eyebrow"><i></i>02 / YOUR PRICE RULE</div>
-      <h2>FREE UNDER.<br><span>ASK ABOVE.</span></h2>
+      <h3 class="home-h">Your limits</h3>
       <div class="rule">
         <div class="card">
           <span class="tag">AGENTS PAY USDC ON THEIR OWN UP TO</span>
@@ -741,6 +773,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <div class="slider"><label for="perDay"><span>Daily budget, all agents</span><span id="perDayLbl"></span></label><input id="perDay" type="range" min="1" max="200" step="1"></div>
           <div class="save"><button class="button primary" id="saveRule">Save rule</button><span class="note" id="saveMsg"></span></div>
         </div>
+        <div class="card" id="tellBox" hidden>
+          <span class="tag">TELL SELLERS WHY</span>
+          <p class="note" style="margin:10px 0 10px">When a seller asks more than your limit, or wants a token your wallet doesn't pay, your wallet can tell that seller the reason, so they can fix their offer. Only the reason is sent (for example "price above the buyer's limit"): never your limits, amounts, wallet or anything about you. Off unless you turn it on.</p>
+          <label class="note" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="tellOn"> Tell sellers why my agents didn't pay</label>
+          <span class="msg" id="tellMsg" role="status"></span>
+        </div>
+        <details class="advanced"><summary>More rules: what they may buy, other tokens</summary><div class="rule">
         <div class="card">
           <span class="tag">WHAT MAY THEY BUY? IN YOUR OWN WORDS</span>
           <p class="note" style="margin:10px 0 10px">Optional. Before each purchase an AI check (TypeSafe's Jev) compares what the agent is about to buy with your rule. It gets only your rule and the purchase, nothing that identifies you (<a href="/privacy" style="text-decoration:underline">privacy</a>). Outside it, the agent asks you first, or is stopped if you choose so. When the check isn't sure, it always asks.</p>
@@ -759,13 +798,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           </details>
           <p class="note" style="margin-top:14px">Unlimited token approvals always ask you. A red presign-guard verdict is never signed.</p>
         </div>
+        </div></details>
       </div>
     </section>
 
 
     <section class="section" id="agentsSec" data-tab="agents">
-      <div class="eyebrow"><i></i>03 / AGENTS</div>
-      <h2>YOUR AGENTS.<br><span>ONE BUDGET.</span></h2>
+      <h3 class="home-h">Your agents</h3>
       <div id="newKey"></div>
       <input class="agentfilter" id="agentFilter" type="search" placeholder="Find an agent" aria-label="Find an agent" hidden>
       <div class="agents" id="agents"></div>
@@ -773,6 +812,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <input id="agentName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="New agent name">
         <button class="button" type="submit">Add agent</button>
       </form>
+      <details class="advanced connect" id="connectBox"><summary>Connect an agent · test it · what to ask</summary><div class="connect-cards">
       <div class="card setup" id="pairCard">
         <span class="tag">EASIEST: LINK AN AGENT WITH A CODE · NO KEYS TO COPY</span>
         <ol class="setup-steps" style="margin:0">
@@ -802,6 +842,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div class="copy"><code>What does this smart contract do: 0x…?</code><button class="button ghost small" type="button" data-copy="What does this smart contract do: 0x…?" data-track="ask_example" data-from="agents">Copy</button></div>
         <p class="note" style="margin:0"><b style="color:#fff">Fewest clicks:</b> when Claude asks whether it may use the wallet's tools, choose <b style="color:#fff">Always allow</b>. Your rules here decide what it may spend (the "per payment" limit is its top price), and anything over them still comes to you first. Want to look yourself? The <a href="#/find" style="text-decoration:underline">Find</a> tab searches the same catalog.</p>
       </div>
+      </div></details>
       <p class="note" style="margin:12px 0 0" id="agentPlanNote"></p>
       <details class="howto" id="howto">
         <summary>How it works · connect an agent · Fizzl services</summary>
@@ -834,8 +875,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="buysSec" data-tab="purchases">
-      <div class="eyebrow"><i></i>04 / PURCHASES</div>
-      <h2>WHAT THEY BOUGHT.<br><span>EVERY RECEIPT.</span></h2>
+      <h3 class="home-h">Purchases</h3>
       <div class="buybar">
         <label class="note" for="buyAgent">Agent</label>
         <select id="buyAgent"><option value="">All agents</option></select>
@@ -845,13 +885,12 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="activitySec" data-tab="purchases">
-      <div class="eyebrow"><i></i>05 / ACTIVITY</div>
-      <h2>EVERY CENT.<br><span>ON RECORD.</span></h2>
+      <h3 class="home-h">Activity</h3>
       <div class="rows" id="events"></div>
     </section>
 
     <section class="section" id="accountSec" data-tab="account" hidden>
-      <div class="eyebrow"><i></i>06 / YOUR ACCOUNT</div>
+      <h3 class="home-h">Your account</h3>
       <div class="card addrline" id="addrLine" hidden></div>
       <div class="account">
         <article class="card" id="planCard"></article>
@@ -875,7 +914,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   </div>
 </main>
 <dialog class="receipt" id="receipt" aria-labelledby="rcTitle"><div id="rcBody"></div></dialog>
-<footer><div class="wrap"><div class="footbuy" id="footBuy" hidden><button class="button primary small" type="button" id="buyFoot"></button><span class="note" id="buyFootNote"></span></div>FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a><span id="footAccount" hidden> · <a href="#accountSec" style="text-decoration:underline">your account &amp; plan</a> · <a href="#feedCard" id="footFeedback" style="text-decoration:underline">feedback</a></span> · © 2026 Fizzl</div></footer>
+<footer><div class="wrap"><div class="footbuy" id="footBuy" hidden><button class="button primary small" type="button" id="buyFoot"></button><span class="note" id="buyFootNote"></span></div>FIZZL AGENT WALLET · never holds keys or funds · built on presign-guard-wallet · <a href="/connector" style="text-decoration:underline">use it in ChatGPT, Claude or Grok</a> · <a href="/compare/coinbase" style="text-decoration:underline">vs Coinbase for Agents</a> · <a href="/terms" style="text-decoration:underline">terms</a> · <a href="/privacy" style="text-decoration:underline">privacy</a><span id="footAccount" hidden> · <a href="#accountSec" style="text-decoration:underline">your account &amp; plan</a> · <a href="#feedCard" id="footFeedback" style="text-decoration:underline">feedback</a></span> · © 2026 Fizzl</div></footer>
 
 <script>
 (() => {
@@ -886,6 +925,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   { const e = new URLSearchParams(location.search).get("signin_error"); if (e) { setTimeout(() => { const el = document.getElementById("walletErr"); if (el) el.textContent = e.slice(0, 160); }, 0); history.replaceState(null, "", location.pathname); } }
   { const r = new URLSearchParams(location.search).get("ref"); if (r && (/^([a-z0-9-]+\.)?fizzl\.eu$/i.test(r) || /^(readme|npm|github|pypi|mcp)$/i.test(r))) { try { sessionStorage.setItem("aw_ref", r.toLowerCase()); } catch {} } }
   const signupRef = () => { try { return sessionStorage.getItem("aw_ref") || undefined; } catch { return undefined; } };
+  // Connecting an app (ChatGPT, Grok, ...): the consent page sends people who aren't signed in here with ?connect=;
+  // after signing in (also through Xaman's round trip) they go back to it.
+  { const c = new URLSearchParams(location.search).get("connect"); if (c && /^[A-Za-z0-9_-]{16,40}$/.test(c)) { try { sessionStorage.setItem("aw_connect", c); } catch {} } }
+  const connectAfterSignIn = () => { try { const c = sessionStorage.getItem("aw_connect"); if (!c) return false; sessionStorage.removeItem("aw_connect"); location.assign(`/oauth/consent?req=${encodeURIComponent(c)}`); return true; } catch { return false; } };
   const STEPS = [0, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 100];
   const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -912,7 +955,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   // Show the tab an element lives in (for links like "Needs you", the plan badge, "Test my setup").
   function reveal(el) { const sec = el?.closest("section[data-tab]"); if (sec) showTab(sec.dataset.tab); }
-  const scrollTo = (el, block = "start") => el?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block });
+  const openParents = (el) => { for (let d = el?.parentElement?.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true; };
+  const scrollTo = (el, block = "start") => { openParents(el); el?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block }); };
   // Which buttons people use (anonymous counts for the owner: the kind of button and the seller's host).
   const trackClick = (el) => {
     try {
@@ -949,7 +993,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       events: [
         { at: t0 - min, type: "asked", agent: "research-agent", summary: "8 USDC is over the limit of 5 per transaction" },
         { at: t0 - 2 * min, type: "signed", agent: "research-agent", method: "signTypedData", amounts: ["0.1 USDC"], to: "ichimoku-signal.fizzl.eu", verdict: "green" },
-        { at: t0 - 4 * min, type: "signed", agent: "support-agent", method: "signTypedData", amounts: ["0.03 USDC"], to: "plaintext.fizzl.eu", verdict: "green" },
+        { at: t0 - 4 * min, type: "signed", agent: "support-agent", method: "signTypedData", amounts: ["0.02 USDC"], to: "buy.fizzl.eu", verdict: "green" },
         { at: t0 - 9 * min, type: "blocked", agent: "trading-bot", summary: "presign-guard: red (KNOWN_DRAINER) · never signed" },
         { at: t0 - 12 * min, type: "signed", agent: "trading-bot", method: "sendTransaction", amounts: ["2 USDC"], to: "Uniswap router", verdict: "green" },
       ],
@@ -959,7 +1003,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const hex = (n) => "0x" + Array.from({ length: n }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
     const WHAT = {
       "ichimoku-signal.fizzl.eu": ["https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", "BTC-USDT Ichimoku signal for the morning brief"],
-      "plaintext.fizzl.eu": ["https://plaintext.fizzl.eu/api/check-wallet", "Plain-English check of a customer's wallet"],
+      "buy.fizzl.eu": ["https://buy.fizzl.eu/v1/buy", "Fizzl Buy: tomorrow's weather for a customer's delivery"],
       "presign-guard.fizzl.eu": ["https://presign-guard.fizzl.eu/v1/token?chain=base", "Token safety check before a swap"],
       "x402-doctor.fizzl.eu": ["https://x402-doctor.fizzl.eu/api/v1/preflight", "Pre-payment check of a new API"],
       "api.marketdepth.io": ["https://api.marketdepth.io/v2/orderbook/full", "Full order-book snapshot for the weekly report"],
@@ -970,7 +1014,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     // What the demo agents got back: example answers, shaped like the real services'.
     const GOT = {
       "ichimoku-signal.fizzl.eu": { pair: "BTC-USDT", interval: "1d", timestamp: new Date().toISOString(), signal: "bullish", price: 64210.5, cloud_position: "above_cloud", tenkan_kijun_cross: "bullish_cross", tenkan_sen: 63480.2, kijun_sen: 61920.75, exchange: "Kraken" },
-      "plaintext.fizzl.eu": { summary: "2 of 5 approvals are risky: revoke the unlimited USDC approval to an unknown contract.", risk: "high", approvals: [{ token: "USDC", spender: "Unknown contract 0x9f3c…b21e", amount: "unlimited", risk: "high" }, { token: "WETH", spender: "Uniswap Permit2", amount: "unlimited", risk: "low" }, { token: "PEPE", spender: "Unverified router", amount: "1,000,000", risk: "medium" }] },
+      "buy.fizzl.eu": { need: "weather in Amsterdam tomorrow", delivered: true, answer: { place: "Amsterdam", daily: [{ date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), min_c: 8, max_c: 13, condition: "light rain" }] }, service: { url: "https://weather.example/forecast?place=Amsterdam&days=2", method: "GET" }, paid_usd: 0.002, tried: 1 },
       "presign-guard.fizzl.eu": { verdict: "green", grade: "A", summary: "Known token with deep liquidity; no honeypot or tax found.", token: { symbol: "AERO", name: "Aerodrome", chain: "base" }, liquidity_usd: 48200000, holders: 182340 },
       "x402-doctor.fizzl.eu": { verdict: "go", safe_to_pay: true, summary: "OK to pay: $0.02 on Base.", reasons: [] },
       "api.marketdepth.io": { symbol: "ETH-USDC", bids: 500, asks: 500, best_bid: 3120.4, best_ask: 3120.9, spread_bps: 1.6, snapshot_at: new Date().toISOString() },
@@ -988,7 +1032,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     };
     D.events.forEach((e) => { if (e.type === "signed") { const a = D.agents.find((x) => x.name === e.agent); e.purchase = receipt({ agentName: e.agent, agentId: a?.id, amt: parseFloat(e.amounts[0]), to: e.to, method: e.method, at: e.at }); e.what = D.receipts[e.purchase].what?.description ?? null; } });
     D.approvals.forEach((a) => { a.purchase = { url: WHAT[a.to]?.[0], description: WHAT[a.to]?.[1] }; });
-    const BUYS = [["research-agent", "ag_r", 0.10, "ichimoku-signal.fizzl.eu"], ["support-agent", "ag_s", 0.03, "plaintext.fizzl.eu"], ["trading-bot", "ag_t", 0.01, "presign-guard.fizzl.eu"], ["research-agent", "ag_r", 0.05, "x402-doctor.fizzl.eu"]];
+    const BUYS = [["research-agent", "ag_r", 0.10, "ichimoku-signal.fizzl.eu"], ["support-agent", "ag_s", 0.02, "buy.fizzl.eu"], ["trading-bot", "ag_t", 0.01, "presign-guard.fizzl.eu"], ["research-agent", "ag_r", 0.05, "x402-doctor.fizzl.eu"]];
     const BIG = [["trading-bot", "ag_t", 6, "Jupiter", "sendTransaction"], ["research-agent", "ag_r", 12.5, "sentiment.example", "signTypedData"], ["support-agent", "ag_s", 7.5, "translate.example", "signTypedData"]];
     let tick = 0;
     const limit = () => Number(D.policy.tokens?.USDC?.perTx ?? Infinity), dayCap = () => Number(D.policy.tokens?.USDC?.perDay ?? Infinity);
@@ -1048,7 +1092,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           { url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "Ichimoku cloud trend signal for a crypto pair: bullish, bearish or neutral, with price and cloud position.", method: "GET", prices: [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }] },
           { url: "https://ichimoku-signal.fizzl.eu/setups", description: "Ranked crypto trade setups with entry, stop and targets.", method: "GET", prices: [{ network: "Base", usd: 0.5 }] },
           { url: "https://presign-guard.fizzl.eu/v1/token", description: "Token safety check before buying: grade, reasons and market data, for Base and Solana tokens.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Solana", usd: 0.01 }] },
-          { url: "https://plaintext.fizzl.eu/api/check-wallet", description: "A wallet's token and NFT approvals, explained in plain language with which ones to revoke.", method: "POST", prices: [{ network: "Base", usd: 0.04 }] },
+          { url: "https://buy.fizzl.eu/v1/buy", description: "Fizzl Buy: say what you need; it picks a seller with a good track record, pays it and checks the answer.", method: "POST", prices: [{ network: "Base", usd: 0.02 }, { network: "Solana", usd: 0.02 }] },
           { url: "https://x402-doctor.fizzl.eu/api/v1/preflight", description: "Check an x402 endpoint before paying it: safe to pay or not, and the cheapest option.", method: "GET", prices: [{ network: "Base", usd: 0.001 }, { network: "Solana", usd: 0.001 }] },
           { url: "https://weather.example/v1/forecast", description: "Example listing: weather forecast for a city, hourly for 7 days.", method: "GET", prices: [{ network: "Base", usd: 0.005 }] },
           { url: "https://search.example/v1/web", description: "Example listing: web search results as JSON.", method: "GET", prices: [{ network: "Base", usd: 0.01 }, { network: "Polygon", usd: 0.01 }] },
@@ -1073,7 +1117,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         return { id: "0xdemo", admin: false, address: "0xD3m0000000000000000000000000000000c0FFEE", plan: "pro", limits: { maxAgents: null, receiptDays: 90 }, paidUntil: Date.now() + 23 * 86_400_000, graceUntil: Date.now() + 26 * 86_400_000,
           proUntil: Date.now() + 23 * 86_400_000, auto: { contract: "0x0000000000000000000000000000000000000000", on: true, nextCharge: Date.now() + 23 * 86_400_000, paidThrough: Date.now() + 23 * 86_400_000, monthsApproved: 11, balanceUsdc: 42 },
           payments: [{ tx: "0x" + "d".repeat(64), amount: "5", months: 1, at: Date.now() - 7 * 86_400_000 }], withdrawal: { done: false, deadline: Date.now() + 7 * 86_400_000, refundUsdc: 3.83 }, telegram: { linked: true, username: "you" }, follow: D.follow,
-          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, price20Usdc: 9, priceUnlimitedUsdc: 20, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
+          billing: { payTo: "0x0000000000000000000000000000000000000000", priceUsdc: 5, price20Usdc: 9, priceUnlimitedUsdc: 20, priceSilverUsdc: 20, priceGoldUsdc: 60, token: "USDC", chainId: 8453, tokenAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", periodDays: 30,
             chains: [[8453, "Base", "https://basescan.org"], [42161, "Arbitrum", "https://arbiscan.io"], [10, "Optimism", "https://optimistic.etherscan.io"], [137, "Polygon", "https://polygonscan.com"], [1, "Ethereum", "https://etherscan.io"]].map(([chainId, name, explorer]) => ({ chainId, name, explorer, nativeSymbol: chainId === 137 ? "POL" : "ETH" })) } };
       }
       if (method === "PUT" && path === "/api/follow") { D.follow = body.categories; return { follow: D.follow }; }
@@ -1147,19 +1191,25 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       $("#emailLogin").hidden = !c.email;
       $("#passkeyLogin").hidden = !PASSKEYS || IN_WALLET_APP;
       if (IN_WALLET_APP) $("#emailLogin").before($("#walletLogin"));
-      $("#walletOr").hidden = IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden);
-      // A device that added or used a passkey here gets the big button; others a quiet one with how to start.
+      // A device that added or used a passkey here gets the big Face ID button; others a small link at the bottom.
       let known = false; try { known = localStorage.getItem("aw_passkey") === "1"; } catch {}
-      $("#passkeyGo").className = `button ${known ? "primary" : "ghost"}`;
-      $("#passkeyNote").textContent = known ? "Or Touch ID, a fingerprint or your screen lock." : "First time? Sign in another way below, then add Face ID on the Account tab.";
+      const passkeys = !$("#passkeyLogin").hidden;
+      $("#passkeyLogin").hidden = !passkeys || !known;
+      $("#passkeyLink").hidden = !passkeys || known;
+      $("#walletOr").hidden = IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden);
+      // The wallet list opens by itself in a wallet app's browser, or when it is the only way in.
+      walletBox(IN_WALLET_APP || ($("#emailLogin").hidden && $("#passkeyLogin").hidden));
       if (viaCode) deviceLogin();
       solanaOn = !!c.solana; xamanOn = !!c.xaman; algorandOn = !!c.algorand; if (walletsReady) renderWallets();
       $("#showPassword").hidden = !c.password || !c.wallet;
-      $("#orLine").hidden = !c.password || !c.wallet;
+      $("#orLine").hidden = true;
       $("#loginForm").hidden = !c.password || c.wallet;
     }, () => {});
   }
   $("#showPassword").addEventListener("click", () => { $("#loginForm").hidden = false; $("#showPassword").hidden = true; $("#password").focus(); });
+  function walletBox(open) { $("#walletBox").hidden = !open; $("#walletToggle").setAttribute("aria-expanded", String(open)); $("#walletToggle").hidden = open; }
+  $("#walletToggle").addEventListener("click", () => walletBox(true));
+  $("#passkeyLink").addEventListener("click", () => $("#passkeyGo").click());
 
   // ---------- wallets (MetaMask, Phantom, Coinbase Wallet, …) ----------
   // ---------- Solana (Phantom): sign in with a signed message, pay Pro in USDC on Solana ----------
@@ -1413,11 +1463,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const { signature } = await sol.request({ method: "signAndSendTransaction", params: { message } });
       say("Sent. Waiting for Solana to confirm…");
       await claim(signature, say, undefined, tier);
-      say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good");
+      say(thanks(), "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
-  const TIER_NAMES = { pro20: "Pro 20", unlimited: "Pro Unlimited" };
-  const tierPrice = (tier) => (tier === "pro20" ? me.billing.price20Usdc ?? 9 : tier === "unlimited" ? me.billing.priceUnlimitedUsdc ?? 20 : me.billing.priceUsdc);
+  const TIER_NAMES = { pro20: "Pro 20", unlimited: "Pro Unlimited", silver: "Fizzl Pass Silver", gold: "Fizzl Pass Gold" };
+  const tierPrice = (tier) => (tier === "pro20" ? me.billing.price20Usdc ?? 9 : tier === "unlimited" ? me.billing.priceUnlimitedUsdc ?? 20 : tier === "silver" ? me.billing.priceSilverUsdc ?? 20 : tier === "gold" ? me.billing.priceGoldUsdc ?? 60 : me.billing.priceUsdc);
+  // After a payment: what it bought (Silver or Gold, a bigger Pro plan, or Pro).
+  const thanks = () => `Thank you! ${me.pass && me.pass.tier !== "bronze" ? `${TIER_NAMES[me.pass.tier]} until ${day(me.pass.until)}` : me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`;
   async function pay(months, tier) {
     const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
     if (DEMO) return say("This is the demo: nothing is paid. On your own account this opens your wallet to send the USDC.", "good");
@@ -1436,7 +1488,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       say(`Sent. Waiting for ${net.name} to confirm…`);
       for (let i = 0; i < 40; i++) { if (await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] }).catch(() => null)) break; await sleep(2000); }
       await claim(txHash, say, net.chainId, tier);
-      say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good");
+      say(thanks(), "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
   // Connecting Telegram: the one-time link is shown as a real link to tap (wallet apps' browsers block
@@ -1514,7 +1566,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     $("#deleteBox").hidden = me.admin || DEMO;
     if (!DEMO) loadMonitors();
-    renderFollow(); setupAgents(); renderApp(); renderMail(); renderKeys();
+    renderFollow(); renderTell(); setupAgents(); renderApp(); renderMail(); renderKeys();
     $("#addrLine").hidden = !me.address;
     if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : me.chain === "algorand" ? " · ALGORAND" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
     if (me.admin) {
@@ -1522,6 +1574,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
       $("#planCard").insertAdjacentHTML("beforeend", `<details id="promoAdmin"><summary>Tester codes (free Pro)</summary><div style="display:grid;gap:8px;margin-top:8px"><input id="promoNote" placeholder="For whom? (e.g. Bob · Reddit)" aria-label="For whom" maxlength="60"><div class="paste"><input id="promoDays" type="number" min="1" max="365" value="30" aria-label="Days of Pro"><input id="promoUses" type="number" min="1" max="1000" value="1" aria-label="How many testers"><button class="button small" type="button" id="promoMake">Make code</button></div><p class="note" style="margin:0">Days of Pro · how many people can use it (1 = a personal code). Each account can use one code once.</p><div id="promoList"></div></div></details>`);
       if (!DEMO) api("GET", "/api/admin/promos").then(renderPromos, () => {});
+      $("#planCard").insertAdjacentHTML("beforeend", `<details id="grantAdmin"><summary>Give a Fizzl Pass (free)</summary><div style="display:grid;gap:8px;margin-top:8px"><input id="grantWallet" placeholder="Wallet address (0x…, Solana, r… or Algorand)" aria-label="Wallet address" autocomplete="off" spellcheck="false"><input id="grantNote" placeholder="For whom? (e.g. AgentFuel)" aria-label="For whom" maxlength="60"><div class="paste"><select id="grantTier" aria-label="Tier"><option value="gold">Gold (25×)</option><option value="silver">Silver (10×)</option><option value="bronze">Bronze (5×)</option></select><input id="grantDays" type="number" min="1" max="3650" placeholder="No end" aria-label="Days (empty: no end date)"><button class="button small" type="button" id="grantMake">Give pass</button></div><p class="note" style="margin:0">Higher free limits on Fizzl's services for that wallet. Days empty: no end date. Give the proof (Copy) only to its owner: whoever has it gets the pass. Revoke stops it everywhere within 6 hours.</p><div id="grantList"></div></div></details>`);
+      if (!DEMO) api("GET", "/api/admin/passes").then(renderGrants, () => {});
       $("#tgCard").innerHTML = `<span class="tag">AUTOMATIC PAYMENT</span><p class="note">Loading…</p>`;
       if (!DEMO) api("GET", "/api/admin/subscription").then(renderSetup, () => {});
       return;
@@ -1535,7 +1589,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     } else if (!me.billing) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">${pro ? "Pro" : "Free"}</div><p class="note" style="margin:0">${status}</p><p class="note" style="margin:0">${me.chain === "xrpl" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. Pay in RLUSD from Xaman below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).` : me.chain === "algorand" ? `Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. ${me.algoPay ? `Pay in USDC on Algorand from your wallet below (${esc(me.proPriceUsdc ?? 5)} USDC per 30 days), or in RLUSD on the XRP Ledger.` : `Pay in RLUSD on the XRP Ledger below (${esc(me.proPriceUsdc ?? 5)} RLUSD per 30 days).`} Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.` : "Paying for Pro from a Solana wallet isn't open on this server yet."}</p>`;
     } else {
-    const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20;
+    const sol = me.chain === "solana", price = me.billing.priceUsdc, price20 = me.billing.price20Usdc ?? 9, priceUnl = me.billing.priceUnlimitedUsdc ?? 20, priceSilver = me.billing.priceSilverUsdc ?? 20, priceGold = me.billing.priceGoldUsdc ?? 60;
     const nets = me.billing.chains ?? [];
     const txLink = (p) => (p.chain === "xrpl" ? `https://livenet.xrpl.org/transactions/${p.tx}` : p.chain === "algorand" ? `https://explorer.perawallet.app/tx/${p.tx}` : p.chain === "solana" ? `https://solscan.io/tx/${p.tx}` : `${(nets.find((c) => c.chainId === (p.chainId ?? 8453)) ?? BASE_NET).explorer}/tx/${p.tx}`);
     let picked = 8453; try { picked = Number(localStorage.getItem("aw_paychain")) || 8453; } catch {}
@@ -1543,20 +1597,33 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span>
       <div class="big">${pro ? esc(big ?? "Pro") : "Free"}</div>
       <p class="note" style="margin:0">${status}</p>
-      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you 3 days before it ends, in the app on your phone or on Telegram. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p>
+      <p class="note" style="margin:0">Pro: unlimited agents, 90-day receipts and 10 watched endpoints, $${esc(price)} per 30 days in USDC${pro ? "; paying again adds 30 days" : ""}.</p>
+      <details><summary>How paying works</summary>      <p class="note" style="margin:0">Pro: unlimited agents, receipts kept 90 days, and up to 10 of your x402 endpoints watched every hour. $${esc(price)} per 30 days in USDC on ${sol ? "Solana" : nets.length > 1 ? "Base, Arbitrum, Optimism, Polygon or Ethereum" : "Base"}, straight from your wallet. ${pro ? "Paying again adds 30 days." : ""} We remind you 3 days before it ends, in the app on your phone or on Telegram. Paying means you agree to the <a href="/terms" style="text-decoration:underline">terms</a>.</p></details>
       ${netPick}
       <div class="btns"><button class="button primary small" type="button" data-pay="1">Pay 1 month · $${esc(price)}</button><button class="button small" type="button" data-pay="12">12 months · $${esc(price * 12)}</button></div>
-      <p class="note" style="margin:0">More endpoints to watch? The same as Pro, paid per month or year (automatic payment is for Pro): <b style="color:#fff">Pro 20</b>, up to 20 endpoints, $${esc(price20)} per 30 days; <b style="color:#fff">Pro Unlimited</b>, as many as you need (fair use: 250), $${esc(priceUnl)} per 30 days.</p>
+      <details><summary>More watched endpoints: Pro 20 and Unlimited</summary><p class="note" style="margin:8px 0 0">The same as Pro, paid per month or year (automatic payment is for Pro): <b style="color:#fff">Pro 20</b>, up to 20 endpoints, $${esc(price20)} per 30 days; <b style="color:#fff">Pro Unlimited</b>, as many as you need (fair use: 250), $${esc(priceUnl)} per 30 days.</p>
       <div class="btns"><button class="button small" type="button" data-pay="1" data-tier="pro20">Pro 20 · $${esc(price20)}</button><button class="button small" type="button" data-pay="1" data-tier="unlimited">Unlimited · $${esc(priceUnl)}</button></div>
-      <details><summary>Pay for a year</summary><div class="btns" style="margin-top:8px"><button class="button ghost small" type="button" data-pay="12" data-tier="pro20">Pro 20 · 12 months · $${esc(price20 * 12)}</button><button class="button ghost small" type="button" data-pay="12" data-tier="unlimited">Unlimited · 12 months · $${esc(priceUnl * 12)}</button></div></details>
+      <div class="btns"><button class="button ghost small" type="button" data-pay="12" data-tier="pro20">Pro 20 · 12 months · $${esc(price20 * 12)}</button><button class="button ghost small" type="button" data-pay="12" data-tier="unlimited">Unlimited · 12 months · $${esc(priceUnl * 12)}</button></div></details>
+      <details><summary>Fizzl Pass Silver and Gold</summary><p class="note" style="margin:8px 0 0">Pro included, plus more on Fizzl's services (<a href="/pass">what the pass gives</a>): <b style="color:#fff">Silver</b>, 20% back as credit, 10 times the free limits and 1 free delivery check a month, $${esc(priceSilver)} for 90 days; <b style="color:#fff">Gold</b>, 30% back (credit that doesn't end), 25 times the free limits and 3 free delivery checks a month, $${esc(priceGold)} for 180 days. Paid once, not automatically.</p>
+      <div class="btns"><button class="button small" type="button" data-pay="1" data-tier="silver">Silver · 90 days · $${esc(priceSilver)}</button><button class="button small" type="button" data-pay="1" data-tier="gold">Gold · 180 days · $${esc(priceGold)}</button></div></details>
       <div class="msg" id="payMsg" role="status"></div>
       ${sol ? `<p class="note" style="margin:0">Automatic payment works with an Ethereum wallet (Base). On Solana you pay per month or per year; we remind you before it ends.</p>` : autoHtml()}
-      <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><select id="txTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
+      <details><summary>Paid, but it didn't show up?</summary><div class="paste" style="margin-top:8px"><input id="txPaste" placeholder="${sol ? "Solana transaction signature" : "0x… transaction hash"}" aria-label="Transaction hash or signature"><select id="txTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option><option value="silver">Pass Silver</option><option value="gold">Pass Gold</option></select><button class="button ghost small" type="button" id="txClaim">Check</button></div></details>
       ${withdrawHtml()}
       ${me.payments.length ? `<div class="paylist">${me.payments.map((p) => `<div><span>${esc(day(p.at))} · ${esc(p.amount)} ${p.chain === "xrpl" ? "RLUSD" : "USDC"}</span><a href="${esc(txLink(p))}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">${esc(p.tx.slice(0, 10))}…</a></div>`).join("")}</div>` : ""}`;
     }
     if (me.algoPay) $("#planCard").insertAdjacentHTML("beforeend", algoPayHtml(me.algoPay));
     if (me.xrplPay) { $("#planCard").insertAdjacentHTML("beforeend", xrplPayHtml(me.xrplPay)); if (me.chain === "xrpl") $("#xrplPay")?.setAttribute("open", ""); }
+    // Fizzl Pass Bronze comes with Pro (src/pass.js): which wallets it covers, the public check and the signed proof.
+    if (!me.admin && (me.proUntil ?? 0) > Date.now()) {
+      $("#planCard").insertAdjacentHTML("beforeend", `<div id="passBox" class="note" style="margin:0;display:grid;gap:6px"><strong>${esc(TIER_NAMES[me.pass?.tier] ?? "Fizzl Pass Bronze")}</strong><span>${me.pass && me.pass.tier !== "bronze" ? `Until ${esc(day(me.pass.until))}, Pro included.` : `Included with Pro until ${esc(day(me.proUntil))}.`}</span></div>`);
+      if (!DEMO) api("GET", "/api/pass").then((r) => {
+        const p = r?.pass, box = $("#passBox");
+        if (!p || !box) return;
+        const check = `${location.origin}/v1/pass/status?wallet=${encodeURIComponent(p.wallets[0] ?? "")}`;
+        box.insertAdjacentHTML("beforeend", `<span>Covers ${p.wallets.length} wallet${p.wallets.length === 1 ? "" : "s"}: yours and your agents' (an agent's wallet counts once it has signed a payment). Partners can check any of them for free, without seeing whose it is.</span><div class="btns">${p.wallets.length ? `<button class="button ghost small" type="button" data-copy="${esc(check)}">Copy the public check</button>` : ""}${p.token ? `<button class="button ghost small" type="button" data-copy="${esc(p.token)}">Copy the signed proof</button>` : ""}</div><span>On Fizzl's services: ${p.tier === "gold" ? "25" : p.tier === "silver" ? "10" : "5"} times the free limits, and ${p.tier === "gold" ? "30" : p.tier === "silver" ? "20" : "10"}% of every paid call back as credit in your vault${typeof p.vault_usd === "number" ? ` (now <strong>$${esc(p.vault_usd.toFixed(p.vault_usd < 0.01 && p.vault_usd > 0 ? 4 : 2))}</strong>)` : ""}. Your agents spend it there by sending the signed proof as the X-Fizzl-Pass header; the connector does that itself. <a href="/pass">How it works →</a></span>`);
+      }).catch(() => {});
+    }
     $("#planCard").insertAdjacentHTML("beforeend", me.promo
       ? `<p class="note" style="margin:0">🎁 Tester code used: ${esc(me.promo.days)} days of Pro (${esc(day(me.promo.at))}). Thanks for testing!</p>`
       : `<details><summary>Have a tester code?</summary><form class="paste" id="promoForm" style="margin-top:8px"><input id="promoIn" placeholder="TEST-…" aria-label="Tester code" autocapitalize="characters" autocomplete="off" maxlength="20"><button class="button small" type="submit">Use code</button></form><div class="msg" id="promoMsg" role="status"></div></details>`);
@@ -1572,10 +1639,10 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const link = (usd, label, tier = "") => `<a class="button primary small" data-algotier="${tier}" href="algorand://${esc(x.payTo)}?amount=${Math.round(usd * 1e6)}&asset=${x.asset}&note=${encodeURIComponent("Fizzl Agent Wallet " + label)}">${esc(label)} · ${esc(usd)} USDC</a>`;
     return `<details id="algoPay" open><summary>Pay in USDC on Algorand (Pera, Defly)</summary><div style="display:grid;gap:8px;margin-top:8px">
       <p class="note" style="margin:0">Pay from the Algorand account you signed in with: tap a plan on your phone and your wallet (Pera or Defly) opens with the payment filled in. On a computer, send the amount in USDC from that account to the address below.</p>
-      <div class="buybar" style="margin:0;flex-wrap:wrap;gap:8px">${link(x.priceUsdc, "Pro")}${link(x.priceUsdc * 12, "Pro 12 months")}${link(x.price20Usdc, "Pro 20", "pro20")}${link(x.priceUnlimitedUsdc, "Unlimited", "unlimited")}</div>
+      <div class="buybar" style="margin:0;flex-wrap:wrap;gap:8px">${link(x.priceUsdc, "Pro")}${link(x.priceUsdc * 12, "Pro 12 months")}${link(x.price20Usdc, "Pro 20", "pro20")}${link(x.priceUnlimitedUsdc, "Unlimited", "unlimited")}${x.priceSilverUsdc ? link(x.priceSilverUsdc, "Pass Silver", "silver") : ""}${x.priceGoldUsdc ? link(x.priceGoldUsdc, "Pass Gold", "gold") : ""}</div>
       <div class="note">To: ${copy(x.payTo)}</div>
       <p class="note" style="margin:0">USDC on Algorand (asset ${esc(x.asset)}), 1 USDC = $1. After paying, check it here (or paste the transaction id):</p>
-      <div class="paste"><input id="algoTx" placeholder="Algorand transaction id (optional)" aria-label="Algorand transaction id"><select id="algoTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button small" type="button" id="algoClaim">I've paid</button></div>
+      <div class="paste"><input id="algoTx" placeholder="Algorand transaction id (optional)" aria-label="Algorand transaction id"><select id="algoTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option><option value="silver">Pass Silver</option><option value="gold">Pass Gold</option></select><button class="button small" type="button" id="algoClaim">I've paid</button></div>
       <div class="msg" id="algoMsg" role="status"></div></div></details>`;
   }
   function xrplPayHtml(x) {
@@ -1584,8 +1651,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <p class="note" style="margin:0">Send RLUSD (Ripple's dollar) from any XRPL wallet. <b style="color:#fff">Always add the destination tag</b>: it tells us the payment is yours.</p>
       <div class="note">To: ${copy(x.payTo)}</div>
       <div class="note">Destination tag: ${copy(String(x.destinationTag))}</div>
-      <p class="note" style="margin:0">Amount (RLUSD, 1 = $1): Pro <b style="color:#fff">${esc(x.priceUsdc)}</b> per 30 days (12 months: ${esc(x.priceUsdc * 12)}) · Pro 20 <b style="color:#fff">${esc(x.price20Usdc)}</b> · Unlimited <b style="color:#fff">${esc(x.priceUnlimitedUsdc)}</b>. Then paste the transaction hash:</p>
-      <div class="paste"><input id="xrplTx" placeholder="XRPL transaction hash (64 characters)" aria-label="XRPL transaction hash"><select id="xrplTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option></select><button class="button small" type="button" id="xrplClaim">Check</button></div>
+      <p class="note" style="margin:0">Amount (RLUSD, 1 = $1): Pro <b style="color:#fff">${esc(x.priceUsdc)}</b> per 30 days (12 months: ${esc(x.priceUsdc * 12)}) · Pro 20 <b style="color:#fff">${esc(x.price20Usdc)}</b> · Unlimited <b style="color:#fff">${esc(x.priceUnlimitedUsdc)}</b>${x.priceSilverUsdc ? ` · Pass Silver <b style="color:#fff">${esc(x.priceSilverUsdc)}</b> (90 days) · Pass Gold <b style="color:#fff">${esc(x.priceGoldUsdc)}</b> (180 days)` : ""}. Then paste the transaction hash:</p>
+      <div class="paste"><input id="xrplTx" placeholder="XRPL transaction hash (64 characters)" aria-label="XRPL transaction hash"><select id="xrplTier" aria-label="Which plan you paid for"><option value="">Pro</option><option value="pro20">Pro 20</option><option value="unlimited">Unlimited</option><option value="silver">Pass Silver</option><option value="gold">Pass Gold</option></select><button class="button small" type="button" id="xrplClaim">Check</button></div>
       <div class="msg" id="xrplMsg" role="status"></div></div></details>`;
   }
   // ---------- the EU right of withdrawal: a button, then a confirmation ----------
@@ -1762,18 +1829,18 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (DEMO) return;
       const say = (t, cls = "") => { const m = $("#algoMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
       say("Looking for your payment on Algorand…");
-      try { await claim($("#algoTx").value.trim(), say, "algorand", $("#algoTier").value || undefined); say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      try { await claim($("#algoTx").value.trim(), say, "algorand", $("#algoTier").value || undefined); say(thanks(), "good"); } catch (err) { say(err.message, "bad"); }
       return;
     }
     if (e.target.closest("#xrplClaim")) {
       if (DEMO) return;
       const say = (t, cls = "") => { const m = $("#xrplMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
-      try { await claim($("#xrplTx").value.trim(), say, "xrpl", $("#xrplTier").value || undefined); $("#xrplPay")?.setAttribute("open", ""); say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      try { await claim($("#xrplTx").value.trim(), say, "xrpl", $("#xrplTier").value || undefined); $("#xrplPay")?.setAttribute("open", ""); say(thanks(), "good"); } catch (err) { say(err.message, "bad"); }
       return;
     }
     if (e.target.closest("#txClaim")) {
       const say = (t, cls = "") => { const m = $("#payMsg"); m.textContent = t; m.className = `msg ${cls}`; };
-      try { await claim($("#txPaste").value.trim(), say, me.chain === "solana" ? undefined : payNet().chainId, $("#txTier").value || undefined); say(`Thank you! ${me.tier ? `${TIER_NAMES[me.tier]} until ${day(me.tierUntil)}` : `Pro until ${day(me.proUntil ?? me.paidUntil)}`}.`, "good"); } catch (err) { say(err.message, "bad"); }
+      try { await claim($("#txPaste").value.trim(), say, me.chain === "solana" ? undefined : payNet().chainId, $("#txTier").value || undefined); say(thanks(), "good"); } catch (err) { say(err.message, "bad"); }
     }
   });
   function setLive(ok, text) { $("#live").classList.toggle("off", !ok); $("#liveText").textContent = text; }
@@ -1838,6 +1905,13 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <p class="note" style="margin:0">${esc(a.what)}</p>
         <div class="btns" data-host="${esc(new URL(a.site).hostname)}" data-from="fizzl"><button class="button primary small" type="button" data-track="fizzl_connect" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-track="fizzl_request" data-copy="${esc(a.ask)}">Copy one request</button><a class="button ghost small" data-track="website" href="${esc(a.site)}" target="_blank" rel="noopener noreferrer">All endpoints ↗</a></div></article>`; }).join("")}</div></div>`;
   }
+  // The skill.md tag, with what the injection check found in it (a link found malicious isn't sent at all).
+  const skillTag = (r) => {
+    if (!r.skill) return "";
+    const c = r.skillCheck?.verdict;
+    if (c === "suspicious") return `<span class="skilltag warn" title="${esc(`An injection check (PG1) flagged this skill.md: ${r.skillCheck.codes.join(", ").toLowerCase().replace(/agent_message_/g, "").replace(/_/g, " ")}. Read it yourself before your agent does.`)}">⚠ skill.md</span>`;
+    return `<span class="skilltag" title="${c === "no_findings" ? "This seller publishes instructions agents can follow. An injection check (PG1) read it: no findings, which doesn't prove it's harmless." : "This seller publishes instructions agents can follow. Not checked for prompt injection yet."}">🤖 skill.md</span>`;
+  };
   // Filters: networks, only reliable / with a skill.md / new, and the order. Remembered in this browser.
   let filt = { net: [], reliable: false, skill: false, fresh: false, sort: "best" };
   try { filt = { ...filt, ...JSON.parse(localStorage.getItem("aw_filters") || "{}") }; } catch {}
@@ -1887,7 +1961,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           foundHosts.add(r.host);
           const ask = `Use pay_x402 to call ${r.url}${r.method && r.method !== "GET" ? ` with ${r.method}` : ""} (max ${usd(Math.max(r.cheapest, 0.001) * 1.5)}).`;
           const connect = r.skill ? `Connect to ${r.skill.replace(/^https:\/\//, "")}` : null;
-          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${r.skill ? `<span class="skilltag" title="This seller publishes instructions agents can follow">🤖 skill.md</span>` : ""}${recordTag(r.record)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
+          return `<article class="card hit"><header><span class="host">${esc(r.host)}${r.isNew ? `<span class="newtag">NEW</span>` : ""}${skillTag(r)}${recordTag(r.record)}</span><span class="prices">${r.prices.sort((a, b) => a.usd - b.usd).map((p) => `<span>${esc(usd(p.usd))} · ${esc(p.network)}</span>`).join("")}</span></header>
             ${r.description ? `<p class="note" style="margin:0">${esc(r.description)}</p>` : ""}
             <span class="url">${r.endpoints > 1 ? `${esc(r.endpoints)} paid endpoints · cheapest: ` : ""}${r.method ? `${esc(r.method)} ` : ""}${esc(r.url)}</span>
             <div class="btns" data-host="${esc(r.host)}" data-from="search">${connect ? `<button class="button primary small" type="button" data-track="connect" data-copy="${esc(connect)}" title="${esc(connect)}">Copy "Connect to …/skill.md"</button><button class="button ghost small" type="button" data-track="request" data-copy="${esc(ask)}">Copy one request</button>` : `<button class="button primary small" type="button" data-track="request" data-copy="${esc(ask)}">Copy request for your agent</button>`}${r.endpoints > 1 ? `<button class="button ghost small" type="button" data-track="all_services" data-q-host="${esc(r.host)}">All ${esc(r.endpoints)} services</button>` : ""}<a class="button ghost small" data-track="website" href="https://${esc(r.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`;
@@ -1931,7 +2005,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const since = trackingSince && trackingSince > Date.now() - days * 86_400_000 ? ` (tracking since ${esc(new Date(trackingSince).toLocaleDateString())})` : "";
       if (!providers.length) { out.innerHTML = `<p class="note" style="margin:0">No new providers in the last ${days} days${since}. New sellers in the x402 catalog show up here, and get a NEW label in search results.</p>`; return; }
       out.innerHTML = `<p class="note" style="margin:0">${providers.length} new provider${providers.length === 1 ? "" : "s"} in the x402 catalog in the last ${days} days${since}. Listings written by the sellers: not recommendations.</p>
-        <div class="hits">${providers.map((p) => `<article class="card hit"><header><span class="host">${esc(p.host)}<span class="newtag">NEW</span>${p.skill ? `<span class="skilltag">🤖 skill.md</span>` : ""}</span><span class="prices"><span>from ${esc(usd(p.cheapest))}</span>${p.networks.map((n) => `<span>${esc(n)}</span>`).join("")}</span></header>
+        <div class="hits">${providers.map((p) => `<article class="card hit"><header><span class="host">${esc(p.host)}<span class="newtag">NEW</span>${skillTag(p)}</span><span class="prices"><span>from ${esc(usd(p.cheapest))}</span>${p.networks.map((n) => `<span>${esc(n)}</span>`).join("")}</span></header>
           ${p.description ? `<p class="note" style="margin:0">${esc(p.description)}</p>` : ""}
           <span class="url">first seen ${esc(new Date(p.firstSeen).toLocaleDateString())} · ${esc(p.listings)} paid endpoint${p.listings === 1 ? "" : "s"}</span>
           <div class="btns" data-host="${esc(p.host)}" data-from="new"><button class="button primary small" type="button" data-track="all_services" data-q-host="${esc(p.host)}">Show its services</button>${p.skill ? `<button class="button ghost small" type="button" data-track="connect" data-copy="${esc(`Connect to ${p.skill.replace(/^https:\/\//, "")}`)}">Copy "Connect to …/skill.md"</button>` : ""}<a class="button ghost small" data-track="website" href="https://${esc(p.host)}/" target="_blank" rel="noopener noreferrer nofollow">Website ↗</a></div></article>`).join("")}</div>`;
@@ -1940,6 +2014,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#newBtn").addEventListener("click", showNew);
   $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; activeCat = null; renderCats(); $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
+  // Home's search box: the same catalog search, on its own page.
+  $("#homeSearch").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#homeQ").value.trim(); $("#searchQ").value = q; showTab("find"); if (q) search(q); $("#homeQ").value = ""; });
   $("#searchMax").addEventListener("change", () => { loadCats(); if ($("#searchQ").value.trim() || activeCat) search($("#searchQ").value); });
   $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });
 
@@ -2099,7 +2175,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
     showTab("agents");
-    $("#setupCard").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    scrollTo($("#setupCard"), "center");
     runSetup();
   });
   $("#setupOut").addEventListener("click", async (e) => {
@@ -2111,6 +2187,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const fb = e.target.closest("[data-fund]");
     if (fb) { fb.disabled = true; try { await fundAgent(Number(fb.dataset.fund)); } finally { fb.disabled = false; } return; }
     if (e.target.closest("#setupAddrClear")) { try { await api("PUT", `/api/agents/${encodeURIComponent(setupAgentId)}/address`, { address: null }); runSetup(); } catch {} }
+  });
+
+  // ---------- telling sellers why a payment didn't happen (refusal extension), the owner's choice ----------
+  function renderTell() {
+    if (!me) return;
+    $("#tellBox").hidden = false;
+    $("#tellOn").checked = me.tellSellers === true;
+  }
+  $("#tellOn").addEventListener("change", async (e) => {
+    const on = e.target.checked;
+    try {
+      const r = await api("PUT", "/api/tell-sellers", { on });
+      me.tellSellers = r.tellSellers;
+      $("#tellMsg").textContent = r.tellSellers ? "On: sellers hear the reason, nothing else." : "Off: sellers hear nothing."; $("#tellMsg").className = "msg good";
+    } catch (err) { e.target.checked = !on; $("#tellMsg").textContent = err.message; $("#tellMsg").className = "msg bad"; }
   });
 
   // ---------- new providers on the phone or Telegram, per category ----------
@@ -2193,6 +2284,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     catch (err) { if (err.message !== "login") setLive(false, "can't reach the server"); }
   }
   function start() {
+    if (!DEMO && connectAfterSignIn()) return;
     clearInterval(devPoll);
     linkPrompt();
     $("#loginView").hidden = true; $("#app").hidden = false; $("#logout").hidden = false; $("#addAgentTop").hidden = false;
@@ -2672,20 +2764,23 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const pending = s.approvals.filter((a) => a.status === "pending");
     $("#pendingN").textContent = pending.length;
     $("#tabPending").textContent = pending.length; $("#tabPending").hidden = !pending.length;
+    $("#needs").hidden = !pending.length;
     const active = s.agents.filter((a) => !a.paused).length;
     $("#agentsActive").textContent = active;
-    $("#agentsNote").textContent = s.agents.length ? `active of ${s.agents.length}${s.paused ? " · all paused" : ""}` : "none yet: add one";
+    $("#agentsNote").textContent = s.agents.length ? `${s.agents.length === 1 ? "agent" : "agents"} active${active < s.agents.length ? ` of ${s.agents.length}` : ""}${s.paused ? " · all paused" : ""}` : "agents yet: add one";
     // Get started (top of Overview) until an agent has reached the wallet: make a key, connect it, check it.
     const seen = s.agents.some((a) => a.lastSeen);
     $("#startCard").hidden = DEMO || seen;
+    // No agent yet: Home is only the three steps, nothing else to read.
+    $("#app").classList.toggle("first-run", !DEMO && s.agents.length === 0);
     $("#st1").classList.toggle("done", s.agents.length > 0);
     $("#st2").classList.toggle("done", seen);
     // The explanation is open until there is an agent, then folded (the owner can still open it).
-    if (!howtoSet) { $("#howto").open = s.agents.length === 0; howtoSet = true; }
+    if (!howtoSet) { $("#howto").open = s.agents.length === 0; $("#connectBox").open = s.agents.length === 0; howtoSet = true; }
     // No agent yet: connecting is step one, so the how-to sits right under "Add agent", open.
     const howto = $("#howto"), first = s.agents.length === 0;
     if (first && howto.previousElementSibling !== $("#addForm")) $("#addForm").after(howto);
-    if (!first && howto.nextElementSibling === $("#setupCard")) $("#agentPlanNote").after(howto);
+    if (!first && howto.nextElementSibling === $("#connectBox")) $("#agentPlanNote").after(howto);
     howto.querySelector(":scope > summary").textContent = first ? "Start here: connect your first agent ▾" : "How it works · connect an agent · Fizzl services";
     $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
       const v = a.action ? `<span class="verdict v-none">${esc(a.action.kind === "paypal" ? "PayPal" : a.action.kind)}${a.action.customer ? ` · ${esc(a.action.customer)}` : ""}</span>` : a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
@@ -2731,13 +2826,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if (g) api("PUT", `/api/agents/${encodeURIComponent(a.id)}/site`, { site: g }).then(() => refresh(), () => {});
     }
     // events
-    const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad", unusual: "asked-ev", price_jump: "asked-ev" };
+    const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad", unusual: "asked-ev", price_jump: "asked-ev", price_ratchet: "asked-ev", over_scan: "asked-ev", split: "asked-ev" };
     const line = (e) => ({
       signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}${e.what ? ` · ${e.what}` : ""}`, `${methodWord(e.method)}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · ${verdictWord(e.verdict)}` : ""}`],
       spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}${e.what ? ` · ${e.what}` : ""}`, e.result ? `result ${e.result}` : ""],
       asked: [`${e.agent} asked you${e.what ? ` · ${e.what}` : ""}`, e.summary], approved: [`Approved (${e.by})${e.what ? ` · ${e.what}` : ""}`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
       unusual: [`👀 Unusual for ${e.agent}${e.what ? ` · ${e.what}` : ""}`, `unlike what it usually buys (AI check, ${Math.round((e.likely ?? 0) * 100)}% sure); within your rules, so it went through`],
       price_jump: [`💸 Higher price for ${e.agent} · ${e.route ?? ""}`, `paid $${e.paid}, usually $${e.usual} there; within your rules, so it went through`],
+      price_ratchet: [`📈 Creeping price for ${e.agent} · ${e.route ?? ""}`, `${e.payments} payments in a row, each a little more: $${e.from} to $${e.paid}; within your rules, so it went through`],
+      over_scan: [`🏷️ Charged more than others? ${e.agent} · ${e.route ?? ""}`, `paid $${e.paid}; the seller asked x402 Doctor $${e.seen}${e.date ? ` (${e.date})` : ""}; within your rules, so it went through`],
+      split: [`✂️ Split purchase? ${e.agent} · ${e.host ?? ""}`, `${e.payments} payments in 10 minutes, $${e.total} in all, over the $${e.perTx} per-call limit; within your rules, so it went through`],
       expired: ["No answer in time", `${e.agent}: ${e.summary}`], blocked: [`${e.agent} blocked`, e.summary], released: [`${e.agent}: signing failed, spending given back`, ""],
       policy: ["Rules changed", e.by], plan: ["Plan", e.summary], paused: ["All agents paused", e.by], resumed: ["All agents resumed", e.by],
       agent_added: [`Agent added: ${e.agent}`, ""], agent_removed: [`Agent removed: ${e.agent}`, ""], agent_paused: [`${e.agent} paused`, ""], agent_resumed: [`${e.agent} resumed`, ""],
@@ -2834,6 +2932,21 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!box) return;
     box.innerHTML = r.promos.length ? `<div class="paylist">${r.promos.map((p) => `<div><span><b style="color:#fff">${esc(p.code)}</b>${p.note ? ` · ${esc(p.note)}` : ""} · ${esc(p.days)} days · ${esc(p.used)}/${esc(p.uses)} used${p.stopped ? " · stopped" : ""}</span><span>${p.stopped ? "" : `<button class="link" type="button" data-copy="${esc(p.code)}">Copy</button> · <button class="link" type="button" data-promostop="${esc(p.code)}">Stop</button>`}</span></div>`).join("")}</div>` : `<p class="note" style="margin:0">No codes yet.</p>`;
   }
+  // ---------- Fizzl Passes the owner gives away ----------
+  function renderGrants(r) {
+    const box = $("#grantList");
+    if (!box) return;
+    const end = (x) => (x.forever ? "no end date" : `until ${day(x.until)}`);
+    box.innerHTML = r.grants.length ? `<div class="paylist">${r.grants.map((x) => `<div><span><b style="color:#fff">${esc(x.note || x.tier)}</b> · ${esc(x.tier)} · <code>${esc(x.wallet.slice(0, 6))}…${esc(x.wallet.slice(-4))}</code> · ${x.revokedAt ? `revoked ${esc(day(x.revokedAt))}` : esc(end(x))}</span><span>${x.revokedAt ? "" : `${x.token ? `<button class="link" type="button" data-copy="${esc(x.token)}">Copy proof</button> · ` : ""}<button class="link" type="button" data-grantrevoke="${esc(x.id)}">Revoke</button>`}</span></div>`).join("")}</div>` : `<p class="note" style="margin:0">No passes given away yet.</p>`;
+  }
+  document.addEventListener("click", async (e) => {
+    if (e.target.closest("#grantMake")) {
+      try { renderGrants(await api("POST", "/api/admin/passes", { wallet: $("#grantWallet").value.trim(), tier: $("#grantTier").value, days: $("#grantDays").value ? Number($("#grantDays").value) : null, note: $("#grantNote").value })); $("#grantWallet").value = ""; $("#grantNote").value = ""; $("#grantDays").value = ""; } catch (err) { if (err.message !== "login") alert(err.message); }
+      return;
+    }
+    const rv = e.target.closest("[data-grantrevoke]");
+    if (rv) { if (!confirm("Revoke this pass? Fizzl's services refuse it within 6 hours.")) return; try { renderGrants(await api("POST", `/api/admin/passes/${encodeURIComponent(rv.dataset.grantrevoke)}/revoke`, {})); } catch (err) { if (err.message !== "login") alert(err.message); } return; }
+  });
   document.addEventListener("click", async (e) => {
     if (e.target.closest("#promoMake")) {
       try { renderPromos(await api("POST", "/api/admin/promos", { days: Number($("#promoDays").value), uses: Number($("#promoUses").value), note: $("#promoNote").value })); $("#promoNote").value = ""; } catch (err) { if (err.message !== "login") alert(err.message); }

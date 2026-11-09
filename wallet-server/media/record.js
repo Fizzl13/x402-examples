@@ -355,6 +355,41 @@ const cdBuyHtml = () => `<!doctype html><html><head><style>${THEME}${CLAUDE}${CH
   </div>
   <div class="input" id="in">Reply to Claude…</div>`)}</body></html>`;
 
+// The Fizzl Buy demo (buy.json): Claude Desktop buying tomorrow's forecast through the wallet, drawn (simplified, and
+// labelled so) after the real purchase of 23 Oct 2026; what Fizzl Buy did in that one call; and the answer.
+const FB_ASK = "Buy tomorrow's weather forecast for Amsterdam via buy.fizzl.eu";
+const FB_TOOL = "⚙ <b>Fizzl Agent Wallet</b> · Pay x402 · buy.fizzl.eu · <b>$0.02</b> ▸";
+const FB_ANSWER = `<b>Bought.</b> Fizzl Buy chose TBS Digital's weather service, which x402 Doctor saw paying out on 29 of the last 30 days. The answer was checked as delivered. It cost you <b>$0.02</b>, of which $0.001 went to the service.
+  <div class="wx"><b>Amsterdam, Saturday 24 October</b><span>🌡 10 to 13 °C</span><span>🌧 about 14.5 mm of rain</span><span>💨 wind 25 to 38 km/h</span><span>☀ dry and sunny from 14:00 to 15:00</span></div>`;
+const cdFizzlBuyHtml = (asked = false) => `<!doctype html><html><head><style>${THEME}${CLAUDE}${CHAT_CSS}
+  .ans { font-size: 28px; line-height: 1.45; }
+  .wx { margin-top: 16px; display:grid; grid-template-columns: 1fr 1fr; gap: 6px 30px; font-size: 26px; color: #c9c5bc; }
+  .wx b { grid-column: 1 / -1; color: #ece9e2; }
+</style></head><body>${claudeWin(`<div>＋ New chat</div><div class="on">Weather</div><div>Recents</div>`, `
+  <div class="chat">
+    <div class="me${asked ? "" : " hide"}" id="q">${FB_ASK}</div>
+    <div class="tool${asked ? "" : " hide"}" id="t1">${FB_TOOL}</div>
+    <div class="ans hide" id="ans">${FB_ANSWER}</div>
+  </div>
+  <div class="input" id="in">Reply to Claude…</div>`)}</body></html>`;
+const buyFlowHtml = () => `<!doctype html><html><head><style>${THEME}
+  .f { width: 1500px; }
+  .top { display:flex; align-items:center; gap: 24px; margin-bottom: 34px; }
+  .top h2 { font-size: 64px; } .top span { font: 700 34px 'Space Grotesk', 'DM Sans', sans-serif; color: #021; background: var(--mint); padding: 8px 22px; border-radius: 999px; }
+  .row { display:flex; align-items:center; gap: 30px; padding: 20px 30px; margin-bottom: 14px; border: 2px solid var(--line); border-radius: 22px; background: var(--panel); }
+  .row .ic { font-size: 50px; width: 70px; text-align:center; } .row b { font: 700 40px 'Space Grotesk', 'DM Sans', sans-serif; width: 360px; flex: none; }
+  .row p { margin: 0; font-size: 32px; color: var(--soft); } .row p em { font-style: normal; color: var(--text); }
+  .chips { display:flex; gap: 20px; margin-top: 30px; } .chips span { font-size: 32px; padding: 12px 28px; border-radius: 999px; border: 2px solid var(--mint); color: var(--mint); }
+</style></head><body><div class="f">
+  <div class="top fade" data-step="0"><h2>Inside Fizzl Buy: one call</h2><span>$0.02</span></div>
+  <div class="row fade" data-step="1"><div class="ic">🔎</div><b>Pick</b><p>36,000+ paid APIs → <em>a weather API that paid out on 29 of the last 30 days</em></p></div>
+  <div class="row fade" data-step="2"><div class="ic">✍️</div><b>Fill in</b><p>the seller's own input, <em>from your sentence</em></p></div>
+  <div class="row fade" data-step="3"><div class="ic">🛡️</div><b>Check first</b><p>preflight says <em>go</em>: sanctions screen, namesakes, bait</p></div>
+  <div class="row fade" data-step="4"><div class="ic">💸</div><b>Pay the seller</b><p><em>$0.001</em>, from Fizzl's own wallet</p></div>
+  <div class="row fade" data-step="5"><div class="ic">✅</div><b>Check the answer</b><p>TypeSafe Jev: <em>delivered</em>, nothing suspicious</p></div>
+  <div class="chips fade" data-step="6"><span>14 seconds</span><span>signed receipt</span><span>no answer, no charge</span></div>
+</div></body></html>`;
+
 // Captions: a bar at the bottom of every page, re-created after navigation.
 async function caption(page, text) {
   await page.evaluate((text) => {
@@ -781,6 +816,30 @@ async function main() {
       await show(page, "t2");
       await sleep(900);
       await show(page, "ans");
+    },
+    // The Fizzl Buy demo (buy.json).
+    async "prepare:buy-ask"() { await setPage(page, cdFizzlBuyHtml()); },
+    async "buy-ask"(seg, ms) {
+      await pointAt(page, "#in", { ms: 600 });
+      await typeAsk(page, ms * 0.35);
+      await sleep(700);
+      await show(page, "t1");
+    },
+    async "prepare:buy-flow"() { await setPage(page, buyFlowHtml()); },
+    async "buy-flow"(seg, ms) { await reveal(page, ms * 0.85); },
+    async "prepare:buy-answer"() { await setPage(page, cdFizzlBuyHtml(true)); },
+    async "buy-answer"(seg, ms) { await sleep(Math.min(900, ms * 0.15)); await show(page, "ans"); },
+    async "prepare:buy-site"() {
+      await page.goto("https://buy.fizzl.eu/", { waitUntil: "load", timeout: 120000 });
+      await page.evaluate(() => {
+        document.documentElement.style.zoom = "1.7";
+        const h = [...document.querySelectorAll("h2")].find((e) => /on its own/i.test(e.textContent));
+        if (h) window.scrollTo(0, h.getBoundingClientRect().top + window.scrollY - 40);
+      });
+    },
+    async "buy-site"(seg, ms) {
+      await sleep(ms * 0.45);
+      await page.evaluate(() => window.scrollBy({ top: 260, behavior: "smooth" }));
     },
     async "prepare:tut-receipt"(seg) {
       await openDemo(page);

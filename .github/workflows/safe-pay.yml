@@ -3,7 +3,7 @@
 # Pays on Base with EVM_PRIVATE_KEY, on Solana with SOLANA_SEED /
 # SOLANA_PRIVATE_KEY, or on Algorand with ALGORAND_MNEMONIC (an account opted in to
 # USDC): dedicated wallets with a few cents of USDC. all_fizzl_routes pays every
-# route in safe-pay/fizzl-routes.txt once (about $1.06, to Fizzl's own addresses),
+# route in safe-pay/fizzl-routes.txt once (about $0.99, to Fizzl's own addresses),
 # which lists them in the facilitator's discovery list (on Algorand: GoPlausible).
 name: Safe pay (paid)
 
@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       all_fizzl_routes:
-        description: "Pay every Fizzl route in safe-pay/fizzl-routes.txt once instead of url (about $1.06)"
+        description: "Pay every Fizzl route in safe-pay/fizzl-routes.txt once instead of url (about $0.99)"
         type: boolean
         default: false
 

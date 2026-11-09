@@ -5,9 +5,12 @@
 //      "call this tool")? A paid API is outside content; an agent that obeys it can be steered into
 //      spending. The answer is flagged so the agent's wallet (presign-guard-wallet-mcp) can warn it.
 //
+// Text hidden in Morse code, base64, hex or binary is decoded and judged too (src/encoded.js; since 29 Oct 2026).
 // Code decides the clear cases first (an HTTP error, an empty body, the usual injection phrases); Jev the
 // rest; Claude (ANTHROPIC_API_KEY) when Jev is in between. It never blocks or changes a payment: the money
 // has moved by now. Off without TYPESAFE_API_KEY (JEV_CHECK=off); any failure gives null.
+
+import { encodedOf } from "./encoded.js";
 
 const API = "https://api.typesafe.ai/v1/systemone";
 const BODY_CHARS = 6000;
@@ -40,6 +43,10 @@ export function answerByRule({ httpStatus, body }) {
   if (Number.isInteger(httpStatus) && httpStatus >= 400) out.delivered = { verdict: "no", why: `the service answered HTTP ${httpStatus}`, decidedBy: "code" };
   else if (!text) out.delivered = { verdict: "no", why: "the answer was empty", decidedBy: "code" };
   if (text && INJECTION_RE.test(text.slice(0, 20000))) out.injection = { flagged: true, why: "contains a known prompt-injection phrase", decidedBy: "code" };
+  else if (text) {
+    const hidden = encodedOf(text.slice(0, 20000)).find((e) => INJECTION_RE.test(e.decoded));
+    if (hidden) out.injection = { flagged: true, why: `hides a known prompt-injection phrase in ${hidden.encoding}`, decidedBy: "code", encoding: hidden.encoding };
+  }
   return out;
 }
 
@@ -69,6 +76,24 @@ export function createAnswerChecker({ apiKey = process.env.TYPESAFE_API_KEY, ant
       const j = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
       return Object.fromEntries(ids.filter((id) => typeof j[id] === "boolean").map((id) => [id, j[id]]));
     } catch { return {}; }
+  }
+
+  // Jev's injection question on text decoded from the answer; null when Jev doesn't answer.
+  async function askHidden(paidFor, decoded) {
+    try {
+      const res = await fetchImpl(API, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ model, state: { paid_for: paidFor, response: decoded.slice(0, BODY_CHARS) }, questions: { injection: QUESTIONS.injection } }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) return null;
+      const v = (await res.json())?.answers?.injection?.noul;
+      return typeof v === "number" ? Math.round(v * 100) / 100 : null;
+    } catch (err) {
+      console.warn(`[jev-answer] hidden: ${err.name}: ${err.message}`);
+      return null;
+    }
   }
 
   // { url, description, httpStatus, contentType, body } → { delivered?, injection? } or null.
@@ -124,6 +149,14 @@ export function createAnswerChecker({ apiKey = process.env.TYPESAFE_API_KEY, ant
       out.injection = v >= 0.85 ? { flagged: true, p: v, why: `instructions aimed at the agent (${pct(v)} sure)`, decidedBy: "jev" }
         : claude.injection === true ? { flagged: true, p: v, why: "instructions aimed at the agent (Claude)", decidedBy: "jev+claude" }
         : { flagged: false, p: v, decidedBy: v >= 0.5 && "injection" in claude ? "jev+claude" : "jev" };
+    }
+    // Instructions hidden in an encoding: the decoded text is asked about on its own, and counts from 0.5 (hiding
+    // an order is itself the sign).
+    const hidden = out.injection?.flagged ? [] : encodedOf(String(body ?? "").slice(0, 20000));
+    if (hidden.length) {
+      const v = await askHidden(state.paid_for, hidden.map((e) => e.decoded).join("\n"));
+      const encodings = [...new Set(hidden.map((e) => e.encoding))].join(", ");
+      if (v !== null && v >= 0.5) out.injection = { flagged: true, p: v, why: `instructions hidden in ${encodings} (${pct(v)} sure)`, decidedBy: "jev", encoding: encodings };
     }
     return Object.keys(out).length ? out : null;
   }

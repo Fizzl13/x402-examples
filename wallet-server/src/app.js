@@ -3,6 +3,7 @@
 // customers with their wallet); Telegram posts button taps and /start links
 // to /telegram/webhook. Every request works only on its own account.
 import express from "express";
+import { PASS_TIERS } from "./pass.js";
 import { PAY_CHAINS } from "./accounts.js";
 import { noUsage, agentOf, fizzlSite } from "./usage.js";
 import { readFileSync } from "node:fs";
@@ -11,14 +12,23 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { getHeapStatistics } from "node:v8";
 import indexNow from "./indexnow.cjs";
-import { WALLET_MCP, WALLET_MCPB } from "./mcp-package.js";
+import { WALLET_MCP, WALLET_MCPB, WALLET_MCP_VERSION } from "./mcp-package.js";
+import { createConnector } from "./connector.js";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
+// A dated comparison with Coinbase for Agents (Coinbase MCP and Coinbase Wallet MCP), with its sources.
+const COMPARE_COINBASE = fileURLToPath(new URL("../public/compare-coinbase.html", import.meta.url));
+const PASS_PAGE = fileURLToPath(new URL("../public/pass.html", import.meta.url));
+const CONNECTOR_GUIDE = fileURLToPath(new URL("../public/connector.html", import.meta.url));
+const GROK_GUIDE = fileURLToPath(new URL("../public/grok.html", import.meta.url));
+// The consent page of the connector for ChatGPT, Grok and other remote MCP apps (src/connector.js).
+const CONNECT = fileURLToPath(new URL("../public/connect.html", import.meta.url));
+const APPROVE = fileURLToPath(new URL("../public/approve.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
 // The public pages, for the sitemap and IndexNow (server.js).
-export const SITEMAP_PATHS = ["/", "/skill.md", "/llms.txt", "/privacy", "/terms"];
+export const SITEMAP_PATHS = ["/", "/skill.md", "/llms.txt", "/privacy", "/terms", "/compare/coinbase", "/connector", "/grok", "/pass"];
 const COUNTER = fileURLToPath(new URL("../public/s.js", import.meta.url));
 const AGENTKEY = fileURLToPath(new URL("../public/agentkey.js", import.meta.url)); // makes an agent wallet in the browser
 // The owner's Stats tab and outreach to sellers: not in the public page, sent only to the signed-in owner.
@@ -34,7 +44,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, likes = null, allowance = null }) {
+export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -69,6 +79,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       const found = key && (await accounts.agentForKey(key));
       if (!found) return res.status(401).json({ error: "unauthorized", message: "Send Authorization: Bearer <agent key>. Keys are made on the dashboard." });
       req.agent = found.agent;
+      req.account = found.account;
       req.wallet = accounts.walletFor(found.account);
       req.wallet.seen(found.agent).catch(() => {}); // for "Test my setup": the agent got through
       next();
@@ -77,6 +88,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   const v1 = express.Router();
   v1.use(agentOnly);
   v1.get("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.getPolicy() })));
+  // The owner's Fizzl Pass proof, for the agent to send as X-Fizzl-Pass to Fizzl's services (higher free limits).
+  v1.get("/pass", wrap(async (req, res) => res.set("cache-control", "no-store").json({ token: (await accounts.passToken?.(req.account)) ?? null })));
   v1.post("/reserve", wrap(async (req, res) => res.json(await req.wallet.reserve(req.agent, req.body ?? {}))));
   // An action that isn't a signature (a PayPal refund held back by fizzl-paypal-guard): ask the owner.
   v1.post("/actions", wrap(async (req, res) => res.json(await req.wallet.ask(req.agent, req.body ?? {}))));
@@ -133,6 +146,32 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   // The wallet for Claude Desktop in one file (the pinned version's .mcpb): open it and Claude Desktop installs it.
   app.get("/download/claude-desktop", (_req, res) => res.set("cache-control", "public, max-age=300").redirect(302, WALLET_MCPB));
   app.get("/pair", (req, res) => res.redirect(302, `/?pair=${String(req.query.code ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 12)}#/agents`));
+  // Fizzl Pass (public, before the agent API's key check) (src/pass.js): anyone can check a wallet's pass; the public key checks a signed proof offline.
+  app.get("/v1/pass/status", (req, res, next) => slowDown(req, res, next), wrap(async (req, res) => {
+    res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=60" });
+    res.json(await accounts.passStatus(String(req.query.wallet ?? "")));
+  }));
+  // A pass bought over x402 at x402 Doctor: the buyer fetches its signed proof with the claim id Doctor gave it.
+  app.get("/v1/pass/claim/:claim", (req, res, next) => slowDown(req, res, next), wrap(async (req, res) => {
+    res.set({ "access-control-allow-origin": "*", "cache-control": "no-store" });
+    const c = await accounts.passClaim(req.params.claim);
+    if (!c) return res.status(404).json({ status: "pending", message: "Not here (yet): x402 Doctor passes the sale on once the payment has settled, usually within seconds. Try again shortly; a claim id that never works was mistyped." });
+    res.json({ pass: { tier: c.tier, name: PASS_TIERS[c.tier]?.label ?? c.tier, until: c.until, wallets: [c.wallet] }, token: c.token, how: "Send the token as the X-Fizzl-Pass header to Fizzl's services (x402-doctor.fizzl.eu, presign-guard.fizzl.eu, ichimoku-signal.fizzl.eu, buy.fizzl.eu): higher free limits, and paid calls paid from the pass's credit when it holds enough. Keep it secret: it works like a key to that credit. More: https://wallet.fizzl.eu/pass" });
+  }));
+  // x402 Doctor hands in a pass it sold over x402 (only with PASS_SALE_KEY, the same on both servers).
+  const passSaleKeyHash = passSaleKey ? createHash("sha256").update(passSaleKey).digest() : null;
+  app.post("/hooks/pass-sale", express.json({ limit: "4kb" }), wrap(async (req, res) => {
+    if (!passSaleKeyHash) return res.status(404).json({ error: "not_found" });
+    const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
+    if (!timingSafeEqual(given, passSaleKeyHash)) { console.warn("[pass] a sale with a wrong PASS_SALE_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
+    res.json(await accounts.passSale(req.body ?? {}));
+  }));
+  app.get("/.well-known/fizzl-pass.json", wrap(async (_req, res) => {
+    if (!passJwks) return res.status(404).json({ error: "no pass signing key on this server" });
+    // revoked: ids (claim gid) of passes the owner gave away and took back; refuse a proof whose gid is listed.
+    const revoked = (await accounts.passRevoked?.().catch(() => [])) ?? [];
+    res.set({ "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }).json({ ...passJwks, revoked, format: "fzp1.<base64url JSON claims>.<base64url Ed25519 signature over 'fzp1.<claims>'>", claims: ["iss", "tier", "until (ms)", "wallets", "iat", "kid", "gid (a pass the owner gave away; refuse it when listed in revoked)"] });
+ }));
   app.use("/v1", v1);
 
   // ---------- the search bar: paid APIs in the public x402 catalog ----------
@@ -333,6 +372,19 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   const owner = express.Router();
   owner.use(signedIn);
   owner.get("/me", wrap(async (req, res) => res.json(await accounts.me(req.account))));
+  // The owner's pass, with what its vault holds (credit back from Fizzl's services, asked from x402 Doctor with the proof;
+  // null when that doesn't answer within 4 seconds).
+  owner.get("/pass", wrap(async (req, res) => {
+    const out = await accounts.pass(req.account);
+    if (out?.pass?.token && vaultUrl) {
+      try {
+        const r = await vaultFetch(vaultUrl, { headers: { "x-fizzl-pass": out.pass.token, accept: "application/json" }, signal: AbortSignal.timeout(4000) });
+        const v = r.ok ? await r.json() : null;
+        out.pass.vault_usd = typeof v?.balance_usd === "number" ? v.balance_usd : null;
+      } catch { out.pass.vault_usd = null; }
+    }
+    res.set("cache-control", "no-store").json(out);
+  }));
   owner.get("/state", wrap(async (req, res) => res.json({ ...(await req.wallet.state()), onchain: allowance?.enabled ? allowance.contract : null })));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
@@ -372,6 +424,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   owner.delete("/agents/:id/mandate", wrap(async (req, res) => res.json(await req.wallet.setAgentMandate(req.params.id, null))));
   owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
   owner.put("/follow", wrap(async (req, res) => res.json(await accounts.setFollow(req.account, req.body?.categories))));
+  owner.put("/tell-sellers", wrap(async (req, res) => res.json(await accounts.setTellSellers(req.account, req.body?.on))));
   owner.delete("/agents/:id", wrap(async (req, res) => { await req.wallet.removeAgent(req.params.id); res.json({ ok: true }); }));
   owner.post("/approvals/:id", wrap(async (req, res) => {
     const d = req.body?.decision;
@@ -492,6 +545,11 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!outreach) return res.status(503).json({ error: "unavailable", message: "Outreach is not set up on this server." });
     return fn(req, res);
   });
+  // Passes the owner gives away (a partner, a project): Gold without an end date unless asked otherwise; revocable.
+  const adminOnly = (fn) => wrap(async (req, res) => (req.account !== "admin" ? res.status(403).json({ error: "forbidden" }) : fn(req, res)));
+  owner.get("/admin/passes", adminOnly(async (_req, res) => res.set("cache-control", "private, no-store").json(await accounts.passGrants())));
+  owner.post("/admin/passes", adminOnly(async (req, res) => res.json(await accounts.passGrant({ wallet: req.body?.wallet, tier: req.body?.tier || "gold", days: req.body?.days ?? null, note: req.body?.note }))));
+  owner.post("/admin/passes/:id/revoke", adminOnly(async (req, res) => res.json(await accounts.passRevoke(req.params.id))));
   owner.get("/admin/outreach", ownerOnly(async (_req, res) => res.json(await outreach.list())));
   owner.post("/admin/outreach", ownerOnly(async (req, res) => res.json(await outreach.add({ to: req.body?.to, subject: req.body?.subject, body: req.body?.body, url: req.body?.url || null }))));
   owner.put("/admin/outreach/:id", ownerOnly(async (req, res) => res.json(await outreach.update(req.params.id, { to: req.body?.to, subject: req.body?.subject, body: req.body?.body }))));
@@ -525,6 +583,24 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     res.json(out);
   }));
 
+  // A scheduled report for the owner (the Grok tasks of .github/workflows/grok-tasks.yml), as plain Telegram messages.
+  // Needs DRAFT_KEY, like the message hook; sends nothing to anyone else and has no buttons.
+  const REPORT_PART = 3900; // Telegram allows 4,096 characters a message
+  app.post("/hooks/owner-report", wrap(async (req, res) => {
+    if (!telegram || !ownerChatId || !draftKeyHash) return res.status(404).json({ error: "not_found" });
+    const given = createHash("sha256").update(String(req.get("authorization") ?? "").replace(/^Bearer\s+/i, "")).digest();
+    if (!timingSafeEqual(given, draftKeyHash)) { console.warn("[report] a report with a wrong DRAFT_KEY was refused"); return res.status(401).json({ error: "unauthorized" }); }
+    const title = typeof req.body?.title === "string" ? req.body.title.trim().slice(0, 200) : "";
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text) return res.status(400).json({ error: "text is required" });
+    const whole = title ? `${title}\n\n${text}` : text;
+    const parts = [];
+    for (let i = 0; i < whole.length && parts.length < 5; i += REPORT_PART) parts.push(whole.slice(i, i + REPORT_PART));
+    for (const part of parts) await telegram.send(ownerChatId, part);
+    console.log(`[report] ${title || "report"}: ${parts.length} message(s)`);
+    res.json({ sent: parts.length });
+  }));
+
   // ---------- Telegram ----------
   app.post("/telegram/webhook", wrap(async (req, res) => {
     if (!telegram) return res.status(404).end();
@@ -547,6 +623,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.use("/icons", express.static(ICONS, { maxAge: "30d", fallthrough: false }));
   app.use("/app", express.static(APP, { maxAge: "30d", fallthrough: false }));
   app.get("/apple-touch-icon.png", (_req, res) => res.set("cache-control", "public, max-age=2592000").sendFile(`${APP}/icon-180.png`));
+  // Connector lists (Grok, ChatGPT, Claude) and browsers ask for the site's favicon; a PNG under that name works in all.
+  app.get("/favicon.ico", (_req, res) => res.set("cache-control", "public, max-age=2592000").type("image/png").sendFile(`${APP}/icon-192.png`));
   app.get("/manifest.webmanifest", (_req, res) => res.set("cache-control", "public, max-age=3600").type("application/manifest+json").sendFile(MANIFEST));
   // Never cached long, so a new version of the worker reaches phones quickly.
   app.get("/sw.js", (_req, res) => res.set({ "cache-control": "no-cache", "content-security-policy": CSP }).type("text/javascript").sendFile(WORKER));
@@ -589,6 +667,12 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
   app.get("/sitemap.xml", (_req, res) => res.set("cache-control", "public, max-age=3600").type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${SITEMAP_PATHS.map((p) => `<url><loc>https://wallet.fizzl.eu${p}</loc></url>`).join("")}</urlset>\n`));
   app.get("/llms.txt", (_req, res) => res.set("cache-control", "public, max-age=300").type("text/plain; charset=utf-8").sendFile(LLMS));
   app.get(`/${indexNow.INDEXNOW_KEY}.txt`, (_req, res) => res.type("text/plain").send(indexNow.INDEXNOW_KEY));
+  app.get("/compare/coinbase", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(COMPARE_COINBASE));
+  // Fizzl Pass: what it gives, how agents use it, and how sellers check it (partners).
+  app.get("/pass", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(PASS_PAGE));
+  // How to add the wallet to ChatGPT, Claude or Grok (the connector at /mcp, src/connector.js).
+  app.get("/connector", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(CONNECTOR_GUIDE));
+  app.get("/grok", (_req, res) => res.set({ "cache-control": "public, max-age=3600", "content-security-policy": CSP }).type("html").sendFile(GROK_GUIDE));
   app.get(Object.keys(LEGAL), (req, res) => {
     if (!legal.has(req.path)) legal.set(req.path, readFileSync(LEGAL[req.path], "utf8"));
     const missing = (what) => `<mark>[${what}: set in Render]</mark>`;
@@ -599,6 +683,8 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
       .replaceAll("{{ADDRESS_COMMA}}", operator.address ? `, ${escapeHtml(operator.address)}` : "")
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
+  // The wallet as a connector for ChatGPT, Grok and other remote MCP apps: OAuth and /mcp (src/connector.js).
+  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", ...connector }));
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
   // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.
@@ -607,5 +693,7 @@ export function createApp({ accounts, auth, telegram = null, signInWithWallet = 
     if (!(status >= 400 && status < 500) || res.headersSent) return next(err);
     res.status(status).json({ error: status === 404 ? "not_found" : "bad_request" });
   });
+  // A 5xx: answered as JSON and reported to Sentry when SENTRY_DSN is set (src/error-report.js).
+  if (errorReporter) app.use(errorReporter.expressHandler());
   return app;
 }

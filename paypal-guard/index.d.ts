@@ -17,12 +17,14 @@ export interface Policy {
   afterReturnDays?: "ask" | "deny";
   /** Jev says the action doesn't follow from the customer's request. Default "ask". */
   offIntent?: "ask" | "deny";
+  /** The customer's message tries to steer the AI (fizzlInjection says red). Default "ask". */
+  injection?: "ask" | "deny";
 }
 
 export interface Context {
   /** The email address of the customer the agent is helping, from the app (inbox, login), not from the model. */
   customer?: string;
-  /** The customer's message, for the intent check. */
+  /** The customer's message, for the intent and prompt-injection checks. */
   request?: string;
 }
 
@@ -64,6 +66,8 @@ export interface GuardOptions {
   approve?: Approve | null;
   /** jevIntent(), or your own (request) -> { fits } check. */
   intent?: ((q: { request: string; customer: string | null; action: string }) => Promise<{ fits: number } | null>) | null;
+  /** fizzlInjection(), or your own (request) -> { verdict: "green" | "orange" | "red" } check. Red adds INJECTION. */
+  injection?: ((q: { request: string; customer: string | null }) => Promise<{ verdict: "green" | "orange" | "red" } | null>) | null;
   /** Name shown to the owner. */
   agent?: string;
   /** Where the day's totals are kept. Default: in memory (one process). */
@@ -93,6 +97,8 @@ export function telegramApproval(opts: { token: string; chatId: string | number;
 /** Ask through the Fizzl Agent Wallet: dashboard, phone, Telegram, and a receipt. `key` is the agent key (awk_…). */
 export function fizzlWalletApproval(opts: { key: string; url?: string; timeoutMs?: number; kind?: string; fetch?: typeof fetch }): Approve;
 export function jevIntent(opts?: { apiKey?: string; model?: string; timeoutMs?: number; fetch?: typeof fetch; log?: { warn?: (...a: any[]) => void } }): ((q: { request: string; customer: string | null; action: string }) => Promise<{ fits: number } | null>) | null;
+/** Fizzl's free prompt-injection check (presign-guard), once per message. `pass` is a Fizzl Pass for a higher hourly limit. */
+export function fizzlInjection(opts?: { url?: string; pass?: string; task?: string; timeoutMs?: number; fetch?: typeof fetch; log?: { warn?: (...a: any[]) => void }; keep?: number }): (q: { request: string; customer?: string | null }) => Promise<{ verdict: "green" | "orange" | "red" } | null>;
 export const ACTIONS: Readonly<Record<string, Kind>>;
 export const DEFAULT_POLICY: Readonly<Required<Policy>>;
 export function kindOf(tool: string): Kind;

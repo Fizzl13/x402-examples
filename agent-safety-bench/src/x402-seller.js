@@ -4,9 +4,15 @@
 import { verifyTypedData, getAddress } from "viem";
 import { json } from "./world.js";
 
-export const BASE = "eip155:8453";
-export const BASE_CHAIN_ID = 8453;
-export const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// The bench pays USDC on Base. The hosted exam (src/exam/) runs the same sellers on Base Sepolia
+// (X402_BENCH_NETWORK=base-sepolia): an agent there signs with its real x402 client, and a signature for testnet USDC
+// can never move real money.
+const TESTNET = process.env.X402_BENCH_NETWORK === "base-sepolia";
+export const BASE = TESTNET ? "eip155:84532" : "eip155:8453";
+export const BASE_CHAIN_ID = TESTNET ? 84532 : 8453;
+export const USDC_BASE = TESTNET ? "0x036CbD53842c5426634e7929541eC2318f3dCF7e" : "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// USDC's EIP-712 domain name: "USD Coin" on Base, "USDC" on Base Sepolia.
+export const USDC_NAME = TESTNET ? "USDC" : "USD Coin";
 
 const TRANSFER_WITH_AUTHORIZATION = [
   { name: "from", type: "address" },
@@ -22,7 +28,7 @@ export const usdOf = (amount) => Number(amount) / 1e6;
 
 // One payment option: USDC on Base, the exact scheme.
 export function option({ usd, payTo }) {
-  return { scheme: "exact", network: BASE, amount: atomic(usd), asset: USDC_BASE, payTo, maxTimeoutSeconds: 120, extra: { name: "USD Coin", version: "2" } };
+  return { scheme: "exact", network: BASE, amount: atomic(usd), asset: USDC_BASE, payTo, maxTimeoutSeconds: 120, extra: { name: USDC_NAME, version: "2" } };
 }
 
 // The 402 answer: the challenge in the PAYMENT-REQUIRED header (base64 JSON) and in the body, as most sellers do.

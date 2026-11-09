@@ -1,7 +1,7 @@
 // Offline: the endpoint, Doctor and the payment are fakes; nothing is paid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSafeFetch, SafePayError, usdCap, preflightUrl, diagnosisOf, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
+import { VERSION, createSafeFetch, SafePayError, usdCap, preflightUrl, diagnosisOf, BASE, canonicalJson, inputHash, verifyReceipt, DOCTOR_SIGNERS, AUTHORITY, certMessage } from "../index.js";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 
 // A stand-in for Doctor's signer: preflights are signed like the live service signs them.
@@ -15,7 +15,7 @@ const PAID = "https://api.example.com/paid";
 const FREE = "https://api.example.com/free";
 
 // A world with one paid endpoint, Doctor answering `verdict`, and a paying fetch that records its cap.
-function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorStatus = 200, tamper = null } = {}) {
+function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorStatus = 200, tamper = null, extra = {} } = {}) {
   const log = { probes: [], preflights: [], paid: [], caps: [] };
   const baseFetch = async (url, init = {}) => {
     log.probes.push([url, init.method ?? "GET"]);
@@ -27,7 +27,7 @@ function world({ verdict = "go", summary = "OK to pay: $0.02 on Base.", doctorSt
       if (url.includes("/api/v1/preflight")) {
         log.preflights.push({ cap, url: new URL(url) });
         if (doctorStatus !== 200) return Response.json({ error: "boom" }, { status: doctorStatus });
-        const body = await signed({ verdict, summary, reasons: [] }, url);
+        const body = await signed({ verdict, summary, reasons: [], ...extra }, url);
         return Response.json(tamper ? await tamper(body, url) : body);
       }
       log.paid.push({ cap, url, method: init.method ?? "GET", body: init.body });
@@ -69,6 +69,43 @@ test("no_go: throws SafePayError with the preflight; the endpoint is not paid", 
     return true;
   });
   assert.equal(w.log.paid.length, 0);
+});
+
+test("go with checks_complete false: pays by default; onIncomplete 'stop' throws code incomplete naming what didn't run; a function decides; reused at most 10 minutes", async () => {
+  const extra = { checks_complete: false, not_checked: [{ check: "sanctions", because: "unavailable", why: "x" }, { check: "track_record", because: "no_data", why: "y" }] };
+  const dflt = world({ extra });
+  await make(dflt)(PAID);
+  assert.equal(dflt.log.paid.length, 1);
+
+  const stop = world({ extra });
+  await assert.rejects(make(stop, { onIncomplete: "stop" })(PAID), (err) => {
+    assert.equal(err.code, "incomplete");
+    assert.match(err.message, /not every check ran \(sanctions\)/);
+    return true;
+  });
+  assert.equal(stop.log.paid.length, 0);
+
+  const asked = [];
+  const yes = world({ extra });
+  await make(yes, { onIncomplete: async (p) => { asked.push(p.checks_complete); return true; } })(PAID);
+  assert.deepEqual(asked, [false]);
+  assert.equal(yes.log.paid.length, 1);
+
+  let t = 0;
+  const cached = world({ extra });
+  const f = make(cached, { now: () => t });
+  await f(PAID);
+  t = 11 * 60 * 1000;
+  await f(PAID);
+  assert.equal(cached.log.preflights.length, 2, "an incomplete verdict is asked again after 10 minutes");
+  const full = world({ extra: { checks_complete: true } });
+  const g = make(full, { now: () => t });
+  t = 0;
+  await g(PAID);
+  t = 11 * 60 * 1000;
+  await g(PAID);
+  assert.equal(full.log.preflights.length, 1, "a complete verdict is reused for the hour");
+  assert.throws(() => createSafeFetch({ register: () => {}, onIncomplete: "maybe" }), /onIncomplete/);
 });
 
 test("caution: stops by default; pays with onCaution 'pay'; asks a function otherwise", async () => {
@@ -339,9 +376,13 @@ test("diagnoseOnFailure: a diagnosis not signed by Doctor is dropped, never show
 });
 
 // A world that records the outcome reports sent to Doctor.
-function outcomeWorld({ endpointStatus = 200 } = {}) {
-  const log = { reports: [] };
+function outcomeWorld({ endpointStatus = 200, verdict = "go", reasons = [], refusal = undefined } = {}) {
+  const log = { reports: [], toSeller: [] };
   const baseFetch = async (url, init = {}) => {
+    if (String(url).endsWith("/.well-known/x402-refusal") || String(url).includes("victim")) {
+      log.toSeller.push({ url: String(url), redirect: init.redirect, body: JSON.parse(init.body) });
+      return new Response(null, { status: 204 });
+    }
     if (String(url).endsWith("/api/v1/outcome")) {
       log.reports.push({ ua: init.headers["user-agent"], body: JSON.parse(init.body) });
       return Response.json({ accepted: true });
@@ -349,7 +390,7 @@ function outcomeWorld({ endpointStatus = 200 } = {}) {
     return Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
   };
   const createPayingFetch = () => async (url) => {
-    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict: "go", summary: "OK", reasons: [] }, url));
+    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict, summary: verdict === "go" ? "OK" : "Not safe", reasons, ...(refusal ? { refusal } : {}) }, url));
     return Response.json(endpointStatus === 200 ? { ok: true } : { error: "x" }, { status: endpointStatus });
   };
   return { log, baseFetch, createPayingFetch };
@@ -376,7 +417,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.6\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.13\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -410,14 +451,99 @@ test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD wi
   assert.equal(payableOption([xrpl("0.01", { issuer: "rFakeIssuer" })], XRPL, 0.05), null, "an RLUSD look-alike");
   assert.equal(payableOption([xrpl("1000", {}, "XRP")], XRPL, 0.05), null, "never XRP");
   assert.equal(payableOption([xrpl("0.02")], XRPL, 0.05).amount, "0.02");
+  // Stellar: only Circle's USDC contract, within the budget (7 decimals: 100000 is $0.01).
+  const { STELLAR } = await import("../index.js");
+  const USDC_SAC = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
+  const st = (amount, asset = USDC_SAC) => ({ scheme: "exact", network: STELLAR, asset, amount, extra: { areFeesSponsored: true } });
+  assert.equal(payableOption([st("100000", "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"), st("100000")], STELLAR, 0.05).asset, USDC_SAC, "USDC, not another contract");
+  assert.ok(payableOption([st("10000")], STELLAR, "$0.002"), "the $0.001 preflight");
+  assert.equal(payableOption([st("10000000")], STELLAR, 0.05), null, "$1 is over a $0.05 budget");
+  assert.equal(payableOption([st("1.5")], STELLAR, 0.05), null, "an atomic amount only");
+  // X Layer: only USD₮0 or the USDC Doctor knows, within the budget (6 decimals: 10000 is $0.01).
+  const { XLAYER } = await import("../index.js");
+  const xl = (amount, asset = "0x779ded0c9e1022225f8e0630b35a9b54be713736") => ({ scheme: "exact", network: XLAYER, asset, amount, extra: { name: "USD₮0", version: "1" } });
+  assert.equal(payableOption([xl("10000", "0xb6ceceab302e2e4948951ee7843fc24e92933061"), xl("10000")], XLAYER, 0.05).asset, "0x779ded0c9e1022225f8e0630b35a9b54be713736", "not another token called USDC");
+  assert.ok(payableOption([xl("10000", "0x74B7F16337B8972027F6196A17A631AC6DE26D22")], XLAYER, 0.05), "USDC, any case");
+  assert.ok(payableOption([xl("1000")], XLAYER, "$0.002"), "the $0.001 preflight");
+  assert.equal(payableOption([xl("1000000")], XLAYER, 0.05), null, "$1 is over a $0.05 budget");
   // Base and Solana keep the first option on the network (x402's spend controls cap USDC there).
   assert.equal(payableOption([{ network: "eip155:8453", asset: "0xA" }], "eip155:8453", 0.05).asset, "0xA");
 });
 
 test("network aliases: 'algorand' and 'xrpl' become their CAIP-2 ids in the preflight", async () => {
-  for (const [alias, id] of [["algorand", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], ["xrpl", "xrpl:0"], ["xrpl-testnet", "xrpl:1"]]) {
+  for (const [alias, id] of [["algorand", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], ["xrpl", "xrpl:0"], ["xrpl-testnet", "xrpl:1"], ["xlayer", "eip155:196"]]) {
     const w = world();
     await make(w, { network: alias })(PAID);
     assert.equal(w.log.preflights[0].url.searchParams.get("network"), id);
   }
+});
+
+test("shareOutcomes: not paid after a no_go or a stopped caution is reported as refused, with the reason code", async () => {
+  const noGo = outcomeWorld({ verdict: "no_go", reasons: [{ level: "info", code: "onchain_payments" }, { level: "no_go", code: "payto_sanctioned" }] });
+  await assert.rejects(make(noGo, { shareOutcomes: true })(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(noGo.log.reports.length, 1);
+  const { body } = noGo.log.reports[0];
+  assert.deepEqual([body.outcome, body.reason, body.source, body.preflight.verdict], ["refused", "payto_sanctioned", "doctor", "no_go"]);
+  assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
+  const caution = outcomeWorld({ verdict: "caution", reasons: [{ level: "caution", code: "payto_changed" }] });
+  const sf = make(caution, { shareOutcomes: true });
+  await assert.rejects(sf(PAID), (e) => e.code === "caution");
+  await assert.rejects(sf(PAID), (e) => e.code === "caution"); // the cached verdict: reported once
+  await tick();
+  assert.deepEqual(caution.log.reports.map((r) => [r.body.outcome, r.body.reason]), [["refused", "payto_changed"]]);
+  // A caution the agent pays anyway is a payment, not a refusal.
+  const paid = outcomeWorld({ verdict: "caution", reasons: [{ level: "caution", code: "payto_changed" }] });
+  await make(paid, { shareOutcomes: true, onCaution: "pay" })(PAID);
+  await tick();
+  assert.equal(paid.log.reports[0].body.outcome, "paid_ok");
+  // Off by default.
+  const off = outcomeWorld({ verdict: "no_go", reasons: [{ level: "no_go", code: "x" }] });
+  await assert.rejects(make(off)(PAID));
+  await tick();
+  assert.equal(off.log.reports.length, 0);
+});
+
+test("refusalReason: the first reason at the verdict's level, as a code Doctor accepts", async () => {
+  const { refusalReason } = await import("../index.js");
+  assert.equal(refusalReason({ verdict: "caution", reasons: [{ level: "info", code: "a_b" }, { level: "caution", code: "price_changed" }] }), "price_changed");
+  assert.equal(refusalReason({ verdict: "no_go", reasons: [] }), "no_go");
+  assert.equal(refusalReason({ verdict: "no_go", reasons: [{ level: "no_go", code: "Weird-Code!" }] }), "weird_code_");
+  assert.equal(refusalReason(null), "refused");
+});
+
+// The draft refusal extension (x402-foundation/x402#4087): with tellSellers, the seller hears why it wasn't paid.
+test("tellSellers: a no_go for a seller that takes refusals sends Doctor's ready report to the seller, once a day; off by default", async () => {
+  const report = { x402Version: 2, resource: PAID, offer: { hash: "a".repeat(64), acceptIndex: 0 }, reason: "network_unsupported", detail: "x402 Doctor preflight: network_not_offered", checkedAt: "2026-11-01T08:00:00.000Z" };
+  const refusal = { url: "https://api.example.com/.well-known/x402-refusal", send_if: "you do not pay", report };
+  const reasons = [{ level: "no_go", code: "network_not_offered" }];
+  const w = outcomeWorld({ verdict: "no_go", reasons, refusal });
+  const sf = make(w, { tellSellers: true, cacheMs: 0 });
+  await assert.rejects(sf(PAID), (e) => e.code === "no_go");
+  await assert.rejects(sf(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(w.log.toSeller.length, 1, "once a day per endpoint and reason");
+  assert.equal(w.log.toSeller[0].url, refusal.url);
+  assert.equal(w.log.toSeller[0].redirect, "error");
+  assert.deepEqual(w.log.toSeller[0].body, report, "the report as is: no \"by\" naming this client");
+  assert.equal(w.log.reports.length, 0, "tellSellers alone sends nothing to Doctor");
+
+  const off = outcomeWorld({ verdict: "no_go", reasons, refusal });
+  await assert.rejects(make(off)(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(off.log.toSeller.length, 0, "off by default");
+
+  // Never to another site, and never a report about another endpoint.
+  const elsewhere = outcomeWorld({ verdict: "no_go", reasons, refusal: { ...refusal, url: "https://victim.example/hook" } });
+  await assert.rejects(make(elsewhere, { tellSellers: true })(PAID), (e) => e.code === "no_go");
+  const other = outcomeWorld({ verdict: "no_go", reasons, refusal: { ...refusal, report: { ...report, resource: "https://api.example.com/other" } } });
+  await assert.rejects(make(other, { tellSellers: true })(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(elsewhere.log.toSeller.length + other.log.toSeller.length, 0);
+
+  // A screening_hit only signed (draft 0.2): this client can't sign, so it isn't sent.
+  const hit = outcomeWorld({ verdict: "no_go", reasons: [{ level: "no_go", code: "payto_sanctioned" }], refusal: { ...refusal, signature_required: true, report: { ...report, reason: "screening_hit" } } });
+  await assert.rejects(make(hit, { tellSellers: true })(PAID), (e) => e.code === "no_go");
+  await tick();
+  assert.equal(hit.log.toSeller.length, 0);
 });

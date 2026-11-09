@@ -28,6 +28,8 @@ import { z } from "zod";
 
 // The package's own version, so the MCP handshake and the logs never lag behind what npm installed.
 export const VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+// Fizzl's one-call buyer, offered first by find_services (see fizzlBuyOption).
+const FIZZL_BUY = { url: "https://buy.fizzl.eu/v1/buy", price: 0.02, sellerCap: 0.01 };
 
 // eip712: native USDC's EIP-712 domain, for EIP-3009 payments over MPP (BNB's bridged USDC has none).
 const USDC_DOMAIN = { name: "USD Coin", version: "2" };
@@ -117,6 +119,19 @@ export const ALGORAND = {
   mainnet: { network: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", usdc: 31566704, algod: "https://mainnet-api.algonode.cloud" },
   testnet: { network: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=", usdc: 10458941, algod: "https://testnet-api.algonode.cloud" },
 };
+// Sellers name an Algorand network by the whole genesis hash or by its CAIP-2 id (the first 32 characters), and
+// @x402/avm 2.29.0's client takes only the CAIP-2 id. Offers are matched by this id, and the scheme always gets it;
+// the payment still names the seller's own network (x402 puts the seller's option in `accepted`).
+export function algorandId(network) {
+  return typeof network === "string" && network.startsWith("algorand:") ? network.slice(0, 41) : network;
+}
+export function anyAlgorandId(scheme) {
+  return Object.assign(Object.create(scheme), {
+    createPaymentPayload: (version, requirements, context) =>
+      scheme.createPaymentPayload(version, { ...requirements, network: algorandId(requirements.network) }, context),
+    ...(typeof scheme.findDefaultAsset === "function" && { findDefaultAsset: (asset, network) => scheme.findDefaultAsset(asset, algorandId(network)) }),
+  });
+}
 // The base64 secret key @x402/avm wants (32-byte seed + 32-byte public key), from a 25-word Algorand mnemonic.
 export function algorandKeyFromMnemonic(mnemonic) {
   const seed = Buffer.from(seedFromMnemonic(String(mnemonic).trim().split(/\s+/).join(" ")));
@@ -400,7 +415,7 @@ export function createWallet(config, overrides = {}) {
   const algoNet = config.algorand ? { ...ALGORAND[config.algorand.net], algodUrl: config.algorand.algodUrl } : null;
   if (algoNet && typeof guarded.algorandSigner !== "function") throw new Error("ALGORAND_MNEMONIC needs presign-guard-wallet 0.12 or newer (npm install presign-guard-wallet@latest)");
   const algoSigner = algoNet ? guarded.algorandSigner(overrides.algorandSigner ?? toClientAvmSigner(config.algorand.key), { network: algoNet.network }) : null;
-  const isAlgoUsdcOffer = (r, cap) => r?.network === algoNet?.network && r.scheme === "exact" && String(r.asset) === String(algoNet.usdc) && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
+  const isAlgoUsdcOffer = (r, cap) => algoNet && algorandId(r?.network) === algorandId(algoNet.network) && r.scheme === "exact" && String(r.asset) === String(algoNet.usdc) && /^\d+$/.test(String(r.amount)) && Number(r.amount) > 0 && Number(r.amount) <= cap * 1e6;
 
   // Solana: the agent's own Solana account, signing only x402 USDC payments, checked by presign-guard and kept to the limits.
   const solNet = config.solana ? { ...SOLANA[config.solana.net], rpcUrl: config.solana.rpcUrl } : null;
@@ -596,6 +611,16 @@ export function createWallet(config, overrides = {}) {
     if (!res.ok) throw new Error(`wallet server ${path}: HTTP ${res.status}`);
     return res.json();
   }
+  // Fizzl Pass: with a wallet server, the owner's pass proof (GET /v1/pass), sent as X-Fizzl-Pass on Fizzl's free
+  // checks so this agent gets the pass's higher free limits. Kept 30 minutes; none or unreachable = the normal limits.
+  let passCache = { at: 0, token: null };
+  async function passHeader() {
+    if (!config.server?.url || !config.server?.key) return {};
+    if (Date.now() - passCache.at > 30 * 60_000) {
+      try { passCache = { at: Date.now(), token: (await serverJson("GET", "/v1/pass"))?.token ?? null }; } catch { passCache = { at: Date.now(), token: null }; }
+    }
+    return passCache.token ? { "x-fizzl-pass": passCache.token } : {};
+  }
   // On-chain limit (wallet server + agent-allowance contract on Base): when this wallet holds less USDC than a payment
   // may cost, ask the server to top it up from the owner's wallet first, within the limit the chain keeps. Best effort:
   // without a limit, or if it fails, the payment goes ahead with what the wallet holds. "No limit" is remembered a while.
@@ -660,11 +685,14 @@ export function createWallet(config, overrides = {}) {
       client.register(`eip155:${chain.id}`, x402Checked(mandate ? Object.assign(Object.create(scheme), mandatePayer(scheme, mandate)) : scheme));
       // USDC on Solana and Algorand and RLUSD on the XRP Ledger, only when there is no mandate (a mandate covers USDC on this chain only).
       if (solSigner && !mandate) client.register(solNet.network, overrides.solanaScheme ?? new ExactSvmScheme(solSigner, { rpcUrl: solNet.rpcUrl }));
-      if (algoSigner && !mandate) client.register(algoNet.network, overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
+      if (algoSigner && !mandate) {
+        const scheme = anyAlgorandId(overrides.algorandScheme ?? new ExactAvmScheme(algoSigner, { algodUrl: algoNet.algodUrl }));
+        client.register(algoNet.network, scheme).register(algorandId(algoNet.network), scheme);
+      }
       if (xrplSigner && !mandate) {
         client.register(xrplNet.network, xrplPayScheme(xrplSigner, { network: xrplNet.network, wsUrl: xrplNet.wsUrl, prepare: overrides.xrplPrepare, maxUsd: cap }));
         // RLUSD written as text ("RLUSD") isn't a default asset to the spend controls; the cap is checked above.
-        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [{ network: algoNet.network, asset: String(algoNet.usdc) }] : []), ...(solSigner ? [{ network: solNet.network, asset: solNet.usdc }] : [])] });
+        client.setSpendControls({ maxAmountPerPayment: `$${cap}`, allowedAssets: [{ network: xrplNet.network, asset: "RLUSD" }, ...(algoSigner ? [algoNet.network, algorandId(algoNet.network)].map((network) => ({ network, asset: String(algoNet.usdc) })) : []), ...(solSigner ? [{ network: solNet.network, asset: solNet.usdc }] : [])] });
       }
       // The order: USDC on this chain first, then USDC on Solana, then on Algorand, then RLUSD from Ripple; other
       // offers on those networks (another asset, above the cap) are left out.
@@ -733,6 +761,22 @@ export function createWallet(config, overrides = {}) {
           ...(r.skill ? { skill: r.skill } : {}),
         }));
     } catch { return null; }
+  }
+
+  // Fizzl Buy (buy.fizzl.eu) as an extra first option: one call that picks a seller with a track record, fills in
+  // its input, pays it and checks the answer. Only when it could buy one of the sellers found (a track record, at
+  // most its own cap), the wallet pays on Base, and this search's cap allows its price.
+  function fizzlBuyOption({ query, cap, sellers }) {
+    const need = String(query).trim().slice(0, 500);
+    if (config.chainName !== "base" || cap < FIZZL_BUY.price || need.length < 3) return null;
+    if (!sellers.some((s) => s.track_record && s.price_usd <= FIZZL_BUY.sellerCap)) return null;
+    return {
+      url: FIZZL_BUY.url,
+      description: `Fizzl Buy, Fizzl's own service: one call instead of choosing yourself. Say what you need; it picks the seller with the best track record (up to $${FIZZL_BUY.sellerCap}), fills in its input, pays it, checks that the answer is what was asked and tries the next seller if one fails. Nothing is charged when no seller delivers.`,
+      price_usd: FIZZL_BUY.price,
+      method: "POST",
+      input_example: { need },
+    };
   }
 
   async function catalog() {
@@ -860,11 +904,13 @@ export function createWallet(config, overrides = {}) {
       const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
       const ranked = await serverSearch({ query, cap, limit });
       if (ranked) {
+        const sellers = ranked.filter((s) => s.url !== FIZZL_BUY.url);
+        const buy = fizzlBuyOption({ query, cap, sellers });
         return {
           query,
-          services: ranked,
-          note: ranked.length
-            ? "From the public x402 catalog, searched by your wallet server: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply."
+          services: buy ? [buy, ...sellers] : sellers,
+          note: sellers.length
+            ? `${buy ? `The first entry is Fizzl Buy, Fizzl's own service: for $${FIZZL_BUY.price} it picks one of these sellers, pays it and checks the answer for you. The others you can pay directly at their own price. ` : ""}From the public x402 catalog, searched by your wallet server: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply.`
             : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}).`,
         };
       }
@@ -929,7 +975,7 @@ export function createWallet(config, overrides = {}) {
         return { what_to_do: TEXT_ADVICE[check.verdict], ...rest, paid: out.paid, payment: out.payment };
       }
       if (text.length > QUICK_TEXT_CHARS) return { verdict: null, error: `The free check takes up to ${QUICK_TEXT_CHARS} characters; this text has ${text.length}.`, next: "Call check_text again with detailed: true ($0.01 from this wallet, up to 32,000 characters), or check the part that tells you to do something." };
-      const res = await plainFetch(`${presignUrl}/v1/injection/quick`, { method: "POST", headers, body, signal: AbortSignal.timeout(20000) });
+      const res = await plainFetch(`${presignUrl}/v1/injection/quick`, { method: "POST", headers: { ...headers, ...(await passHeader()) }, body, signal: AbortSignal.timeout(20000) });
       const j = await res.json().catch(() => ({}));
       if (res.ok && j.verdict) return { verdict: j.verdict, what_to_do: TEXT_ADVICE[j.verdict], note: "Free check, the verdict only. detailed: true gives the reasons for $0.01 from this wallet." };
       if (res.status === 429) return { verdict: null, error: "The free checks for this hour are used up (10 an hour).", next: "Call check_text again with detailed: true ($0.01 from this wallet, within its limits)." };

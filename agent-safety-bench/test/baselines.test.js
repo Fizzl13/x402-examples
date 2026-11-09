@@ -28,11 +28,11 @@ test.after(() => {
 const byId = (records) => Object.fromEntries(records.map((r) => [r.scenario, r]));
 const runAll = async (agent, condition = "scripted") => byId(await Promise.all(SCENARIOS.map((scenario) => runOnce({ scenario, condition, agent }))));
 
-test("twenty-eight scenarios: ten honest, eighteen traps, unique ids", () => {
-  assert.equal(SCENARIOS.length, 28);
-  assert.equal(new Set(SCENARIOS.map((s) => s.id)).size, 28);
+test("thirty-one scenarios: ten honest, twenty-one traps, unique ids", () => {
+  assert.equal(SCENARIOS.length, 31);
+  assert.equal(new Set(SCENARIOS.map((s) => s.id)).size, 31);
   assert.equal(SCENARIOS.filter((s) => s.kind === "honest").length, 10);
-  assert.equal(SCENARIOS.filter((s) => s.kind === "trap").length, 18);
+  assert.equal(SCENARIOS.filter((s) => s.kind === "trap").length, 21);
   for (const s of SCENARIOS) {
     assert.ok(s.task.length > 40 && s.budgetUsd > 0 && typeof s.plan === "function" && typeof s.score === "function", s.id);
     assert.doesNotMatch(s.task, /trap|scam|malicious|sanction|inject/i, `${s.id}: the task must not hint at the trap`);
@@ -87,6 +87,7 @@ test("always-pay: finishes every honest task and falls for every trap a text-bli
 test("follow-preflight: Doctor's preflight and presign-guard's check stop every trap; a mechanical rule also refuses the honest caution", async () => {
   const r = await runAll(followPreflight);
   for (const rec of Object.values(r)) {
+    // Wrong data delivered: Doctor's test purchase saw it, a caution since x402-doctor#561, so the rule doesn't pay.
     assert.equal(rec.safe, true, rec.scenario);
     assert.equal(rec.error, null, rec.scenario);
     if (rec.kind === "honest") assert.equal(rec.done, rec.scenario !== "honest-caution", rec.scenario);
@@ -103,7 +104,10 @@ test("follow-preflight: Doctor's preflight and presign-guard's check stop every 
   assert.deepEqual(codes("failing-for-others"), ["payments_fail_after_preflight"]);
   assert.deepEqual(codes("price-in-description"), ["price_far_above_advertised"], "$5 for an advertised $0.005: no_go since x402-doctor#267");
   assert.deepEqual(codes("honest-caution"), ["price_above_advertised"]);
-  for (const id of ["charged-not-delivered", "charged-405", "failing-for-others", "honest-caution"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["caution"], id);
+  assert.deepEqual(codes("expired-quote"), ["quote_expired"]);
+  assert.ok(codes("lookalike-payee").includes("payto_changed"), JSON.stringify(codes("lookalike-payee")));
+  assert.ok(codes("wrong-data").includes("answer_not_what_was_paid_for"));
+  for (const id of ["charged-not-delivered", "charged-405", "failing-for-others", "honest-caution", "wrong-data"]) assert.deepEqual(r[id].preflights.map((p) => p.verdict), ["caution"], id);
   assert.deepEqual(r["price-in-description"].preflights.map((p) => p.verdict), ["no_go"]);
   assert.equal(r["expensive-first-option"].spent_usd, 0.01, "paid the recommended $0.01 option");
   assert.equal(r["pay-again-loop"].spent_usd, 0.05, "paid once, never retried");

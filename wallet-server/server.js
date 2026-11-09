@@ -33,6 +33,8 @@
 //                       Fizzl's Xaman account); "off" turns paying in RLUSD off
 //   XAMAN_API_KEY       optional: the public API key of a Xaman app (apps.xumm.dev, redirect URI
 //                       <PUBLIC_URL>/api/signin/xaman/callback); turns on signing in with Xaman (XRP Ledger)
+//   XAMAN_API_SECRET    optional: that app's API secret; with it, apps connected at /mcp can ask for payments in RLUSD
+//                       on the XRP Ledger that the owner signs in Xaman
 //   XRPL_RPC_URL        optional: an XRPL JSON-RPC node to check those payments (default https://xrplcluster.com)
 //   SOLANA_RPC_URL      optional: a Solana RPC to build and check those payments (default api.mainnet-beta.solana.com)
 //   USAGE_LOG_TOKEN     optional: anonymous usage statistics to the private usage-log repo (a fine-grained
@@ -44,6 +46,9 @@
 //   OUTREACH_KEY        optional: long random string, the same on x402 Doctor; lets Doctor hand in drafts (never sends)
 //                       and is the key the server uses to ask Doctor again right before it mails a draft about its findings
 //   DOCTOR_URL          optional: x402 Doctor's base URL for that recheck (default https://x402-doctor.fizzl.eu)
+//                       and for the price a seller asked Doctor (the charged-more-than-others heads-up)
+//   PASS_SALE_KEY       optional: long random string, the same on x402 Doctor; lets Doctor hand in Fizzl Passes it sold
+//                       over x402 (POST /hooks/pass-sale)
 //   DRAFT_KEY           optional: long random string, the same as the GitHub secret of the outreach-draft workflow;
 //                       lets Claude hand in written messages as drafts (never sends)
 //   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
@@ -56,6 +61,9 @@
 //                       USDC stays in their wallet, agents are topped up to a small float; ../agent-allowance)
 //   CHARGER_KEY         optional: private key of a small, separate wallet with a little ETH on Base that
 //                       sends the monthly charge transactions (never your payout wallet)
+import { readFileSync } from "node:fs";
+import { createErrorReporter } from "./src/error-report.js";
+import { passKeyFrom, publicJwks } from "./src/pass.js";
 import { createHash } from "node:crypto";
 import { createApp, SITEMAP_PATHS } from "./src/app.js";
 import indexNow from "./src/indexnow.cjs";
@@ -67,8 +75,8 @@ import { createTelegram } from "./src/telegram.js";
 import { createOutreach, doctorRecheck } from "./src/outreach.js";
 import { createPush } from "./src/push.js";
 import { createMailer } from "./src/mail.js";
-import { createCatalog, createSkillChecker } from "./src/catalog.js";
-import { createTrustIndex } from "./src/trust.js";
+import { createAgentMessageCheck, createCatalog, createSkillChecker } from "./src/catalog.js";
+import { createPriceSeen, createTrustIndex } from "./src/trust.js";
 import { createUsage } from "./src/usage.js";
 import { createStats } from "./src/stats.js";
 import { createWalletClient, http } from "viem";
@@ -122,7 +130,10 @@ const push = env.VAPID_PRIVATE_KEY || pushSeed ? createPush({ privateKey: env.VA
 
 const usage = createUsage({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined, salt: env.USAGE_LOG_SALT || null, ownWallets: (env.USAGE_OWN_WALLETS ?? "").split(",") });
 if (!usage.enabled) console.warn("[usage] USAGE_LOG_TOKEN not set: usage statistics are off");
+// Fizzl Pass proofs (src/pass.js): signed with PASS_SIGNING_KEY (a 32-byte Ed25519 seed); without it the pass works, unsigned.
+const passKey = passKeyFrom(env.PASS_SIGNING_KEY);
 const accounts = createAccounts({
+  passKey,
   usage,
   xaman: env.XAMAN_API_KEY?.trim() ? { apiKey: env.XAMAN_API_KEY.trim() } : null,
   store,
@@ -136,17 +147,25 @@ const accounts = createAccounts({
     solana: env.SOLANA_PAY_TO?.trim() ? { payTo: env.SOLANA_PAY_TO.trim(), rpcUrl: env.SOLANA_RPC_URL || undefined } : null,
     xrpl: env.XRPL_PAY_TO === "off" ? null : { payTo: env.XRPL_PAY_TO?.trim() || "r9xmBsRr8Ao7jRgjjxreMiAwGiCK2FGwqw", rpcUrl: env.XRPL_RPC_URL || undefined },
     algorand: env.ALGORAND_PAY_TO === "off" ? null : { payTo: env.ALGORAND_PAY_TO?.trim() || "LOYVFSQ6ZTS2YWUW4GQ5L6VPP2TPIOXWYDACK53CPOHQQHLDMEMKJDXAX4", indexerUrl: env.ALGORAND_INDEXER_URL || undefined, algodUrl: env.ALGORAND_ALGOD_URL || undefined } },
-  walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET },
+  walletOptions: { signers: [...new Set([...(env.EXTRA_SIGNERS ?? "").split(",").map((s) => s.trim()).filter(Boolean), "0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"])], ruleChecker: createRuleChecker({ apiKey: env.TYPESAFE_API_KEY }), answerChecker: createAnswerChecker({ apiKey: env.TYPESAFE_API_KEY, anthropicKey: env.ANTHROPIC_API_KEY }), mandateSecret: env.MANDATE_SECRET, priceSeen: createPriceSeen({ url: env.DOCTOR_URL?.trim() || undefined }) },
 });
 const auth = createAuth({ password: env.ADMIN_PASSWORD, secret: env.SESSION_SECRET, secure: env.NODE_ENV !== "development" });
 // New sellers in the catalog go to the Telegram of accounts that follow their category.
-const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, ranker: createRanker({ apiKey: env.TYPESAFE_API_KEY }), seen: store.global, skills: createSkillChecker(), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
+const catalog = createCatalog({ url: env.X402_DISCOVERY_URL || undefined, ranker: createRanker({ apiKey: env.TYPESAFE_API_KEY }), seen: store.global, skills: createSkillChecker({ checkText: env.PG1_DISABLED === "1" ? null : createAgentMessageCheck({ url: env.PG1_MCP_URL || undefined, apiKey: env.PG1_API_KEY?.trim() || null }) }), trust: createTrustIndex({ url: env.X402_TRUST_INDEX_URL || undefined }),
   onNew: async (providers) => { const n = await accounts.alertNewProviders(providers); console.log(`[catalog] ${providers.length} new provider(s), ${n} alert(s) sent`); } });
 const stats = createStats({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: env.USAGE_LOG_REPO || undefined });
 // Outreach to sellers (drafts from x402 Doctor or the dashboard; mailed only when the owner taps Send).
 const outreachMailer = createMailer({ apiKey: env.RESEND_API_KEY?.trim() || null });
 const outreach = createOutreach({ store, mailer: outreachMailer, telegram, adminChatId: env.TELEGRAM_CHAT_ID?.trim() || null, from: env.OUTREACH_FROM?.trim() || null, replyTo: env.OUTREACH_REPLY_TO?.trim() || null, dailyLimit: Number(env.OUTREACH_DAILY_LIMIT || 10), dashboardUrl: env.PUBLIC_URL ? `${env.PUBLIC_URL.replace(/\/$/, "")}/#stats` : null, logoUrl: `${env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL.replace(/\/$/, "") : "https://wallet.fizzl.eu"}/icons/fizzl.png`, recheck: doctorRecheck({ baseUrl: env.DOCTOR_URL?.trim() || undefined, key: env.OUTREACH_KEY?.trim() || null }) });
-const app = createApp({ accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+// Load the catalog at once rather than with the first hourly run a minute from now: it takes ~40 s on Render (80+
+// pages) and a search waits for the first load, so after a deploy the slow searches end ~40 s after the start
+// instead of ~100 s. (Holding /health at 503 until then was dropped: Render stops routing to an instance after 15 s of
+// failed checks, which after a crash would refuse agents' payment calls too.)
+catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
+// Errors (5xx, crashes) to Sentry when SENTRY_DSN is set: never request data (src/error-report.js).
+const errorReporter = createErrorReporter({ dsn: env.SENTRY_DSN, service: "fizzl-wallet-server", release: JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version });
+errorReporter.installProcessHooks();
+const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);

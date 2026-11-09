@@ -9,6 +9,8 @@ services:
     envVars:
       - key: ADMIN_PASSWORD
         sync: false
+      - key: SENTRY_DSN # optional: errors (5xx, crashes) to Sentry, without request data (src/error-report.js)
+        sync: false
       - key: WALLET_REDIS_URL
         sync: false
       - key: PUBLIC_URL
@@ -17,5 +19,11 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: PASS_SIGNING_KEY
+        sync: false
+      - key: PASS_SALE_KEY
+        sync: false
       - key: MANDATE_SECRET
+        sync: false
+      - key: PG1_API_KEY
         sync: false

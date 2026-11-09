@@ -8,7 +8,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { mnemonicFromSeed } from "@algorandfoundation/algokit-utils/algo25";
 import { decodeUnsignedTransaction, decodeSignedTransaction } from "@x402/avm";
 import { randomBytes } from "node:crypto";
-import { configFromEnv, createWallet, algorandKeyFromMnemonic, ALGORAND } from "../lib.js";
+import { configFromEnv, createWallet, algorandKeyFromMnemonic, algorandId, ALGORAND } from "../lib.js";
 import * as guardWalletPkg from "presign-guard-wallet";
 
 const API = "https://algo-seller.example/data";
@@ -38,9 +38,11 @@ test("ALGORAND_MNEMONIC: the key and address come from the 25 words; a bad mnemo
   assert.throws(() => configFromEnv({ AGENT_KEY: KEY, LIMIT_USDC_PER_TX: "1", ALGORAND_MNEMONIC: mnemonic, ALGORAND_NETWORK: "betanet" }), /ALGORAND_NETWORK/);
 });
 
-test("pays an Algorand-only x402 offer: only the agent's USDC transfer is signed, the fee payer's left open, limits count it", async () => {
+// Sellers name the network by the whole genesis hash or by the CAIP-2 id (only that one since @x402/avm 2.29.0).
+for (const form of ["whole genesis hash", "CAIP-2 id"]) test(`pays an Algorand-only x402 offer (${form}): only the agent's USDC transfer is signed, the fee payer's left open, limits count it`, async () => {
   const algod = await fakeAlgod();
   const net = ALGORAND.testnet;
+  const offered = form === "CAIP-2 id" ? algorandId(net.network) : net.network;
   const seen = [];
   const fetch = async (input, init = {}) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -48,8 +50,8 @@ test("pays an Algorand-only x402 offer: only the agent's USDC transfer is signed
     if (url === API) {
       const sig = headers.get("payment-signature") ?? headers.get("x-payment");
       const accepts = [
-        { scheme: "exact", network: net.network, amount: "10000", asset: String(net.usdc), payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER, decimals: 6 } },
-        { scheme: "exact", network: net.network, amount: "10000", asset: "123", payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER } },
+        { scheme: "exact", network: offered, amount: "10000", asset: String(net.usdc), payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER, decimals: 6 } },
+        { scheme: "exact", network: offered, amount: "10000", asset: "123", payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER } },
       ];
       if (!sig) {
         const challenge = { x402Version: 2, error: "payment required", resource: { url: API, description: "data", mimeType: "application/json" }, accepts: [accepts[1], accepts[0]] };
@@ -76,7 +78,7 @@ test("pays an Algorand-only x402 offer: only the agent's USDC transfer is signed
     assert.equal(out.status, 200, out.body);
     assert.equal(seen.length, 1);
     const p = seen[0];
-    assert.equal(p.accepted.network, net.network);
+    assert.equal(p.accepted.network, offered, "the payment names the seller's own network id");
     assert.equal(String(p.accepted.asset), String(net.usdc), "the USDC offer was chosen, not asset 123");
     const group = p.payload.paymentGroup;
     assert.equal(group.length, 2);

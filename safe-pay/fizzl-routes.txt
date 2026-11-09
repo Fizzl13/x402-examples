@@ -15,5 +15,3 @@ GET https://ichimoku-signal.fizzl.eu/signals/BTC-USDT
 GET https://ichimoku-signal.fizzl.eu/levels/BTC-USDT
 GET https://ichimoku-signal.fizzl.eu/scan
 GET https://ichimoku-signal.fizzl.eu/setups
-POST https://plaintext.fizzl.eu/api/check-wallet {"address":"0x6B0F4651eD42893ab58139938175E4a69f175F25","chain":"base"}
-POST https://plaintext.fizzl.eu/api/explain {"data":{"function":"approve","token":"USDC","spender":"0x000000000022D473030F116dDEE9F6B43aC78BA3","spender_verified":true,"approved_amount":"1"}}

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class SignArgs(BaseModel):
     type: Literal["approval", "transaction", "signature"] = Field(description="What is about to be signed")
-    chainId: int = Field(description="EVM chain id: 1, 10, 56, 137, 8453 (Base) or 42161")
+    chainId: int = Field(description="EVM chain id: 1, 10, 56, 137, 8453 (Base), 42161, 4663 (Robinhood Chain) or 43114 (Avalanche)")
     token: Optional[str] = Field(None, description="approval: token contract")
     spender: Optional[str] = Field(None, description="approval: who gets the allowance")
     amount: Optional[str] = Field(None, description="approval: amount in base units (0 = revoke)")
@@ -40,6 +40,13 @@ class AlgorandArgs(BaseModel):
     origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
     intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
 
+class StellarArgs(BaseModel):
+    transaction: str = Field(max_length=12000, description="The base64 XDR transaction envelope about to be signed (unsigned, signed or a fee bump; for an x402 payment the transaction your authorization is in)")
+    network: Optional[Literal["stellar:pubnet", "stellar:testnet"]] = Field(None, description="stellar:pubnet mainnet (default) or stellar:testnet")
+    from_address: Optional[str] = Field(None, description="your account (G…), when it isn't the one authorizing or the transaction's source")
+    origin: Optional[str] = Field(None, description="the site asking for the signature, if any")
+    intent: Optional[str] = Field(None, max_length=500, description="what you are trying to do, in one sentence; orange INTENT_MISMATCH when signing does more or something else")
+
 class MessageArgs(BaseModel):
     message: str = Field(max_length=16384, description="The text, or 0x-hex bytes, about to be signed")
     method: Optional[Literal["personal_sign", "eth_sign"]] = Field(None, description="How it is signed (default personal_sign)")
@@ -50,7 +57,7 @@ class MessageArgs(BaseModel):
 
 
 class TokenArgs(BaseModel):
-    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "xrpl", "algorand"]
+    chain: Literal["solana", "base", "ethereum", "arbitrum", "optimism", "polygon", "bsc", "robinhood", "avalanche", "xrpl", "algorand"]
     address: str = Field(description="Solana mint (base58), EVM token contract (0x…), an XRPL token as CURRENCY.rIssuer, or an Algorand asset id (e.g. 31566704)")
 
 class ApprovalArgs(BaseModel):
@@ -66,24 +73,30 @@ class EndpointArgs(BaseModel):
     network: Optional[str] = Field(None, description="CAIP-2 network to pay on, e.g. eip155:8453")
     method: Optional[Literal["GET", "POST"]] = None
 
+class BuyArgs(BaseModel):
+    need: str = Field(min_length=3, max_length=500, description='What you need, in a sentence, with the details (place, symbol, query), e.g. "weather forecast for Amsterdam tomorrow" or "BTC price in USD"')
+
 
 ARGS = {
     "check_before_signing": SignArgs,
     "check_xrpl_transaction": XrplArgs,
     "check_solana_transaction": SolanaArgs,
     "check_algorand_transaction": AlgorandArgs,
+    "check_stellar_transaction": StellarArgs,
     "check_message": MessageArgs,
     "check_token": TokenArgs,
     "check_wallet_approvals": ApprovalArgs,
     "screen_wallet": ScreenArgs,
     "check_endpoint_before_paying": EndpointArgs,
+    "buy_live_data": BuyArgs,
 }
 TOOL_NAMES = tuple(ARGS)
 
 
-def pick(only):
-    """The tool names to build: all of them, or the ones in ``only`` (unknown names raise)."""
-    names = list(only) if only else list(TOOL_NAMES)
+def pick(only, buy=False):
+    """The tool names to build: the checks (plus buy_live_data with ``buy``, since it spends), or the ones in
+    ``only`` (unknown names raise)."""
+    names = list(only) if only else [n for n in TOOL_NAMES if buy or n != "buy_live_data"]
     unknown = [n for n in names if n not in ARGS]
     if unknown:
         raise ValueError(f"unknown Fizzl tool(s): {', '.join(unknown)}")

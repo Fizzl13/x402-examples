@@ -13,6 +13,7 @@ For LangChain.js and LangGraph.js: [`fizzl-langchain`](https://www.npmjs.com/pac
 | `check_solana_transaction` | a **Solana** transaction before signing it: every instruction is read and the transaction simulated. Token account takeover (SetAuthority), System Assign (red); unlimited delegates, durable nonces, closing to someone else, hidden owner or delegate changes, a failing transaction (orange) | presign-guard | $0.01 |
 | `check_message` | a plain message before `personal_sign` / `eth_sign`: eth_sign, a Sign-In with Ethereum message for another site (red); unreadable bytes, a sign-in for another URI, address or chain (orange) | presign-guard | $0.01 |
 | `check_algorand_transaction` | an **Algorand** transaction or atomic group before signing it: every transaction your account sends is read and the group simulated. Rekey to another key, closing the account or an asset holding to someone else, fake USDC (red); clawbacks, risky opt-ins, app update/delete/clear-state, a partial group, a group that would fail (orange) | presign-guard | $0.01 |
+| `check_stellar_transaction` | a **Stellar** transaction before signing it, also an x402 payment (a Soroban authorization the facilitator sends): every operation and authorized call is read and the call simulated. Account merge, an added signer, master key off, fake USDC/EURC, a payment to a look-alike address (red); token approvals, also hidden in a sub-call, a missing required memo (orange) | presign-guard | $0.01 |
 | `check_token` | a token **before buying or accepting it**: honeypot, rug-pull signs, look-alikes (Solana, EVM, XRPL tokens as `CURRENCY.rIssuer`, and Algorand assets by id) | presign-guard | $0.01 |
 | `check_wallet_approvals` | every open approval of a wallet and which to revoke | presign-guard | $0.02 |
 | `screen_wallet` | a wallet address **before paying it or accepting money from it**: any chain's address (EVM, Solana, Tron, Bitcoin, XRPL, Algorand) against the OFAC SDN sanctions list, synced from the US Treasury, plus theft and phishing reports for EVM (red names the SDN entry) | presign-guard | $0.01 |
@@ -20,6 +21,19 @@ For LangChain.js and LangGraph.js: [`fizzl-langchain`](https://www.npmjs.com/pac
 
 The checks only check. They never sign, pay or move anything themselves. A failed check comes back as
 `{"error": ..., "message": ...}` instead of raising, so the agent can tell its user.
+
+One more, which buys, so the tool sets only include it when you ask (`buy=True`, or in `only`):
+
+| Method | What the agent gets | Service | Price |
+|---|---|---|---|
+| `buy_live_data` | live data it can't get itself (a weather forecast, a crypto or stock price, an exchange rate, web search results, news, a company or address lookup) in one call: say what you need; Fizzl Buy picks the paid x402 API x402 Doctor has seen paying out day after day at a fair price, pays it and returns the answer, checked for hidden instructions. Nothing is charged when no seller delivers | [Fizzl Buy](https://buy.fizzl.eu) | $0.02 |
+
+```python
+fizzl.buy_live_data("weather forecast for Amsterdam tomorrow")
+# {'delivered': True, 'answer': {...}, 'service': {'url': ..., 'track_record': ...}, 'paid_usd': 0.005, 'answer_check': {...}}
+```
+
+Without a paying session it answers with a free preview: the seller Fizzl Buy would buy from, not the data itself.
 
 ## Install
 
@@ -49,7 +63,7 @@ fizzl.check_token("base", "0x...")
 fizzl.check_before_signing(type="approval", chainId=8453, token="0x...", spender="0x...", amount="115792089237316195423570985008687907853269984665640564039457584007913129639935")
 ```
 
-**Try it without a wallet:** `Fizzl()` with no paying session and no credit keys falls back to the free quick checks for `check_token`, `check_before_signing`, `check_solana_transaction`, `check_algorand_transaction`, `check_message` and `check_endpoint_before_paying`: the verdict only, a few per hour, marked `"free": True` with a note on what the full check costs. `check_wallet_approvals`, `screen_wallet` and `check_xrpl_transaction` have no free version. `Fizzl(free=False)` returns `payment_required` instead.
+**Try it without a wallet:** `Fizzl()` with no paying session and no credit keys falls back to the free quick checks for `check_token`, `check_before_signing`, `check_solana_transaction`, `check_algorand_transaction`, `check_stellar_transaction`, `check_message` and `check_endpoint_before_paying`: the verdict only, a few per hour, marked `"free": True` with a note on what the full check costs. `check_wallet_approvals`, `screen_wallet` and `check_xrpl_transaction` have no free version. `Fizzl(free=False)` returns `payment_required` instead.
 
 **Prepaid credits instead of a payment per check:** buy a pack once ([presign-guard](https://presign-guard.fizzl.eu/v1/credits): 100 checks for $0.80; [x402 Doctor](https://x402-doctor.fizzl.eu/api/v1/credits): 1000 preflights for $0.80), then use a plain session:
 
@@ -57,13 +71,36 @@ fizzl.check_before_signing(type="approval", chainId=8453, token="0x...", spender
 fizzl = Fizzl(credit_keys={"presign": PRESIGN_CREDIT_KEY, "doctor": DOCTOR_CREDIT_KEY})
 ```
 
+## Already pay with the x402 client? One line
+
+If your agent pays with the official x402 Python client (`x402ClientSync` or `x402Client`), add x402 Doctor's preflight as a hook and every payment that client makes is checked first:
+
+```python
+import requests
+from x402 import x402ClientSync
+from x402.http.clients import wrapRequestsWithPayment
+from fizzl.hook import doctor_preflight
+
+payer = x402ClientSync()                       # register your schemes as before
+session = wrapRequestsWithPayment(requests.Session(), payer)
+payer.on_before_payment_creation(doctor_preflight(session=session, max_usd=0.05))
+```
+
+Before the client signs, the hook asks x402 Doctor ($0.001, paid through the same session, or 1 prepaid credit with `credit_key`):
+
+- `no_go`: the payment is aborted (`PaymentAbortedError`); nothing is signed.
+- `caution`: aborted, unless `on_caution="pay"` or your function says yes.
+- `go`: it goes ahead. With `on_incomplete="stop"`, a `go` whose `checks_complete` is false is aborted too.
+
+The verdict is reused while the endpoint asks the same payTo, amount, token and network. Doctor's own 402 for the preflight is skipped by the hook and paid only up to $0.002. If Doctor can't be asked, the payment stops (`on_error="pay"` lets it through). Install with `pip install "fizzl[x402]"`.
+
 ## LangChain / LangGraph
 
 ```python
 from langgraph.prebuilt import create_react_agent
 from fizzl.langchain import fizzl_tools
 
-tools = fizzl_tools(session=session)          # or credit_keys={...}; only=[...] for some of them
+tools = fizzl_tools(session=session)          # or credit_keys={...}; only=[...] for some of them; buy=True adds buy_live_data
 agent = create_react_agent(model, tools + your_tools,
     prompt="Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.")
 ```

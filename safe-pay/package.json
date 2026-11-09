@@ -16,7 +16,7 @@
     "@algorandfoundation/xhd-wallet-api": "2.0.0-canary.1",
     "@scure/bip39": "^1.6.0",
     "@solana/kit": "^5.5.1",
-    "@x402/avm": "^2.28.0",
+    "@x402/avm": "^2.29.0",
     "@x402/evm": "^2.27.0",
     "@x402/fetch": "^2.27.0",
     "@x402/svm": "^2.27.0",

@@ -1,0 +1,62 @@
+{
+  "title": "Fizzl Buy: install the wallet in Claude once, then your agent buys what it needs on its own (~75 seconds)",
+  "output": "fizzl-buy-demo",
+  "segments": [
+    {
+      "id": "b-hook",
+      "scene": "card",
+      "card": {
+        "title": "Your agent needs data it doesn't have.",
+        "sub": "Tomorrow's weather. A price. A search."
+      },
+      "text": "Your AI agent needs something it doesn't have. Tomorrow's weather, a price, a search result."
+    },
+    {
+      "id": "b-install",
+      "scene": "install",
+      "text": "First, once: install the Fizzl Agent Wallet in Claude. Download it from wallet.fizzl.eu and open the file. No keys, no config file. On Claude Code or Cursor, it's one line.",
+      "hold": 9
+    },
+    {
+      "id": "b-limit",
+      "scene": "rule",
+      "text": "Put a dollar or two in your agent's wallet, and set how much it may spend on its own, per purchase and per day.",
+      "hold": 7
+    },
+    {
+      "id": "b-ask",
+      "scene": "buy-ask",
+      "text": "Then just ask. Here, Claude is asked to buy tomorrow's forecast for Amsterdam via buy.fizzl.eu. It pays $0.02 from its own wallet, within that limit. No click needed.",
+      "hold": 9
+    },
+    {
+      "id": "b-flow",
+      "scene": "buy-flow",
+      "text": "Behind that one call, Fizzl Buy does the work. It picks a weather API that x402 Doctor saw paying out on 29 of the last 30 days, fills in the request, checks the seller before paying, pays it $0.001, and checks the answer.",
+      "hold": 13
+    },
+    {
+      "id": "b-answer",
+      "scene": "buy-answer",
+      "text": "Fourteen seconds later, the forecast is back, with the service it came from and a signed receipt. When no seller delivers, nothing is charged.",
+      "hold": 9
+    },
+    {
+      "id": "b-site",
+      "scene": "buy-site",
+      "text": "That's all it takes: install the wallet in Claude, set a limit, and ask.",
+      "hold": 6
+    },
+    {
+      "id": "b-end",
+      "scene": "card",
+      "card": {
+        "title": "Fizzl Buy",
+        "sub": "One call buys the right paid API for your agent.",
+        "note": "Install: wallet.fizzl.eu · Buy: buy.fizzl.eu"
+      },
+      "text": "Fizzl Buy. Install the wallet at wallet.fizzl.eu, and your agent buys what it needs at buy.fizzl.eu.",
+      "hold": 5
+    }
+  ]
+}

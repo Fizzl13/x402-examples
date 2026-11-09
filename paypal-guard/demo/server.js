@@ -6,12 +6,13 @@
 //   POST /api/approve      { id, decision: "approve"|"deny", token }: the owner's tap on the page's phone
 // Env: PAYPAL_SANDBOX_CLIENT_ID + PAYPAL_SANDBOX_SECRET (else PayPal is simulated), ANTHROPIC_API_KEY (the
 // careful agent; needs DEMO_CODE), OWNER_CODE + WALLET_SERVER_KEY (approvals on the owner's Telegram through the
-// Fizzl wallet), PORT.
+// Fizzl wallet), FIZZL_PASS (a Fizzl Pass: a higher hourly limit for the free prompt-injection check;
+// INJECTION_CHECK=off turns that check off), PORT.
 import express from "express";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { fizzlWalletApproval } from "fizzl-paypal-guard";
+import { fizzlWalletApproval, fizzlInjection } from "fizzl-paypal-guard";
 import { runShop } from "./src/shop.js";
 
 const env = process.env;
@@ -22,6 +23,8 @@ const sandbox = Boolean(creds.clientId && creds.clientSecret);
 const claude = Boolean(env.ANTHROPIC_API_KEY && env.DEMO_CODE);
 const wallet = Boolean(env.OWNER_CODE && env.WALLET_SERVER_KEY);
 const APPROVAL_MS = 3 * 60_000;
+// Fizzl's free prompt-injection check reads each email once; the guard stops what a planted note asks for.
+const injection = env.INJECTION_CHECK === "off" ? null : fizzlInjection({ pass: env.FIZZL_PASS || undefined });
 const LIMITS = { careful: 10, fooled: 30 }; // runs an hour, across all visitors
 
 const same = (a, b) => typeof a === "string" && typeof b === "string" && a.length > 0 && timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
@@ -75,7 +78,7 @@ app.use((_req, res, next) => {
   next();
 });
 app.get("/health", (_req, res) => res.json({ ok: true }));
-app.get("/api/config", (_req, res) => res.json({ paypal: sandbox ? "sandbox" : "simulated", claude, wallet, running: Boolean(run), last: last ? { mode: last.mode, at: last.at } : null }));
+app.get("/api/config", (_req, res) => res.json({ paypal: sandbox ? "sandbox" : "simulated", claude, wallet, injection: Boolean(injection), running: Boolean(run), last: last ? { mode: last.mode, at: last.at } : null }));
 
 app.get("/api/stream", (req, res) => {
   res.set({ "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", connection: "keep-alive", "x-accel-buffering": "no" });
@@ -102,7 +105,7 @@ app.post("/api/run", (req, res) => {
   const mine = run;
   for (const c of clients) send(c, { type: "run", id: run.id, mode, approver, live: true });
   res.json({ id: run.id, token: run.token });
-  runShop({ mode, paypal: sandbox ? "sandbox" : "mock", creds, anthropic, approve: approver === "wallet" ? walletApprove : pageApprove, emit })
+  runShop({ mode, paypal: sandbox ? "sandbox" : "mock", creds, anthropic, injection, approve: approver === "wallet" ? walletApprove : pageApprove, emit })
     .catch((err) => { console.error(err); emit({ type: "error", message: String(err.message).slice(0, 300) }); })
     .finally(() => {
       for (const resolve of pending.values()) resolve({ approved: false, by: "run ended" });

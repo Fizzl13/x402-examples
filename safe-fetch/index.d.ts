@@ -10,9 +10,14 @@ export declare const ALGORAND: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzk
 export declare const ALGORAND_TESTNET: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=";
 export declare const XRPL: "xrpl:0";
 export declare const XRPL_TESTNET: "xrpl:1";
-/** The option paid on `network`: on Algorand only USDC, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
+export declare const STELLAR: "stellar:pubnet";
+export declare const STELLAR_TESTNET: "stellar:testnet";
+export declare const XLAYER: "eip155:196";
+/** The option paid on `network`: on Algorand only USDC, on Stellar only Circle's USDC contract within maxUsd, on X Layer only USD₮0 or USDC within maxUsd, on the XRP Ledger only RLUSD from Ripple's issuer within maxUsd (in dollars); null when there is none. */
 /** What a 402 offers (per x402 option: scheme, network, asset, amount, payTo) as a stable string; null without a readable x402 challenge. Consumes the body. */
 export declare function offerFingerprint(res: Response): Promise<string | null>;
+/** Wraps an Algorand scheme (e.g. @x402/avm's ExactAvmScheme) so it pays sellers that name Algorand by the whole genesis hash as well as by the CAIP-2 id. createSafeFetch does this for you. */
+export declare function anyAlgorandId<S extends object>(scheme: S): S;
 export declare function payableOption<A extends { network: string; asset?: unknown; amount?: unknown; extra?: Record<string, unknown> }>(accepts: A[], network: string, maxUsd: number | string): A | null;
 
 /** The x402 Doctor preflight: see https://x402-doctor.fizzl.eu/openapi.json */
@@ -21,6 +26,10 @@ export interface Preflight {
   summary?: string;
   reasons?: Array<{ level: string; code?: string; message: string }>;
   signals?: Record<string, unknown>;
+  checked?: Array<{ check: string; what: string }>;
+  not_checked?: Array<{ check: string; because: "unavailable" | "no_data" | "not_sent" | "out_of_scope"; why: string; send?: string }>;
+  /** false when a check that applies couldn't run this time */
+  checks_complete?: boolean;
   [key: string]: unknown;
 }
 
@@ -32,7 +41,7 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "preflight_failed" | "bad_receipt" | "no_option";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option";
   preflight: Preflight | null;
   url: string | null;
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
@@ -42,12 +51,14 @@ export declare class SafePayError extends Error {
 export interface SafeFetchOptions {
   /** Registers your payment schemes, e.g. (c) => c.register("eip155:8453", new ExactEvmScheme(account)). */
   register: (client: x402Client) => unknown;
-  /** The network you pay on: "base", "solana", "algorand" (USDC), "xrpl" (RLUSD), their "-testnet" forms, or a CAIP-2 id. Default Base. */
+  /** The network you pay on: "base", "solana", "algorand" (USDC), "xrpl" (RLUSD), "stellar" (USDC), "xlayer" (USD₮0 or USDC), their "-testnet" forms, or a CAIP-2 id. Default Base. */
   network?: string;
   /** Budget per endpoint call in USD. Default 0.05. */
   maxUsd?: number | string;
   /** What to do on a caution verdict. Default "stop". */
   onCaution?: "stop" | "pay" | ((preflight: Preflight) => boolean | Promise<boolean>);
+  /** What to do on a "go" whose checks_complete is false (a check that applies couldn't run). Default "pay"; "stop" throws code "incomplete". */
+  onIncomplete?: "pay" | "stop" | ((preflight: Preflight) => boolean | Promise<boolean>);
   /** Hosts you already trust: paid without a preflight. */
   trusted?: string[];
   onPreflight?: (preflight: Preflight, info: { url: string; method: string; cached: boolean }) => void;
@@ -63,8 +74,10 @@ export interface SafeFetchOptions {
   /** When a payment still fails (402 again, or paying throws), buy a $0.01 Doctor diagnosis of why. Default false. */
   diagnoseOnFailure?: boolean;
   onDiagnosis?: (report: Diagnosis, info: { url: string; method: string; status: number | null; error: Error | null }) => void;
-  /** After paying, tell Doctor whether the payment worked (with the signed preflight as proof), so later preflights learn from it. Default false. */
+  /** After paying, tell Doctor whether the payment worked (with the signed preflight as proof), so later preflights learn from it; when it does not pay (no_go, or a caution it stops at), report "refused" with the reason code, so the seller learns why. Default false. */
   shareOutcomes?: boolean;
+  /** When not paying, tell the seller why if its 402 names a refusal url on its own site (draft x402-foundation/x402#4087). Default false. */
+  tellSellers?: boolean;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;
@@ -86,3 +99,6 @@ export declare function recoverSigner(message: string, signature: string): strin
 export declare const AUTHORITY: string;
 export declare function certMessage(cert: { service: string; signer: string; valid_from: string }): string;
 export declare function verifyReceipt(body: unknown, options?: { signers?: string[]; route?: string; input?: unknown; authority?: string | null; service?: string }): { valid: boolean; signer?: string; reason?: string };
+
+/** The reason code reported with a refused outcome: the preflight's first reason at its verdict's level. */
+export function refusalReason(preflight: { verdict?: string; reasons?: { level?: string; code?: string }[] }): string;

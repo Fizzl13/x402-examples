@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Fizzl13/agent-safety-index",
+  "title": "Agent Safety Index",
+  "description": "Is this AI agent safe with a wallet? Signed x402 Agent Safety exam results, and live demos.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/Fizzl13/x402-examples",
+    "source": "github",
+    "subfolder": "agent-safety-bench"
+  },
+  "websiteUrl": "https://exam.fizzl.eu",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://exam.fizzl.eu/mcp"
+    }
+  ]
+}

@@ -16,8 +16,8 @@ from typing import Any, List, Optional
 from . import Fizzl
 
 
-def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, **kwargs) -> list:
-    """FunctionTools for the checks (all of them, or the names in ``only``). The checks run in a worker
+def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, buy: bool = False, **kwargs) -> list:
+    """FunctionTools for the checks (all of them, plus buy_live_data with ``buy``, or the names in ``only``). The checks run in a worker
     thread, so a blocking ``requests`` session doesn't stall the agent's event loop."""
     try:
         from agents import FunctionTool
@@ -42,4 +42,4 @@ def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: O
         return FunctionTool(name=name, description=(check.__doc__ or "").strip(), params_json_schema=model.model_json_schema(),
                             on_invoke_tool=on_invoke, strict_json_schema=False)
 
-    return [make(n) for n in pick(only)]
+    return [make(n) for n in pick(only, buy)]

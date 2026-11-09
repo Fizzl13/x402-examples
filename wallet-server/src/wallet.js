@@ -64,7 +64,7 @@ const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
 
 // track(route, { input, result, usd }): anonymous usage statistics (src/usage.js): the seller's host and
 // the amount of a purchase, never who, what for, or to which address.
-export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null, answerChecker = null, onAlert = async () => {}, mandateIssuer = null } = {}) {
+export function createWallet({ store, now = () => Date.now(), notify = async () => {}, signers = PRESIGN_SIGNERS, authority = AUTHORITY, approvalTtlMs = APPROVAL_TTL_MS, onSettled = () => {}, plan = async () => UNLIMITED, track = () => {}, ruleChecker = null, answerChecker = null, onAlert = async () => {}, mandateIssuer = null, priceSeen = null } = {}) {
   let queue = Promise.resolve();
   const locked = (fn) => { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; };
   const waiters = new Map(); // approval id -> Set of resolve functions (long polls)
@@ -168,6 +168,87 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     await onAlert({ kind: "price", agentName: agent.name, purchaseId: p.id, host, text: `💸 ${agent.name} paid $${paid} to ${route}, ${times}× the usual $${usual} there. It was within your rules, so it went through. If the seller raised its price, lower the per-call limit or pause the agent.` });
   }
 
+  // After a purchase within the rules: has the price of the same API (host + path) gone up a little on every call?
+  // Each step stays under the 2x price-jump alert, and the median it compares with climbs along, so a slow ratchet
+  // (AgentCommerceBench E1: +5% a call) never trips it. A heads-up for the owner, at most once a day per agent and API:
+  // the last 5+ payments there never went down, at least 4 of them were raises, and the latest is 1.5x the first of
+  // that run and half a cent more. Not when the price-jump alert already went today. No AI, never blocks.
+  const RATCHET_RUN = 5, RATCHET_RAISES = 4, RATCHET_TIMES = 1.5, RATCHET_MIN_USD = 0.005;
+  const ratchetSent = new Map(); // `${agent}|${route}` -> day
+  const usd6 = (n) => Math.round(n * 1e6) / 1e6;
+  async function checkRatchet(agent, purchase, p) {
+    const route = routeOf(purchase?.url), paid = usdOfAmounts(p.amounts);
+    if (!route || !paid) return;
+    const key = `${agent.id}|${route}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (ratchetSent.get(key) === day || priceSent.get(key) === day) return;
+    const earlier = (await store.listPurchases(200))
+      .filter((x) => x.agent === agent.id && x.id !== p.id && routeOf(x.what?.url) === route)
+      .map((x) => usdOfAmounts(x.amounts)).filter((n) => n > 0).slice(0, 9);
+    const prices = [...earlier.reverse(), paid]; // oldest first, this payment last
+    let start = prices.length - 1, raises = 0;
+    while (start > 0 && prices[start - 1] <= prices[start]) { if (prices[start - 1] < prices[start]) raises++; start--; }
+    const first = prices[start], run = prices.length - start;
+    if (run < RATCHET_RUN || raises < RATCHET_RAISES || !(paid >= first * RATCHET_TIMES && usd6(paid - first) >= RATCHET_MIN_USD)) return;
+    ratchetSent.set(key, day);
+    if (ratchetSent.size > 1000) ratchetSent.delete(ratchetSent.keys().next().value);
+    const host = hostOf(purchase.url);
+    const times = Math.round((paid / first) * 10) / 10;
+    await log("price_ratchet", { agent: agent.name, purchase: p.id, route, from: usd6(first), paid: usd6(paid), payments: run });
+    safeTrack("price_ratchet", { usd: paid, input: { host }, result: { from: usd6(first), times, payments: run } });
+    await onAlert({ kind: "ratchet", agentName: agent.name, purchaseId: p.id, host, text: `📈 ${agent.name} paid ${route} ${run} times in a row, a little more each time: from $${usd6(first)} to $${usd6(paid)} (${times}×). Each step was small and within your rules, so it went through. If the seller keeps raising its price, lower the per-call limit or pause the agent.` });
+  }
+
+  // After a purchase within the rules: did this seller charge the agent more than it asks everyone else? x402 Doctor
+  // calls every paid URL daily like any buyer would; when the agent paid 1.25x that price and half a cent more for the
+  // same URL, the owner gets a heads-up (AgentCommerceBench F2, price discrimination), at most once a day per agent
+  // and API, and not when the price-jump or creeping-price alert already went that day. A seller that prices by the
+  // request, or changed its price since the scan, can look the same: a heads-up, never a block. No AI.
+  const OVER_SCAN_TIMES = 1.25, OVER_SCAN_MIN_USD = 0.005;
+  const overScanSent = new Map(); // `${agent}|${route}` -> day
+  async function checkOverScan(agent, purchase, p) {
+    const route = routeOf(purchase?.url), paid = usdOfAmounts(p.amounts);
+    if (!priceSeen || !route || !paid) return;
+    const key = `${agent.id}|${route}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (overScanSent.get(key) === day || priceSent.get(key) === day || ratchetSent.get(key) === day) return;
+    const seen = await priceSeen(purchase.url);
+    if (!seen || !(paid >= seen.usd * OVER_SCAN_TIMES && usd6(paid - seen.usd) >= OVER_SCAN_MIN_USD)) return;
+    overScanSent.set(key, day);
+    if (overScanSent.size > 1000) overScanSent.delete(overScanSent.keys().next().value);
+    const host = hostOf(purchase.url);
+    const times = Math.round((paid / seen.usd) * 10) / 10;
+    await log("over_scan", { agent: agent.name, purchase: p.id, route, paid: usd6(paid), seen: usd6(seen.usd), date: seen.date });
+    safeTrack("over_scan_price", { usd: paid, input: { host }, result: { seen: usd6(seen.usd), times } });
+    await onAlert({ kind: "overcharge", agentName: agent.name, purchaseId: p.id, host, text: `🏷️ ${agent.name} paid $${usd6(paid)} to ${route}, ${times}× the $${usd6(seen.usd)} the seller asked x402 Doctor there${seen.date ? ` (daily scan of ${seen.date})` : ""}. It may charge your agent more than other buyers, or price per request. It was within your rules, so it went through. If it happens again, lower the per-call limit or pause the agent.` });
+  }
+
+  // After a purchase within the rules: did this agent pay the same seller (host) several times in a few minutes,
+  // together more than its per-call USDC limit? That is what a purchase split into parts under the limit looks like
+  // (structuring: each part passes, the whole wouldn't). A heads-up for the owner, at most once a day per agent and
+  // seller: 3+ payments within 10 minutes, each at least a quarter of the limit (an agent polling a seller for a cent
+  // under a $0.05 limit isn't splitting anything). No AI, never blocks; an honest burst can still look the same.
+  const SPLIT_WINDOW_MS = 10 * 60_000, SPLIT_MIN = 3, SPLIT_PART = 0.25;
+  const splitSent = new Map(); // `${agent}|${host}` -> day
+  async function checkSplit(agent, purchase, p, raw) {
+    const host = hostOf(purchase?.url);
+    const usdcKey = Object.keys(raw?.tokens ?? {}).find((k) => k.toUpperCase() === "USDC");
+    const perTx = Number(usdcKey ? raw.tokens[usdcKey]?.perTx : NaN);
+    if (!host || !(perTx > 0)) return;
+    const key = `${agent.id}|${host}`, day = new Date(now()).toISOString().slice(0, 10);
+    if (splitSent.get(key) === day) return;
+    const since = now() - SPLIT_WINDOW_MS;
+    let recent = (await store.listPurchases(200))
+      .filter((x) => x.agent === agent.id && (x.createdAt ?? 0) >= since && hostOf(x.what?.url) === host);
+    if (!recent.some((x) => x.id === p.id)) recent.push(p);
+    recent = recent.filter((x) => usdOfAmounts(x.amounts) >= perTx * SPLIT_PART);
+    const total = Math.round(recent.reduce((n, x) => n + usdOfAmounts(x.amounts), 0) * 1e6) / 1e6;
+    if (recent.length < SPLIT_MIN || !(total > perTx)) return;
+    splitSent.set(key, day);
+    if (splitSent.size > 1000) splitSent.delete(splitSent.keys().next().value);
+    await log("split", { agent: agent.name, purchase: p.id, host, payments: recent.length, total, perTx });
+    safeTrack("split_purchase", { usd: total, input: { host }, result: { payments: recent.length } });
+    await onAlert({ kind: "split", agentName: agent.name, purchaseId: p.id, host, text: `✂️ ${agent.name} paid ${host} ${recent.length} times in 10 minutes, $${total} in all: more than your per-call limit of $${perTx}. Each payment was within your rules, so they went through. If one purchase was split up to stay under the limit, lower the daily limit or pause the agent.` });
+  }
+
   async function updatePurchase(agent, purchaseId, change) {
     if (typeof purchaseId !== "string") return null;
     const p = await store.getPurchase(purchaseId);
@@ -219,7 +300,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         if (!first.includes(agent.id)) return { status: "paused", summary: `${agent.name} is paused: the free plan has ${maxAgents} agent${maxAgents === 1 ? "" : "s"} (upgrade to Pro on the dashboard)` };
       }
       if (!request || typeof request !== "object" || !request.type) throw Object.assign(new Error("request is required"), { status: 400 });
-      const { policy } = await policyNow();
+      const { raw, policy } = await policyNow();
       const trusted = trustedVerdict(verdict, request);
       const purchase = cleanPurchase(rawPurchase);
       const spend = spendFor(request, trusted);
@@ -250,7 +331,8 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
         await log("signed", { agent: agent.name, method, amounts: p.amounts, to: info.to, verdict: trusted?.verdict ?? null, purchase: p.id, what: purchase?.description ?? purchase?.url ?? null });
         safeTrack("purchase", { usd: usdcOf(charges), input: { host: bought(method, purchase), method }, result: { outcome: "ok", verdict: trusted?.verdict ?? "none" } });
         checkUnusual(agent, purchase, p).catch((err) => console.warn(`[unusual] ${err.message}`)); // in the background: the agent doesn't wait
-        checkPriceJump(agent, purchase, p).catch((err) => console.warn(`[price] ${err.message}`));
+        checkPriceJump(agent, purchase, p).then(() => checkRatchet(agent, purchase, p)).then(() => checkOverScan(agent, purchase, p)).catch((err) => console.warn(`[price] ${err.message}`));
+        checkSplit(agent, purchase, p, raw).catch((err) => console.warn(`[split] ${err.message}`));
         return { status: "ok", entries: entries.map((e) => e.id), purchaseId: p.id };
       }
       const summary = result.reasons.map((r) => r.message).join("; ");
@@ -423,6 +505,25 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       if (check.injection?.flagged) onAlert({ kind: "injection", agentName: agent.name, purchaseId: first?.id, host, text: `⚠️ The answer ${agent.name} got from ${host ?? "a paid API"} contains instructions aimed at your agent (${check.injection.why}). Your agent was told to treat it as data only. Check the receipt.` }).catch(() => {});
       else if (check.delivered?.verdict === "no") onAlert({ kind: "not_delivered", agentName: agent.name, purchaseId: first?.id, host, text: `${agent.name} paid ${amount} to ${host ?? "a paid API"} but didn't get what it paid for (${check.delivered.why}). See the receipt.` }).catch(() => {});
       return { updated, check };
+    },
+
+    // A payment the owner signed in their own wallet (the connector for ChatGPT and other remote apps,
+    // src/connector.js): the signature is the owner's OK, so no limits or rules stand in between. Booked so the
+    // day's totals include it, with a receipt; the outcome and the answer check follow through annotate().
+    // amount is in the token's own units (USDC: 6 decimals); the wallet counts in SCALE decimals.
+    async ownerSigned(agent, { chainId, to, amount, decimals = 6, budget = "USDC", purchase, from, method = "signTypedData" }) {
+      const scaled = (BigInt(amount) * 10n ** BigInt(SCALE - decimals)).toString();
+      return locked(async () => {
+        const info = { method, chainId, to };
+        const entries = await book(agent, [{ budget, amount: scaled }], info);
+        const clean = cleanPurchase(purchase);
+        const short = typeof from === "string" ? `${from.slice(0, 6)}…${from.slice(-4)}` : "your wallet";
+        const p = await openPurchase(agent, { ...info, entries, verdict: null, purchase: clean, approval: { by: "your wallet", summary: `You signed this payment in your own wallet (${short}).`, at: now() } });
+        const signed = await updatePurchase(agent, p.id, { status: "signed" });
+        await log("signed", { agent: agent.name, method: info.method, amounts: p.amounts, to, verdict: null, purchase: p.id, what: clean?.description ?? clean?.url ?? null });
+        safeTrack("purchase", { usd: usdcOf([{ budget, amount: scaled }]), input: { host: bought(info.method, clean), method: info.method }, result: { outcome: "ok", verdict: "owner" } });
+        return { purchaseId: (signed ?? p).id };
+      });
     },
 
     async purchase(purchaseId) {

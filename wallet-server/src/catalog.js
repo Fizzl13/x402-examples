@@ -2,15 +2,21 @@
 // search bar: the same catalog presign-guard-wallet-mcp's find_services searches. Listings are
 // what sellers say about themselves, so everything here is shown as data, never as a
 // recommendation, and only USDC prices on networks agents commonly pay on are kept.
+import { createHash, randomUUID } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
+import { readdirSync, rmSync, statSync } from "node:fs";
 import { isIP } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 export const DISCOVERY_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
 const TTL_MS = 60 * 60 * 1000;
 // The catalog comes oldest update first (a listing is updated when a payment settles), so its first pages are the
 // sellers nobody has paid lately. Up to 20 pages left out the newest two thirds (1,062 sellers, 22 Oct 2026); now
-// all of it is read (66 pages of 500 then, ~53 MB as slim listings), four pages at a time.
-const PAGES = 100;
+// all of it is read, four pages at a time. On 25 Oct it was 103 pages, and a cap of 100 left out the newest listings
+// again; the cap is only there against a runaway total.
+const PAGES = 2000;
 const AT_ONCE = 4;
 // Marks the first load of the whole catalog in `seen`: the sellers it adds were there before, not new (see track).
 const WHOLE = "#whole-catalog";
@@ -22,11 +28,6 @@ export const MOVED_HOSTS = {
   "ichimoku-signal.onrender.com": "ichimoku-signal.fizzl.eu",
   "smartcontractexplainer.onrender.com": "plaintext.fizzl.eu",
 };
-export function withoutMovedHosts(all, moved = MOVED_HOSTS) {
-  const hostOf = (item) => { try { return new URL(item.resource).hostname; } catch { return ""; } };
-  const listed = new Set(all.map(hostOf));
-  return all.filter((item) => { const to = moved[hostOf(item)]; return !to || !listed.has(to); });
-}
 
 // USDC per network (CAIP-2), 6 decimals on each.
 const USDC = {
@@ -66,39 +67,98 @@ const STOP = new Set(["the", "and", "for", "with", "api", "get", "data", "from",
 // Everyday Dutch words to the English words catalog listings use, so a plain question works too
 // ("wat is het weer de komende dagen in Amsterdam?" finds weather forecasts).
 const NL = { weer: "weather", weerbericht: "weather", voorspelling: "forecast", temperatuur: "temperature", regen: "rain", koers: "price", koersen: "price", prijs: "price", prijzen: "price", nieuws: "news", aandeel: "stock", aandelen: "stocks", munt: "coin", munten: "coins", veilig: "safe", veiligheid: "safety", vertaal: "translate", vertaling: "translation", samenvatting: "summary", samenvatten: "summarize", adres: "address", beurs: "market", markt: "market", vandaag: "today", morgen: "tomorrow", dagen: "days", wisselkoers: "exchange", uitleg: "explain", leg: "explain", controleer: "check", afbeelding: "image", plaatje: "image", foto: "image", tekst: "text", vlucht: "flight", vluchten: "flights", bedrijf: "company", portemonnee: "wallet", signaal: "signal" };
-export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).map((w) => NL[w] ?? w).filter((w) => w.length >= 3 && !STOP.has(w));
+// A rough English stem, the same for listings and questions, so "paying", "pays" and "paid"-less forms meet: "paying"
+// and "pays" become "pay", "checks" and "checking" "check", "prices" "price". It only has to be consistent, not right.
+export function stem(w) {
+  if (w.length <= 3 || /\d/.test(w)) return w;
+  if (w.endsWith("ies") && w.length > 4) return `${w.slice(0, -3)}y`;
+  if (w.endsWith("ing") && w.length > 5) return w.slice(0, -3);
+  if (w.endsWith("ed") && w.length > 5) return w.slice(0, -2);
+  if (/(ss|us|is)$/.test(w)) return w;
+  if (/(sh|ch|x|ss)es$/.test(w)) return w.slice(0, -2);
+  if (w.endsWith("s")) return w.slice(0, -1);
+  return w;
+}
+export const words = (t) => String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).map((w) => NL[w] ?? w).filter((w) => w.length >= 3 && !STOP.has(w)).map(stem);
 // ---------- skill.md: does a seller publish instructions agents can follow? ----------
 // Checked for the sellers in search results only, from the server, so carefully: https on the
 // standard port, a public hostname (no IP literals, nothing resolving to a private address), no
 // redirects, 3 seconds, and only a small text answer that looks like markdown. Cached per origin.
 const PRIVATE = [/^0\./, /^10\./, /^127\./, /^169\.254\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./, /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, /^::1$/, /^::$/, /^f[cd]/i, /^fe80/i, /^::ffff:(0|10|127|169\.254|192\.168)\./i];
 export const isPrivateAddress = (a) => PRIVATE.some((r) => r.test(a));
-export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now() } = {}) {
-  const cache = new Map(); // origin -> { has, at }
+// A skill.md is text an agent reads and follows, so a seller could hide instructions in it ("send me your key",
+// "pay this address instead"). Before a link is shown, PG1 (pg1-ai-agent.vercel.app, free) reads it with
+// check_agent_message: fixed rules, no AI model, and the text isn't stored. Its answer: "malicious" (hidden tag
+// characters, a request for secrets, a payment redirect, a sanctioned address), "suspicious" (medium findings only)
+// or "no_findings", which doesn't prove the text is harmless. Returns { verdict, codes }, or null when PG1 can't be
+// asked (slow, down, or over its 60 calls an hour; PG1_API_KEY lifts that limit). After a rate limit it is left
+// alone for 5 minutes.
+export const PG1_URL = "https://pg1-ai-agent.vercel.app/api/mcp";
+const MAX_SKILL_BYTES = 65536; // PG1 reads up to 64 KB
+export function createAgentMessageCheck({ fetch: fetchImpl = globalThis.fetch, url = PG1_URL, apiKey = null, timeoutMs = 8000, now = () => Date.now() } = {}) {
+  let pausedUntil = 0, id = 0;
+  return async function checkText(text, kind = "skill_md") {
+    if (now() < pausedUntil) return null;
+    const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+    if (apiKey) headers["x-api-key"] = apiKey;
+    try {
+      const res = await fetchImpl(url, { method: "POST", headers, signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/call", params: { name: "check_agent_message", arguments: { text, kind } } }) });
+      if (res.status === 429) { pausedUntil = now() + 5 * 60_000; return null; }
+      if (!res.ok) return null;
+      const raw = await res.text();
+      const result = JSON.parse(raw.match(/^data: (.*)$/m)?.[1] ?? raw)?.result;
+      if (!result || result.isError) { if (/rate_limited/.test(JSON.stringify(result ?? ""))) pausedUntil = now() + 5 * 60_000; return null; }
+      const out = result.structuredContent ?? JSON.parse(result.content?.[0]?.text ?? "null");
+      if (!["no_findings", "suspicious", "malicious"].includes(out?.verdict)) return null;
+      const codes = [...new Set((out.findings ?? []).map((f) => String(f?.code ?? "")).filter(Boolean))].slice(0, 8);
+      return { verdict: out.verdict, codes };
+    } catch { return null; }
+  };
+}
+// A link is shown with the check's result (skillCheck): "no_findings", "suspicious" (shown with a warning) or
+// "unchecked" (PG1 couldn't be asked, or the file is over 64 KB); a "malicious" one isn't shown at all.
+export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), now = () => Date.now(), checkText = null } = {}) {
+  const cache = new Map(); // origin -> { has, at, check }
   const pending = new Map(); // origins being checked right now
   async function probe(origin) {
+    const no = { has: false, check: null };
     const u = new URL(origin);
-    if (u.protocol !== "https:" || u.port || isIP(u.hostname) || !u.hostname.includes(".") || /(^|\.)(localhost|local|internal)$/i.test(u.hostname)) return false;
+    if (u.protocol !== "https:" || u.port || isIP(u.hostname) || !u.hostname.includes(".") || /(^|\.)(localhost|local|internal)$/i.test(u.hostname)) return no;
     const addrs = await lookup(u.hostname).catch(() => []);
-    if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address ?? a))) return false;
+    if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address ?? a))) return no;
     const res = await fetchImpl(`${u.origin}/skill.md`, { redirect: "manual", signal: AbortSignal.timeout(3000), headers: { accept: "text/markdown, text/plain" } }).catch(() => null);
-    if (!res || res.status !== 200 || !/^text\/(markdown|plain|x-markdown)/i.test(res.headers.get("content-type") ?? "")) return false;
+    if (!res || res.status !== 200 || !/^text\/(markdown|plain|x-markdown)/i.test(res.headers.get("content-type") ?? "")) return no;
+    // Read up to 64 KB (one byte more tells whether there is more), all of it for the injection check.
     const reader = res.body?.getReader?.();
-    let text = "";
+    const chunks = [];
+    let total = 0;
     if (reader) {
-      for (let total = 0; total < 65536;) { const { done, value } = await reader.read(); if (done) break; total += value.length; text += new TextDecoder().decode(value, { stream: true }); if (text.length > 512) break; }
+      while (total <= MAX_SKILL_BYTES) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); total += value.length; }
       reader.cancel().catch(() => {});
-    } else text = (await res.text()).slice(0, 512);
-    return /^\s*(---|#)/.test(text);
+    } else { const b = new Uint8Array(await res.arrayBuffer()); chunks.push(b); total = b.length; }
+    const bytes = new Uint8Array(Math.min(total, MAX_SKILL_BYTES + 1));
+    let at = 0;
+    for (const c of chunks) { if (at >= bytes.length) break; bytes.set(c.subarray(0, bytes.length - at), at); at += Math.min(c.length, bytes.length - at); }
+    const tooBig = total > MAX_SKILL_BYTES;
+    const text = new TextDecoder().decode(bytes);
+    if (!/^\s*(---|#)/.test(text)) return no;
+    const check = checkText && !tooBig ? await checkText(text, "skill_md").catch(() => null) : null;
+    return { has: true, check };
   }
+  const entry = (origin) => cache.get(origin);
+  const shown = (c) => !!c?.has && c.check?.verdict !== "malicious";
   return {
-    known: (origin) => cache.get(origin)?.has ?? null,
+    known: (origin) => (entry(origin) ? shown(entry(origin)) : null),
+    // What the check found for a shown link: { verdict: "no_findings" | "suspicious" | "unchecked", codes }; null without one.
+    review: (origin) => { const c = entry(origin); return shown(c) ? (c.check ?? { verdict: "unchecked", codes: [] }) : null; },
     // Check these origins (in parallel, waiting at most `waitMs`); later calls use the cache.
     // At most 16 sellers are asked at once, and one that is being asked isn't asked again.
+    // A checked skill.md is checked again after a day; no skill.md, or one PG1 couldn't check, after 6 hours.
     async check(origins, { waitMs = 3500 } = {}) {
-      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !pending.has(o) && (!c || now() - c.at > (c.has ? 86_400_000 : 6 * 3_600_000)); });
+      const todo = [...new Set(origins)].filter((o) => { const c = cache.get(o); return !pending.has(o) && (!c || now() - c.at > (c.has && c.check ? 86_400_000 : 6 * 3_600_000)); });
       for (const o of todo) pending.set(o, null);
-      const one = (o) => probe(o).catch(() => false).then((has) => { cache.set(o, { has, at: now() }); pending.delete(o); if (cache.size > 5000) cache.delete(cache.keys().next().value); });
+      const one = (o) => probe(o).catch(() => ({ has: false, check: null })).then(({ has, check }) => { cache.set(o, { has, check, at: now() }); pending.delete(o); if (cache.size > 5000) cache.delete(cache.keys().next().value); });
       const queue = [...todo];
       const worker = async () => { while (queue.length) await one(queue.shift()); };
       const runs = Array.from({ length: Math.min(16, queue.length) }, worker);
@@ -110,7 +170,7 @@ export function createSkillChecker({ fetch: fetchImpl = globalThis.fetch, lookup
 // The USDC prices of a listing, one per network we know (checked against that network's USDC).
 function pricesOf(item) {
   const prices = [];
-  for (const a of item.accepts ?? []) {
+  for (const a of item?.accepts ?? []) {
     const known = USDC[a?.network];
     if (!known || String(a.asset ?? "").toLowerCase() !== known[1].toLowerCase()) continue;
     const usd = Number(a.amount ?? a.maxAmountRequired ?? NaN) / 1e6;
@@ -119,53 +179,178 @@ function pricesOf(item) {
   return prices;
 }
 const text = (v, n) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n) : "");
-// Only what search, the category tiles and new-seller alerts read from a listing. The full listings (with their
-// output schemas) took ~77 MB for 10,000 in memory, twice while refreshing, on a 512 MB server; this is ~18 MB.
+// Only what search, the category tiles and new-seller alerts read from a listing: its USDC prices, category and
+// search words (" bitcoin price btc "), worked out once per load, and of the example input only what a search shows
+// (the method, and the query parameters or body).
 export function slimListing(item) {
   const input = item?.extensions?.bazaar?.info?.input;
+  const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
+  const description = text(item?.description, 400) || text(accepts[0]?.description, 400);
+  const first400 = (v) => (typeof v === "string" ? v.slice(0, 400) : "");
+  let u = null;
+  try { u = new URL(item?.resource); } catch {}
+  const example = input ? Object.fromEntries(["method", "queryParams", "body"].filter((k) => input[k] !== undefined).map((k) => [k, input[k]])) : null;
   return {
     resource: item?.resource,
-    description: typeof item?.description === "string" ? item.description.slice(0, 400) : undefined,
-    accepts: (Array.isArray(item?.accepts) ? item.accepts : []).map((a) => ({ network: a?.network, asset: a?.asset, amount: a?.amount, maxAmountRequired: a?.maxAmountRequired, description: typeof a?.description === "string" ? a.description.slice(0, 400) : undefined })),
-    ...(input ? { extensions: { bazaar: { info: { input } } } } : {}),
+    description,
+    prices: pricesOf(item),
+    ...(example ? { input: example } : {}),
+    category: u ? categorize(`${first400(item?.description)} ${first400(accepts[0]?.description)} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`) : "other",
+    words: u ? ` ${[...new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(input ?? {})}`))].join(" ")} ` : " ",
   };
+}
+
+// One load of the catalog, in a SQLite file (Node's built-in node:sqlite) rather than in memory. In memory it took
+// 104 MB for 51,000 listings, twice that while refreshing, and ran this 512 MB server out of memory on 25 Oct 2026
+// (exit status 134); the catalog keeps growing. On disk the heap stays ~20 MB whatever its size, and a search looks its
+// words up in a full-text index (fts) instead of going through every listing. The file is written page by page and
+// then only read, and removed when it is closed. (Removing it while open, so a crash would leave nothing, works with
+// Node 22's SQLite but gives "disk I/O error" on the first write with Node 24 and later: 25 Oct 2026, every search
+// on Render failed. Files a crash leaves behind are cleared by removeStale.)
+// The file is kept small, since it grows with the catalog and is there twice during a refresh (75 MB for 51,700
+// listings on 25 Oct 2026, 45 MB since): the full-text index keeps no copy of the words (content=''), so a search
+// counts a listing's matching words with one index lookup per word (see matchCounts); example inputs, the same for
+// many endpoints of a seller (19,800 different ones among 51,700), are kept once in their own table; and there is no
+// index on host, which only the hourly moved-hosts step reads.
+function createListingsFile(file) {
+  const db = new DatabaseSync(file);
+  db.exec(`PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;
+    CREATE TABLE examples (id INTEGER PRIMARY KEY, hash INTEGER UNIQUE, json TEXT);
+    CREATE TABLE listings (id INTEGER PRIMARY KEY, resource TEXT, origin TEXT, host TEXT, path TEXT, https INTEGER,
+      description TEXT, prices TEXT, cheapest REAL, method TEXT, example INTEGER, category TEXT);
+    CREATE INDEX listings_origin ON listings (origin);
+    CREATE VIRTUAL TABLE fts USING fts5(words, content='', contentless_delete=1);`);
+  const insert = db.prepare("INSERT INTO listings (resource, origin, host, path, https, description, prices, cheapest, method, example, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const insertWords = db.prepare("INSERT INTO fts (rowid, words) VALUES (?, ?)");
+  const insertExample = db.prepare("INSERT INTO examples (hash, json) VALUES (?, ?) ON CONFLICT (hash) DO NOTHING");
+  const exampleId = db.prepare("SELECT id FROM examples WHERE hash = ?");
+  // The id of an example input (JSON), stored once; null without one. Keyed by the first 8 bytes of its SHA-1.
+  const exampleOf = (input) => {
+    const json = JSON.stringify(input?.queryParams ?? input?.body ?? null);
+    if (json === "null") return null;
+    const hash = createHash("sha1").update(json).digest().readBigInt64BE(0);
+    insertExample.run(hash, json);
+    return exampleId.get(hash).id;
+  };
+  return {
+    db,
+    add(items) {
+      db.exec("BEGIN");
+      try {
+        for (const item of items) {
+          const s = slimListing(item);
+          let u = null;
+          try { u = new URL(s.resource); } catch {}
+          const cheapest = s.prices.length ? Math.min(...s.prices.map((p) => p.usd)) : null;
+          const { lastInsertRowid } = insert.run(u?.href ?? String(s.resource ?? ""), u?.origin ?? null, u?.hostname ?? null, u?.pathname ?? null, u?.protocol === "https:" ? 1 : 0,
+            s.description, JSON.stringify(s.prices), cheapest, text(String(s.input?.method ?? ""), 8).toUpperCase() || null,
+            exampleOf(s.input), s.category);
+          insertWords.run(lastInsertRowid, s.words);
+        }
+        db.exec("COMMIT");
+      } catch (err) { db.exec("ROLLBACK"); throw err; }
+    },
+    // An old host is left out once its new host is listed too.
+    withoutMovedHosts(moved = MOVED_HOSTS) {
+      for (const [from, to] of Object.entries(moved)) {
+        if (!db.prepare("SELECT 1 FROM listings WHERE host = ? LIMIT 1").get(to)) continue;
+        db.prepare("DELETE FROM fts WHERE rowid IN (SELECT id FROM listings WHERE host = ?)").run(from);
+        db.prepare("DELETE FROM listings WHERE host = ?").run(from);
+      }
+    },
+    close() { try { db.close(); } catch {} rmSync(file, { force: true }); },
+  };
+}
+const inList = (values) => JSON.stringify([...values]);
+// How many of the words each listing has: listing id -> count, one index lookup per word (the index keeps no copy of a
+// listing's words to read back).
+// Each listing's score for the question's words: a rare word counts more than a common one (inverse document
+// frequency), so "buy an API call for my agent" ranks a listing about buying above the thousands that only say
+// "agent". Before 29 Oct 2026 every word counted 1 and ties went to the cheapest, which buried Fizzl Buy and others.
+// `all` is the score of a listing that has every word, so score / all says how much of the question it covers.
+function matchCounts(db, terms) {
+  const counts = new Map();
+  const lookup = db.prepare("SELECT rowid FROM fts WHERE fts MATCH ?");
+  const total = db.prepare("SELECT count(*) AS n FROM listings").get().n || 1;
+  let all = 0;
+  for (const t of terms) {
+    const rows = [...lookup.iterate(`"${t}"`)];
+    const weight = Math.log(1 + total / Math.max(1, rows.length));
+    all += weight;
+    for (const { rowid } of rows) counts.set(rowid, (counts.get(rowid) ?? 0) + weight);
+  }
+  return { counts, all };
+}
+// Catalog files of another catalog (another process, or this one before a restart) that weren't touched for two hours:
+// left behind, since a live catalog writes a new file every hour.
+const STALE_MS = 2 * 60 * 60 * 1000;
+function removeStale(dir, mine) {
+  let names = [];
+  try { names = readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    if (!name.startsWith("fizzl-catalog-") || !name.endsWith(".db") || name.startsWith(mine)) continue;
+    try { if (Date.now() - statSync(join(dir, name)).mtimeMs > STALE_MS) rmSync(join(dir, name), { force: true }); } catch {}
+  }
 }
 
 // `seen` keeps when each seller (origin) first appeared ({ getSeen, addSeen }, e.g. store.global), so
 // new providers can be marked and listed. The first catalog ever loaded is the baseline: none of it is new.
 // `onNew(providers)` is called once with the sellers that appeared since the last load (never for the baseline).
 // `trust` (src/trust.js): x402 Doctor's daily track records per seller, to rank and label results.
-export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null } = {}) {
-  let items = null, at = 0, loading = null, firstSeen = {};
-  async function load() {
-    if (items && now() - at < TTL_MS) return items;
-    loading ??= (async () => {
-      const page = async (n) => {
-        const res = await fetchImpl(`${url}?type=http&limit=500&offset=${n * 500}`, { signal: AbortSignal.timeout(15_000) });
-        if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
-        return res.json();
-      };
-      const first = await page(0);
-      const all = (first.items ?? []).map(slimListing);
-      const total = Number(first.pagination?.total);
-      const pages = Number.isFinite(total) && total > 0 ? Math.min(PAGES, Math.ceil(total / 500)) : all.length < 500 ? 1 : PAGES;
-      for (let n = 1; n < pages; n += AT_ONCE) {
-        const batch = await Promise.all(Array.from({ length: Math.min(AT_ONCE, pages - n) }, (_, i) => page(n + i)));
-        let short = false;
-        for (const b of batch) { const items = b.items ?? []; for (const item of items) all.push(slimListing(item)); short ||= items.length < 500; }
-        if (short) break;
-      }
-      items = withoutMovedHosts(all); at = now();
-      const fresh = await track(items).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
-      if (fresh.length && onNew) announce(items, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
-      return items;
-    })().finally(() => { loading = null; });
-    return loading;
+// `dir`: where the catalog files are written (see createListingsFile); `closeOldAfterMs`: how long the previous file
+// stays open after a reload.
+export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalThis.fetch, now = () => Date.now(), seen = null, skills = null, onNew = null, trust = null, ranker = null, dir = tmpdir(), closeOldAfterMs = 60_000 } = {}) {
+  let current = null, at = 0, loading = null, firstSeen = {}, loads = 0;
+  // A seller's skill.md link and what the injection check found in it (see createSkillChecker).
+  const withSkill = (r, origin) => {
+    r.skill = skills.known(origin) ? `${origin}/skill.md` : null;
+    if (r.skill && skills.review) r.skillCheck = skills.review(origin);
+  };
+  const mine = `fizzl-catalog-${randomUUID().slice(0, 8)}-`;
+  // A copy older than `maxAgeMs` is loaded again, but a search gets the old copy at once while the new one loads:
+  // the whole catalog is 100+ pages and takes tens of seconds, and a search that waited for it timed out (Fizzl Buy's
+  // catalog search, 24 Oct 2026). Only the first load, and `wait` (the hourly refresh), wait for it. Resolves to the
+  // database to read; every query on it runs before the caller's next await.
+  async function load({ wait = false, maxAgeMs = TTL_MS } = {}) {
+    if (current && now() - at < maxAgeMs) return current.db;
+    if (!loading) {
+      loading = (async () => {
+        const page = async (n) => {
+          const res = await fetchImpl(`${url}?type=http&limit=500&offset=${n * 500}`, { signal: AbortSignal.timeout(15_000) });
+          if (!res.ok) throw new Error(`the x402 catalog answered HTTP ${res.status}`);
+          return res.json();
+        };
+        removeStale(dir, mine);
+        const file = createListingsFile(join(dir, `${mine}${++loads}.db`));
+        try {
+          const first = await page(0);
+          const items = first.items ?? [];
+          file.add(items);
+          const total = Number(first.pagination?.total);
+          const pages = Number.isFinite(total) && total > 0 ? Math.min(PAGES, Math.ceil(total / 500)) : items.length < 500 ? 1 : PAGES;
+          for (let n = 1; n < pages; n += AT_ONCE) {
+            const batch = await Promise.all(Array.from({ length: Math.min(AT_ONCE, pages - n) }, (_, i) => page(n + i)));
+            let short = false;
+            for (const b of batch) { const items = b.items ?? []; file.add(items); short ||= items.length < 500; }
+            if (short) break;
+          }
+          file.withoutMovedHosts();
+        } catch (err) { file.close(); throw err; }
+        const old = current;
+        current = file; at = now();
+        // A request that already has the old database still reads it; it is closed a minute later.
+        if (old) setTimeout(() => old.close(), closeOldAfterMs).unref();
+        const fresh = await track(file.db).catch((err) => { console.warn(`[catalog] tracking new providers: ${err.message}`); return []; });
+        if (fresh.length && onNew) announce(file.db, new Set(fresh)).catch((err) => console.warn(`[catalog] new providers: ${err.message}`));
+        return file.db;
+      })().finally(() => { loading = null; });
+      loading.catch((err) => { if (current) console.warn(`[catalog] reload failed, keeping the old copy: ${err.message}`); });
+    }
+    return current && !wait ? current.db : loading;
   }
 
-  async function track(all) {
-    const origins = new Set();
-    for (const item of all) { try { const u = new URL(item.resource); if (u.protocol === "https:") origins.add(u.origin); } catch {} }
+  async function track(db) {
+    const origins = db.prepare("SELECT DISTINCT origin FROM listings WHERE https = 1").all().map((r) => r.origin);
     const known = seen ? await seen.getSeen() : firstSeen;
     // The very first catalog, and the first time the whole catalog is read (before, only its oldest 10,000 listings):
     // what they add is the baseline, so customers aren't told about a thousand "new" sellers at once.
@@ -178,57 +363,52 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     return baseline ? [] : Object.keys(fresh);
   }
   // What each new seller offers, for onNew: one summary per origin (sellers without a USDC price are left out).
-  function summarize(all, origins) {
+  function summarize(db, origins) {
     const by = new Map();
-    for (const item of all) {
-      let u; try { u = new URL(item.resource); } catch { continue; }
-      if (!origins.has(u.origin)) continue;
-      const prices = pricesOf(item);
-      if (!prices.length) continue;
-      const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", cats: new Map() };
+    for (const row of db.prepare("SELECT origin, host, description, prices, category FROM listings WHERE cheapest IS NOT NULL AND origin IN (SELECT value FROM json_each(?)) ORDER BY id").iterate(inList(origins))) {
+      const prices = JSON.parse(row.prices);
+      const p = by.get(row.origin) ?? { origin: row.origin, host: row.host, firstSeen: firstSeen[row.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", cats: new Map() };
       p.listings++;
       p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
       prices.forEach((x) => p.networks.add(x.network));
-      if (!p.description) p.description = text(item.description, 300) || text(item.accepts?.[0]?.description, 300);
-      const c = categoryOf(item, u);
-      p.cats.set(c, (p.cats.get(c) ?? 0) + 1);
-      by.set(u.origin, p);
+      if (!p.description) p.description = row.description.slice(0, 300);
+      p.cats.set(row.category, (p.cats.get(row.category) ?? 0) + 1);
+      by.set(row.origin, p);
     }
     // A seller's category: the one most of its listings fall in.
     return [...by.values()].map(({ cats, networks, ...p }) => ({ ...p, networks: [...networks], category: [...cats].sort((a, b) => b[1] - a[1])[0][0] }));
   }
-  async function announce(all, origins) {
-    const providers = summarize(all, origins);
+  async function announce(db, origins) {
+    const providers = summarize(db, origins);
     if (!providers.length) return;
-    if (skills) { await skills.check(providers.map((p) => p.origin)); for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null; }
+    if (skills) { await skills.check(providers.map((p) => p.origin)); for (const p of providers) withSkill(p, p.origin); }
     await onNew(providers);
   }
-  const categoryOf = (item, u) => categorize(`${item.description ?? ""} ${item.accepts?.[0]?.description ?? ""} ${u.hostname.replace(/\./g, " ")} ${u.pathname.replace(/[/_-]/g, " ")}`);
   const isNew = (origin, days = 7) => (firstSeen[origin] ?? 0) > now() - days * 86_400_000;
 
   return {
-    // Load the catalog now if the cached copy is old (the server does this hourly, so new sellers are noticed).
-    async refresh() { await load(); await trust?.ready({ waitMs: 30_000 }); },
+    // Load the catalog again and wait for it (the server does this hourly, so new sellers are noticed). A copy just
+    // under an hour old counts as old here: with the full hour, every other hourly refresh found it 59 minutes old
+    // and skipped it, and a search had to start the reload.
+    async refresh() { await load({ wait: true, maxAgeMs: TTL_MS - 5 * 60_000 }); await trust?.ready({ waitMs: 30_000 }); },
     // Sellers that appeared in the last `days` days, newest first, with what they offer.
     async newProviders({ days = 7, limit = 30 } = {}) {
-      const list = await load();
+      const db = await load();
+      const recent = Object.keys(firstSeen).filter((o) => isNew(o, days));
       const by = new Map();
-      for (const item of list) {
-        let u; try { u = new URL(item.resource); } catch { continue; }
-        if (u.protocol !== "https:" || !isNew(u.origin, days)) continue;
-        const prices = pricesOf(item);
-        if (!prices.length) continue;
-        const p = by.get(u.origin) ?? { origin: u.origin, host: u.hostname, firstSeen: firstSeen[u.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", example: u.href };
+      for (const row of db.prepare("SELECT resource, origin, host, description, prices FROM listings WHERE https = 1 AND cheapest IS NOT NULL AND origin IN (SELECT value FROM json_each(?)) ORDER BY id").iterate(inList(recent))) {
+        const prices = JSON.parse(row.prices);
+        const p = by.get(row.origin) ?? { origin: row.origin, host: row.host, firstSeen: firstSeen[row.origin], listings: 0, cheapest: Infinity, networks: new Set(), description: "", example: row.resource };
         p.listings++;
         p.cheapest = Math.min(p.cheapest, ...prices.map((x) => x.usd));
         prices.forEach((x) => p.networks.add(x.network));
-        if (!p.description) p.description = text(item.description, 300);
-        by.set(u.origin, p);
+        if (!p.description) p.description = row.description.slice(0, 300);
+        by.set(row.origin, p);
       }
       const providers = [...by.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, limit).map((p) => ({ ...p, networks: [...p.networks] }));
       if (skills && providers.length) {
         await skills.check(providers.map((p) => p.origin));
-        for (const p of providers) p.skill = skills.known(p.origin) ? `${p.origin}/skill.md` : null;
+        for (const p of providers) withSkill(p, p.origin);
       }
       return { days, providers, trackingSince: Math.min(...Object.values(firstSeen).filter((v) => v > 0), now()) };
     },
@@ -237,16 +417,14 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
     async categories({ maxUsd = Infinity } = {}) {
       const counts = new Map([...CATEGORIES.map((c) => [c.id, { ...c, count: 0, fresh: 0, sellers: new Set() }]), ["other", { id: "other", name: "Other", icon: "✨", count: 0, fresh: 0, sellers: new Set() }]]);
       const seenUrl = new Set();
-      for (const item of await load()) {
-        let u; try { u = new URL(item.resource); } catch { continue; }
-        if (u.protocol !== "https:" || seenUrl.has(`${u.origin}${u.pathname}`)) continue;
-        const prices = pricesOf(item);
-        if (!prices.length || Math.min(...prices.map((p) => p.usd)) > maxUsd) continue;
-        seenUrl.add(`${u.origin}${u.pathname}`);
-        const c = counts.get(categoryOf(item, u));
+      const db = await load();
+      for (const row of db.prepare("SELECT origin, path, cheapest, category FROM listings WHERE https = 1 AND cheapest IS NOT NULL ORDER BY id").iterate()) {
+        if (row.cheapest > maxUsd || seenUrl.has(`${row.origin}${row.path}`)) continue;
+        seenUrl.add(`${row.origin}${row.path}`);
+        const c = counts.get(row.category);
         c.count++;
-        c.sellers.add(u.origin);
-        if (isNew(u.origin)) c.fresh++;
+        c.sellers.add(row.origin);
+        if (isNew(row.origin)) c.fresh++;
       }
       // count: listings; providers: sellers (browsing a category shows one card per seller).
       return { categories: [...counts.values()].map(({ words: _w, sellers, ...c }) => ({ ...c, providers: sellers.size })).filter((c) => c.count > 0) };
@@ -260,27 +438,29 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       const nets = networks?.length ? new Set(networks) : null;
       if (!terms.length && !category && !fresh && !skill && !reliable) return { query: String(query ?? ""), results: [], total: 0, page: 1, pages: 0 };
       const found = new Map(); // one result per URL
-      for (const item of await load()) {
-        let u;
-        try { u = new URL(item.resource); } catch { continue; }
-        if (u.protocol !== "https:") continue;
-        if (fresh && !isNew(u.origin)) continue;
-        const prices = pricesOf(item).filter((p) => !nets || nets.has(p.network));
+      const db = await load();
+      // With words, the listings that have any of them (the full-text index); then the filters.
+      const where = ["l.https = 1", "l.cheapest IS NOT NULL"], params = [];
+      if (terms.length) { where.push("fts MATCH ?"); params.push(terms.map((t) => `"${t}"`).join(" OR ")); }
+      if (category) { where.push("l.category = ?"); params.push(category); }
+      if (fresh) { where.push("l.origin IN (SELECT value FROM json_each(?))"); params.push(inList(Object.keys(firstSeen).filter((o) => isNew(o)))); }
+      const { counts: matched = null, all: allWords = 0 } = terms.length ? matchCounts(db, terms) : {};
+      const rows = db.prepare(`SELECT l.id, l.resource, l.origin, l.host, l.path, l.description, l.prices, l.method, e.json AS example, l.category
+        FROM ${terms.length ? "fts JOIN listings l ON l.id = fts.rowid" : "listings l"} LEFT JOIN examples e ON e.id = l.example
+        WHERE ${where.join(" AND ")} ORDER BY l.id`).iterate(...params);
+      for (const row of rows) {
+        const prices = JSON.parse(row.prices).filter((p) => !nets || nets.has(p.network));
         if (!prices.length) continue;
         const cheapest = Math.min(...prices.map((p) => p.usd));
         if (cheapest > maxUsd) continue;
-        const info = item.extensions?.bazaar?.info ?? {};
-        const description = text(item.description, 400) || text(item.accepts?.[0]?.description, 400);
-        const cat = categoryOf(item, u);
-        if (category && cat !== category) continue;
-        const have = new Set(words(`${description} ${u.hostname} ${u.pathname} ${JSON.stringify(info.input ?? {})}`));
         // Without words, everything that passes the filters counts; new providers first, then cheapest.
-        const score = terms.length ? terms.filter((t) => have.has(t)).length : 1 + (isNew(u.origin) ? 1 : 0);
+        const score = matched ? matched.get(row.id) ?? 0 : 1 + (isNew(row.origin) ? 1 : 0);
         if (!score) continue;
-        const key = `${u.origin}${u.pathname}`;
+        const key = `${row.origin}${row.path}`;
         if (found.has(key) && found.get(key).score >= score) continue;
-        // example: the seller's own example input (query parameters or body), so an agent knows how to call it.
-        found.set(key, { score, url: u.href, host: u.hostname, description, method: text(String(info.input?.method ?? ""), 8).toUpperCase() || null, example: info.input?.queryParams ?? info.input?.body ?? null, prices, cheapest, isNew: isNew(u.origin), category: cat });
+        // example: the seller's own example input (query parameters or body), so an agent knows how to call it. Kept as
+        // JSON until the page of results is cut: a category can have 26,000 listings.
+        found.set(key, { score, url: row.resource, host: row.host, description: row.description, method: row.method, example: row.example, prices, cheapest, isNew: isNew(row.origin), category: row.category });
       }
       let all = [...found.values()].sort((a, b) => b.score - a.score || a.cheapest - b.cheapest);
       const origin = (r) => new URL(r.url).origin;
@@ -317,12 +497,13 @@ export function createCatalog({ url = DISCOVERY_URL, fetch: fetchImpl = globalTh
       else if (ranker?.enabled) all = await ranker.rank(String(query), all);
       const per = Math.min(50, Math.max(1, Math.floor(limit) || 20)), pages = Math.ceil(all.length / per);
       const at = Math.min(Math.max(1, Math.floor(page) || 1), Math.max(1, pages));
-      const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => r);
+      // coverage (with words): the share of the question's words the listing has, rare words weighing more (0 to 1).
+      const results = all.slice((at - 1) * per, at * per).map(({ score, ...r }) => ({ ...r, ...(matched && allWords && typeof score === "number" ? { coverage: Math.round(Math.min(1, score / allWords) * 100) / 100 } : {}), example: r.example == null ? null : JSON.parse(r.example) }));
       // Which of these sellers publish a skill.md (cached; unknown ones are checked now, briefly).
       if (skills && results.length) {
         const origins = results.map((r) => new URL(r.url).origin);
         await skills.check(origins);
-        for (const r of results) r.skill = skills.known(new URL(r.url).origin) ? `${new URL(r.url).origin}/skill.md` : null;
+        for (const r of results) withSkill(r, new URL(r.url).origin);
       }
       // The seller's track record, shown on the card ("paid out 30 of 30 days").
       if (trust) { await trust.ready({ waitMs: 0 }); for (const r of results) r.record = trust.seller(new URL(r.url).origin); }
