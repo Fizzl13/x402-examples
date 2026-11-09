@@ -35,7 +35,7 @@ import { BASE } from "../x402-seller.js";
 
 const DAY = 86400;
 export const VALID_DAYS = 30;
-export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6, lookupsPerIpPerHour: 60 };
+export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, demosPerIpPerHour: 6, lookupsPerIpPerHour: 60, streamsPerIp: 10, streamsTotal: 300 };
 export const DEMO_PACE_MS = 650;
 const OG_IMAGE = fileURLToPath(new URL("./og.png", import.meta.url));
 const FONT_DIR = fileURLToPath(new URL("./fonts/", import.meta.url));
@@ -96,14 +96,49 @@ export function signerFrom(raw, log = console) {
   }
 }
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier() } = {}) {
+// How many proxies in front of the server append to X-Forwarded-For: Render has three (the same count x402 Doctor
+// measured; TRUST_PROXY_HOPS overrides it, 0 to 10). Express then takes the client address that many entries from the
+// right, so an X-Forwarded-For the client sends itself can't pick its address. Trusting every hop (trust proxy true)
+// took the leftmost entry, which the client writes: the per-address limits (free exams, demos, lookups) could be
+// dodged with a made-up header.
+export function trustProxyHops(value = process.env.TRUST_PROXY_HOPS) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 10 && String(value ?? "").trim() !== "" ? n : 3;
+}
+
+// Headers for every answer: no framing (the start form asks a wallet to sign), no sniffing, only this origin's
+// scripts, styles, fonts and requests (the pages use inline script and style, and nothing from elsewhere), and HTTPS.
+export const SECURITY_HEADERS = {
+  "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'",
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "strict-transport-security": "max-age=31536000",
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+};
+
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), proxyHops = trustProxyHops() } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   const exams = new Map(); // live sittings, in memory: a restart ends them
   const watching = new Map(); // watch id -> sitting
+  const streams = new Map(); // client address -> open live streams
+  let streamsOpen = 0;
   const app = express();
-  app.set("trust proxy", true);
+  app.set("trust proxy", proxyHops);
   app.disable("x-powered-by");
+  let hopsLogged = false;
+  app.use((req, res, next) => {
+    res.set(SECURITY_HEADERS);
+    // Once per start: how many X-Forwarded-For entries the first proxied request carried (never the addresses), so
+    // the logs show whether TRUST_PROXY_HOPS matches the proxies in front (entries = hops - 1, plus the client's own).
+    const xff = req.get("x-forwarded-for");
+    if (!hopsLogged && xff) {
+      hopsLogged = true;
+      log.info?.(`[exam] x-forwarded-for has ${xff.split(",").length} entries; trusting ${proxyHops} proxy hops`);
+    }
+    next();
+  });
 
   // Sittings end EXAM_MINUTES after they start; an unfinished one is dropped an hour after that.
   const sweep = setInterval(() => {
@@ -485,12 +520,26 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const w = watchId(req.params.w);
     const exam = w && watching.get(w);
     if (!exam) return res.status(404).json({ error: "no such sitting" });
+    // Live streams stay open: at most LIMITS.streamsPerIp from one address and LIMITS.streamsTotal in all.
+    const mine = streams.get(req.ip) || 0;
+    if (mine >= LIMITS.streamsPerIp || streamsOpen >= LIMITS.streamsTotal) return res.status(429).json({ error: "too many live views open; close one and try again" });
+    streams.set(req.ip, mine + 1);
+    streamsOpen += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      streamsOpen -= 1;
+      const left = (streams.get(req.ip) || 1) - 1;
+      if (left > 0) streams.set(req.ip, left);
+      else streams.delete(req.ip);
+    };
     res.set({ "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", "x-accel-buffering": "no" });
     res.flushHeaders?.();
     const after = Number(req.query.after) || 0;
     const send = (e) => res.write(`id: ${e.n}\ndata: ${JSON.stringify(e)}\n\n`);
     for (const e of exam.feed.events) if (e.n > after) send(e);
-    if (exam.finished) return res.end();
+    if (exam.finished) return release(), res.end();
     const off = exam.feed.subscribe((e) => {
       send(e);
       if (e.type === "finish") setTimeout(() => res.end(), 100);
@@ -499,6 +548,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     req.on("close", () => {
       off();
       clearInterval(beat);
+      release();
     });
   });
 
