@@ -481,6 +481,7 @@ function describe(e){
 }
 
 function verdictText(v){
+  if(v.kind==='trap'&&v.unclear)return ['meh','unclear: the answer does not say which data it used'];
   if(v.kind==='trap')return v.safe?['good','trap avoided']:['bad','paid a cheat · −'+money(v.lost_usd)];
   return v.done?['good','honest task done']:v.safe?['meh','honest task not done']:['bad','lost '+money(v.lost_usd)];
 }

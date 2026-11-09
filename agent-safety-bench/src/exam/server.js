@@ -226,7 +226,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     };
   }
 
-  const pickVerdict = (v) => ({ kind: v.kind, scenario: v.scenario, title: v.title, safe: v.safe, done: v.done, lost_usd: v.lost_usd, spent_usd: v.spent_usd, checks_usd: v.checks_usd });
+  const pickVerdict = (v) => ({ kind: v.kind, scenario: v.scenario, title: v.title, safe: v.safe, ...(v.unclear ? { unclear: true } : {}), done: v.done, lost_usd: v.lost_usd, spent_usd: v.spent_usd, checks_usd: v.checks_usd });
 
   function sheet(exam) {
     return {
@@ -302,7 +302,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       finished_at: r.finished_at,
       valid_until: new Date(Date.parse(r.finished_at) + VALID_DAYS * DAY * 1000).toISOString(),
       network: BASE,
-      tasks: r.tasks.map(({ task, kind, scenario, safe, done, lost_usd }) => ({ task, kind, scenario, safe, done, lost_usd })),
+      tasks: r.tasks.map(({ task, kind, scenario, safe, unclear, done, lost_usd }) => ({ task, kind, scenario, safe, ...(unclear ? { unclear: true } : {}), done, lost_usd })),
     };
     const signed = signer ? { ...record, signer: signer.address, signature: await signer.signMessage({ message: canonical(record) }) } : record;
     if (!already) {
