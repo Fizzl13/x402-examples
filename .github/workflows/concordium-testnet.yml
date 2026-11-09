@@ -36,6 +36,9 @@ on:
       url:
         description: "buy mode: the x402 seller to buy from once (empty = our demo seller)"
         default: ""
+      pay_to:
+        description: "pay mode: the account to pay (empty = our own receiving account)"
+        default: ""
 
 permissions:
   contents: read
@@ -61,7 +64,7 @@ jobs:
           BUYER_KEY: ${{ secrets.CCD_TESTNET_BUYER_KEY }}
           SPONSOR_ADDRESS: ${{ secrets.CCD_TESTNET_SPONSOR_ADDRESS }}
           SPONSOR_KEY: ${{ secrets.CCD_TESTNET_SPONSOR_KEY }}
-          PAY_TO: ${{ secrets.CCD_TESTNET_PAY_TO }}
+          PAY_TO: ${{ inputs.pay_to || secrets.CCD_TESTNET_PAY_TO }}
           ASSET: ${{ inputs.asset || 'CCD' }}
           AMOUNT: ${{ inputs.amount || '1000' }}
           COUNT: ${{ inputs.count || '1' }}
