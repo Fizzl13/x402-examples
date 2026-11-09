@@ -107,10 +107,11 @@ const layerHtml = () => `<!doctype html><html><head><style>${THEME}
     <p class="chk fade" data-step="2"><span>✓</span><span>Whose payment? Read at PayPal, not taken from the email</span></p>
     <p class="chk fade" data-step="3"><span>✓</span><span>Never more than is left, and not when the bank already took it back</span></p>
     <p class="chk fade" data-step="4"><span>✓</span><span>The shop's limits and its 30-day return period</span></p>
-    <p class="chk ask fade" data-step="5"><span>?</span><span>Above them: Approve or Deny on the owner's phone</span></p>
+    <p class="chk fade" data-step="5"><span>✓</span><span>Each email read once for instructions planted for the AI</span></p>
+    <p class="chk ask fade" data-step="6"><span>?</span><span>Above them: Approve or Deny on the owner's phone</span></p>
   </div>
-  <div class="arrow fade" data-step="6">→</div>
-  <div class="box side fade" data-step="6"><div class="ic">💳</div><h2>PayPal</h2><p>Agent Toolkit, 47 tools</p></div>
+  <div class="arrow fade" data-step="7">→</div>
+  <div class="box side fade" data-step="7"><div class="ic">💳</div><h2>PayPal</h2><p>Agent Toolkit, 47 tools</p></div>
 </div></body></html>`;
 
 // What a developer writes, and what the guard does per kind of tool.
@@ -124,12 +125,13 @@ const codeHtml = () => `<!doctype html><html><head><style>${THEME}
   .kind span:first-child { color: var(--mint); font-weight: 600; }
   .kind span:last-child { color: var(--soft); }
 </style></head><body><div class="c">
-<pre class="fade" data-step="0"><span class="k">import</span> { createGuard, paypalReader, fizzlWalletApproval }
+<pre class="fade" data-step="0"><span class="k">import</span> { createGuard, paypalReader, fizzlWalletApproval, fizzlInjection }
   <span class="k">from</span> <span class="s">"fizzl-paypal-guard"</span>;
 
 <span class="k">const</span> guard = <span class="f">createGuard</span>({
   reader: <span class="f">paypalReader</span>({ clientId, clientSecret }),
   approve: <span class="f">fizzlWalletApproval</span>({ key: <span class="s">"awk_…"</span> }),
+  injection: <span class="f">fizzlInjection</span>(),
   policy: { refund: { perAction: <span class="s">"25.00"</span>, perDay: <span class="s">"100.00"</span> } },
 });
 
@@ -291,16 +293,29 @@ async function main() {
       await show(page, 3);
       await glow(page, "#conv .verdict.no");
     },
-    // Eve's tries go on meanwhile (checked before the page is left); Frank's turn in this run waits a minute for
-    // PayPal to list its chargeback, and the ledger already tells the story.
-    async "prepare:ledger"() { await glow(page, "#conv .verdict.no", false); await scrollTo(page, "#ledger", "center"); },
-    async ledger() { await sleep(600); await glow(page, "#ledger"); },
-
-    async "prepare:code"() {
+    // Eve's tries in the same run: each one stopped, and the reasons name the planted note an injection
+    // (Fizzl's prompt-injection check, red).
+    async "prepare:eve"() {
+      await glow(page, "#conv .verdict.no", false);
       await chipIs(page, 4, /stopped|refunded|answered/, "Eve's turn (fooled)");
       await expectChip(page, 4, /stopped by the guard/, "Eve (fooled)");
-      await setPage(page, codeHtml());
+      await show(page, 4);
+      const named = await page.evaluate(() => [...document.querySelectorAll("#conv .verdict li")].some((li) => /planted for the AI/.test(li.textContent)));
+      if (!named) throw new Error("Eve (fooled): no injection reason on the page, the narration says the check named it; run again");
     },
+    async eve() {
+      await sleep(500);
+      await page.evaluate(() => {
+        const li = [...document.querySelectorAll("#conv .verdict li")].find((x) => /planted for the AI/.test(x.textContent));
+        li?.closest(".verdict")?.classList.add("glow");
+        li?.closest(".verdict")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    },
+    // Frank's turn in this run waits a minute for PayPal to list its chargeback, and the ledger already tells the story.
+    async "prepare:ledger"() { await glow(page, "#conv .verdict", false); await scrollTo(page, "#ledger", "center"); },
+    async ledger() { await sleep(600); await glow(page, "#ledger"); },
+
+    async "prepare:code"() { await setPage(page, codeHtml()); },
     async code(seg, ms) { await reveal(page, ms * 0.8); },
   };
 

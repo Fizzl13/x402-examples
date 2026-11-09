@@ -1,6 +1,6 @@
 # The demo video
 
-A narrated video of fizzl-paypal-guard (under three minutes, 1920×1080), for the PayPal AI Hackathon: the risk, how the guard works, a real run on [the demo page](..) (Claude against the PayPal sandbox: a refund within the limits, a warranty claim and a $300 refund for the owner, two scams, and a refund the customer's bank already paid; then the agent that believes every email), and the code.
+A narrated video of fizzl-paypal-guard (under three minutes, 1920×1080), for the PayPal AI Hackathon: the risk, how the guard works, a real run on [the demo page](..) (Claude against the PayPal sandbox: a refund within the limits, a warranty claim and a $300 refund for the owner, two scams, and a refund the customer's bank already paid; then the agent that believes every email, with Eve's planted note named by the prompt-injection check), and the code.
 
 Made by [`paypal-video.yml`](../../../.github/workflows/paypal-video.yml), the same pipeline as the [wallet video](../../../wallet-server/media):
 
