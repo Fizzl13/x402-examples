@@ -5,6 +5,7 @@
 //   CONCORDIUM_NODE   gRPC host (default grpc.testnet.concordium.com), CONCORDIUM_PORT (default 20000)
 //   SELLERS           optional: comma-separated payTo accounts it sponsors; empty = any seller
 //   DAILY_LIMIT       optional: settlements per day (default 500)
+//   BUYER_DAILY_LIMIT optional: sponsored payments per buyer account a day (default 10; 0 = no limit)
 //   IDENTITY          off | report (default: who the seller is, in the verify/settle answers) | agent (sponsor only
 //                     sellers paid at the wallet of a registered Concordium agent for that endpoint) | proof (sponsor
 //                     only sellers serving a verified zero-knowledge proof about the person behind their payTo)
@@ -36,6 +37,7 @@ const app = createApp({
   sponsorSigner: buildBasicAccountSigner(key),
   sellers: (env.SELLERS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   dailyLimit: Number(env.DAILY_LIMIT || 500),
+  buyerDailyLimit: Number(env.BUYER_DAILY_LIMIT ?? 10) > 0 ? Number(env.BUYER_DAILY_LIMIT ?? 10) : null,
   history: createHistory({ network, sponsor, url: env.WALLET_PROXY?.trim() || undefined }),
   identity,
   statement: createStatement({ network, sponsor, url: env.WALLET_PROXY?.trim() || undefined, identity }),

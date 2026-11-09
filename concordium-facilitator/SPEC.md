@@ -58,8 +58,9 @@ Stricter than the spec (it allows that):
 
 - **Energy**: the transaction's energy is no more than a transfer needs, so the sponsor never pays for more.
 - **PLT state**: the token exists, isn't paused, and its allow/deny lists let this sender pay this recipient.
-- **Seller allow-list** (`SELLERS`) and a **daily limit** (`DAILY_LIMIT`), so strangers can't spend the sponsor's
-  CCD on fees by paying themselves.
+- **Seller allow-list** (`SELLERS`), a **daily limit** (`DAILY_LIMIT`) and a **limit per buyer account**
+  (`BUYER_DAILY_LIMIT`, default 10), so strangers can't spend the sponsor's CCD on fees by paying themselves, and one
+  buyer can't use up the day for everyone.
 - **One at a time**: the same transaction is never being settled twice at once; a second submission fails at the
   node anyway (its nonce is used).
 

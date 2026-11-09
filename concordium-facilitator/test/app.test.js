@@ -169,3 +169,14 @@ test('demo seller: its card byte for byte, a 402 with the facilitator as fee pay
   assert.equal(again.status, 402, 'the same payment again: its nonce is used');
   await s.close();
 });
+
+test('buyerDailyLimit: one buyer account can not use up the daily limit for everyone', async () => {
+  const node = stand();
+  const s = await serve({ node, buyerDailyLimit: 1 });
+  try {
+    assert.equal((await s.call('/settle', await body(req()))).success, true);
+    const second = await s.call('/settle', await body(req(), 2n));
+    assert.equal(second.errorReason, 'buyer_daily_limit');
+    assert.equal(node.sent.length, 1, 'nothing submitted for the refused payment');
+  } finally { await s.close(); }
+});
