@@ -10,9 +10,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import paypalToolkit from "@paypal/agent-toolkit/ai-sdk";
-import { createGuard, memoryStore, paypalReader, telegramApproval, fizzlWalletApproval, kindOf, toMilli } from "fizzl-paypal-guard";
+import { createGuard, memoryStore, paypalReader, telegramApproval, fizzlWalletApproval, fizzlInjection, kindOf, toMilli } from "fizzl-paypal-guard";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.3.0";
 export const ALL_TOOLS = paypalToolkit.ALL_TOOLS_ENABLED;
 const KINDS = ["refund", "dispute", "books", "stop", "price", "bill", "other", "unknown"];
 const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
@@ -126,7 +126,7 @@ const text = (value, isError = false) => ({ content: [{ type: "text", text: type
 // approval goes on, and an approved action runs then. Without credentials (`setup`), the tools are listed and
 // each call explains how to set the server up.
 export function createServer({
-  tools, reader = null, policy = {}, approve = null, chat = true, store = memoryStore(), logFile = null,
+  tools, reader = null, policy = {}, approve = null, chat = true, store = memoryStore(), logFile = null, injection = null,
   sandbox = true, approvalMs = 10 * 60_000, waitMs = 45_000, agent = null, setup = false, now = () => Date.now(), log = () => {},
 } = {}) {
   const toolset = typeof tools?.get === "function" ? tools : { get: () => tools ?? {} };
@@ -145,7 +145,7 @@ export function createServer({
     const ask = base && Object.assign(async (r) => { const c = calls.getStore(); if (c) { c.approval = { id: r.id, tool: r.tool, summary: r.summary }; c.asked?.(); } return base(r); }, { local: base.local === true, ...(base.report ? { report: base.report } : {}) });
     const client = server.getClientVersion();
     guard = createGuard({
-      policy, reader, approve: ask, store, now,
+      policy, reader, approve: ask, store, now, injection,
       agent: agent ?? (client?.name ? `${client.title ?? client.name} (PayPal MCP)` : "AI agent (PayPal MCP)"),
       onEvent: (e) => {
         if (logFile) { try { mkdirSync(dirname(logFile), { recursive: true, mode: 0o700 }); appendFileSync(logFile, `${JSON.stringify(e)}\n`, { mode: 0o600 }); } catch {} }
@@ -299,7 +299,12 @@ export function configFromEnv(env = process.env, argv = []) {
     approval = { kind: "telegram", token: env.TELEGRAM_BOT_TOKEN.trim(), chatId: env.TELEGRAM_CHAT_ID.trim() };
   }
   const stateDir = env.GUARD_STATE_DIR?.trim() || join(homedir(), ".fizzl-paypal-guard");
+  // The prompt-injection check reads the customer's own words (_meta "fizzl.eu/request") at Fizzl's free check, so it
+  // is opt-in: INJECTION_CHECK=on, or a Fizzl Pass (FIZZL_PASS) for the higher rate limit.
+  const fizzlPass = env.FIZZL_PASS?.trim() || null;
+  const injection = /^(off|no|false|0)$/i.test(env.INJECTION_CHECK ?? "") ? false : /^(on|yes|true|1)$/i.test(env.INJECTION_CHECK ?? "") || Boolean(fizzlPass);
   return {
+    injection, fizzlPass,
     setup: !clientId || !clientSecret, clientId, clientSecret, sandbox, actions, policy, approval,
     approvalMs: minutes * 60_000, waitMs: waitSeconds * 1000, agent: env.AGENT_NAME?.trim() || null,
     limitsFile: join(stateDir, `limits.${sandbox ? "sandbox" : "live"}.json`), logFile: join(stateDir, `log.${sandbox ? "sandbox" : "live"}.jsonl`),
@@ -316,6 +321,7 @@ export function serverFromConfig(config, { log = () => {} } = {}) {
     tools: paypalTools({ clientId: config.clientId, clientSecret: config.clientSecret, sandbox: config.sandbox, actions: config.actions }),
     reader: paypalReader({ clientId: config.clientId, clientSecret: config.clientSecret, sandbox: config.sandbox }),
     policy: config.policy, approve, chat: a.kind === "chat", store: fileStore(config.limitsFile), logFile: config.logFile,
+    injection: config.injection ? fizzlInjection({ pass: config.fizzlPass ?? undefined }) : null,
     sandbox: config.sandbox, approvalMs: config.approvalMs, waitMs: config.waitMs, agent: config.agent, log,
   });
 }
