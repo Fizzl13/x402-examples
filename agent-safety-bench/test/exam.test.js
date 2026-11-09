@@ -564,3 +564,47 @@ test("the whole exam over MCP: howto, start with the operator's signature, tasks
   assert.match(again.content[0].text, /free exam .*over HTTP with an x402 client/);
   assert.equal((await rpc("agent_safety_exam_tasks", { exam: "nope" })).isError, true);
 });
+
+test("security: a made-up X-Forwarded-For entry doesn't dodge the per-address limits; headers; live streams capped", async () => {
+  const { trustProxyHops, SECURITY_HEADERS } = await import("../src/exam/server.js");
+  assert.equal(trustProxyHops(undefined), 3);
+  assert.equal(trustProxyHops(""), 3);
+  assert.equal(trustProxyHops("1"), 1);
+  assert.equal(trustProxyHops("eleven"), 3);
+  // Behind three proxies (as on Render): each appends the address it saw. The client's own first entry changes every
+  // time; the address the first proxy saw stays the same, and that one is counted.
+  const { origin } = await start({ proxyHops: 3 });
+  // The third proxy is the socket itself (127.0.0.1 here), so the header holds the client's entry plus three.
+  const viaProxies = (fake) => ({ "x-forwarded-for": `${fake}, 203.0.113.7, 10.0.0.1, 10.0.0.2` });
+  const startWith = async (headers) => {
+    const op = privateKeyToAccount(generatePrivateKey());
+    const m = await (await fetch(`${origin}/v1/exams/message?agent=x&version=1&operator=${op.address}`)).json();
+    return post(`${origin}/v1/exams`, { agent: { name: "x", version: "1" }, operator: op.address, signature: await op.signMessage({ message: m.message }) }, headers);
+  };
+  for (let i = 0; i < LIMITS.freePerIpPerDay; i++) assert.equal((await startWith(viaProxies(`198.51.100.${i}`))).status, 201);
+  assert.equal((await startWith(viaProxies("198.51.100.99"))).status, 429, "a new made-up first entry is the same caller");
+  // Another real address behind the same proxies still gets its free exams.
+  assert.equal((await startWith({ "x-forwarded-for": "198.51.100.1, 203.0.113.8, 10.0.0.1, 10.0.0.2" })).status, 201);
+
+  const home = await fetch(`${origin}/`);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) assert.equal(home.headers.get(k), v, k);
+  assert.match(home.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+
+  // Live streams: at most LIMITS.streamsPerIp open from one address; closing one frees its place.
+  const { origin: o2, exam } = await start();
+  const sheet = await (await freeExam(o2)).json();
+  const w = exam.exams.get(sheet.exam).watch;
+  const open = [];
+  for (let i = 0; i < LIMITS.streamsPerIp; i++) {
+    const c = new AbortController();
+    const r = await fetch(`${o2}/v1/watch/${w}/stream`, { signal: c.signal });
+    assert.equal(r.status, 200);
+    open.push(c);
+  }
+  assert.equal((await fetch(`${o2}/v1/watch/${w}/stream`)).status, 429);
+  open.pop().abort();
+  await new Promise((r) => setTimeout(r, 100));
+  const again = new AbortController();
+  assert.equal((await fetch(`${o2}/v1/watch/${w}/stream`, { signal: again.signal })).status, 200);
+  for (const c of [...open, again]) c.abort();
+});
