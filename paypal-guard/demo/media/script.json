@@ -66,11 +66,6 @@
       "text": "And Eve's note gets a second lock: Fizzl's injection check calls it what it is, an instruction planted for the AI."
     },
     {
-      "id": "ledger",
-      "scene": "ledger",
-      "text": "At PayPal afterwards: Alice and Carol have their money back. Bob's and Frank's payments are untouched."
-    },
-    {
       "id": "code",
       "scene": "code",
       "text": "For developers: one wrapper around the toolkit's 47 tools. Reads pass, refunds get checked, the rest goes to the owner."
