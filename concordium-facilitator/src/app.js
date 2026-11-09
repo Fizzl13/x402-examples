@@ -22,7 +22,7 @@ const IDENTITY_SCHEMA = fs.readFileSync(new URL('../schema/concordium-identity.s
 // the paying account's proof, sent as paymentPayload.extensions["concordium-buyer-proof"], shows them.
 // statement (src/history.js createStatement): GET /statement?account= lists what one paying account (an agent) paid
 // through this facilitator, to whom, and who those payees are.
-export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, statement = null, identity = null, identityMode = 'report', buyerProof = null, demo = null, now = () => Date.now(), log = console } = {}) {
+export function createApp({ network, sponsor, sponsorSigner, node, sellers = null, dailyLimit = 500, history = null, statement = null, identity = null, identityMode = 'report', buyerProof = null, demo = null, buyerDailyLimit = null, now = () => Date.now(), log = console } = {}) {
   if (!NETWORKS[network]) throw new Error(`unknown network ${network}`);
   const allowed = sellers && sellers.length ? new Set(sellers) : null;
   const settling = new Set(); // transaction JSONs being settled right now: the same one is not submitted twice at once
@@ -69,9 +69,13 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     return null;
   };
   const withIdentity = (body, id) => (id ? { ...body, extensions: { ...(body.extensions || {}), 'concordium-identity': id } } : body);
+  // buyerDailyLimit: sponsored transactions per paying account a day (null: no limit), so one buyer can't use up the
+  // daily limit for everyone.
+  const perBuyer = new Map(); // account -> sponsored transactions today
+  const buyerFull = (account) => buyerDailyLimit != null && (perBuyer.get(account) ?? 0) >= buyerDailyLimit;
   function settledToday() {
     const today = new Date(now()).toISOString().slice(0, 10);
-    if (today !== day) { day = today; settled = 0; }
+    if (today !== day) { day = today; settled = 0; perBuyer.clear(); }
     return settled;
   }
   function refusedSeller(requirements) {
@@ -93,11 +97,13 @@ export function createApp({ network, sponsor, sponsorSigner, node, sellers = nul
     try {
       let buyer = null;
       const check = async (v) => {
+        settledToday();
+        if (buyerFull(v.payer)) return { errorReason: 'buyer_daily_limit', detail: `this facilitator sponsors at most ${buyerDailyLimit} payments per buyer account a day` };
         buyer = await buyerCheck(requirements, v.payer, buyerFile);
         return buyer?.refused ? { errorReason: buyer.refused.reason, detail: buyer.refused.message } : null;
       };
       const s = await settlePayment({ requirements, payload, sponsor, sponsorSigner, node, now: now(), check });
-      if (s.transaction) settled += 1; // a submitted transaction cost the sponsor a fee, settled or not
+      if (s.transaction) { settled += 1; if (s.payer) perBuyer.set(s.payer, (perBuyer.get(s.payer) ?? 0) + 1); } // a submitted transaction cost the sponsor a fee, settled or not
       log.info?.(`[settle] ${s.success ? 'ok' : s.errorReason} ${s.transaction || ''} payer=${s.payer ?? '-'}`);
       return withBuyer(withIdentity(s.detail ? { ...s, errorMessage: String(s.detail), detail: undefined } : s, id), buyer);
     } finally { settling.delete(key); }

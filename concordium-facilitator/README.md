@@ -32,7 +32,7 @@ more energy than the transfer needs (so the sponsor never pays for more); the ba
 and the allow/deny lists let it through. `/settle` checks the same again, then sponsors and submits; a transaction is
 never submitted twice (its nonce is used), and a failed transfer on chain is reported as failed.
 
-Limits against abuse of the sponsor's CCD: `SELLERS` (only these payTo accounts are sponsored) and `DAILY_LIMIT`.
+Limits against abuse of the sponsor's CCD: `SELLERS` (only these payTo accounts are sponsored), `DAILY_LIMIT` and `BUYER_DAILY_LIMIT` (per paying account, so one buyer can't use up the day for everyone).
 
 ## Run
 
@@ -50,6 +50,7 @@ SPONSOR_ADDRESS=… SPONSOR_KEY=… npm start
 | `CONCORDIUM_NODE` / `CONCORDIUM_PORT` | gRPC node, default `grpc.testnet.concordium.com:20000` |
 | `SELLERS` | comma-separated payTo accounts it sponsors (empty: any) |
 | `DAILY_LIMIT` | settlements a day (default 500) |
+| `BUYER_DAILY_LIMIT` | sponsored payments per buyer account a day (default 10; 0 = no limit) |
 | `IDENTITY` | `report` (default): who the seller is rides along in /verify and /settle as `extensions["concordium-identity"]`; `agent`: sponsor only sellers paid at the wallet of a registered Concordium agent for that endpoint; `proof`: sponsor only sellers serving a verified zero-knowledge proof about the person behind their payTo (`/.well-known/concordium-proof.json`); `off` |
 | `BUYER_PROOF` | `on` (default): sellers may ask who stands behind the paying account (`extra.buyerProof`), and payments are sponsored only with a verified buyer proof (`paymentPayload.extensions["concordium-buyer-proof"]`); `off` |
 | `DEMO_PAY_TO` | testnet only: the demo seller's payTo (default agent #993's wallet), or `off` |
