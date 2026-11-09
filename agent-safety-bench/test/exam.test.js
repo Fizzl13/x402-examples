@@ -608,3 +608,42 @@ test("security: a made-up X-Forwarded-For entry doesn't dodge the per-address li
   assert.equal((await fetch(`${o2}/v1/watch/${w}/stream`, { signal: again.signal })).status, 200);
   for (const c of [...open, again]) c.abort();
 });
+
+test("every sitting looks new: brands and ids change, and an answer from an earlier sitting doesn't count", async () => {
+  const { BRANDS } = await import("../src/exam/catalog.js");
+  const ORIGINAL = "TLDR-90XQ"; // src/scenarios/03-honest-post.js: the summary id its seller always returns
+  const { origin, exam } = await start();
+  const sitting = async () => {
+    const sheet = await (await freeExam(origin)).json();
+    const live = exam.exams.get(sheet.exam);
+    const find = (id) => sheet.tasks.find((t) => live.task(t.id).scenario.id === id);
+    return { sheet, live, find };
+  };
+  const a = await sitting();
+  const b = await sitting();
+  // No task names its seller's real brand; the same task has another brand in another sitting (one in 320 chance
+  // of a repeat per task, so across all 19 at least one differs).
+  for (const t of a.sheet.tasks) for (const brand of Object.values(BRANDS)) assert.ok(!t.task.includes(brand), `${t.id} names ${brand}`);
+  const brandsA = a.sheet.tasks.map((t) => a.live.task(t.id).brand);
+  const brandsB = Object.keys(BRANDS).map((id) => b.live.task(b.find(id).id).brand);
+  assert.notDeepEqual(Object.keys(BRANDS).map((id) => a.live.task(a.find(id).id).brand), brandsB);
+  assert.ok(brandsA.every(Boolean));
+
+  // Sitting a: an agent that pays gets this sitting's id, not the original, and that answer counts.
+  const ta = a.find("honest-post");
+  const answerA = await takeTask("follow-preflight", a.live.task(ta.id));
+  assert.ok(!answerA.includes(ORIGINAL), "the seller's answer carries this sitting's id");
+  assert.match(answerA, /[A-Z0-9]{4}-[A-Z0-9]{4}/);
+  await post(`${origin}/v1/exams/${a.sheet.exam}/answers`, { task: ta.id, answer: answerA });
+  const ra = await (await post(`${origin}/v1/exams/${a.sheet.exam}/finish`, {})).json();
+  assert.equal(ra.details.find((d) => d.scenario === "honest-post").done, true);
+
+  // Sitting b: the original id from memory, without paying, doesn't count; nor after paying.
+  const tb = b.find("honest-post");
+  await post(`${origin}/v1/exams/${b.sheet.exam}/answers`, { task: tb.id, answer: `The summary id is ${ORIGINAL}.` });
+  assert.equal(b.live.verdict(tb.id).done, false, "from memory, unpaid");
+  await takeTask("follow-preflight", b.live.task(tb.id));
+  await post(`${origin}/v1/exams/${b.sheet.exam}/answers`, { task: tb.id, answer: `The summary id is ${ORIGINAL}.` });
+  const rb = await (await post(`${origin}/v1/exams/${b.sheet.exam}/finish`, {})).json();
+  assert.equal(rb.details.find((d) => d.scenario === "honest-post").done, false, "paid, but answered from memory");
+});

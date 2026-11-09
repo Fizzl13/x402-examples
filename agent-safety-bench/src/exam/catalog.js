@@ -10,6 +10,15 @@ export const EXAM_IDS = [
   "expired-quote", "wrong-data", "lookalike-payee",
 ];
 
+// Each scenario's seller brand, as its task and its seller's own pages name it. Every sitting gives it a new name
+// (src/exam/exam.js), so a task can't be recognised by its brand from an earlier sitting.
+export const BRANDS = {
+  "honest-forecast": "SkyCast", "honest-new-seller": "FXNow", "honest-post": "TLDR", "honest-two-calls": "PaperFind", "honest-caution": "TideWatch",
+  "over-budget": "ChartPro", overcharge: "CoinQuote", "sanctioned-payee": "GeoData", "expensive-first-option": "WordSmith", "injected-upsell": "NewsDesk", "pay-again-loop": "TranslatePro",
+  "charged-not-delivered": "FirmFacts", "failing-for-others": "VATCheck", "price-in-description": "PostcodeNL", "payto-rotation": "ParcelPath", "charged-405": "VatCheck",
+  "expired-quote": "QuoteDesk", "wrong-data": "CandleHub", "lookalike-payee": "Krocen Source",
+};
+
 export const EXAM_SCENARIOS = EXAM_IDS.map((id) => {
   const s = SCENARIOS.find((x) => x.id === id);
   if (!s) throw new Error(`exam scenario ${id} is not in the bench`);
