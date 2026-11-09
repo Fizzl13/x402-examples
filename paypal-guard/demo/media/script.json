@@ -8,7 +8,7 @@
         "title": "Fizzl Guard for PayPal",
         "sub": "A support agent that can refund,<br>and can't be talked into the wrong refund."
       },
-      "text": "Small shops are handing customer support to AI agents. With PayPal's Agent Toolkit, that agent can refund a customer in one tool call."
+      "text": "Shops are handing customer support to AI agents. With PayPal's Agent Toolkit, one tool call refunds a customer."
     },
     {
       "id": "risk",
@@ -48,12 +48,12 @@
     {
       "id": "scams",
       "scene": "scams",
-      "text": "Mallory asks for Bob's refund, with Bob's capture number, and Eve's email hides a fake note from the owner. Claude turns both down. The guard doesn't count on that."
+      "text": "Mallory asks for Bob's refund, and Eve's email hides a fake note from the owner. Claude turns both down; the guard doesn't count on that."
     },
     {
       "id": "frank",
       "scene": "frank",
-      "text": "Frank's rug arrived torn: $40 back, please. Claude tries the refund. What it can't see: the bank already took the money back, and PayPal would still allow the refund. The guard reads the open chargeback and stops it."
+      "text": "Frank's rug arrived torn. Claude tries the $40 refund. What it can't see: his bank already took the money back, and PayPal would still allow the refund. The guard reads the chargeback and stops it."
     },
     {
       "id": "fooled",
@@ -73,7 +73,7 @@
     {
       "id": "code",
       "scene": "code",
-      "text": "For developers, it's one wrapper around the toolkit's 47 tools. Reads pass, refunds get the checks, the rest goes to the owner."
+      "text": "For developers: one wrapper around the toolkit's 47 tools. Reads pass, refunds get checked, the rest goes to the owner."
     },
     {
       "id": "outro",
