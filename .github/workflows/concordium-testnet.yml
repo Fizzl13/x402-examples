@@ -33,6 +33,9 @@ on:
       facilitator:
         description: "pay mode: through this deployed facilitator (empty = in the job itself)"
         default: "https://concordium-facilitator.onrender.com"
+      url:
+        description: "buy mode: the x402 seller to buy from once (empty = our demo seller)"
+        default: ""
 
 permissions:
   contents: read
@@ -69,4 +72,5 @@ jobs:
         env:
           BUYER_ADDRESS: ${{ secrets.CCD_TESTNET_BUYER_ADDRESS }}
           BUYER_KEY: ${{ secrets.CCD_TESTNET_BUYER_KEY }}
+          DEMO_URL: ${{ inputs.url }}
         run: node scripts/testnet.js buy

@@ -95,7 +95,8 @@ async function pay() {
   }
 }
 
-// buy: an x402 buyer against the demo seller (DEMO_URL, default the deployed facilitator's /demo/paid): GET, read
+// buy: an x402 buyer against the demo seller (DEMO_URL, default the deployed facilitator's /demo/paid; another
+// seller's URL buys from that seller once, for an interop test, in CCD or the PLT its 402 asks for): GET, read
 // the 402, sign the payment it asks for, send it in PAYMENT-SIGNATURE, and print the answer, the transaction and what
 // Concordium said about the seller. Needs only BUYER_ADDRESS and BUYER_KEY.
 // The 402 of a demo endpoint, then (unless probe) a payment for it, with the buyer proof when given.
@@ -128,7 +129,8 @@ async function buy() {
   else if (id?.proof) fail(`seller proof: ${id.proof.status}, ${id.proof.reason ?? ''}`);
   else console.log('     seller proof: none served');
 
-  // The adults-only demo: refused without the buyer's proof (nothing signed or sent), sold with it.
+  // The adults-only demo: refused without the buyer's proof (nothing signed or sent), sold with it. Only on our demo.
+  if (!/\/demo\/paid$/.test(url)) return;
   const proof = buyerProofFile();
   if (!proof) { console.log("     adults-only demo: skipped, no buyer proof committed yet (demo/concordium-buyer-proof.json)"); return; }
   if (proof.account !== process.env.BUYER_ADDRESS.trim()) return fail(`the committed buyer proof is for ${proof.account.slice(0, 8)}…, not the buyer`);
