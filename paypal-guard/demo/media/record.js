@@ -125,8 +125,8 @@ const codeHtml = () => `<!doctype html><html><head><style>${THEME}
   .kind span:first-child { color: var(--mint); font-weight: 600; }
   .kind span:last-child { color: var(--soft); }
 </style></head><body><div class="c">
-<pre class="fade" data-step="0"><span class="k">import</span> { createGuard, paypalReader, fizzlWalletApproval, fizzlInjection }
-  <span class="k">from</span> <span class="s">"fizzl-paypal-guard"</span>;
+<pre class="fade" data-step="0"><span class="k">import</span> { createGuard, paypalReader,
+  fizzlWalletApproval, fizzlInjection } <span class="k">from</span> <span class="s">"fizzl-paypal-guard"</span>;
 
 <span class="k">const</span> guard = <span class="f">createGuard</span>({
   reader: <span class="f">paypalReader</span>({ clientId, clientSecret }),
