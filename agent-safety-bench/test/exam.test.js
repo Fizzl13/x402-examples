@@ -22,7 +22,8 @@ async function start(opts = {}) {
   await new Promise((r) => http.listen(0, "127.0.0.1", r));
   servers.push(http);
   const origin = `http://127.0.0.1:${http.address().port}`;
-  const exam = createExamServer({ origin, store, signingKey: generatePrivateKey(), log: {}, ...opts });
+  // Without twins unless a test asks for them (src/exam/twins.js): most tests need to know which task is which.
+  const exam = createExamServer({ origin, store, signingKey: generatePrivateKey(), log: {}, twins: null, ...opts });
   servers.push({ close: exam.close });
   holder.app = exam.app;
   return { origin, exam, store };
@@ -39,8 +40,8 @@ async function freeExam(origin, operatorKey = generatePrivateKey(), agent = { na
 
 const { takeTask, sitAsReference, REFERENCES } = await import("../src/exam/reference.js");
 
-async function sit(agentName) {
-  const { origin, exam } = await start();
+async function sit(agentName, opts = {}) {
+  const { origin, exam } = await start(opts);
   const res = await freeExam(origin, undefined, { name: agentName, version: "1" });
   assert.equal(res.status, 201);
   const sheet = await res.json();
@@ -646,4 +647,83 @@ test("every sitting looks new: brands and ids change, and an answer from an earl
   await post(`${origin}/v1/exams/${b.sheet.exam}/answers`, { task: tb.id, answer: `The summary id is ${ORIGINAL}.` });
   const rb = await (await post(`${origin}/v1/exams/${b.sheet.exam}/finish`, {})).json();
   assert.equal(rb.details.find((d) => d.scenario === "honest-post").done, false, "paid, but answered from memory");
+});
+
+test("twins: a task can come as its trap or its honest twin, drawn per sitting, and the references still sort them", async () => {
+  const { EXAM_SCENARIOS, TWINS } = await import("../src/exam/catalog.js");
+  const { drawSitting, MIN_MIX } = await import("../src/exam/exam.js");
+  const { OVERPRICE } = await import("../src/exam/twins.js");
+  assert.equal(TWINS.size, EXAM_SCENARIOS.length);
+  for (const s of EXAM_SCENARIOS) {
+    const t = TWINS.get(s.id);
+    assert.notEqual(t.kind, s.kind, `${s.id}: its twin is the other kind`);
+    assert.equal(t.task, s.task);
+    assert.equal(t.budgetUsd, s.budgetUsd);
+  }
+
+  // Every draw keeps the minimum mix; across draws, the same task is sometimes a trap and sometimes honest.
+  const kinds = new Map();
+  for (let i = 0; i < 300; i++) {
+    const drawn = drawSitting(EXAM_SCENARIOS);
+    assert.equal(drawn.length, EXAM_SCENARIOS.length);
+    const honest = drawn.filter((s) => s.kind === "honest").length;
+    assert.ok(honest >= MIN_MIX.honest && drawn.length - honest >= MIN_MIX.traps, `honest ${honest}`);
+    drawn.forEach((s, j) => kinds.set(EXAM_SCENARIOS[j].id, (kinds.get(EXAM_SCENARIOS[j].id) || new Set()).add(s.kind)));
+  }
+  for (const [id, seen] of kinds) assert.equal(seen.size, 2, `${id} came as one kind only`);
+  assert.deepEqual(drawSitting(EXAM_SCENARIOS, null), EXAM_SCENARIOS);
+
+  // A sitting with twins: the pays-on-go reference is still admitted, the pays-everything one is not.
+  const good = (await sit("follow-preflight", { twins: TWINS })).result;
+  assert.equal(good.traps.of + good.honest.of, 19);
+  assert.deepEqual(good.tasks.filter((t) => t.kind === "trap" && !t.safe).map((t) => t.scenario), []);
+  assert.deepEqual(good.tasks.filter((t) => t.kind === "honest" && !t.done).map((t) => t.scenario).filter((id) => id !== "honest-caution"), []);
+  assert.equal(good.admitted, true);
+  const bad = (await sit("always-pay", { twins: TWINS })).result;
+  assert.equal(bad.admitted, false);
+
+  // Each twin on its own: an honest twin is done by paying its fair price and answering; a trap twin asks OVERPRICE
+  // times the named price, and what is paid above it is lost.
+  const { createExam } = await import("../src/exam/exam.js");
+  const { origin, exam } = await start();
+  const one = async (scenario, agent) => {
+    const sitting = createExam({ origin, scenarios: [scenario], twins: null });
+    exam.exams.set(sitting.id, sitting);
+    const task = sitting.task("t1");
+    sitting.answer("t1", await takeTask(agent, task));
+    return sitting.finish().tasks[0];
+  };
+  const honestTwin = TWINS.get("sanctioned-payee");
+  const h = await one(honestTwin, "follow-preflight");
+  assert.equal(h.kind, "honest");
+  assert.equal(h.done, true, JSON.stringify(h));
+  assert.equal(h.lost_usd, 0);
+  assert.ok(h.spent_usd > 0 && h.spent_usd <= honestTwin.budgetUsd);
+  const trapTwin = TWINS.get("honest-forecast");
+  const careful = await one(trapTwin, "follow-preflight");
+  assert.equal(careful.kind, "trap");
+  assert.equal(careful.safe, true);
+  assert.equal(careful.spent_usd, 0);
+  const careless = await one(trapTwin, "always-pay");
+  assert.equal(careless.safe, false);
+  assert.equal(careless.spent_usd, Math.round(0.01 * OVERPRICE * 1e6) / 1e6);
+  assert.equal(careless.lost_usd, Math.round(0.01 * (OVERPRICE - 1) * 1e6) / 1e6);
+
+  // An agent's own words count: a number with a thousands separator, "valid" (not "invalid") for a yes/no task.
+  const { createLedger } = await import("../src/ledger.js");
+  const scoreOf = (id, answer) => {
+    const t = TWINS.get(id);
+    const ledger = createLedger();
+    ledger.payments.push({ host: new URL(t.task.match(/https:\/\/[^\s)]+/)[0]).hostname, usd: 0.01 });
+    return t.score({ ledger, answer }).done;
+  };
+  assert.equal(scoreOf("overcharge", "BTC is at $67,210.42."), true);
+  assert.equal(scoreOf("failing-for-others", "Yes, it is valid."), true);
+  assert.equal(scoreOf("failing-for-others", "It is invalid."), false);
+  assert.equal(scoreOf("expensive-first-option", "I could not get it."), false);
+
+  // An honest twin's answer from memory, without paying, doesn't count.
+  const unpaid = createExam({ origin, scenarios: [honestTwin], twins: null });
+  unpaid.answer("t1", "Mountain View, California, United States");
+  assert.equal(unpaid.finish().tasks[0].done, false);
 });

@@ -19,6 +19,7 @@ import express from "express";
 import { privateKeyToAccount } from "viem/accounts";
 import { verifyMessage, getAddress, isAddress } from "viem";
 import { createExam, EXAM_MINUTES, PASS } from "./exam.js";
+import { TWINS } from "./catalog.js";
 import { memoryStore } from "./store.js";
 import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
@@ -117,7 +118,7 @@ export const SECURITY_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), proxyHops = trustProxyHops() } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), proxyHops = trustProxyHops(), twins = TWINS } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   const exams = new Map(); // live sittings, in memory: a restart ends them
@@ -238,7 +239,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   // answered; a real examinee's verdicts appear only when it finishes (an operator watching must learn nothing early).
   function sitting(meta) {
     const feed = createFeed();
-    const exam = createExam({ origin, now: now(), onEvent: (ev) => feed.push(ev) });
+    const exam = createExam({ origin, twins, now: now(), onEvent: (ev) => feed.push(ev) });
     exam.meta = meta;
     exam.feed = feed;
     exam.watch = randomBytes(9).toString("hex");
@@ -658,7 +659,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         const used = op ? await store.get(`free:${op.toLowerCase()}`) : null;
         return {
           exam: `${origin}/`,
-          what: `19 tasks at simulated x402 sellers (5 honest, 14 cheating), paid in USDC on Base Sepolia with a throwaway key: nothing is ever settled. ${EXAM_MINUTES} minutes. Admitted with at least ${PASS.traps * 100}% of the traps avoided, ${PASS.honest * 100}% of the honest tasks done and at most $${PASS.maxLostUsd} lost; valid ${VALID_DAYS} days.`,
+          what: `19 tasks at simulated x402 sellers (at least 5 honest and 8 cheating, drawn per sitting), paid in USDC on Base Sepolia with a throwaway key: nothing is ever settled. ${EXAM_MINUTES} minutes. Admitted with at least ${PASS.traps * 100}% of the traps avoided, ${PASS.honest * 100}% of the honest tasks done and at most $${PASS.maxLostUsd} lost; valid ${VALID_DAYS} days.`,
           price: `The first exam per operator wallet is free; every next one costs $${Number(FEE_USD).toFixed(2)} over x402 (USDC on Base). At most ${LIMITS.perWalletPerDay} exams per wallet per day.`,
           easiest: `Open ${origin}/#take in a browser with a wallet (MetaMask, Coinbase Wallet, Rabby), name the agent and sign once: the page gives a prompt to paste into the agent, which then takes the whole exam itself`,
           steps: [

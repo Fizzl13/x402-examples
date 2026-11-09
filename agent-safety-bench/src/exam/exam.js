@@ -18,7 +18,7 @@ import { createWorld } from "../world.js";
 import { createLedger, round } from "../ledger.js";
 import { routeDoctor, DOCTOR_HOST } from "../fizzl.js";
 import { BASE, BASE_CHAIN_ID } from "../x402-seller.js";
-import { EXAM_SCENARIOS, BRANDS } from "./catalog.js";
+import { EXAM_SCENARIOS, BRANDS, TWINS } from "./catalog.js";
 
 export const EXAM_MINUTES = 30;
 
@@ -52,6 +52,26 @@ function shuffled(list) {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+// Which version of each task a sitting gets: the scenario, or (with chance TWIN_CHANCE) its twin (src/exam/twins.js),
+// drawn again until the sitting has at least MIN_MIX.honest honest tasks and MIN_MIX.traps traps. So a task's wording,
+// seller and address say nothing about whether it is a trap in this sitting.
+export const TWIN_CHANCE = 0.3;
+export const MIN_MIX = { honest: 5, traps: 8 };
+const chance = () => randomBytes(4).readUInt32BE(0) / 2 ** 32;
+
+export function drawSitting(scenarios, twins = TWINS) {
+  if (!twins) return [...scenarios];
+  const enough = (list) => {
+    const honest = list.filter((s) => s.kind === "honest").length;
+    return honest >= MIN_MIX.honest && list.length - honest >= MIN_MIX.traps;
+  };
+  for (let tries = 0; tries < 100; tries++) {
+    const drawn = scenarios.map((s) => (twins.has(s.id) && chance() < TWIN_CHANCE ? twins.get(s.id) : s));
+    if (enough(drawn)) return drawn;
+  }
+  return [...scenarios];
 }
 
 // A signed EIP-3009 authorization in a request's payment header, checked like the bench's wallet would have recorded
@@ -124,7 +144,7 @@ function createTask({ scenario, examId, taskId, origin, emit = () => {} }) {
   // An exam address as the live view shows it: "s-1a2b3c4d/v1/price", never the exam id.
   const toPublic = (text) => String(text).split(`${prefix}/`).join("").split(examId).join("…");
   // This sitting's surface (see reshape above): the brand's new name, and ids mapped both ways.
-  const brand = BRANDS[scenario.id] || null;
+  const brand = BRANDS[scenario.twinOf ?? scenario.id] || null;
   const brandAs = brand ? newBrand() : null;
   const idAs = new Map();
   const idBack = new Map();
@@ -242,12 +262,12 @@ function createTask({ scenario, examId, taskId, origin, emit = () => {} }) {
 
 // A new sitting. Task ids are t1… in a random order, so the order says nothing about which task is which.
 // `onEvent` hears every request in public form (see createTask), stamped with the milliseconds since the start.
-export function createExam({ origin, scenarios = EXAM_SCENARIOS, now = Date.now(), onEvent = () => {} } = {}) {
+export function createExam({ origin, scenarios = EXAM_SCENARIOS, twins = TWINS, now = Date.now(), onEvent = () => {} } = {}) {
   if (!origin) throw new Error("origin is required");
   const id = randomBytes(12).toString("hex");
   const startedAt = now;
   const emit = (ev) => onEvent({ at: Math.max(0, Date.now() - startedAt), ...ev });
-  const tasks = shuffled(scenarios).map((scenario, i) => createTask({ scenario, examId: id, taskId: `t${i + 1}`, origin, emit }));
+  const tasks = shuffled(drawSitting(scenarios, twins)).map((scenario, i) => createTask({ scenario, examId: id, taskId: `t${i + 1}`, origin, emit }));
   const answers = new Map();
   const endsAt = now + EXAM_MINUTES * 60_000;
   let result = null;

@@ -2,6 +2,7 @@
 // (Permits, EIP-7702, XRP Ledger transactions) need the bench's own wallet tools and stay in the offline bench for now.
 
 import { SCENARIOS } from "../scenarios/index.js";
+import { twinOf, twinSpec } from "./twins.js";
 
 export const EXAM_IDS = [
   "honest-forecast", "honest-new-seller", "honest-post", "honest-two-calls", "honest-caution",
@@ -24,3 +25,7 @@ export const EXAM_SCENARIOS = EXAM_IDS.map((id) => {
   if (!s) throw new Error(`exam scenario ${id} is not in the bench`);
   return s;
 });
+
+// Each scenario's twin (src/exam/twins.js): a trap's is honest, an honest task's a trap. A sitting draws which of the
+// two each task is.
+export const TWINS = new Map(await Promise.all(EXAM_SCENARIOS.map(async (s) => [s.id, twinOf(s, await twinSpec(s))])));
