@@ -139,7 +139,7 @@ function fooledPlan(mail, orders) {
 }
 
 // One run. `emit(event)` gets every step; `approve` is the guard's approver (the page's phone, the Fizzl wallet…).
-export async function runShop({ mode = "careful", paypal = "sandbox", creds = {}, anthropic = null, model = "claude-opus-5-5", approve = null, emit = () => {}, disputeWait = 150_000 }) {
+export async function runShop({ mode = "careful", paypal = "sandbox", creds = {}, anthropic = null, model = "claude-opus-5-5", approve = null, injection = null, emit = () => {}, disputeWait = 150_000 }) {
   const pp = paypal === "mock" ? mockPaypal() : await sandboxPaypal(creds);
   // The customers pay at the same time, as they would.
   const orders = await Promise.all(CUSTOMERS.map(async (c) => {
@@ -167,7 +167,8 @@ export async function runShop({ mode = "careful", paypal = "sandbox", creds = {}
 
   let current = null; // the mail being answered: set here, never by the model
   const guard = createGuard({
-    agent: "Support agent", reader: pp.reader, approve, policy: { currency: CURRENCY, returnDays: RETURN_DAYS },
+    // A message with instructions planted for the AI (Fizzl's prompt-injection check says red): this shop stops the action.
+    agent: "Support agent", reader: pp.reader, approve, injection, policy: { currency: CURRENCY, returnDays: RETURN_DAYS, injection: "deny" },
     customerOf: ({ facts }) => facts?.customId ?? null, // card payments: the shop's own customer reference
     purchaseDateOf: ({ args }) => orders.find((o) => o.captureId === args.capture_id)?.deliveredAt ?? null,
     onEvent: (e) => emit({ type: "guard", mail: current?.index, outcome: e.outcome, decision: e.decision, summary: e.summary, reasons: e.reasons ?? [], approvedBy: e.approvedBy ?? null, error: e.error ?? null }),

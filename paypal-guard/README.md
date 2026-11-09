@@ -13,6 +13,7 @@ The guard sits between the model and those tools. It doesn't trust what the mode
 - **Daily limits.** By default: $25 per refund, $100 and 10 refunds a day, and one refund per payment a day. Cancellations: 3 a day. Invoices: 20 a day.
 - **A customer who keeps asking.** The third refund for the same customer within 30 days asks you, however small it is.
 - **The owner decides on the rest:** accepting a dispute (the buyer gets paid, and it can't be undone), marking an invoice paid or refunded (the books change while no money moves), price changes, and tools the guard doesn't know yet.
+- **A message written for the AI, not for the shop.** Fizzl's prompt-injection check (free, no key) reads each customer message once. When it's red (a planted "note from the shop owner to the support assistant", a fake approval, an order to keep something from the customer, instructions hidden in invisible characters), whatever the message asks for doesn't count as a customer's request: you decide, or set it to stop.
 - **Does it fit what the customer asked?** An optional AI check (TypeSafe's Jev) flags actions that don't follow from the customer's message, such as a refund for someone who only asked where their parcel is.
 - **Approve or Deny on your phone.** Over a limit, the owner gets a Telegram message with two buttons. No answer in 10 minutes means no.
 - **A log the agent doesn't write.** Every action that isn't a read is logged with its decision, its reasons and who approved it.
@@ -31,7 +32,7 @@ npm install fizzl-paypal-guard @paypal/agent-toolkit
 
 ```js
 import { PayPalAgentToolkit, ALL_TOOLS_ENABLED } from "@paypal/agent-toolkit/ai-sdk";
-import { createGuard, paypalReader, fizzlWalletApproval, jevIntent } from "fizzl-paypal-guard";
+import { createGuard, paypalReader, fizzlWalletApproval, jevIntent, fizzlInjection } from "fizzl-paypal-guard";
 
 const creds = { clientId: process.env.PAYPAL_CLIENT_ID, clientSecret: process.env.PAYPAL_CLIENT_SECRET };
 const toolkit = new PayPalAgentToolkit({ ...creds, configuration: { actions: ALL_TOOLS_ENABLED, context: { sandbox: true } } });
@@ -41,6 +42,7 @@ const guard = createGuard({
   reader: paypalReader({ ...creds, sandbox: true }),
   approve: fizzlWalletApproval({ key: process.env.FIZZL_AGENT_KEY }), // or telegramApproval({ token, chatId })
   intent: jevIntent({ apiKey: process.env.TYPESAFE_API_KEY }), // optional
+  injection: fizzlInjection(), // optional: free; FIZZL_PASS raises the hourly limit
   policy: { refund: { perAction: "25.00", perDay: "100.00" } },
   onEvent: (e) => console.log(e.outcome, e.summary, e.reasons?.map((r) => r.code) ?? []),
 });
@@ -74,7 +76,7 @@ For Claude Desktop, Claude Code, Cursor and other MCP clients there is a ready M
 | other | orders, captures, shipment tracking, reminders setup | allowed |
 | unknown | a tool from a newer toolkit | the owner decides |
 
-You can set each kind to `"allow"`, `"ask"`, `"deny"` or limits, for example `{ perAction, perDay, countPerDay }`. `otherCustomer` (default `"deny"`) decides what happens to an action for someone other than the customer. `customerRefunds` (default `{ max: 2, days: 30 }`) asks you about one refund more than `max` for the same customer within `days`; `null` turns it off. It counts the refunds that went through the guard, in its store. `openDispute` (default `"deny"`) decides what happens to a refund of a payment with an open dispute or chargeback. `returnDays` (default `null`, off) is your return period in days; `afterReturnDays` (default `"ask"`) decides what happens to a refund after it. The period counts from the day PayPal took the payment, or from your own date (the delivery date, usually) when you pass `purchaseDateOf({ tool, args, facts })`. `offIntent` (default `"ask"`) decides what happens when the intent check says it doesn't fit.
+You can set each kind to `"allow"`, `"ask"`, `"deny"` or limits, for example `{ perAction, perDay, countPerDay }`. `otherCustomer` (default `"deny"`) decides what happens to an action for someone other than the customer. `customerRefunds` (default `{ max: 2, days: 30 }`) asks you about one refund more than `max` for the same customer within `days`; `null` turns it off. It counts the refunds that went through the guard, in its store. `openDispute` (default `"deny"`) decides what happens to a refund of a payment with an open dispute or chargeback. `returnDays` (default `null`, off) is your return period in days; `afterReturnDays` (default `"ask"`) decides what happens to a refund after it. The period counts from the day PayPal took the payment, or from your own date (the delivery date, usually) when you pass `purchaseDateOf({ tool, args, facts })`. `offIntent` (default `"ask"`) decides what happens when the intent check says it doesn't fit. `injection` (default `"ask"`) decides what happens when the prompt-injection check says the message is red.
 
 A card payment has no payer email at PayPal. Pass `customerOf({ tool, args, facts })` to answer "whose is this?" from your own order database. `facts.customId` and `facts.invoiceId` carry your references.
 
