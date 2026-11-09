@@ -42,7 +42,7 @@ For Claude Code:
 claude mcp add paypal -e PAYPAL_CLIENT_ID=… -e PAYPAL_CLIENT_SECRET=… -e PAYPAL_ENVIRONMENT=SANDBOX -- npx -y fizzl-paypal-guard-mcp --tools=all
 ```
 
-**Claude Desktop, with a double click:** download [fizzl-paypal-guard-mcp.mcpb](https://github.com/Fizzl13/x402-examples/releases/download/paypal-guard-mcp-v0.2.1/fizzl-paypal-guard-mcp.mcpb) and open it with Claude Desktop. It asks for the client ID and secret, your limits and, if you like, your Fizzl wallet key or Telegram bot; nothing to type in a config file.
+**Claude Desktop, with a double click:** download [fizzl-paypal-guard-mcp.mcpb](https://github.com/Fizzl13/x402-examples/releases/download/paypal-guard-mcp-v0.3.0/fizzl-paypal-guard-mcp.mcpb) and open it with Claude Desktop. It asks for the client ID and secret, your limits and, if you like, your Fizzl wallet key or Telegram bot; nothing to type in a config file.
 
 3. **Restart the app** and ask, for example: *"List my PayPal transactions of the last week"*, then *"Refund capture 2GG… in full"*. Ask `paypal_guard_status` what the guard allows and what it did today.
 
