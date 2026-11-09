@@ -21,4 +21,4 @@ await serverFromConfig(config, { log }).connect(new StdioServerTransport());
 const ask = { fizzl: "approvals in the Fizzl wallet (Telegram)", telegram: "approvals on Telegram", chat: "approvals in the chat app (MCP elicitation)", none: "no approvals: over a limit is not done" }[config.approval.kind];
 console.error(config.setup
   ? `[fizzl-paypal-guard-mcp ${VERSION}] not set up: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET. The tools are listed; each call says how to set it up.`
-  : `[fizzl-paypal-guard-mcp ${VERSION}] PayPal ${config.sandbox ? "sandbox" : "LIVE"}, ${ask}, limits kept in ${config.limitsFile}`);
+  : `[fizzl-paypal-guard-mcp ${VERSION}] PayPal ${config.sandbox ? "sandbox" : "LIVE"}, ${ask}${config.injection ? ", prompt-injection check on" : ""}, limits kept in ${config.limitsFile}`);
