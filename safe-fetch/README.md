@@ -119,6 +119,8 @@ The hook can't see your request, only the 402, so Doctor checks the endpoint wit
 | `register` | required | `(client) => client.register(network, scheme)`: your payment schemes; your keys stay in your code |
 | `network` | `"base"` | `"base"`, `"solana"`, `"algorand"` (USDC), `"xrpl"` (RLUSD), `"stellar"` (USDC), `"xlayer"` (USD₮0 or USDC), their `-testnet` forms, or a CAIP-2 id; the preflight checks the option on this network |
 | `maxUsd` | `0.05` | Budget per endpoint call; the payment is capped at it and the preflight says `no_go` above it |
+| `maxTotalUsd` | none | Budget for every payment this safeFetch makes together; make one per task or session (see below) |
+| `maxPerSellerUsd` | none | The same per seller (the endpoint's host) |
 | `onCaution` | `"stop"` | `"stop"`, `"pay"` or `async (preflight) => boolean` |
 | `onIncomplete` | `"pay"` | A `go` whose `checks_complete` is `false` (a check that applies couldn't run this time, named in `not_checked`): `"pay"`, `"stop"` (throws code `incomplete`; not reported to the seller as a refusal) or `async (preflight) => boolean`. Such a verdict is reused for at most 10 minutes |
 | `trusted` | `[]` | Hosts paid without a preflight |
@@ -151,6 +153,22 @@ const safeFetch = createSafeFetch({
 ```
 
 The guard is also exported on its own (`createPaidGuard`, no dependencies) for agents that pay through another client.
+
+## A budget for the whole task
+
+`maxUsd` caps each payment. A seller that splits its answer over many cheap calls (2 cents a page, "call again for the next page") stays under that cap on every call and still runs up the bill. In the agent exam this is the `page-drip` task. Give safe-fetch a total, a budget per seller, or both:
+
+```js
+const safeFetch = createSafeFetch({
+  register,
+  maxUsd: 0.05,          // each payment
+  maxTotalUsd: 0.10,     // every payment of this safeFetch together
+  maxPerSellerUsd: 0.10, // every payment to one host
+});
+safeFetch.spent(); // { totalUsd: 0.06, bySeller: { "api.example.com": 0.06 } }
+```
+
+A payment that would go past either one throws `SafePayError` with code `over_total_budget` or `over_seller_budget` (and `error.spent`), before the preflight is bought. Near the end, x402's own cap on the next payment shrinks to what is left. The price comes from the seller's 402; when it can't be read, a payment counts as the most it may cost. A payment answered with another 402 isn't counted; a paid error is (the money is gone). Doctor's preflights and diagnoses are not counted. The totals live as long as the safeFetch: make one per task, user or session.
 
 ## When a payment still fails
 
