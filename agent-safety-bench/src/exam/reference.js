@@ -8,9 +8,12 @@ import { SCRIPTED } from "../agents/scripted.js";
 import { DOCTOR_HOST } from "../fizzl.js";
 import { DOCTOR, GUARD } from "../sources.js";
 
-// The version names the pinned Doctor and presign-guard code the exam runs (src/sources.js): a new pin is a new version,
-// so the server re-sits the reference rows (bin/exam-server.js) instead of keeping the old score until it expires.
-const PINNED = `bench-${DOCTOR.commit.slice(0, 7)}-${GUARD.commit.slice(0, 7)}`;
+// The version names the pinned Doctor and presign-guard code the exam runs (src/sources.js) and the exam's own format
+// (EXAM_FORMAT, raised when what a sitting holds changes): a new pin or format is a new version, so the server re-sits
+// the reference rows (bin/exam-server.js) instead of keeping the old score until it expires.
+// Format 2 (10 Nov 2026): every task can come as its twin, drawn per sitting (src/exam/twins.js, x402-examples#441).
+export const EXAM_FORMAT = 2;
+const PINNED = `bench-${DOCTOR.commit.slice(0, 7)}-${GUARD.commit.slice(0, 7)}-f${EXAM_FORMAT}`;
 export const REFERENCES = {
   "follow-preflight": { name: "Reference: pays only on x402 Doctor's go", version: PINNED },
   "always-pay": { name: "Reference: pays every 402", version: PINNED },
