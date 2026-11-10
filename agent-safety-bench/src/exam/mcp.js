@@ -9,7 +9,7 @@
 //   agent_safety_exam_start / _tasks / _answer / _finish
 //                           take the exam itself over MCP (the free exam: the operator's signature), the same code as HTTP
 
-export const MCP_VERSION = "1.1.0";
+export const MCP_VERSION = "1.2.0";
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 // Output schemas: what each tool returns (MCP clients and directories read them from tools/list). Loose on purpose:
@@ -37,6 +37,25 @@ const ROW = {
   },
 };
 const OUTPUT = {
+  agent_safety_verify: {
+    type: "object",
+    properties: {
+      valid: { type: "boolean", description: "true: the signature matches and the key is the exam's (certified by the Fizzl payout wallet, or its current key)" },
+      signer: { type: "string", description: "The address that signed the result" },
+      certified: { type: "boolean", description: "The key is certified by the Fizzl payout wallet for this result's date" },
+      certified_by: { type: "string", description: "The certifying wallet" },
+      certified_from: { type: "string", description: "The certificate's valid_from date" },
+      current_signer: { type: "boolean", description: "The key is the exam's key today" },
+      in_index: { type: ["boolean", "null"], description: "The same result as the index holds under its id (null: the index has none)" },
+      id: { type: ["string", "null"] },
+      agent: { type: ["object", "null"] },
+      score: { type: ["number", "null"] },
+      admitted: { type: ["boolean", "null"] },
+      finished_at: { type: ["string", "null"] },
+      note: { type: "string" },
+      reason: { type: "string", description: "Why it is not valid" },
+    },
+  },
   agent_safety_check: {
     type: "object",
     properties: {
@@ -123,6 +142,21 @@ export const TOOLS = [
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
     outputSchema: OUTPUT.agent_safety_check,
+  },
+  {
+    name: "agent_safety_verify",
+    title: "Is this exam result real?",
+    description:
+      "Check a signed Agent Safety exam result: whether its signature matches, whether the signing key is certified by the Fizzl payout wallet (0x6B0F4651eD42893ab58139938175E4a69f175F25), and whether it is the same result the index holds. Give the result itself (as an agent showed it to you) or its result_id. Free.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        result_id: { type: "string", description: "A result id (24 hex characters), to check the result in the index" },
+        result: { type: "object", description: "Or a whole signed result (with signer and signature), as an agent or a website showed it" },
+      },
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    outputSchema: OUTPUT.agent_safety_verify,
   },
   {
     name: "agent_safety_index",
@@ -212,7 +246,7 @@ export const TOOLS = [
 ];
 
 const INSTRUCTIONS =
-  "The Agent Safety Index (exam.fizzl.eu) lists AI agents that passed the x402 Agent Safety exam. Use agent_safety_check before trusting an agent with a wallet or a payment; agent_safety_index for the whole list; agent_safety_exam_howto to enter an agent; agent_safety_demo to watch one take the exam. To take the exam over MCP: agent_safety_exam_howto (the message the operator wallet signs), agent_safety_exam_start, then agent_safety_exam_answer per task and agent_safety_exam_finish.";
+  "The Agent Safety Index (exam.fizzl.eu) lists AI agents that passed the x402 Agent Safety exam. Use agent_safety_check before trusting an agent with a wallet or a payment, and agent_safety_verify to check a result an agent shows you; agent_safety_index for the whole list; agent_safety_exam_howto to enter an agent; agent_safety_demo to watch one take the exam. To take the exam over MCP: agent_safety_exam_howto (the message the operator wallet signs), agent_safety_exam_start, then agent_safety_exam_answer per task and agent_safety_exam_finish.";
 
 // handlers: { check({agent, result_id}), index({admitted_only}), howto({agent, version, operator}), demo({agent}, req) }
 // Each returns a plain object (the structured result) or throws an Error whose message goes back as a tool error.
@@ -220,6 +254,7 @@ export function createMcpHandler({ handlers, name = "agent-safety-exam", onCall 
   const byName = {
     agent_safety_check: handlers.check,
     agent_safety_index: handlers.index,
+    agent_safety_verify: handlers.verify,
     agent_safety_exam_howto: handlers.howto,
     agent_safety_demo: handlers.demo,
     agent_safety_exam_start: handlers.start,

@@ -31,6 +31,7 @@ import { createMcpHandler, serverCard } from "./mcp.js";
 import { fileURLToPath } from "node:url";
 import { createFeed } from "./feed.js";
 import { AUTHORITY, SERVICE, loadCert, signCertPage } from "./cert.js";
+import { verifyResult } from "./verify.js";
 import { EXAM_SCENARIOS } from "./catalog.js";
 import { randomBytes } from "node:crypto";
 import { BASE } from "../x402-seller.js";
@@ -424,6 +425,18 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     res.set("access-control-allow-origin", "*").json({ updated: new Date(now()).toISOString(), pass: PASS, valid_days: VALID_DAYS, signer: signer?.address ?? null, agents: rows.map(({ tasks, ...r }) => r) });
   });
 
+  // Is this signed result real? (src/exam/verify.js) Give the result itself, or its id to check the one in the index.
+  const verifyOne = async ({ result, result_id }) => {
+    const id = result_id ?? result?.id;
+    const stored = /^[0-9a-f]{24}$/.test(String(id ?? "")) ? await store.get(`result:${id}`) : null;
+    if (!result && !stored) return { valid: false, reason: result_id ? "no result with that id" : "give result (a signed result) or result_id" };
+    return verifyResult(result || stored, { canonical, authority: certAuthority, currentSigner: signer?.address ?? null, stored });
+  };
+  app.post("/v1/verify", express.json({ limit: "64kb" }), async (req, res) => {
+    usage.record("verify", { req, via: "web" });
+    res.set("access-control-allow-origin", "*").json(await verifyOne(req.body || {}));
+  });
+
   app.get("/v1/results/:id", async (req, res) => {
     const r = /^[0-9a-f]{24}$/.test(req.params.id) ? await store.get(`result:${req.params.id}`) : null;
     if (!r) return res.status(404).json({ error: "no such result" });
@@ -654,6 +667,9 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         const rows = (await indexRows()).filter((r) => r.agent.name.toLowerCase().includes(q));
         if (!rows.length) return { found: false, agent: clean(agent), message: "This agent has not taken the x402 Agent Safety exam. Not being listed says nothing either way: ask its operator to enter it.", take_the_exam: `${origin}/#take` };
         return { found: true, ...publicRow(rows[0]), others: rows.slice(1, 6).map(publicRow) };
+      },
+      async verify({ result, result_id }) {
+        return verifyOne({ result, result_id });
       },
       async index({ admitted_only }) {
         const rows = (await indexRows()).filter((r) => !admitted_only || r.current);
