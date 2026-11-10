@@ -491,13 +491,29 @@ export function createWallet(config, overrides = {}) {
       return a?.nonce && a.from && a.validBefore ? { from: a.from, to: a.to, value: String(a.value), validBefore: String(a.validBefore), nonce: a.nonce } : null;
     } catch { return null; }
   }
+  // The network of the signed x402 payment in a paid retry (any network), or null when the request carries none.
+  function paidNetworkOf(input, init) {
+    const h = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const header = h.get("payment-signature") ?? h.get("x-payment");
+    if (!header) return null;
+    try {
+      const p = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+      return String(p.accepted?.network ?? p.network ?? "another network");
+    } catch { return "another network"; }
+  }
   // Before paying an endpoint again: refuse while an earlier unanswered payment for it can still be collected.
   async function noRepeat(url, method) {
     const key = endpointOf(url, method);
     const prev = unanswered.get(key);
     if (!prev) return;
-    if (prev.taken !== true && (await wasTaken(prev.auth)) === true) prev.taken = true;
     const now = Date.now();
+    // Paid on Solana, Algorand or the XRP Ledger: there is no authorization to look up, so the endpoint waits an hour.
+    if (!prev.auth) {
+      if (now - prev.at < REPEAT_BLOCK_MS) throw new Error(`this API was paid from this wallet on ${prev.network} at ${when(prev.at)} and answered HTTP ${prev.status} instead of what was paid for. Paying it again is blocked until ${when(prev.at + REPEAT_BLOCK_MS)}, so it can't take a second payment the same way. Tell your owner; nothing was signed now`);
+      unanswered.delete(key);
+      return;
+    }
+    if (prev.taken !== true && (await wasTaken(prev.auth)) === true) prev.taken = true;
     if (prev.taken === true) {
       if (now - prev.at < REPEAT_BLOCK_MS) throw new Error(`this API took $${usd(prev.auth)} from this wallet at ${when(prev.at)} (to ${prev.auth.to}) and answered HTTP ${prev.status} instead of what was paid for. Paying it again is blocked until ${when(prev.at + REPEAT_BLOCK_MS)}, so it can't take a second payment the same way. Tell your owner; nothing was signed now`);
     } else if (Number(prev.auth.validBefore) * 1000 > now) {
@@ -522,6 +538,19 @@ export function createWallet(config, overrides = {}) {
         : taken === false
           ? `The payment of $${amount} hasn't been taken (yet): the seller can still collect it until ${until}. Don't sign another payment for this API before then, even if it asks again with another payTo.`
           : `Whether the payment of $${amount} was taken couldn't be checked; the seller can collect it until ${until}. Don't sign another payment for this API before then.`,
+    };
+  }
+
+  // After a paid call on another network (Solana, Algorand, the XRP Ledger): no authorization to look up, so an
+  // answer that isn't a success blocks the endpoint for an hour, the same as a payment taken without an answer.
+  function afterPaidOther(url, method, network, res) {
+    const key = endpointOf(url, method);
+    if (res.ok) { unanswered.delete(key); return null; }
+    unanswered.set(key, { at: Date.now(), status: res.status, auth: null, network, taken: null });
+    return {
+      taken: null,
+      network,
+      note: `A payment on ${network} was signed, but the API answered HTTP ${res.status}: it may have been charged without an answer. Don't pay this API again; tell your owner. Paying it again is blocked until ${when(Date.now() + REPEAT_BLOCK_MS)}.`,
     };
   }
 
@@ -657,7 +686,7 @@ export function createWallet(config, overrides = {}) {
     const cap = Math.min(maxPriceUsd ?? config.maxPaymentUsd, config.maxPaymentUsd);
     const init = { method, headers, body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body) };
     const first = await plainFetch(url, init);
-    let res = first, protocol = null, tempoHash = null, session = null, auth = null;
+    let res = first, protocol = null, tempoHash = null, session = null, auth = null, otherNetwork = null;
     if (first.status === 402 && payableSession(first)) {
       // Sessions are opted into (MPP_SESSION_DEPOSIT): used whenever the API offers one, also next to x402.
       protocol = "mpp-session";
@@ -705,7 +734,12 @@ export function createWallet(config, overrides = {}) {
         ]);
       }
       let pending = first;
-      const replay = (input, i) => { if (pending) { const r = pending; pending = null; return Promise.resolve(r); } auth ??= authorizationOf(input, i); return plainFetch(input, i); };
+      const replay = (input, i) => {
+        if (pending) { const r = pending; pending = null; return Promise.resolve(r); }
+        auth ??= authorizationOf(input, i);
+        if (!auth) otherNetwork ??= paidNetworkOf(input, i);
+        return plainFetch(input, i);
+      };
       res = await wrapFetchWithPayment(replay, client)(url, init);
     }
     const text = await res.text();
@@ -721,7 +755,7 @@ export function createWallet(config, overrides = {}) {
       try { const r = JSON.parse(Buffer.from(receipt, "base64url").toString("utf8")); payment = { protocol: "mpp", success: r.status === "success", transaction: r.reference ?? null, network: `eip155:${chain.id}`, method: r.method }; } catch { payment = { protocol: "mpp", raw: receipt }; }
     } else if (settled) { try { payment = decodePaymentResponseHeader(settled); } catch { payment = { raw: settled }; } }
     // Signed but not answered: was it taken? (And the next payment for this endpoint waits, see noRepeat.)
-    const charge = auth ? await afterPaid(url, method, auth, res) : null;
+    const charge = auth ? await afterPaid(url, method, auth, res) : otherNetwork ? afterPaidOther(url, method, otherNetwork, res) : null;
     return {
       ...(charge ? { warnings: [charge.note] } : {}),
       status: res.status,
@@ -1160,7 +1194,7 @@ export function createServer(wallet) {
 
   server.registerTool("pay_x402", {
     title: "Pay for an x402 API",
-    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With a Solana or Algorand account set up, x402 offers in USDC there are paid too, and with an XRPL account x402 offers in RLUSD on the XRP Ledger (all after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call. If the API doesn't answer properly after a payment, the result says whether the payment was taken on-chain (charge), and paying that endpoint again is refused while the first payment can still be collected, or for an hour after it was taken without an answer: don't try to get around that, tell the owner.",
+    description: "Call a URL that may answer 402 Payment Required and pay it in USDC from this wallet, then return the response. Works with x402 and with MPP (the Machine Payments Protocol): method evm (USDC on this wallet's chain) and method tempo (USDC.e on Tempo, from this wallet's address there). With a Solana or Algorand account set up, x402 offers in USDC there are paid too, and with an XRPL account x402 offers in RLUSD on the XRP Ledger (all after USDC on this chain). When an API offers several, x402 comes first, then MPP evm, then Tempo. The payment is checked by presign-guard and counts toward the spending limits; over a limit the owner is asked to approve (the call waits), and a refusal comes back as an error with the reason. max_price_usd caps the price of this call. If the API doesn't answer properly after a payment, the result says whether the payment was taken on-chain (charge), and paying that endpoint again is refused while the first payment can still be collected, or for an hour after it was taken without an answer (on Solana, Algorand and the XRP Ledger: for an hour after any answer that isn't a success): don't try to get around that, tell the owner.",
     inputSchema: {
       url: z.string().url().describe("The API URL"),
       method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional().describe("HTTP method (default GET)"),

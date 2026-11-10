@@ -98,3 +98,38 @@ test("pays a Solana-only x402 offer: presign-guard checks it (type solana), only
     assert.equal(status.solana.usdc, "2.5");
   } finally { rpc.close(); }
 });
+
+test("a Solana payment answered with an error blocks paying that API again for an hour (no authorization to look up)", async () => {
+  const rpc = await fakeRpc();
+  const net = SOLANA.mainnet;
+  const seen = [];
+  const offer = { scheme: "exact", network: net.network, amount: "10000", asset: net.usdc, payTo: SELLER, maxTimeoutSeconds: 60, extra: { feePayer: FEE_PAYER, recentBlockhash: "11111111111111111111111111111111" } };
+  const fetch = async (input, init = {}) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const headers = new Headers(input instanceof Request ? input.headers : init.headers);
+    if (url.startsWith("https://presign-guard.fizzl.eu/")) return Response.json({ verdict: "green", reasons: [] });
+    if (url === rpc.url) return Response.json({ jsonrpc: "2.0", id: 1, result: { value: [] } });
+    if (url === API) {
+      const sig = headers.get("payment-signature") ?? headers.get("x-payment");
+      if (!sig) {
+        const challenge = { x402Version: 2, error: "payment required", resource: { url: API, description: "data", mimeType: "application/json" }, accepts: [offer] };
+        return new Response("{}", { status: 402, headers: { "content-type": "application/json", "payment-required": Buffer.from(JSON.stringify(challenge)).toString("base64") } });
+      }
+      seen.push(sig);
+      return new Response(JSON.stringify({ error: "method not allowed" }), { status: 405, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const seed = randomBytes(32);
+  const cfg = configFromEnv({ AGENT_KEY: KEY, LIMIT_USDC_PER_TX: "1", LIMIT_USDC_PER_DAY: "5", SOLANA_PRIVATE_KEY: k.getBase58Decoder().decode(seed), SOLANA_RPC_URL: rpc.url });
+  try {
+    const wallet = createWallet(cfg, { fetch, guard: { verifyReceipts: "off" } });
+    const out = await wallet.payX402({ url: API, method: "GET" });
+    assert.equal(out.status, 405);
+    assert.equal(seen.length, 1);
+    assert.equal(out.charge.network, net.network);
+    assert.match(out.warnings[0], /signed, but the API answered HTTP 405: it may have been charged without an answer. Don't pay this API again/);
+    await assert.rejects(wallet.payX402({ url: API, method: "GET" }), /was paid from this wallet on solana:.* answered HTTP 405 .*blocked until .*nothing was signed now/);
+    assert.equal(seen.length, 1, "no second payment was signed");
+  } finally { rpc.close(); }
+});
