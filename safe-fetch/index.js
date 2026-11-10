@@ -24,6 +24,10 @@
 // draft refusal extension, x402-foundation/x402#4087): the ready report from Doctor's preflight (reason code and the
 // hash of the refused offer; no query, no keys, nothing about the buyer or this client), once a day per endpoint and
 // reason. A screening_hit isn't sent: the draft takes it only signed. Off by default.
+// A paid request answered without delivery (an error, or another 402) is never paid again on its own: the same
+// method, URL and body within paidErrorMs throws SafePayError code "paid_no_delivery" (onPaidError "stop", the
+// default). The most common loss in the agent exam (exam.fizzl.eu) was paying again after a seller took the payment
+// and answered with an error; a preflight can't see that, it only reads the 402 before paying (paid-guard.js).
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:
 // a missing, changed or forged verdict is never a payment (receipt.js).
@@ -35,13 +39,15 @@
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
+import { createPaidGuard, paidTwiceMessage, PAID_ERROR_MS } from "./paid-guard.js";
 
+export { createPaidGuard, purchaseKey, paidTwiceMessage, PAID_ERROR_MS } from "./paid-guard.js";
 export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.13.0";
+export const VERSION = "0.14.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -141,13 +147,14 @@ export function refusalReason(preflight) {
 }
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "preflight_failed" | "bad_receipt" | "no_option" */
-  constructor(message, { code, preflight = null, url = null } = {}) {
+  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" */
+  constructor(message, { code, preflight = null, url = null, earlier } = {}) {
     super(message);
     this.name = "SafePayError";
     this.code = code;
     this.preflight = preflight;
     this.url = url;
+    if (earlier) this.earlier = earlier;
   }
 }
 
@@ -244,6 +251,10 @@ function sameSite(a, b) {
  * @param {(report: object, info: {url: string, method: string, status: number|null, error: Error|null}) => void} [options.onDiagnosis]
  * @param {boolean} [options.shareOutcomes]  after paying, tell Doctor whether the payment worked (default false)
  * @param {boolean} [options.tellSellers]  when not paying, tell the seller why if its 402 takes refusals (default false)
+ * @param {"stop"|"pay"|((earlier: {at: number, status: number}, info: {url: string, method: string}) => boolean|Promise<boolean>)} [options.onPaidError]
+ *   the same request was paid before and answered without delivering: "stop" (default) throws code "paid_no_delivery",
+ *   "pay" pays again, a function decides
+ * @param {number} [options.paidErrorMs]  how long such a request stays blocked (default 30 minutes)
  * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
  * @param {() => number} [options.now]
  */
@@ -264,6 +275,8 @@ export function createSafeFetch({
   onDiagnosis,
   shareOutcomes = false,
   tellSellers = false,
+  onPaidError = "stop",
+  paidErrorMs = PAID_ERROR_MS,
   fetch: baseFetch = globalThis.fetch,
   createPayingFetch,
   now = Date.now,
@@ -279,6 +292,10 @@ export function createSafeFetch({
   if (!["pay", "stop"].includes(onIncomplete) && typeof onIncomplete !== "function") {
     throw new TypeError('onIncomplete must be "pay", "stop" or a function');
   }
+  if (!["stop", "pay"].includes(onPaidError) && typeof onPaidError !== "function") {
+    throw new TypeError('onPaidError must be "stop", "pay" or a function');
+  }
+  const paidGuard = createPaidGuard({ windowMs: paidErrorMs, now });
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
   const trustedHosts = new Set(trusted.map(hostOf).filter(Boolean));
 
@@ -422,7 +439,13 @@ export function createSafeFetch({
     tellSeller(url, preflight);
   }
 
+  // Every endpoint payment goes through here: what it was answered with is remembered for the paid-twice guard.
   async function payAndCheck(url, init, method) {
+    const res = await payAndDiagnose(url, init, method);
+    paidGuard.record(url, { method, body: init.body }, res.status);
+    return res;
+  }
+  async function payAndDiagnose(url, init, method) {
     if (!diagnoseOnFailure) return payEndpoint(url, init);
     let res;
     try {
@@ -450,6 +473,16 @@ export function createSafeFetch({
     const { url, method } = requestOf(input, init);
     const probe = await baseFetch(url, init);
     if (probe.status !== 402) return probe;
+
+    // Paid before and not delivered: not paid again (and no preflight bought) unless onPaidError says so.
+    const earlier = paidGuard.blocked(url, { method, body: init.body });
+    if (earlier && onPaidError !== "pay") {
+      const again = typeof onPaidError === "function" && (await onPaidError(earlier, { url, method })) === true;
+      if (!again) {
+        try { await probe.body?.cancel(); } catch { /* already consumed */ }
+        throw new SafePayError(paidTwiceMessage(url, earlier), { code: "paid_no_delivery", url, earlier });
+      }
+    }
 
     if (trustedHosts.has(hostOf(url))) {
       try { await probe.body?.cancel(); } catch { /* already consumed */ }

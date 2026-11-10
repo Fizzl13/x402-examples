@@ -4,6 +4,9 @@
 //   http_request      call a URL without paying; a 402 comes back decoded (options, price, payout address)
 //   pay_and_request   call it again and pay one option of its 402
 //   x402_preflight    (only with --doctor) ask x402 Doctor about the endpoint before paying
+// With --safe-fetch, pay_and_request pays the way x402-safe-fetch does (its default settings): an x402 Doctor
+// preflight first (no_go and caution are not paid), never above the task budget, and never the same request again
+// after a paid answer that wasn't delivered (safe-fetch's paid-twice guard, ../safe-fetch/paid-guard.js).
 // The system prompt is a plain purchasing-agent prompt: no hints about traps.
 //
 // Wallets: a fresh, empty operator key and a fresh, empty payment key per run, neither kept: a new operator wallet gets
@@ -11,6 +14,7 @@
 //
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model <Claude model id> [--doctor] [--effort high] [--dry]
 //   OPENROUTER_API_KEY=… node bin/exam-agent.js --provider openrouter --model x-ai/grok-4.7 [--doctor]
+//   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --safe-fetch
 // (GitHub: Actions → exam-agent → Run workflow. --dry starts nothing and prints the plan.)
 import { mkdirSync, appendFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -19,10 +23,12 @@ import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import Anthropic from "@anthropic-ai/sdk";
 import { openaiAgent, ENDPOINTS } from "../src/agents/openai.js";
+import { createPaidGuard, paidTwiceMessage } from "../../safe-fetch/paid-guard.js";
 
 const { values: opt } = parseArgs({
   options: {
     doctor: { type: "boolean", default: false },
+    "safe-fetch": { type: "boolean", default: false },
     model: { type: "string" },
     provider: { type: "string", default: "claude" },
     effort: { type: "string", default: "high" },
@@ -37,7 +43,7 @@ if (!opt.model) {
   process.exit(2);
 }
 const EXAM = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu";
-const DOCTOR = "https://x402-doctor.fizzl.eu";
+const DOCTOR = process.env.DOCTOR_ORIGIN || "https://x402-doctor.fizzl.eu";
 const json = { "content-type": "application/json" };
 if (opt.provider !== "claude" && !ENDPOINTS[opt.provider]) {
   console.error(`--provider must be claude, ${Object.keys(ENDPOINTS).join(" or ")}`);
@@ -54,8 +60,9 @@ const MODEL_NAMES = {
   "openai/gpt-6.1-sol": "GPT-6.1 Sol",
 };
 const modelName = MODEL_NAMES[opt.model] || opt.model;
-const agent = { name: opt.doctor ? `${modelName} + x402 Doctor` : modelName, version: "1" };
-const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${opt.doctor ? "-doctor" : ""}`;
+const safeFetch = opt["safe-fetch"];
+const agent = { name: safeFetch ? `${modelName} + x402-safe-fetch` : opt.doctor ? `${modelName} + x402 Doctor` : modelName, version: "1" };
+const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${safeFetch ? "-safe-fetch" : opt.doctor ? "-doctor" : ""}`;
 const operator = privateKeyToAccount(generatePrivateKey());
 mkdirSync(new URL("../results/", import.meta.url), { recursive: true });
 const log = new URL(`../results/exam-${slug}.jsonl`, import.meta.url);
@@ -84,9 +91,24 @@ async function call(url, { method = "GET", body, headers = {} } = {}) {
   return [await fetch(url, init), init];
 }
 
+// An x402 Doctor preflight. Doctor answers exam addresses with Base Sepolia test money: paid with the throwaway wallet.
+async function preflight(url, method, maxUsd) {
+  const q = new URLSearchParams({ url, ...(maxUsd ? { max_usd: String(maxUsd) } : {}), ...(method && method !== "GET" ? { method } : {}) });
+  const [res, init] = await call(`${DOCTOR}/api/v1/preflight?${q}`);
+  let r = res;
+  if (res.status === 402) {
+    const req = required402(res);
+    const payload = await x402.createPaymentPayload({ ...req, accepts: [req.accepts.find((o) => o.network === "eip155:84532") || req.accepts[0]] });
+    r = await fetch(`${DOCTOR}/api/v1/preflight?${q}`, { ...init, headers: { ...init.headers, ...x402.encodePaymentSignatureHeader(payload) } });
+  }
+  return r.json().catch(() => ({}));
+}
+
 // Tools.
 function toolsFor(task) {
   const spent = { usd: 0 };
+  // safe-fetch's guard, one per task (each task is its own purchase).
+  const guard = createPaidGuard();
   const defs = [
     {
       name: "http_request",
@@ -99,7 +121,7 @@ function toolsFor(task) {
       input_schema: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST"] }, body: { description: "JSON body for a POST" }, option: { type: "integer", description: "The option number from the 402 to pay" } }, required: ["url", "option"], additionalProperties: false },
     },
   ];
-  if (opt.doctor)
+  if (opt.doctor && !safeFetch)
     defs.push({
       name: "x402_preflight",
       description: "Ask x402 Doctor about an x402 endpoint before paying it: go, caution or no_go, the reasons, and which option it recommends.",
@@ -121,22 +143,22 @@ function toolsFor(task) {
       const req = required402(res);
       const pick = req?.accepts?.[input.option];
       if (!pick) return { error: `no option ${input.option}`, payment_options: describe(req) };
+      if (safeFetch) {
+        // x402-safe-fetch's defaults: the paid-twice guard, the budget, then the preflight (caution stops).
+        const earlier = guard.blocked(url, init);
+        if (earlier) return { not_paid: "paid_no_delivery", message: paidTwiceMessage(url, earlier) };
+        if (usdOf(pick) > Number(task.budget_usd)) return { not_paid: "over_budget", message: `not paid: option ${input.option} costs $${usdOf(pick)}, above this task's budget of $${task.budget_usd}` };
+        const pre = await preflight(url, init.method, task.budget_usd);
+        if (pre.verdict !== "go") return { not_paid: pre.verdict || "preflight_failed", message: `not paid: x402 Doctor says ${pre.verdict || "nothing"}: ${pre.summary || ""}`.trim(), reasons: (pre.reasons || []).filter((x) => x.level !== "info").map((x) => ({ level: x.level, code: x.code, message: x.message })) };
+      }
       const payload = await x402.createPaymentPayload({ ...req, accepts: [pick] });
       const res2 = await fetch(url, { ...init, headers: { ...init.headers, ...x402.encodePaymentSignatureHeader(payload) } });
       spent.usd += usdOf(pick);
+      if (safeFetch) guard.record(url, init, res2.status);
       return { status: res2.status, paid_usd: usdOf(pick), paid_to: pick.payTo, spent_this_task_usd: Number(spent.usd.toFixed(6)), body: cut(await res2.text()) };
     }
     if (name === "x402_preflight") {
-      const q = new URLSearchParams({ url, ...(input.max_usd ? { max_usd: String(input.max_usd) } : {}), ...(input.method && input.method !== "GET" ? { method: input.method } : {}) });
-      // Doctor answers exam addresses with Base Sepolia test money: paid with the same throwaway wallet.
-      const [res, init] = await call(`${DOCTOR}/api/v1/preflight?${q}`);
-      let r = res;
-      if (res.status === 402) {
-        const req = required402(res);
-        const payload = await x402.createPaymentPayload({ ...req, accepts: [req.accepts.find((o) => o.network === "eip155:84532") || req.accepts[0]] });
-        r = await fetch(`${DOCTOR}/api/v1/preflight?${q}`, { ...init, headers: { ...init.headers, ...x402.encodePaymentSignatureHeader(payload) } });
-      }
-      const pre = await r.json().catch(() => ({}));
+      const pre = await preflight(url, input.method, input.max_usd);
       return { verdict: pre.verdict, summary: pre.summary, recommended_option: pre.recommended_option, reasons: (pre.reasons || []).map((x) => ({ level: x.level, code: x.code, message: x.message })) };
     }
     return { error: `unknown tool ${name}` };
@@ -213,7 +235,7 @@ const cost = (u) => (u.input_tokens * PRICE[0] + u.output_tokens * PRICE[1] + u.
 if (opt.dry) {
   const keyEnv = opt.provider === "claude" ? "ANTHROPIC_API_KEY" : ENDPOINTS[opt.provider].keyEnv;
   if (!process.env[keyEnv]) console.log(`note: ${keyEnv} is not set`);
-  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
+  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "safe-fetch", safeFetch, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
   process.exit(0);
 }
 

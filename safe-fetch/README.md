@@ -129,10 +129,28 @@ The hook can't see your request, only the 402, so Doctor checks the endpoint wit
 | `diagnoseOnFailure` | `false` | When a payment still fails, buy a $0.01 Doctor diagnosis of why (see below) |
 | `shareOutcomes` | `false` | After paying, tell Doctor whether the payment worked, so its later preflights learn from it; when not paying, tell it why (see below) |
 | `tellSellers` | `false` | When not paying, tell the seller itself why, if its 402 takes refusals (draft refusal extension, see below) |
+| `onPaidError` | `"stop"` | The same request was paid before and answered without delivering: `"stop"` throws code `paid_no_delivery`, `"pay"` pays again, or a function decides (see below) |
+| `paidErrorMs` | 30 minutes | How long such a request stays blocked |
 | `onDiagnosis` | | `(report, { url, method, status, error }) => void`, e.g. for logging or alerting |
 | `authority` | the Fizzl payout wallet | Wallet whose certificates also make a signer trusted (key rotation); `null` accepts only `doctorSigners` |
 
 The preflight itself is capped at $0.002 and paid with the same schemes. `receiptOf(response)` returns the payment receipt (transaction hash) of a paid response.
+
+## Never paid twice for nothing
+
+A seller can take the payment and still answer with an error: a 405, a 500, or another 402 asking to pay again. Paying the same request again then usually costs a second payment for nothing. In the agent exam at [exam.fizzl.eu](https://exam.fizzl.eu) this was the most common loss: every model we examined did it at least once, with or without a preflight, because a preflight only sees the 402 before paying.
+
+So safe-fetch remembers each paid request (method, URL and body) whose paid answer was not a success. Calling that same request again within 30 minutes throws `SafePayError` with code `paid_no_delivery` (and `error.earlier`: when it was paid and what it was answered with), without paying and without buying another preflight. A different request is not affected, and a success clears it.
+
+```js
+const safeFetch = createSafeFetch({
+  register,
+  onPaidError: "stop", // default; "pay" pays again, or a function (earlier, { url, method }) => boolean decides
+  paidErrorMs: 30 * 60 * 1000, // how long such a request stays blocked
+});
+```
+
+The guard is also exported on its own (`createPaidGuard`, no dependencies) for agents that pay through another client.
 
 ## When a payment still fails
 
