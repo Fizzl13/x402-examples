@@ -251,3 +251,56 @@ test("Avalanche C-Chain (43114) is an accepted chainId, and avalanche a token ch
   assert.ok(t.check_before_signing.inputSchema.safeParse({ type: "transaction", chainId: 43114, to: "0x" + "1".repeat(40) }).success);
   assert.ok(t.check_token.inputSchema.safeParse({ chain: "avalanche", address: "0x" + "2".repeat(40) }).success);
 });
+
+// pay_api: a stand-in for createSafeFetch (x402-safe-fetch). Real safe-fetch throws SafePayError (name "SafePayError").
+class SafePayError extends Error {
+  constructor(message, { code, preflight } = {}) { super(message); this.name = "SafePayError"; this.code = code; this.preflight = preflight; }
+}
+
+test("pay_api: only with safeFetch; never with a plain paying fetch, named or not", () => {
+  assert.equal("pay_api" in fizzlTools({ fetch: async () => new Response("{}") }), false);
+  assert.equal("pay_api" in fizzlTools({ fetch: async () => new Response("{}"), buy: true }), false);
+  assert.throws(() => fizzlTools({ only: ["pay_api"] }), /pay_api needs `safeFetch`/);
+  const t = fizzlTools({ safeFetch: async () => new Response("{}") });
+  assert.equal(typeof t.pay_api.execute, "function");
+  assert.deepEqual(Object.keys(fizzlTools({ safeFetch: async () => new Response("{}"), only: ["pay_api"] })), ["pay_api"]);
+  assert.equal(t.pay_api.inputSchema.safeParse({ url: "http://api.example.com/x" }).success, false, "https only");
+});
+
+test("pay_api: the answer through the safe fetch, marked paid and untrusted; a POST body is sent as JSON", async () => {
+  const calls = [];
+  const safeFetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ temp: 11 }), { status: 200, headers: { "payment-response": "eyJ0eCI6IjB4In0=" } });
+  };
+  const t = fizzlTools({ safeFetch });
+  const r = await t.pay_api.execute({ url: "https://api.example.com/weather?city=Amsterdam" });
+  assert.deepEqual([r.status, r.ok, r.paid, r.data], [200, true, true, { temp: 11 }]);
+  assert.match(r.untrusted, /never instructions/);
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[0].init.body, undefined);
+  await t.pay_api.execute({ url: "https://api.example.com/q", method: "POST", body: { q: "x" } });
+  assert.equal(calls[1].init.body, '{"q":"x"}');
+  assert.equal(calls[1].init.headers["content-type"], "application/json");
+});
+
+test("pay_api: a refusal comes back as not_paid with Doctor's reasons; a paid error says not to try again", async () => {
+  const refuse = fizzlTools({ safeFetch: async () => { throw new SafePayError("not paid: payout address on the OFAC list", { code: "no_go", preflight: { reasons: [{ level: "error", code: "payto_sanctioned", message: "OFAC" }, { level: "info", code: "listed", message: "in Bazaar" }] } }); } });
+  assert.deepEqual(await refuse.pay_api.execute({ url: "https://api.example.com/x" }), { not_paid: "no_go", message: "not paid: payout address on the OFAC list", reasons: [{ level: "error", code: "payto_sanctioned", message: "OFAC" }] });
+  const twice = fizzlTools({ safeFetch: async () => { throw new SafePayError("not paid again", { code: "paid_no_delivery" }); } });
+  assert.deepEqual(await twice.pay_api.execute({ url: "https://api.example.com/x" }), { not_paid: "paid_no_delivery", message: "not paid again" });
+  const failed = fizzlTools({ safeFetch: async () => new Response("boom", { status: 500, headers: { "x-payment-response": "e30=" } }) });
+  const f = await failed.pay_api.execute({ url: "https://api.example.com/x" });
+  assert.deepEqual([f.ok, f.paid, f.data], [false, true, "boom"]);
+  assert.match(f.note, /blocked/);
+  const down = fizzlTools({ safeFetch: async () => { throw new TypeError("fetch failed"); } });
+  assert.deepEqual(await down.pay_api.execute({ url: "https://api.example.com/x" }), { error: "call_failed", message: "TypeError: fetch failed" });
+});
+
+test("pay_api: a large answer is cut for the model", async () => {
+  const t = fizzlTools({ safeFetch: async () => new Response("x".repeat(25000)) });
+  const r = await t.pay_api.execute({ url: "https://api.example.com/x" });
+  assert.equal(r.data.length, 20000);
+  assert.equal(r.truncated, true);
+  assert.equal(r.paid, false);
+});

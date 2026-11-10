@@ -4,9 +4,9 @@ export declare const VERSION: string;
 export declare const PRESIGN_URL: string;
 export declare const DOCTOR_URL: string;
 export declare const BUY_URL: string;
-export declare const PRICES: Record<FizzlToolName, string>;
+export declare const PRICES: Record<Exclude<FizzlToolName, "pay_api">, string>;
 
-export type FizzlToolName = "check_before_signing" | "check_xrpl_transaction" | "check_solana_transaction" | "check_algorand_transaction" | "check_message" | "check_token" | "check_wallet_approvals" | "screen_wallet" | "check_endpoint_before_paying" | "buy_live_data";
+export type FizzlToolName = "check_before_signing" | "check_xrpl_transaction" | "check_solana_transaction" | "check_algorand_transaction" | "check_message" | "check_token" | "check_wallet_approvals" | "screen_wallet" | "check_endpoint_before_paying" | "buy_live_data" | "pay_api";
 
 /** A failed check, returned to the model instead of thrown. */
 export interface FizzlToolError { error: string; message: string }
@@ -23,10 +23,12 @@ export interface FizzlToolsOptions {
   fetch?: typeof fetch;
   /** Prepaid credit keys (sent as x-credit-key), per service. */
   creditKeys?: { presign?: string; doctor?: string };
-  /** The tools to include (default: the nine checks, plus buy_live_data with `buy`). */
+  /** The tools to include (default: the nine checks, plus buy_live_data with `buy` and pay_api with `safeFetch`). */
   only?: FizzlToolName[];
   /** Add buy_live_data: Fizzl Buy buys live data for the agent, $0.02 a purchase through `fetch`. Default false. */
   buy?: boolean;
+  /** Add pay_api: the agent calls any x402 API through this fetch from createSafeFetch (npm x402-safe-fetch), which decides what is paid (Doctor preflight, budget, never twice for an undelivered request). */
+  safeFetch?: typeof fetch;
   /** Fall back to the free quick check (verdict only, a few per hour) when a check can't be paid. Default true. */
   free?: boolean;
   presignUrl?: string;

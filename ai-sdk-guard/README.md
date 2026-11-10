@@ -18,13 +18,34 @@ Nine tools you add to `generateText`, `streamText` or an agent in one line:
 
 The tools only check. They never sign, pay or move anything themselves. A failed check comes back to the model as `{ error, message }`, so the agent can tell the user instead of crashing.
 
-One more tool, off unless you ask for it, because it buys:
+Two more tools, off unless you ask for them, because they spend:
 
 | Tool | What the agent gets | Service | Price |
 |---|---|---|---|
 | `buy_live_data` | live data it can't get itself (a weather forecast, a crypto or stock price, an exchange rate, web search results, news, a company or address lookup) in one call: say what you need; Fizzl Buy picks the paid x402 API x402 Doctor has seen paying out day after day at a fair price, pays it and returns the answer, checked for hidden instructions. Nothing is charged when no seller delivers | [Fizzl Buy](https://buy.fizzl.eu) | $0.02 |
 
 Turn it on with `fizzlTools({ fetch: pay, buy: true })`, or name it in `only`. Without a paying fetch it answers with a free preview: the seller Fizzl Buy would buy from, not the data itself.
+
+| Tool | What the agent gets | Paid through | Price |
+|---|---|---|---|
+| `pay_api` | calls **any x402 API** and gets its answer. Code decides whether it is paid, not the model: an x402 Doctor preflight first (only `go` is paid), never above your budget, and a request that was paid and not delivered is never paid again. A refusal comes back as `{ not_paid, message, reasons }` | your [x402-safe-fetch](https://www.npmjs.com/package/x402-safe-fetch) | the API's price, plus $0.001 per preflight |
+
+Turn it on by passing a safe fetch:
+
+```js
+import { createSafeFetch } from "x402-safe-fetch";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.AGENT_KEY); // a wallet just for the agent, with a few dollars of USDC
+const safeFetch = createSafeFetch({
+  register: (client) => client.register("eip155:8453", new ExactEvmScheme(account)),
+  maxUsd: 0.05, // per call; the model can't raise it
+});
+const tools = fizzlTools({ fetch: pay, safeFetch });
+```
+
+`pay_api` only exists with `safeFetch`: with a plain paying fetch the model would decide what to pay. Why that matters: in our wallet exam the same model scored 65 on its own and 96 when code decided the payment ([the sittings](https://fizzl.eu/research/ai-agents-x402-exam-november-2026/)).
 
 ## See it in 10 seconds (offline, free)
 
@@ -93,6 +114,7 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 | `creditKeys` | none | `{ presign, doctor }`, sent as `x-credit-key` |
 | `only` | the nine checks | Tool names to include |
 | `buy` | `false` | Add `buy_live_data` ($0.02 a purchase, paid through `fetch`) |
+| `safeFetch` | none | Add `pay_api`: a fetch from `createSafeFetch` (x402-safe-fetch), which decides what is paid |
 | `free` | `true` | Fall back to the free quick check (verdict only) when a check can't be paid |
 | `timeoutMs` | 30000 | Per check (a purchase gets at least 180000: it may try three sellers) |
 | `presignUrl`, `doctorUrl`, `buyUrl` | the fizzl.eu services | For tests or self-hosting |
