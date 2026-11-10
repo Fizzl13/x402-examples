@@ -35,6 +35,29 @@ fizzl.buy_live_data("weather forecast for Amsterdam tomorrow")
 
 Without a paying session it answers with a free preview: the seller Fizzl Buy would buy from, not the data itself.
 
+## Let the agent pay any x402 API, with code deciding (`pay_api`)
+
+`pay_api` calls any x402 API and returns its answer. The model only says what to call; **code decides whether it is paid**. You give it a session from `fizzl.pay.safe_session`:
+
+```python
+from x402 import x402ClientSync
+from fizzl import Fizzl
+from fizzl.pay import safe_session
+
+payer = x402ClientSync()                      # register an EVM scheme with a wallet just for the agent
+pay = safe_session(payer, max_usd=0.05)       # per payment; the model can't raise it
+fizzl = Fizzl(session=pay, pay_session=pay)
+fizzl.pay_api("https://api.example.com/weather?city=Amsterdam")
+# {'status': 200, 'ok': True, 'paid': True, 'data': {...}, 'untrusted': '...'}
+```
+
+- **Budget:** the x402 client's own spend controls cap every payment at `max_usd`, in known dollar tokens only.
+- **Checked first:** x402 Doctor's preflight runs before each payment ($0.001). Only a `go` is paid; a `caution` stops unless `on_caution="pay"` or your function says yes; a `no_go` never pays.
+- **Never paid twice for nothing:** a request that was paid and answered with an error is not paid again for 30 minutes.
+- A refusal comes back as `{"not_paid": "no_go" | "caution" | "over_budget" | "paid_no_delivery" | ..., "message": ...}`, so the agent can tell the user.
+
+`pay_api` only works with a session from `safe_session`. A plain paying session is refused, because then the model would decide what to pay. Why that matters: in our wallet exam the same model scored 65 on its own and 96 when code decided the payment ([the sittings](https://fizzl.eu/research/ai-agents-x402-exam-november-2026/)). Install with `pip install "fizzl[x402]"`.
+
 ## Install
 
 ```sh
@@ -101,6 +124,7 @@ from langgraph.prebuilt import create_react_agent
 from fizzl.langchain import fizzl_tools
 
 tools = fizzl_tools(session=session)          # or credit_keys={...}; only=[...] for some of them; buy=True adds buy_live_data
+# tools = fizzl_tools(session=pay, pay_session=pay)   # adds pay_api (pay = safe_session(payer, max_usd=0.05), see above)
 agent = create_react_agent(model, tools + your_tools,
     prompt="Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.")
 ```

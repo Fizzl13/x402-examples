@@ -2,6 +2,7 @@
 
     from fizzl.langchain import fizzl_tools
     tools = fizzl_tools(session=paying_session)   # or credit_keys={...}; buy=True adds buy_live_data
+    # pay_session=fizzl.pay.safe_session(payer, max_usd=0.05) adds pay_api: any x402 API, paid only when code allows
     agent = create_react_agent(model, tools)
 """
 from __future__ import annotations
@@ -14,7 +15,8 @@ TOOL_NAMES = ("check_before_signing", "check_xrpl_transaction", "check_solana_tr
 
 
 def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: Optional[List[str]] = None, buy: bool = False, **kwargs) -> list:
-    """LangChain StructuredTools for the checks (all of them, plus buy_live_data with ``buy``, or the names in ``only``)."""
+    """LangChain StructuredTools for the checks (all of them, plus buy_live_data with ``buy`` and pay_api with a
+    ``pay_session``, or the names in ``only``)."""
     try:
         from langchain_core.tools import StructuredTool
         from ._schemas import ARGS, pick
@@ -22,5 +24,5 @@ def fizzl_tools(session: Any = None, credit_keys: Optional[dict] = None, only: O
         raise ImportError("fizzl.langchain needs langchain-core: pip install 'fizzl[langchain]'") from err
 
     f = Fizzl(session=session, credit_keys=credit_keys, **kwargs)
-    names = pick(only, buy)
+    names = pick(only, buy, pay=f.pay_session is not None)
     return [StructuredTool.from_function(func=getattr(f, n), name=n, description=(getattr(f, n).__doc__ or "").strip(), args_schema=ARGS[n]) for n in names]
