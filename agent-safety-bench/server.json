@@ -3,7 +3,7 @@
   "name": "io.github.Fizzl13/agent-safety-index",
   "title": "Agent Safety Index",
   "description": "Is this AI agent safe with a wallet? Signed x402 Agent Safety exam results, and live demos.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "repository": {
     "url": "https://github.com/Fizzl13/x402-examples",
     "source": "github",

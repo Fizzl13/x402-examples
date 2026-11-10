@@ -231,7 +231,7 @@ ${NAV(origin)}
 
 <section id="find" class="findsec"><form class="card findq" method="get" action="/find"><div class="kicker">Find</div><label for="findsite">Find an agent by website</label><p class="muted">Type a website and see which AI agents behind it took the exam, and which ones the site itself vouches for.</p><div><input id="findsite" name="site" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="example.com" required maxlength="300"><button class="btn" type="submit">Find</button></div></form></section>
 
-<section id="index"><div class="kicker">Index</div><h2>The Agent Safety Index</h2><p class="muted">The latest result per agent and version. Every result is signed by <code>${esc(rows[0]?.signer ? short(rows[0].signer) : "the exam's key")}</code>; replay any of them.</p>
+<section id="index"><div class="kicker">Index</div><h2>The Agent Safety Index</h2><p class="muted">The latest result per agent and version. Every result is signed by <code>${esc(rows[0]?.signer ? short(rows[0].signer) : "the exam's key")}</code>, a key the Fizzl wallet <code>0x6B0F…5F25</code> certified (<a href="/v1/signer">certificate</a>). Open any result to replay it and check its signature, or send one to <code>POST /v1/verify</code>.</p>
 <div class="card tbl"><table><thead><tr><th>Agent</th><th>Score</th><th>Traps avoided</th><th>Honest</th><th>Lost</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
 <p class="faint" style="font-size:13px;margin-top:10px">Rows marked <i>reference</i> are the bench's scripted agents: one pays only when an <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a> preflight says go, the other pays every 402. Machine-readable: <a href="/v1/index">/v1/index</a> · MCP server <code>${esc(origin)}/mcp</code> · <a href="/llms.txt">llms.txt</a>.</p></section>
 
@@ -357,6 +357,7 @@ h2.sec{font-size:20px;font-weight:600;margin:26px 0 12px;display:flex;flex-wrap:
 .c-dim{color:var(--faint)}.c-m{color:var(--mint)}.c-a{color:var(--amber)}.c-r{color:var(--red)}.c-b{color:var(--blue)}.c-g{color:var(--gold)}
 .ctl{display:flex;gap:8px;align-items:center}@media (max-width:600px){.stage .cap>span:first-child{display:none}.stage .cap{justify-content:flex-end}}.ctl .btn{min-height:36px;padding:0 16px;font-size:10px}
 .msg{padding:40px 22px;text-align:center}.msg h2{font-size:24px;margin-bottom:12px}.msg .ctas{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:18px}
+.verifysec{padding-bottom:10px}.verifycard{padding:22px}.verifycard .muted{color:var(--soft);max-width:760px}.verifycard .go{margin-top:12px}.verifyout{margin:14px 0 0;font-size:14px;line-height:1.55;overflow-wrap:anywhere}.verifyout.ok{color:var(--mint)}.verifyout.no{color:var(--red)}
 .badges{padding-bottom:30px}.badges .muted{color:var(--soft);max-width:760px}.badge-row{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:14px 0}
 .snip{border:1px solid var(--line2);border-radius:14px;background:linear-gradient(145deg,var(--card),var(--card2));margin-top:10px;overflow:hidden}.snip-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-bottom:1px solid var(--line2);font:500 10px var(--body);letter-spacing:2px;text-transform:uppercase;color:var(--mint)}.snip-h .btn{min-height:32px;padding:0 14px;font-size:10px}
 .snip pre{margin:0;padding:12px 14px;font:12px/1.6 var(--mono);color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
@@ -369,11 +370,13 @@ ${NAV(origin)}
 <main class="wrap" id="app">
 <div class="card msg" id="loading"><h2>Loading the sitting…</h2></div>
 </main>
+${mode === "result" ? `<section class="wrap verifysec"><div class="card verifycard"><div class="kicker">Signed</div><h2 class="sec">Is this result real?</h2><p class="muted">The result is signed by the exam's key, and that key is certified by the Fizzl payout wallet <code>0x6B0F…5F25</code>. Anyone can check it: here, with <code>POST /v1/verify</code>, or with any EIP-191 tool (<a href="/v1/results/${esc(id)}">the signed result</a>, <a href="/v1/signer">the key and its certificate</a>).</p><div class="go"><button class="btn" type="button" id="verifybtn">Check this result</button></div><p id="verifyout" class="verifyout" aria-live="polite"></p></div></section>` : ""}
 ${badge}
 ${FOOT}<div class="toast" id="toast"></div>
 <script>${DEMO_SCRIPT}
 const MODE=${JSON.stringify(mode)},ID=${JSON.stringify(id)};
 ${VIEW_SCRIPT}
+(function(){const b=document.getElementById('verifybtn'),o=document.getElementById('verifyout');if(!b)return;b.addEventListener('click',async()=>{b.disabled=true;o.className='verifyout';o.textContent='Checking…';try{const r=await(await fetch('/v1/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({result_id:ID})})).json();if(r.valid){o.className='verifyout ok';o.textContent='✓ Real. '+(r.note||'')+(r.in_index?' It is the result the index holds.':'');}else{o.className='verifyout no';o.textContent='✗ Not valid: '+(r.reason||'unknown');}}catch(e){o.className='verifyout no';o.textContent='Could not check: '+e.message;}b.disabled=false;});})();
 </script></body></html>`;
 }
 
@@ -718,10 +721,10 @@ export function llmsTxt({ origin, pass, validDays, feeUsd }) {
 Not being listed says nothing either way: the agent was not entered. Before trusting an agent with a payment, check whether it is admitted and whether its admission is current.
 
 ## For agents
-- MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_index\`, \`agent_safety_exam_howto\`, \`agent_safety_demo\` (watch an agent take the exam live), and the exam itself: \`agent_safety_exam_start\` (with the operator wallet's signature), \`agent_safety_exam_tasks\`, \`agent_safety_exam_answer\` and \`agent_safety_exam_finish\`
+- MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_verify\` (is this result real?), \`agent_safety_index\`, \`agent_safety_exam_howto\`, \`agent_safety_demo\` (watch an agent take the exam live), and the exam itself: \`agent_safety_exam_start\` (with the operator wallet's signature), \`agent_safety_exam_tasks\`, \`agent_safety_exam_answer\` and \`agent_safety_exam_finish\`
 - [Server card](${origin}/.well-known/mcp/server-card.json)
 - [The index as JSON](${origin}/v1/index): every agent's latest result
-- \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address and what it signs
+- \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address, what it signs, and the Fizzl payout wallet's certificate for it; \`POST ${origin}/v1/verify\` with \`{"result_id": "…"}\` or \`{"result": {…}}\`: whether a signed result is real (signature, certified key, the same as in the index)
 - \`GET ${origin}/badge/<id>.svg\`: the badge of one result (admitted, expired or not admitted, with its score); \`?style=fizzl\` for Fizzl's look
 - \`GET ${origin}/v1/lookup?site=example.com\` (and the page ${origin}/find): every agent that names the site, each \`verified\` when https://<site>/.well-known/agent-safety.json lists its operator wallet (\`{ "operators": ["0x..."] }\`); MCP: \`agent_safety_check\` with \`site\`
 - \`GET ${origin}/badge/agent/<key>.svg\` and \`${origin}/a/<key>\`: an agent's badge and page, always its latest exam (\`agent_badge\` and \`agent_page\` in the MCP answers); the result page has HTML and Markdown to copy

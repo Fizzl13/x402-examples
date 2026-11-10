@@ -406,7 +406,7 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
   assert.equal((await post(`${origin}/mcp`, { jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
   const listed = (await rpc("tools/list")).result.tools;
   const tools = listed.map((t) => t.name);
-  assert.deepEqual(tools, ["agent_safety_check", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo", "agent_safety_exam_start", "agent_safety_exam_tasks", "agent_safety_exam_answer", "agent_safety_exam_finish"]);
+  assert.deepEqual(tools, ["agent_safety_check", "agent_safety_verify", "agent_safety_index", "agent_safety_exam_howto", "agent_safety_demo", "agent_safety_exam_start", "agent_safety_exam_tasks", "agent_safety_exam_answer", "agent_safety_exam_finish"]);
   for (const t of listed) assert.equal(t.outputSchema?.type, "object", t.name);
   const call = async (name, args) => (await rpc("tools/call", { name, arguments: args })).result;
   const found = (await call("agent_safety_check", { agent: "doctor's go" })).structuredContent;
@@ -427,7 +427,7 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
   assert.equal((await fetch(`${origin}/mcp`)).status, 405);
 
   const card = await (await fetch(`${origin}/.well-known/mcp/server-card.json`)).json();
-  assert.equal(card.tools.length, 8);
+  assert.equal(card.tools.length, 9);
   const llms = await (await fetch(`${origin}/llms.txt`)).text();
   assert.match(llms, /^# Agent Safety Index/);
   assert.ok(llms.includes(`${origin}/mcp`));
@@ -765,4 +765,47 @@ test("signer certificate: the payout wallet authorises the result signer; the ce
   const r2 = await (await post(`${o2}/v1/exams/${(await (await freeExam(o2)).json()).exam}/finish`, {})).json();
   assert.equal(r2.signer_cert, undefined);
   assert.ok(r2.signature);
+});
+
+test("verify: a signed result can be checked by id or as a whole; a changed one, or one by another key, is not valid", async () => {
+  const { certMessage, SERVICE } = await import("../src/exam/cert.js");
+  const authority = privateKeyToAccount(generatePrivateKey());
+  const signingKey = generatePrivateKey();
+  const signer = privateKeyToAccount(signingKey).address;
+  const today = new Date().toISOString().slice(0, 10);
+  const certSig = await authority.signMessage({ message: certMessage({ service: SERVICE, signer, valid_from: today }) });
+  const { origin } = await start({ signingKey, signerCert: `${today}:${certSig}`, certAuthority: authority.address });
+  const sheet = await (await freeExam(origin)).json();
+  const result = await (await post(`${origin}/v1/exams/${sheet.exam}/finish`, {})).json();
+
+  const byId = await (await post(`${origin}/v1/verify`, { result_id: result.id })).json();
+  assert.equal(byId.valid, true, JSON.stringify(byId));
+  assert.equal(byId.certified, true);
+  assert.equal(byId.certified_by, authority.address);
+  assert.equal(byId.in_index, true);
+  // The whole result as /v1/results gives it (with current) or as finish gave it (with details).
+  const fromApi = await (await fetch(`${origin}/v1/results/${result.id}`)).json();
+  assert.equal((await (await post(`${origin}/v1/verify`, { result: fromApi })).json()).valid, true);
+  assert.equal((await (await post(`${origin}/v1/verify`, { result })).json()).valid, true);
+
+  // A changed score breaks the signature.
+  const changed = await (await post(`${origin}/v1/verify`, { result: { ...fromApi, score: 100, admitted: true } })).json();
+  assert.equal(changed.valid, false);
+  assert.match(changed.reason, /does not match/);
+  // A result signed by another key: the signature matches, but the key is neither the exam's nor certified.
+  const { canonical: canon } = await import("../src/exam/server.js");
+  const forger = privateKeyToAccount(generatePrivateKey());
+  const { signature, signer: _s, details, current, ...record } = fromApi;
+  const forged = { ...record, score: 100, signer: forger.address, signature: await forger.signMessage({ message: canon({ ...record, score: 100 }) }) };
+  const f = await (await post(`${origin}/v1/verify`, { result: forged })).json();
+  assert.equal(f.valid, false);
+  assert.equal(f.in_index, false);
+  assert.match(f.reason, /neither the exam's nor certified/);
+  assert.equal((await (await post(`${origin}/v1/verify`, { result_id: "0".repeat(24) })).json()).valid, false);
+
+  // Over MCP, and on the result page.
+  const mcp = await (await post(`${origin}/mcp`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "agent_safety_verify", arguments: { result_id: result.id } } }, { accept: "application/json, text/event-stream" })).json();
+  assert.equal(mcp.result.structuredContent.valid, true);
+  const page = await (await fetch(`${origin}/r/${result.id}`)).text();
+  assert.ok(page.includes('id="verifybtn"'));
 });
