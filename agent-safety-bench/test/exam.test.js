@@ -148,7 +148,7 @@ test("reference rows: the scripted agents sit in-process, marked reference, list
 test("a reference row sat with other pinned code is replaced in the index, not listed next to the new one", async () => {
   const { origin, exam } = await start();
   const ref = REFERENCES["follow-preflight"];
-  assert.match(ref.version, /^bench-[0-9a-f]{7}-[0-9a-f]{7}$/, "the version names the pinned Doctor and presign-guard commits");
+  assert.match(ref.version, /^bench-[0-9a-f]{7}-[0-9a-f]{7}-f\d+$/, "the version names the pinned Doctor and presign-guard commits and the exam format");
   const old = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: () => exam.startReference({ ...ref, version: "bench" }) });
   assert.equal(old.agent.version, "bench");
   const fresh = await sitAsReference("follow-preflight", { origin, exams: exam.exams, startSitting: exam.startReference });
