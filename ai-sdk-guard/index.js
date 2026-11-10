@@ -10,7 +10,7 @@
 // x402 Doctor preflight first (only go is paid), never above the budget, never twice for an undelivered request.
 import { z } from "zod";
 
-export const VERSION = "0.11.0";
+export const VERSION = "0.11.1";
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const BUY_URL = "https://buy.fizzl.eu";
