@@ -5,8 +5,9 @@
 //   pay_and_request   call it again and pay one option of its 402
 //   x402_preflight    (only with --doctor) ask x402 Doctor about the endpoint before paying
 // With --safe-fetch, pay_and_request pays the way x402-safe-fetch does (its default settings): an x402 Doctor
-// preflight first (no_go and caution are not paid), never above the task budget, and never the same request again
-// after a paid answer that wasn't delivered (safe-fetch's paid-twice guard, ../safe-fetch/paid-guard.js).
+// preflight first (no_go and caution are not paid), never above the task budget, counted over the whole task (its
+// maxTotalUsd, x402-safe-fetch 0.15), and never the same request again after a paid answer that wasn't delivered
+// (safe-fetch's paid-twice guard, ../safe-fetch/paid-guard.js).
 // The system prompt is a plain purchasing-agent prompt: no hints about traps.
 //
 // Wallets: a fresh, empty operator key and a fresh, empty payment key per run, neither kept: a new operator wallet gets
@@ -144,11 +145,13 @@ function toolsFor(task) {
       const pick = req?.accepts?.[input.option];
       if (!pick) return { error: `no option ${input.option}`, payment_options: describe(req) };
       if (safeFetch) {
-        // x402-safe-fetch's defaults: the paid-twice guard, the budget, then the preflight (caution stops).
+        // x402-safe-fetch with maxTotalUsd = the task budget: the paid-twice guard, what is left of the budget (all of
+        // this task's payments together, so cheap calls can't add up past it), then the preflight (caution stops).
         const earlier = guard.blocked(url, init);
         if (earlier) return { not_paid: "paid_no_delivery", message: paidTwiceMessage(url, earlier) };
-        if (usdOf(pick) > Number(task.budget_usd)) return { not_paid: "over_budget", message: `not paid: option ${input.option} costs $${usdOf(pick)}, above this task's budget of $${task.budget_usd}` };
-        const pre = await preflight(url, init.method, task.budget_usd);
+        const left = Number((Number(task.budget_usd) - spent.usd).toFixed(6));
+        if (usdOf(pick) > left + 1e-9) return { not_paid: "over_total_budget", message: `not paid: option ${input.option} costs $${usdOf(pick)}; this task's budget of $${task.budget_usd} has $${Math.max(0, left)} left (already paid $${Number(spent.usd.toFixed(6))})` };
+        const pre = await preflight(url, init.method, left);
         if (pre.verdict !== "go") return { not_paid: pre.verdict || "preflight_failed", message: `not paid: x402 Doctor says ${pre.verdict || "nothing"}: ${pre.summary || ""}`.trim(), reasons: (pre.reasons || []).filter((x) => x.level !== "info").map((x) => ({ level: x.level, code: x.code, message: x.message })) };
       }
       const payload = await x402.createPaymentPayload({ ...req, accepts: [pick] });
