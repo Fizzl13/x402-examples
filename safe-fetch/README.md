@@ -229,6 +229,7 @@ x402 Doctor signs every paid preflight (EIP-191 over canonical JSON, with the re
 - With `diagnoseOnFailure`: $0.01 per diagnosis, only when a payment fails (once per endpoint per `cacheMs`).
 - Bodies must be strings, Buffers or `URLSearchParams`: the request is sent once unpaid (to see the 402) and once paid.
 - If Doctor is unreachable, nothing is paid (`SafePayError` with code `preflight_failed`).
+- Bitcoin Lightning (`lnbtc`) isn't paid: its price is in BTC, so the dollar budget can't hold. `createSafeFetch({ network: "lnbtc:…" })` throws, and a Lightning option is never picked. x402 Doctor does check Lightning 402s (the invoice's amount, network, expiry, signer and request hash).
 - The preflight checks whether a payment can succeed and is sensible; it does not guarantee what the service delivers after payment.
 
 Try it without code first: [safe-pay](../safe-pay) is a runnable script with the same logic. MIT licensed.

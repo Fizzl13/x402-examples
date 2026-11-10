@@ -47,7 +47,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.15.0";
+export const VERSION = "0.15.1";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -118,6 +118,7 @@ export async function readOffer(res) {
 // What an option paid on `network` costs in US dollars, or null when it can't be read: RLUSD amounts are decimal
 // dollars, Circle's USDC on Stellar has 7 decimals, and every other token safe-fetch pays (USDC, USD₮0) has 6.
 export function usdOfOption(option, network) {
+  if (isLightning(network) || isLightning(option?.network)) return null; // millisatoshis: a BTC price, not dollars
   const raw = String(option?.amount ?? option?.maxAmountRequired ?? "");
   if (RLUSD_ISSUER[network]) return /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : null;
   if (!/^\d+$/.test(raw)) return null;
@@ -126,7 +127,15 @@ export function usdOfOption(option, network) {
 // Without an offer to compare (no readable x402 challenge), a verdict is reused for at most 10 minutes.
 const UNREAD_OFFER_MS = 10 * 60 * 1000;
 
+// Bitcoin Lightning (x402 "exact" on lnbtc: a BOLT11 invoice, priced in millisatoshis). Not paid by safe-fetch: the
+// budget is in dollars and x402's spend controls have no dollar token there, so neither cap would hold.
+export const LIGHTNING_UNSUPPORTED = "Bitcoin Lightning (lnbtc) isn't paid by x402-safe-fetch: its price is in BTC, so the dollar budget can't hold. Pay a USDC option on another network, or check the endpoint with x402 Doctor (it checks Lightning invoices) and pay with your Lightning client.";
+function isLightning(network) {
+  return String(network ?? "").startsWith("lnbtc:");
+}
+
 export function payableOption(accepts, network, maxUsd) {
+  if (isLightning(network)) return null;
   const cap = Number(String(maxUsd).replace(/^\$/, ""));
   const on = (accepts ?? []).filter((a) => algorandId(a?.network) === algorandId(network));
   const usdc = ALGORAND_USDC[algorandId(network)];
@@ -301,6 +310,7 @@ export function createSafeFetch({
   now = Date.now,
 } = {}) {
   const payNetwork = NETWORK_ALIASES[network] ?? network;
+  if (isLightning(payNetwork)) throw new TypeError(LIGHTNING_UNSUPPORTED);
   const budget = usdCap(maxUsd);
   const perCall = Number(budget.slice(1));
   const totalCap = maxTotalUsd === undefined || maxTotalUsd === null ? null : Number(usdCap(maxTotalUsd).slice(1));

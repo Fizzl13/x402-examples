@@ -154,3 +154,12 @@ test("Base auth-capture (Coinbase escrow): with the scheme registered, a Receive
   }
 });
 
+
+test("Bitcoin Lightning (lnbtc) is never paid: its price is in BTC, so the dollar budget can't hold", async () => {
+  const { createSafeFetch, payableOption, usdOfOption, LIGHTNING_UNSUPPORTED } = await import("../index.js");
+  const LN = "lnbtc:000000000019d6689c085ae165831e93";
+  const ln = { scheme: "exact", network: LN, asset: "BTC", amount: "25000", payTo: "02" + "a".repeat(64), extra: { invoice: "lnbc250n1..." } };
+  assert.equal(payableOption([ln], LN, 0.05), null);
+  assert.equal(usdOfOption(ln, LN), null, "25000 millisatoshis are not $0.025");
+  assert.throws(() => createSafeFetch({ network: LN, register: () => {} }), (e) => e instanceof TypeError && e.message === LIGHTNING_UNSUPPORTED);
+});
