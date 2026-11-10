@@ -43,9 +43,12 @@ const account = privateKeyToAccount(process.env.AGENT_KEY); // a wallet just for
 const safeFetch = createSafeFetch({
   register: (client) => client.register("eip155:8453", new ExactEvmScheme(account)),
   maxUsd: 0.05, // per call; the model can't raise it
+  maxTotalUsd: 1, // every payment of this safeFetch together (x402-safe-fetch 0.15+): make one per task or user
 });
 const tools = fizzlTools({ fetch: pay, safeFetch });
 ```
+
+`maxTotalUsd` (and `maxPerSellerUsd`, per host) stop a seller that splits its answer over many cheap calls, each under `maxUsd`: past it `pay_api` answers `{ not_paid: "over_total_budget" }` without paying or buying a preflight. `safeFetch.spent()` says what was paid.
 
 `pay_api` only exists with `safeFetch`: with a plain paying fetch the model would decide what to pay. Why that matters: in our wallet exam the same model scored 65 on its own and 96 when code decided the payment ([the sittings](https://fizzl.eu/research/ai-agents-x402-exam-november-2026/)).
 
