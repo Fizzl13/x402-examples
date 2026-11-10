@@ -77,6 +77,12 @@ class BuyArgs(BaseModel):
     need: str = Field(min_length=3, max_length=500, description='What you need, in a sentence, with the details (place, symbol, query), e.g. "weather forecast for Amsterdam tomorrow" or "BTC price in USD"')
 
 
+class PayApiArgs(BaseModel):
+    url: str = Field(pattern=r"^https://", description="The API URL with its query string, e.g. https://api.example.com/weather?city=Amsterdam")
+    method: Optional[Literal["GET", "POST"]] = Field(None, description="Default GET")
+    body: Optional[Union[dict, str]] = Field(None, description="POST: the JSON body (an object) or a string")
+
+
 ARGS = {
     "check_before_signing": SignArgs,
     "check_xrpl_transaction": XrplArgs,
@@ -89,15 +95,18 @@ ARGS = {
     "screen_wallet": ScreenArgs,
     "check_endpoint_before_paying": EndpointArgs,
     "buy_live_data": BuyArgs,
+    "pay_api": PayApiArgs,
 }
 TOOL_NAMES = tuple(ARGS)
 
 
-def pick(only, buy=False):
-    """The tool names to build: the checks (plus buy_live_data with ``buy``, since it spends), or the ones in
-    ``only`` (unknown names raise)."""
-    names = list(only) if only else [n for n in TOOL_NAMES if buy or n != "buy_live_data"]
+def pick(only, buy=False, pay=False):
+    """The tool names to build: the checks (plus buy_live_data with ``buy`` and pay_api with ``pay``, since they
+    spend), or the ones in ``only`` (unknown names raise; pay_api always needs a safe pay_session)."""
+    names = list(only) if only else [n for n in TOOL_NAMES if (buy or n != "buy_live_data") and (pay or n != "pay_api")]
     unknown = [n for n in names if n not in ARGS]
     if unknown:
         raise ValueError(f"unknown Fizzl tool(s): {', '.join(unknown)}")
+    if "pay_api" in names and not pay:
+        raise ValueError("pay_api needs pay_session=fizzl.pay.safe_session(payer, max_usd=...), so code decides what is paid")
     return names

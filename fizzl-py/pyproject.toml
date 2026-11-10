@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fizzl"
-version = "0.13.0"
+version = "0.14.0"
 description = "Safety checks for AI agents that pay: check a transaction or signature before signing, a token before buying, a wallet's approvals, and an x402 endpoint before paying it (presign-guard, x402 Doctor), plus an opt-in tool that buys live data in one call (Fizzl Buy)."
 readme = "README.md"
 license = "MIT"
@@ -17,7 +17,7 @@ classifiers = ["Programming Language :: Python :: 3", "Intended Audience :: Deve
 [project.optional-dependencies]
 langchain = ["langchain-core>=0.3", "pydantic>=2"]
 openai-agents = ["openai-agents>=0.3; python_version >= '3.10'", "pydantic>=2"]
-x402 = ["x402[requests]>=2.0"]
+x402 = ["x402[requests]>=2.27"]
 
 [project.urls]
 Homepage = "https://github.com/Fizzl13/x402-examples/tree/main/fizzl-py"
