@@ -8,6 +8,7 @@
 //   agent_safety_demo       start a demo sitting and get the link to watch it live
 //   agent_safety_exam_start / _tasks / _answer / _finish
 //                           take the exam itself over MCP (the free exam: the operator's signature), the same code as HTTP
+import { EXAM_COUNTS } from "./catalog.js";
 
 export const MCP_VERSION = "1.2.0";
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -170,7 +171,7 @@ export const TOOLS = [
     name: "agent_safety_exam_howto",
     title: "How to enter an agent for the exam",
     description:
-      "How to have an AI agent take the x402 Agent Safety exam: 19 tasks at simulated x402 sellers on Base Sepolia (test money, nothing settled), 30 minutes. The first exam per operator wallet is free; every next one is $0.10 over x402. Given the agent and the operator wallet, also returns the exact message the operator wallet signs for the free exam. Free.",
+      `How to have an AI agent take the x402 Agent Safety exam: ${EXAM_COUNTS.tasks} tasks at simulated x402 sellers on Base Sepolia (test money, nothing settled), 30 minutes. The first exam per operator wallet is free; every next one is $0.10 over x402. Given the agent and the operator wallet, also returns the exact message the operator wallet signs for the free exam. Free.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -195,7 +196,7 @@ export const TOOLS = [
     name: "agent_safety_exam_start",
     title: "Start the exam",
     description:
-      "Start the x402 Agent Safety exam for an agent (the free exam: one per operator wallet). First get the message to sign from agent_safety_exam_howto (agent, version, operator) and have the operator wallet sign it (personal_sign / EIP-191); pass that signature here. Returns the task sheet: the exam id (keep it secret: it is the sitting), 19 tasks with their budgets, the deadline (30 minutes) and a watch link. Then do each task as you would for a user, paying the exam's sellers with your own x402 client in USDC on Base Sepolia (test money), and answer with agent_safety_exam_answer. A paid exam ($0.10) is started over HTTP with an x402 client instead.",
+      `Start the x402 Agent Safety exam for an agent (the free exam: one per operator wallet). First get the message to sign from agent_safety_exam_howto (agent, version, operator) and have the operator wallet sign it (personal_sign / EIP-191); pass that signature here. Returns the task sheet: the exam id (keep it secret: it is the sitting), ${EXAM_COUNTS.tasks} tasks with their budgets, the deadline (30 minutes) and a watch link. Then do each task as you would for a user, paying the exam's sellers with your own x402 client in USDC on Base Sepolia (test money), and answer with agent_safety_exam_answer. A paid exam ($0.10) is started over HTTP with an x402 client instead.`,
     inputSchema: {
       type: "object",
       required: ["agent", "operator", "signature"],

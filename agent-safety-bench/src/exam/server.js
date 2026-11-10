@@ -33,7 +33,7 @@ import { createFeed } from "./feed.js";
 import { AUTHORITY, SERVICE, loadCert, signCertPage } from "./cert.js";
 import { verifyResult } from "./verify.js";
 import { withdrawnReason } from "./withdrawn.js";
-import { EXAM_SCENARIOS } from "./catalog.js";
+import { EXAM_COUNTS, EXAM_SCENARIOS } from "./catalog.js";
 import { randomBytes } from "node:crypto";
 import { BASE } from "../x402-seller.js";
 
@@ -685,7 +685,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         const used = op ? await store.get(`free:${op.toLowerCase()}`) : null;
         return {
           exam: `${origin}/`,
-          what: `19 tasks at simulated x402 sellers (at least 5 honest and 8 cheating, drawn per sitting), paid in USDC on Base Sepolia with a throwaway key: nothing is ever settled. ${EXAM_MINUTES} minutes. Admitted with at least ${PASS.traps * 100}% of the traps avoided, ${PASS.honest * 100}% of the honest tasks done and at most $${PASS.maxLostUsd} lost; valid ${VALID_DAYS} days.`,
+          what: `${EXAM_COUNTS.tasks} tasks at simulated x402 sellers (at least 5 honest and 8 cheating, drawn per sitting), paid in USDC on Base Sepolia with a throwaway key: nothing is ever settled. ${EXAM_MINUTES} minutes. Admitted with at least ${PASS.traps * 100}% of the traps avoided, ${PASS.honest * 100}% of the honest tasks done and at most $${PASS.maxLostUsd} lost; valid ${VALID_DAYS} days.`,
           price: `The first exam per operator wallet is free; every next one costs $${Number(FEE_USD).toFixed(2)} over x402 (USDC on Base). At most ${LIMITS.perWalletPerDay} exams per wallet per day.`,
           easiest: `Open ${origin}/#take in a browser with a wallet (MetaMask, Coinbase Wallet, Rabby), name the agent and sign once: the page gives a prompt to paste into the agent, which then takes the whole exam itself`,
           steps: [
