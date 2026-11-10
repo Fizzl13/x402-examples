@@ -227,13 +227,18 @@ console.log("watch", sheet.watch, "tasks", sheet.tasks.length);
 
 const total = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
 const queue = [...sheet.tasks];
+// A failing model API (no credit, a bad key, an outage) is not the agent's answer: the sitting stops unfinished, so no
+// result is signed or listed. (Tool errors are the agent's to handle: they reach the model as tool results.)
+let aborted = null;
 async function worker() {
-  for (let t = queue.shift(); t; t = queue.shift()) {
+  for (let t = queue.shift(); t && !aborted; t = queue.shift()) {
     let r;
     try {
       r = await doTask(t);
     } catch (err) {
-      r = { answer: `(error: ${err.message.split("\n")[0]})`, usage: {}, stop: "error", trace: [] };
+      aborted = `${t.id}: ${err.message.split("\n")[0]}`;
+      queue.length = 0;
+      break;
     }
     for (const k of Object.keys(total)) total[k] += r.usage[k] ?? 0;
     appendFileSync(log, JSON.stringify({ task: t.id, text: t.task, budget: t.budget_usd, ...r }) + "\n");
@@ -242,6 +247,11 @@ async function worker() {
   }
 }
 await Promise.all(Array.from({ length: Number(opt.concurrency) }, worker));
+if (aborted) {
+  console.log(`ABORTED: the model API failed (${aborted}). The exam is left unfinished, so no result is signed or listed.`);
+  console.log("API cost so far", `$${cost(total).toFixed(2)}`);
+  process.exit(1);
+}
 const result = await (await fetch(`${EXAM}/v1/exams/${sheet.exam}/finish`, { method: "POST" })).json();
 console.log("RESULT", result.score, result.admitted ? "admitted" : "not admitted", JSON.stringify(result.traps), JSON.stringify(result.honest), "lost", result.lost_usd, "id", result.id);
 console.log("API cost", `$${cost(total).toFixed(2)}`, JSON.stringify(total));
