@@ -41,9 +41,11 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery";
   preflight: Preflight | null;
   url: string | null;
+  /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
+  earlier?: { at: number; status: number };
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
   diagnosis?: Diagnosis;
 }
@@ -78,6 +80,10 @@ export interface SafeFetchOptions {
   shareOutcomes?: boolean;
   /** When not paying, tell the seller why if its 402 names a refusal url on its own site (draft x402-foundation/x402#4087). Default false. */
   tellSellers?: boolean;
+  /** The same request (method, URL, body) was paid before and answered without delivering (an error, or another 402): "stop" (default) throws code "paid_no_delivery" without paying, "pay" pays again, a function decides. */
+  onPaidError?: "stop" | "pay" | ((earlier: { at: number; status: number }, info: { url: string; method: string }) => boolean | Promise<boolean>);
+  /** How long such a request stays blocked, in ms. Default 30 minutes. A success clears it. */
+  paidErrorMs?: number;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;
@@ -102,3 +108,13 @@ export declare function verifyReceipt(body: unknown, options?: { signers?: strin
 
 /** The reason code reported with a refused outcome: the preflight's first reason at its verdict's level. */
 export function refusalReason(preflight: { verdict?: string; reasons?: { level?: string; code?: string }[] }): string;
+
+/** Remembers paid requests that weren't delivered, so the same request isn't paid again (used by createSafeFetch; usable on its own). */
+export declare function createPaidGuard(options?: { windowMs?: number; now?: () => number }): {
+  blocked(url: string, init?: { method?: string; body?: unknown }): { at: number; status: number } | null;
+  record(url: string, init: { method?: string; body?: unknown } | undefined, status: number): void;
+  clear(url: string, init?: { method?: string; body?: unknown }): void;
+};
+export declare function purchaseKey(url: string, init?: { method?: string; body?: unknown }): string;
+export declare function paidTwiceMessage(url: string, earlier: { at: number; status: number }): string;
+export declare const PAID_ERROR_MS: number;

@@ -344,7 +344,8 @@ test("diagnoseOnFailure off (default): a failed payment is not diagnosed", async
 test("diagnoseOnFailure: a payment answered with 402 again gets one signed Doctor diagnosis, capped at $0.02 and reused", async () => {
   const w = failingWorld();
   const seen = [];
-  const sf = make(w, { diagnoseOnFailure: true, onDiagnosis: (r, info) => seen.push([r.overall, info.status]) });
+  // onPaidError "pay": this test pays the same request twice on purpose (by default the second would be refused).
+  const sf = make(w, { diagnoseOnFailure: true, onPaidError: "pay", onDiagnosis: (r, info) => seen.push([r.overall, info.status]) });
   const res = await sf(PAID);
   assert.equal(res.status, 402);
   const d = diagnosisOf(res);
@@ -417,7 +418,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.13\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.14\.0$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -546,4 +547,77 @@ test("tellSellers: a no_go for a seller that takes refusals sends Doctor's ready
   await assert.rejects(make(hit, { tellSellers: true })(PAID), (e) => e.code === "no_go");
   await tick();
   assert.equal(hit.log.toSeller.length, 0);
+});
+
+// The paid-twice guard (paid-guard.js): the exam's costliest mistake was paying again after a seller took the
+// payment and answered with an error.
+function paidErrorWorld(statuses) {
+  const log = { paid: [], preflights: 0 };
+  const baseFetch = async () => Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
+  const createPayingFetch = () => async (url, init = {}) => {
+    if (url.includes("/api/v1/preflight")) {
+      log.preflights++;
+      return Response.json(await signed({ verdict: "go", summary: "OK", reasons: [] }, url));
+    }
+    log.paid.push({ url, method: init.method ?? "GET", body: init.body });
+    const status = statuses.shift() ?? 200;
+    return Response.json(status === 200 ? { ok: true } : { error: "x" }, { status });
+  };
+  return { log, baseFetch, createPayingFetch };
+}
+
+test("paid-twice guard: a request paid and answered with an error is not paid again (no preflight bought either); another request is", async () => {
+  let t = 1_000_000;
+  const w = paidErrorWorld([405]);
+  const sf = make(w, { now: () => t });
+  assert.equal((await sf(PAID, { method: "POST", body: '{"q":1}' })).status, 405);
+  await assert.rejects(sf(PAID, { method: "POST", body: '{"q":1}' }), (err) => {
+    assert.ok(err instanceof SafePayError);
+    assert.equal(err.code, "paid_no_delivery");
+    assert.deepEqual(err.earlier, { at: 1_000_000, status: 405 });
+    assert.match(err.message, /already paid .* HTTP 405 without delivering/);
+    return true;
+  });
+  assert.equal(w.log.paid.length, 1);
+  assert.equal(w.log.preflights, 1, "the second call stopped before buying a preflight");
+  // A different body, method or URL is another purchase.
+  await sf(PAID, { method: "POST", body: '{"q":2}' });
+  await sf(PAID, { method: "GET" });
+  assert.equal(w.log.paid.length, 3);
+  // After the window the same request may be paid again.
+  t += 30 * 60 * 1000;
+  await sf(PAID, { method: "POST", body: '{"q":1}' });
+  assert.equal(w.log.paid.length, 4);
+});
+
+test("paid-twice guard: another 402 after paying blocks too; a success clears; trusted hosts are guarded as well", async () => {
+  const w = paidErrorWorld([402]);
+  const sf = make(w, { trusted: ["api.example.com"] });
+  assert.equal((await sf(PAID)).status, 402);
+  await assert.rejects(sf(PAID), { code: "paid_no_delivery" });
+  assert.equal(w.log.paid.length, 1);
+
+  const { createPaidGuard } = await import("../index.js");
+  const g = createPaidGuard();
+  g.record(PAID, { method: "GET" }, 500);
+  assert.equal(g.blocked(PAID, {}).status, 500);
+  g.record(PAID, {}, 200);
+  assert.equal(g.blocked(PAID, {}), null);
+});
+
+test("paid-twice guard: onPaidError 'pay' pays again, a function decides, anything else is refused", async () => {
+  const pay = paidErrorWorld([500, 500]);
+  const sf = make(pay, { onPaidError: "pay" });
+  await sf(PAID);
+  await sf(PAID);
+  assert.equal(pay.log.paid.length, 2);
+
+  const asked = [];
+  const ask = paidErrorWorld([500]);
+  const sf2 = make(ask, { onPaidError: (earlier, info) => { asked.push([earlier.status, info.url]); return asked.length > 1; } });
+  await sf2(PAID);
+  await assert.rejects(sf2(PAID), { code: "paid_no_delivery" });
+  assert.equal((await sf2(PAID)).status, 200);
+  assert.deepEqual(asked, [[500, PAID], [500, PAID]]);
+  assert.throws(() => createSafeFetch({ createPayingFetch: () => fetch, onPaidError: "maybe" }), /onPaidError/);
 });
