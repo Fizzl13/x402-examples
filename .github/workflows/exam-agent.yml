@@ -1,0 +1,51 @@
+# exam-agent: a Claude model takes the Agent Benchmark Exam on exam.fizzl.eu as a real agent with an x402 wallet, and
+# its signed result goes into the public index (Actions → exam-agent → Run workflow). It uses the ANTHROPIC_API_KEY
+# repository secret and costs model usage only: each run makes a fresh, empty operator wallet (whose first exam is
+# free) and a fresh payment key; the exam's sellers take Base Sepolia test money and never settle it.
+# With "doctor" the agent may ask x402 Doctor before paying; without it, it decides on the 402 alone.
+name: exam-agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Claude model id"
+        default: "claude-fable-5-2"
+        type: string
+      doctor:
+        description: "Give the agent x402 Doctor's preflight as a tool"
+        default: false
+        type: boolean
+      effort:
+        description: "Effort: low, medium, high, xhigh or max"
+        default: "high"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  exam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: agent-safety-bench
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - name: Take the exam
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ inputs.model }}
+          EFFORT: ${{ inputs.effort }}
+          DOCTOR: ${{ inputs.doctor && '--doctor' || '' }}
+        run: node bin/exam-agent.js --model "$MODEL" --effort "$EFFORT" $DOCTOR | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: exam-agent-log
+          path: agent-safety-bench/results/exam-*.jsonl
+          if-no-files-found: ignore
