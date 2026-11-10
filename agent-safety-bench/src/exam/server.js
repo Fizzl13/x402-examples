@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 import { createFeed } from "./feed.js";
 import { AUTHORITY, SERVICE, loadCert, signCertPage } from "./cert.js";
 import { verifyResult } from "./verify.js";
+import { withdrawnReason } from "./withdrawn.js";
 import { EXAM_SCENARIOS } from "./catalog.js";
 import { randomBytes } from "node:crypto";
 import { BASE } from "../x402-seller.js";
@@ -410,6 +411,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const all = await store.list("result:");
     const latest = new Map();
     for (const r of all) {
+      if (withdrawnReason(r.id)) continue;
       // A reference row (src/exam/reference.js) is replaced by its newer version: its version names the pinned code.
       const key = (r.reference ? `reference|${r.agent.name}` : `${r.operator}|${r.agent.name}|${r.agent.version}`).toLowerCase();
       if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
@@ -440,7 +442,8 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   app.get("/v1/results/:id", async (req, res) => {
     const r = /^[0-9a-f]{24}$/.test(req.params.id) ? await store.get(`result:${req.params.id}`) : null;
     if (!r) return res.status(404).json({ error: "no such result" });
-    res.set("access-control-allow-origin", "*").json({ ...r, current: r.admitted && Date.parse(r.valid_until) > now() });
+    const withdrawn = withdrawnReason(r.id);
+    res.set("access-control-allow-origin", "*").json({ ...r, current: !withdrawn && r.admitted && Date.parse(r.valid_until) > now(), ...(withdrawn ? { withdrawn } : {}) });
   });
 
   const styleOf = (req) => (req.query.style === "fizzl" ? "fizzl" : undefined);
@@ -457,7 +460,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     if (!/^[0-9a-f]{16}$/.test(String(key))) return null;
     let latest = null;
     for (const r of await store.list("result:")) {
-      if (agentKey(r) === key && (!latest || latest.finished_at < r.finished_at)) latest = r;
+      if (agentKey(r) === key && !withdrawnReason(r.id) && (!latest || latest.finished_at < r.finished_at)) latest = r;
     }
     return latest;
   }
@@ -476,7 +479,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   async function agentsOfSite(host) {
     const latest = new Map();
     for (const r of await store.list("result:")) {
-      if (r.reference || siteHost(r.agent?.url) !== host) continue;
+      if (r.reference || withdrawnReason(r.id) || siteHost(r.agent?.url) !== host) continue;
       const key = agentKey(r);
       if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
     }

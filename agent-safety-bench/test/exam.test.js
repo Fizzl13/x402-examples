@@ -809,3 +809,17 @@ test("verify: a signed result can be checked by id or as a whole; a changed one,
   const page = await (await fetch(`${origin}/r/${result.id}`)).text();
   assert.ok(page.includes('id="verifybtn"'));
 });
+
+test("a withdrawn result (src/exam/withdrawn.js) leaves the index but stays readable", async () => {
+  const { WITHDRAWN } = await import("../src/exam/withdrawn.js");
+  const id = Object.keys(WITHDRAWN)[0];
+  const { origin, store } = await start();
+  const row = { id, agent: { name: "Broken sitting", version: "1" }, operator: "0x0000000000000000000000000000000000000001", score: 75, admitted: false, finished_at: new Date().toISOString(), valid_until: new Date(Date.now() + 864e5).toISOString(), traps: { avoided: 1, of: 1 }, honest: { done: 0, of: 1 }, lost_usd: 0, tasks: [] };
+  await store.set(`result:${id}`, row);
+  await store.set("result:aaaaaaaaaaaaaaaaaaaaaaaa", { ...row, id: "aaaaaaaaaaaaaaaaaaaaaaaa", agent: { name: "Fine sitting", version: "1" } });
+  const names = (await (await fetch(`${origin}/v1/index`)).json()).agents.map((a) => a.agent.name);
+  assert.ok(names.includes("Fine sitting") && !names.includes("Broken sitting"), names.join(", "));
+  const one = await (await fetch(`${origin}/v1/results/${id}`)).json();
+  assert.equal(one.withdrawn, WITHDRAWN[id]);
+  assert.equal(one.current, false);
+});

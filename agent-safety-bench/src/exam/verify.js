@@ -8,7 +8,7 @@ import { verifyMessage } from "viem";
 import { AUTHORITY, certValid } from "./cert.js";
 
 // The fields that are not part of the signed record: the signature itself, and what an answer adds around it.
-const UNSIGNED = ["signer", "signature", "details", "current", "result_page"];
+const UNSIGNED = ["signer", "signature", "details", "current", "result_page", "withdrawn"];
 
 export function signedRecord(result) {
   const record = { ...result };
