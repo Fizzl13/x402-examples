@@ -126,3 +126,18 @@ test("buy_live_data: only with buy: true; posts the need to Fizzl Buy with fizzl
   assert.deepEqual(s.calls[0].body, { need: "EUR to USD rate" });
   assert.equal(s.calls[0].headers["user-agent"], `fizzl-langchain/${VERSION}`);
 });
+
+test("pay_api: only with safeFetch; calls through it and answers JSON for the model", async () => {
+  assert.equal(fizzlTools({ buy: true }).some((t) => t.name === "pay_api"), false, "never with a plain paying fetch");
+  assert.throws(() => fizzlTools({ only: ["pay_api"] }), /pay_api needs `safeFetch`/);
+  const calls = [];
+  const safeFetch = async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify({ price: 97000 }), { headers: { "payment-response": "e30=" } }); };
+  const tools = fizzlTools({ safeFetch });
+  assert.equal(tools.length, 10);
+  const pay = tools.find((t) => t.name === "pay_api");
+  const r = JSON.parse(await pay.invoke({ url: "https://api.example.com/price?symbol=BTC" }));
+  assert.deepEqual([r.paid, r.data], [true, { price: 97000 }]);
+  assert.equal(calls[0].url, "https://api.example.com/price?symbol=BTC");
+  const refused = fizzlTools({ safeFetch: async () => { const e = new Error("not paid: no_go"); e.name = "SafePayError"; e.code = "no_go"; throw e; }, only: ["pay_api"] })[0];
+  assert.deepEqual(JSON.parse(await refused.invoke({ url: "https://api.example.com/x" })), { not_paid: "no_go", message: "not paid: no_go" });
+});
