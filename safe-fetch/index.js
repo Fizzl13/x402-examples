@@ -47,7 +47,7 @@ export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DO
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
 export const PREFLIGHT_CAP = "$0.002"; // the preflight costs $0.001; never more than twice that
 export const DIAGNOSE_CAP = "$0.02"; // the diagnosis costs $0.01; never more than twice that
-export const VERSION = "0.14.0";
+export const VERSION = "0.15.0";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -98,6 +98,10 @@ export function anyAlgorandId(scheme) {
 // (not extra: invoices and nonces change per request). null when there is no x402 challenge to read (e.g. an
 // MPP-only 402). Reads and consumes the response body.
 export async function offerFingerprint(res) {
+  return (await readOffer(res)).fingerprint;
+}
+// The 402's x402 options and their fingerprint (see offerFingerprint). Reads and consumes the response body.
+export async function readOffer(res) {
   let challenge = null;
   const header = res?.headers?.get?.("payment-required");
   if (header) {
@@ -106,9 +110,18 @@ export async function offerFingerprint(res) {
   } else {
     try { challenge = JSON.parse(await res.text()); } catch { /* not JSON */ }
   }
-  if (!Array.isArray(challenge?.accepts)) return null;
+  if (!Array.isArray(challenge?.accepts)) return { fingerprint: null, accepts: null };
   const parts = challenge.accepts.map((a) => JSON.stringify([a?.scheme ?? null, a?.network ?? null, String(a?.asset ?? ""), String(a?.amount ?? a?.maxAmountRequired ?? ""), String(a?.payTo ?? "")]));
-  return JSON.stringify(parts.sort());
+  return { fingerprint: JSON.stringify(parts.sort()), accepts: challenge.accepts };
+}
+
+// What an option paid on `network` costs in US dollars, or null when it can't be read: RLUSD amounts are decimal
+// dollars, Circle's USDC on Stellar has 7 decimals, and every other token safe-fetch pays (USDC, USD₮0) has 6.
+export function usdOfOption(option, network) {
+  const raw = String(option?.amount ?? option?.maxAmountRequired ?? "");
+  if (RLUSD_ISSUER[network]) return /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : null;
+  if (!/^\d+$/.test(raw)) return null;
+  return Number(raw) / (STELLAR_USDC[network] ? 1e7 : 1e6);
 }
 // Without an offer to compare (no readable x402 challenge), a verdict is reused for at most 10 minutes.
 const UNREAD_OFFER_MS = 10 * 60 * 1000;
@@ -147,14 +160,15 @@ export function refusalReason(preflight) {
 }
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" */
-  constructor(message, { code, preflight = null, url = null, earlier } = {}) {
+  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" */
+  constructor(message, { code, preflight = null, url = null, earlier, spent } = {}) {
     super(message);
     this.name = "SafePayError";
     this.code = code;
     this.preflight = preflight;
     this.url = url;
     if (earlier) this.earlier = earlier;
+    if (spent) this.spent = spent;
   }
 }
 
@@ -236,6 +250,9 @@ function sameSite(a, b) {
  * @param {(client: x402Client) => unknown} options.register  registers your payment schemes on a client
  * @param {string} [options.network]  the network you pay on: "base", "solana", "algorand", "xrpl", "stellar" or a CAIP-2 id (default Base)
  * @param {number|string} [options.maxUsd]  budget per endpoint call (default 0.05)
+ * @param {number|string} [options.maxTotalUsd]  budget for every endpoint payment this safeFetch makes together (make
+ *   one per task or session); a payment that would pass it is refused with code "over_total_budget" (default: none)
+ * @param {number|string} [options.maxPerSellerUsd]  the same per seller (the endpoint's host); code "over_seller_budget"
  * @param {"stop"|"pay"|((preflight: object) => boolean|Promise<boolean>)} [options.onCaution]
  * @param {"pay"|"stop"|((preflight: object) => boolean|Promise<boolean>)} [options.onIncomplete]  a "go" whose checks_complete
  *   is false (a check that applies couldn't run): "pay" (default), "stop" throws code "incomplete", a function decides
@@ -262,6 +279,8 @@ export function createSafeFetch({
   register,
   network = BASE,
   maxUsd = 0.05,
+  maxTotalUsd,
+  maxPerSellerUsd,
   onCaution = "stop",
   onIncomplete = "pay",
   trusted = [],
@@ -283,6 +302,10 @@ export function createSafeFetch({
 } = {}) {
   const payNetwork = NETWORK_ALIASES[network] ?? network;
   const budget = usdCap(maxUsd);
+  const perCall = Number(budget.slice(1));
+  const totalCap = maxTotalUsd === undefined || maxTotalUsd === null ? null : Number(usdCap(maxTotalUsd).slice(1));
+  const sellerCap = maxPerSellerUsd === undefined || maxPerSellerUsd === null ? null : Number(usdCap(maxPerSellerUsd).slice(1));
+  const limited = totalCap !== null || sellerCap !== null;
   if (!createPayingFetch && typeof register !== "function") {
     throw new TypeError("register is required: (client) => client.register(network, scheme)");
   }
@@ -326,7 +349,47 @@ export function createSafeFetch({
   let diagnoseFetch;
   const payPreflight = (...args) => (preflightFetch ??= makePayingFetch(PREFLIGHT_CAP))(...args);
   const payDiagnose = (...args) => (diagnoseFetch ??= makePayingFetch(DIAGNOSE_CAP))(...args);
-  const payEndpoint = (...args) => (endpointFetch ??= makePayingFetch(budget))(...args);
+  // With a total or per-seller budget, a payment is capped at what is left of it (x402's spend controls): a paying
+  // fetch per cap, kept for the caps in use.
+  const cappedFetches = new Map();
+  const payEndpoint = (url, init, cap = budget) => {
+    if (cap === budget) return (endpointFetch ??= makePayingFetch(budget))(url, init);
+    if (!cappedFetches.has(cap)) {
+      if (cappedFetches.size >= 50) cappedFetches.delete(cappedFetches.keys().next().value);
+      cappedFetches.set(cap, makePayingFetch(cap));
+    }
+    return cappedFetches.get(cap)(url, init);
+  };
+
+  // What was paid (or is being paid) to sellers, for maxTotalUsd and maxPerSellerUsd, in dollars.
+  const spend = { total: 0, bySeller: new Map() };
+  const round6 = (n) => Math.round(n * 1e6) / 1e6;
+  const spentAt = (host) => spend.bySeller.get(host) ?? 0;
+  function addSpend(host, usd) {
+    spend.total = round6(spend.total + usd);
+    spend.bySeller.set(host, round6(spentAt(host) + usd));
+  }
+  const spentNow = () => ({ totalUsd: spend.total, bySeller: Object.fromEntries(spend.bySeller) });
+  // What one more payment to `host` may cost: the per-call budget, or less when the total or the seller's budget is
+  // nearly spent. Throws when nothing is left of either, or when the price (if it can be read) is over what is left.
+  // A price over the per-call budget alone is left to Doctor's preflight (over_budget) and x402's cap, as before.
+  function allowance(url, host, price) {
+    const totalLeft = totalCap === null ? Infinity : round6(totalCap - spend.total);
+    const sellerLeft = sellerCap === null ? Infinity : round6(sellerCap - spentAt(host));
+    const cap = Math.min(perCall, totalLeft, sellerLeft);
+    const short = Math.min(totalLeft, sellerLeft);
+    const over = short <= 0 || (price !== null && price > short + 1e-9);
+    if (over) {
+      const byTotal = totalLeft <= sellerLeft;
+      const which = byTotal ? `the total budget ($${totalCap})` : `the budget for ${host} ($${sellerCap})`;
+      const asks = price === null ? "" : `; the endpoint asks $${round6(price)}`;
+      const paid = byTotal ? spend.total : spentAt(host);
+      throw new SafePayError(`not paid: ${which} has $${Math.max(0, short)} left${asks} (already paid $${paid})`, {
+        code: byTotal ? "over_total_budget" : "over_seller_budget", url, spent: spentNow(),
+      });
+    }
+    return { cap, price };
+  }
 
   const verdicts = new Map();
   async function preflightFor(url, method, offer) {
@@ -440,16 +503,36 @@ export function createSafeFetch({
   }
 
   // Every endpoint payment goes through here: what it was answered with is remembered for the paid-twice guard.
-  async function payAndCheck(url, init, method) {
-    const res = await payAndDiagnose(url, init, method);
+  // With a total or per-seller budget, the payment is capped at what is left and counted as it starts (so parallel
+  // calls can't both spend the rest), and taken back when nothing was paid (402 again, or paying threw).
+  async function payAndCheck(url, init, method, offer) {
+    let host = null;
+    let counted = 0;
+    let cap = budget;
+    if (limited) {
+      host = hostOf(url);
+      const option = offer?.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
+      const allowed = allowance(url, host, option ? usdOfOption(option, payNetwork) : null);
+      counted = allowed.price ?? allowed.cap; // an unreadable price counts as the most it may cost
+      if (allowed.cap < perCall) cap = usdCap(allowed.cap);
+      addSpend(host, counted);
+    }
+    let res;
+    try {
+      res = await payAndDiagnose(url, init, method, cap);
+    } catch (error) {
+      if (limited) addSpend(host, -counted);
+      throw error;
+    }
+    if (limited && res.status === 402) addSpend(host, -counted);
     paidGuard.record(url, { method, body: init.body }, res.status);
     return res;
   }
-  async function payAndDiagnose(url, init, method) {
-    if (!diagnoseOnFailure) return payEndpoint(url, init);
+  async function payAndDiagnose(url, init, method, cap) {
+    if (!diagnoseOnFailure) return payEndpoint(url, init, cap);
     let res;
     try {
-      res = await payEndpoint(url, init);
+      res = await payEndpoint(url, init, cap);
     } catch (error) {
       if (error instanceof SafePayError && error.code !== "no_option") throw error;
       const report = await diagnoseFor(url, method);
@@ -469,7 +552,7 @@ export function createSafeFetch({
     return res;
   }
 
-  return async function safeFetch(input, init = {}) {
+  async function safeFetch(input, init = {}) {
     const { url, method } = requestOf(input, init);
     const probe = await baseFetch(url, init);
     if (probe.status !== 402) return probe;
@@ -484,14 +567,18 @@ export function createSafeFetch({
       }
     }
 
-    if (trustedHosts.has(hostOf(url))) {
-      try { await probe.body?.cancel(); } catch { /* already consumed */ }
-      return payAndCheck(url, init, method);
+    const offer = await readOffer(probe);
+    // Already over the total or the seller's budget: refused before the preflight, so nothing is spent on it.
+    if (limited) {
+      const option = offer.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
+      allowance(url, hostOf(url), option ? usdOfOption(option, payNetwork) : null);
     }
 
-    const { preflight, cached } = await preflightFor(url, method, await offerFingerprint(probe));
+    if (trustedHosts.has(hostOf(url))) return payAndCheck(url, init, method, offer);
+
+    const { preflight, cached } = await preflightFor(url, method, offer.fingerprint);
     const payAfterPreflight = async () => {
-      const res = await payAndCheck(url, init, method);
+      const res = await payAndCheck(url, init, method, offer);
       reportOutcome(url, method, preflight, res);
       return res;
     };
@@ -517,5 +604,8 @@ export function createSafeFetch({
       if (!ok) throw new SafePayError(`not paid: go, but not every check ran (${missing}); try again in a few minutes`, { code: "incomplete", preflight, url });
     }
     return payAfterPreflight();
-  };
+  }
+  // What this safeFetch paid to sellers so far, in US dollars (Doctor's preflights and diagnoses not included).
+  safeFetch.spent = spentNow;
+  return safeFetch;
 }

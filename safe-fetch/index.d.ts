@@ -41,11 +41,13 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget";
   preflight: Preflight | null;
   url: string | null;
   /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
   earlier?: { at: number; status: number };
+  /** With code "over_total_budget" or "over_seller_budget": what this safeFetch had paid. */
+  spent?: SpentUsd;
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
   diagnosis?: Diagnosis;
 }
@@ -57,6 +59,10 @@ export interface SafeFetchOptions {
   network?: string;
   /** Budget per endpoint call in USD. Default 0.05. */
   maxUsd?: number | string;
+  /** Budget in USD for every payment this safeFetch makes together (make one per task or session). Past it: code "over_total_budget". Default none. */
+  maxTotalUsd?: number | string;
+  /** Budget in USD per seller (the endpoint's host). Past it: code "over_seller_budget". Default none. */
+  maxPerSellerUsd?: number | string;
   /** What to do on a caution verdict. Default "stop". */
   onCaution?: "stop" | "pay" | ((preflight: Preflight) => boolean | Promise<boolean>);
   /** What to do on a "go" whose checks_complete is false (a check that applies couldn't run). Default "pay"; "stop" throws code "incomplete". */
@@ -90,7 +96,19 @@ export interface SafeFetchOptions {
   now?: () => number;
 }
 
-export declare function createSafeFetch(options: SafeFetchOptions): (input: string | URL, init?: RequestInit) => Promise<Response>;
+/** What a safeFetch paid to sellers, in USD (Doctor's preflights and diagnoses not included). */
+export interface SpentUsd {
+  totalUsd: number;
+  bySeller: Record<string, number>;
+}
+export interface SafeFetch {
+  (input: string | URL, init?: RequestInit): Promise<Response>;
+  /** What this safeFetch paid to sellers so far. */
+  spent(): SpentUsd;
+}
+export declare function createSafeFetch(options: SafeFetchOptions): SafeFetch;
+/** What an option costs in USD on `network` (USDC and USD₮0: 6 decimals; Stellar USDC: 7; RLUSD: decimal dollars), or null. */
+export declare function usdOfOption(option: { amount?: unknown; maxAmountRequired?: unknown }, network: string): number | null;
 export declare function usdCap(maxUsd: number | string): string;
 export declare function preflightUrl(target: string, options?: { method?: string; maxUsd?: number | string; network?: string; doctorUrl?: string }): string;
 export declare function diagnoseUrl(target: string, options?: { method?: string; doctorUrl?: string }): string;
