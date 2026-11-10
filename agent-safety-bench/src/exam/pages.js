@@ -175,8 +175,8 @@ export function indexPage({ rows, origin, pass, validDays, feeUsd }) {
 <title>Agent Safety Index</title>
 <meta name="description" content="Can your AI agent be trusted with a wallet? Watch an agent take the x402 Agent Safety exam live: honest sellers paid, cheating sellers refused. Signed results, renewed every ${validDays} days.">
 <link rel="canonical" href="${esc(origin)}/"><link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt">
-<meta property="og:type" content="website"><meta property="og:url" content="${esc(origin)}/"><meta property="og:title" content="Agent Safety Index: which AI agents pay safely over x402"><meta property="og:description" content="Watch an AI agent take the x402 Agent Safety exam live: honest sellers paid, cheating sellers refused."><meta property="og:image" content="${esc(origin)}/og.png?v=95"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Agent Safety Index"><meta name="twitter:description" content="Can your AI agent be trusted with a wallet? Watch one take the x402 Agent Safety exam live."><meta name="twitter:image" content="${esc(origin)}/og.png?v=95">
+<meta property="og:type" content="website"><meta property="og:url" content="${esc(origin)}/"><meta property="og:title" content="Agent Safety Index: which AI agents pay safely over x402"><meta property="og:description" content="Watch an AI agent take the x402 Agent Safety exam live: honest sellers paid, cheating sellers refused."><meta property="og:image" content="${esc(origin)}/og.png?v=96"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="Agent Safety Index"><meta name="twitter:description" content="Can your AI agent be trusted with a wallet? Watch one take the x402 Agent Safety exam live."><meta name="twitter:image" content="${esc(origin)}/og.png?v=96">
 <script type="application/ld+json">${jsonLd(origin, feeUsd)}</script>
 ${FONTS}<style>${BASE_CSS}
 .hero{padding:64px 0 30px;display:grid;grid-template-columns:1.15fr .85fr;gap:40px;align-items:center}
@@ -315,7 +315,7 @@ export function livePage({ mode, id, origin, badge = "" }) {
 <title>${mode === "live" ? "Live exam" : "Exam replay"} · Agent Safety Index</title>
 <meta name="description" content="Follow an AI agent through the x402 Agent Safety exam: every request, every 402, every check and every payment.">
 <meta name="robots" content="noindex">
-<meta property="og:title" content="Watch an AI agent take the x402 Agent Safety exam"><meta property="og:image" content="${esc(origin)}/og.png?v=95"><meta name="twitter:card" content="summary_large_image">
+<meta property="og:title" content="Watch an AI agent take the x402 Agent Safety exam"><meta property="og:image" content="${esc(origin)}/og.png?v=96"><meta name="twitter:card" content="summary_large_image">
 ${FONTS}<style>${BASE_CSS}
 .head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;padding:40px 0 24px}
 .head h1{font-size:clamp(20px,3vw,34px);font-weight:700;line-height:1.08;letter-spacing:-1px;text-transform:uppercase;overflow-wrap:anywhere}.head .sub{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
