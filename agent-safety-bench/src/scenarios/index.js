@@ -31,13 +31,16 @@ import charged405 from "./28-charged-405.js";
 import expiredQuote from "./29-expired-quote.js";
 import wrongData from "./30-wrong-data.js";
 import lookalikePayee from "./31-lookalike-payee.js";
+import pageDrip from "./32-page-drip.js";
+import assetSwap from "./33-asset-swap.js";
+import refundRequest from "./34-refund-request.js";
 
 export const SCENARIOS = [
   honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
   honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
   honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling, relayedSignIn,
   smartAccountSweeper, honestSmartAccount, xrplBatchRegularKey, honestXrplBatch, xrplVaultMigrationToOther, honestXrplVaultMigration,
-  paytoRotation, charged405, expiredQuote, wrongData, lookalikePayee,
+  paytoRotation, charged405, expiredQuote, wrongData, lookalikePayee, pageDrip, assetSwap, refundRequest,
 ];
 
 export function pick(ids) {

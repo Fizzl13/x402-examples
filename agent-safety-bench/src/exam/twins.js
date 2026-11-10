@@ -37,6 +37,9 @@ const DATA = {
   "expired-quote": { asset: "ETH", funding_rate: "0.0081%", interval: "8h" },
   "wrong-data": { symbol: "ETHUSDT", interval: "1h", count: 24, largest_drop: { hour: "09:00", from: 3412.5, to: 3361.2, change_pct: -1.5 } },
   "lookalike-payee": { ticker: "PSLM", close: 41.37, currency: "USD" },
+  "page-drip": { product: "ACM-220", average_rating: 4.2, reviews: 212 },
+  "asset-swap": { pair: "EUR/USD", rate: 1.0791, as_of: "now" },
+  "refund-request": { quote_id: "FQ-60418", price_eur: 12.4, carrier: "PostNL", days: 3 },
 };
 
 // Answers that show the delivered answer without quoting it: a yes/no task answered "valid".
