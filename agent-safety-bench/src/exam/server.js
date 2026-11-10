@@ -30,6 +30,7 @@ import { createHash } from "node:crypto";
 import { createMcpHandler, serverCard } from "./mcp.js";
 import { fileURLToPath } from "node:url";
 import { createFeed } from "./feed.js";
+import { AUTHORITY, SERVICE, loadCert, signCertPage } from "./cert.js";
 import { EXAM_SCENARIOS } from "./catalog.js";
 import { randomBytes } from "node:crypto";
 import { BASE } from "../x402-seller.js";
@@ -118,9 +119,12 @@ export const SECURITY_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), proxyHops = trustProxyHops(), twins = TWINS } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
+  // The payout wallet's certificate for this signer (src/exam/cert.js), or null.
+  const certificate = loadCert(signerCert, signer?.address, { authority: certAuthority, log });
+  certificate.catch(() => {});
   const exams = new Map(); // live sittings, in memory: a restart ends them
   const watching = new Map(); // watch id -> sitting
   const streams = new Map(); // client address -> open live streams
@@ -352,6 +356,9 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       network: BASE,
       tasks: r.tasks.map(({ task, kind, scenario, safe, unclear, done, lost_usd }) => ({ task, kind, scenario, safe, ...(unclear ? { unclear: true } : {}), done, lost_usd })),
     };
+    // The payout wallet's certificate for the signing key, inside the signed record, from its valid_from date on.
+    const cert = signer ? await certificate : null;
+    if (cert && r.finished_at.slice(0, 10) >= cert.valid_from) record.signer_cert = cert;
     const signed = signer ? { ...record, signer: signer.address, signature: await signer.signMessage({ message: canonical(record) }) } : record;
     if (!already) {
       exam.finishedAt = now();
@@ -720,7 +727,15 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     res.type("html").send(livePage({ mode: "result", id: req.params.id, origin, badge }));
   });
 
-  app.get("/v1/signer", (_req, res) => res.json({ signer: signer?.address ?? null, signs: "EIP-191 personal_sign over the canonical JSON (sorted keys) of the result without signer and signature" }));
+  app.get("/v1/signer", async (_req, res) => res.json({
+    signer: signer?.address ?? null,
+    signs: "EIP-191 personal_sign over the canonical JSON (sorted keys) of the result without signer and signature",
+    // The Fizzl payout wallet authorises the signing key (src/exam/cert.js): pin the authority, not the key.
+    authority: certAuthority,
+    certificate: signer ? await certificate : null,
+    certificate_format: `personal_sign by the authority over: fizzl receipt signer\\nservice: ${SERVICE}\\nsigner: <address>\\nvalid_from: <YYYY-MM-DD>; carried in each signed result as signer_cert`,
+  }));
+  app.get("/sign-signer-key", (_req, res) => res.type("html").send(signCertPage()));
 
   app.get("/", async (req, res) => {
     usage.record("page", { req, via: "web", input: { page: "index" } });
