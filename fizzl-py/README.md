@@ -54,7 +54,8 @@ fizzl.pay_api("https://api.example.com/weather?city=Amsterdam")
 - **Budget:** the x402 client's own spend controls cap every payment at `max_usd`, in known dollar tokens only.
 - **Checked first:** x402 Doctor's preflight runs before each payment ($0.001). Only a `go` is paid; a `caution` stops unless `on_caution="pay"` or your function says yes; a `no_go` never pays.
 - **Never paid twice for nothing:** a request that was paid and answered with an error is not paid again for 30 minutes.
-- A refusal comes back as `{"not_paid": "no_go" | "caution" | "over_budget" | "paid_no_delivery" | ..., "message": ...}`, so the agent can tell the user.
+- **A budget for the whole task (optional):** `safe_session(payer, max_usd=0.05, max_total_usd=0.10, max_per_seller_usd=0.10)`. A seller that splits its answer over many cheap calls (2 cents a page, "call again for the next page") stays under `max_usd` every time; `max_total_usd` caps every payment of the session together, `max_per_seller_usd` every payment to one host. Past it nothing is paid and no preflight is bought; `pay.spent()` says what was paid. Make one session per task or user.
+- A refusal comes back as `{"not_paid": "no_go" | "caution" | "over_budget" | "over_total_budget" | "over_seller_budget" | "paid_no_delivery" | ..., "message": ...}`, so the agent can tell the user.
 
 `pay_api` only works with a session from `safe_session`. A plain paying session is refused, because then the model would decide what to pay. Why that matters: in our wallet exam the same model scored 65 on its own and 96 when code decided the payment ([the sittings](https://fizzl.eu/research/ai-agents-x402-exam-november-2026/)). Install with `pip install "fizzl[x402]"`.
 
