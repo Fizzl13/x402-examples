@@ -10,7 +10,7 @@ on:
     inputs:
       model:
         description: "Claude model id"
-        default: "claude-fable-5-2"
+        default: "claude-haiku-5-5"
         type: string
       doctor:
         description: "Give the agent x402 Doctor's preflight as a tool"
