@@ -108,6 +108,9 @@ export interface SafeFetch {
 }
 export declare function createSafeFetch(options: SafeFetchOptions): SafeFetch;
 /** What an option costs in USD on `network` (USDC and USD₮0: 6 decimals; Stellar USDC: 7; RLUSD: decimal dollars), or null. */
+/** Why createSafeFetch refuses a Bitcoin Lightning (lnbtc) network: its price is in BTC, so the dollar budget can't hold. */
+export declare const LIGHTNING_UNSUPPORTED: string;
+/** What an option costs in USD on `network` (Lightning: null). */
 export declare function usdOfOption(option: { amount?: unknown; maxAmountRequired?: unknown }, network: string): number | null;
 export declare function usdCap(maxUsd: number | string): string;
 export declare function preflightUrl(target: string, options?: { method?: string; maxUsd?: number | string; network?: string; doctorUrl?: string }): string;
