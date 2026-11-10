@@ -117,7 +117,8 @@ def test_safe_session_caps_every_payment_and_adds_the_doctor_preflight():
     s = safe_session(payer, max_usd=0.05)
     assert isinstance(s, SafeSession) and s.fizzl_safe and s.max_usd == 0.05
     assert payer._spend_controls == {"max_amount_per_payment": "0.05"}
-    assert len(payer._before_payment_creation_hooks) == 1 and len(payer._after_payment_creation_hooks) == 1
+    # Before signing: the budget (no preflight bought when it is spent), Doctor's preflight, the budget again (counts it).
+    assert len(payer._before_payment_creation_hooks) == 3 and len(payer._after_payment_creation_hooks) == 1
     # The after hook counts a signed payment for a seller, never Doctor's own preflight payment.
     from types import SimpleNamespace as NS
     hook = payer._after_payment_creation_hooks[0]
@@ -154,3 +155,102 @@ def test_a_signed_payment_without_a_settlement_header_still_blocks_the_retry():
     first = f.pay_api(SELLER)
     assert first["paid"] is True and "blocked" in first["note"]
     assert f.pay_api(SELLER)["not_paid"] == "paid_no_delivery"
+
+
+# A budget for the whole task: max_total_usd and max_per_seller_usd.
+def _page(n, host="api.reviews.example", amount="20000", network="eip155:8453"):
+    from types import SimpleNamespace as NS
+    return NS(payment_required=NS(resource=NS(url=f"https://{host}/v1/reviews?page={n}")),
+              selected_requirements=NS(amount=amount, network=network))
+
+
+def _hooks(payer):
+    first, _doctor, last = payer._before_payment_creation_hooks
+    return first, last, payer._after_payment_creation_hooks[0], payer._on_payment_creation_failure_hooks[0]
+
+
+def test_total_budget_stops_cheap_pages_before_the_preflight():
+    x402 = pytest.importorskip("x402")
+    from x402.schemas.errors import PaymentAbortedError
+    payer = x402.x402ClientSync()
+    s = safe_session(payer, max_usd=0.05, max_total_usd=0.1)
+    first, last, after, _failure = _hooks(payer)
+    for n in range(1, 6):
+        ctx = _page(n)
+        assert first(ctx) is None and last(ctx) is None
+        after(ctx)
+    assert s.spent() == {"total_usd": 0.1, "by_seller": {"api.reviews.example": 0.1}}
+    stop = first(_page(6))  # the first hook: Doctor's preflight is never bought for it
+    assert stop.reason.startswith("over_total_budget: the total budget ($0.1) has $0")
+    assert "the endpoint asks $0.02" in stop.reason
+    r = refusal(PaymentAbortedError(stop.reason))
+    assert r["not_paid"] == "over_total_budget" and r["message"].startswith("not paid: the total budget")
+
+
+def test_per_seller_budget_leaves_other_sellers_alone():
+    x402 = pytest.importorskip("x402")
+    payer = x402.x402ClientSync()
+    s = safe_session(payer, max_per_seller_usd=0.04)
+    first, last, _after, _failure = _hooks(payer)
+    assert last(_page(1)) is None and last(_page(2)) is None
+    assert last(_page(3)).reason.startswith("over_seller_budget: the budget for api.reviews.example ($0.04)")
+    assert first(_page(1, host="api.other.example")) is None and last(_page(1, host="api.other.example")) is None
+    assert s.spent() == {"total_usd": 0.06, "by_seller": {"api.reviews.example": 0.04, "api.other.example": 0.02}}
+
+
+def test_counted_as_signed_and_taken_back_when_nothing_was_paid():
+    x402 = pytest.importorskip("x402")
+    payer = x402.x402ClientSync()
+    s = safe_session(payer, max_total_usd=0.03)
+    _first, last, _after, failure = _hooks(payer)
+    assert last(_page(1)) is None
+    # Two calls at once can't both spend what is left: the second sees $0.01 left.
+    assert last(_page(2)).reason.startswith("over_total_budget")
+    failure(_page(1))  # creating the payment failed: nothing was paid
+    assert s.spent()["total_usd"] == 0
+    # The Doctor preflight's own payment is never counted.
+    assert s.budget_check("https://x402-doctor.fizzl.eu/api/v1/preflight?url=x", 0.001, hold=True) is None
+    assert s.spent()["total_usd"] == 0
+
+
+def test_a_payment_answered_402_again_is_not_counted_a_paid_error_is():
+    class Signing(Seller):
+        def request(self, method, url, **kw):
+            assert safe.budget_check(url, 0.02, hold=True) is None  # what the payer's last before-hook does
+            safe.note_payment(url)
+            return super().request(method, url, **kw)
+
+    safe = SafeSession(Signing((402, {"x402Version": 2}, False)), max_usd=0.05, max_total_usd=0.1)
+    safe.request("GET", SELLER)
+    assert safe.spent()["total_usd"] == 0
+    safe = SafeSession(Signing((500, "boom", False)), max_usd=0.05, max_total_usd=0.1)
+    safe.request("GET", SELLER)
+    assert safe.spent() == {"total_usd": 0.02, "by_seller": {"api.example.com": 0.02}}
+
+
+def test_budgets_must_be_positive_and_prices_read_in_dollars():
+    x402 = pytest.importorskip("x402")
+    from fizzl.pay import usd_of
+    with pytest.raises(ValueError, match="max_total_usd"):
+        safe_session(x402.x402ClientSync(), max_total_usd=0)
+    with pytest.raises(ValueError, match="max_per_seller_usd"):
+        safe_session(x402.x402ClientSync(), max_per_seller_usd=-1)
+    assert usd_of({"amount": "20000", "network": "eip155:8453"}) == 0.02
+    assert usd_of({"amount": "200000", "network": "stellar:pubnet"}) == 0.02
+    assert usd_of({"amount": "0.02", "network": "xrpl:0"}) == 0.02
+    assert usd_of({"amount": "x", "network": "eip155:8453"}) is None
+    # Without a budget nothing is checked or counted.
+    s = SafeSession(Seller((200, {})), max_usd=0.05)
+    assert s.budget_check(SELLER, 9.99, hold=True) is None and s.spent()["total_usd"] == 0
+
+
+def test_counted_but_never_signed_is_taken_back():
+    class StoppedLater(Seller):
+        def request(self, method, url, **kw):
+            assert safe.budget_check(url, 0.02, hold=True) is None  # counted by the last before-hook ...
+            raise ConnectionError("a later hook stopped it")  # ... then nothing was signed
+
+    safe = SafeSession(StoppedLater((200, {})), max_usd=0.05, max_total_usd=0.1)
+    with pytest.raises(ConnectionError):
+        safe.request("GET", SELLER)
+    assert safe.spent()["total_usd"] == 0
