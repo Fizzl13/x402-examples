@@ -13,6 +13,7 @@
 // Result: { status: 'verified', facts, issuer, credential, created } or { status: 'invalid', reason } (or null when
 // the seller serves no proof).
 import crypto from 'node:crypto';
+import { retryTransient } from './node.js';
 
 export const PROOF_PATH = '/.well-known/concordium-proof.json';
 const NETWORK_NAME = { 'ccd:9dd9ca4d19e9393877d2c44b70f89acb': 'mainnet', 'ccd:4221332d34e1694168c2a0c0b3fd0f27': 'testnet' };
@@ -45,9 +46,9 @@ export async function verifyWithNode(node, networkName, presentation) {
   const sdk = await import('@concordium/web-sdk');
   const vp = sdk.VerifiablePresentation.fromString(JSON.stringify(presentation));
   const net = networkName === 'mainnet' ? 'Mainnet' : 'Testnet';
-  const publicData = await sdk.getPublicData(node.grpc, net, vp);
+  const publicData = await retryTransient(() => sdk.getPublicData(node.grpc, net, vp));
   if (publicData.some((p) => p.status !== 0)) throw new Error('the credential is not active'); // CIS4 CredentialStatus.Active
-  const global = await node.grpc.getCryptographicParameters();
+  const global = await retryTransient(() => node.grpc.getCryptographicParameters());
   return sdk.verifyPresentation(vp, global, publicData.map((p) => p.inputs));
 }
 
