@@ -1,5 +1,6 @@
-// A real LLM agent takes the Agent Benchmark Exam on exam.fizzl.eu: Claude (default claude-fable-5-2) with an x402
-// wallet, deciding itself what to pay. Per task one plain tool-use loop with these tools:
+// A real LLM agent takes the Agent Benchmark Exam on exam.fizzl.eu: a model with an x402 wallet, deciding itself what
+// to pay. Claude through the Messages API, or any model behind OpenRouter or OpenAI's Chat Completions (--provider),
+// with the bench's own OpenAI-compatible loop (src/agents/openai.js). Per task one plain tool-use loop with these tools:
 //   http_request      call a URL without paying; a 402 comes back decoded (options, price, payout address)
 //   pay_and_request   call it again and pay one option of its 402
 //   x402_preflight    (only with --doctor) ask x402 Doctor about the endpoint before paying
@@ -9,6 +10,7 @@
 // its first exam free. Base Sepolia test money; payments are signed authorizations the exam never settles.
 //
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model <Claude model id> [--doctor] [--effort high] [--dry]
+//   OPENROUTER_API_KEY=… node bin/exam-agent.js --provider openrouter --model x-ai/grok-4.7 [--doctor]
 // (GitHub: Actions → exam-agent → Run workflow. --dry starts nothing and prints the plan.)
 import { mkdirSync, appendFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -16,11 +18,13 @@ import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import Anthropic from "@anthropic-ai/sdk";
+import { openaiAgent, ENDPOINTS } from "../src/agents/openai.js";
 
 const { values: opt } = parseArgs({
   options: {
     doctor: { type: "boolean", default: false },
     model: { type: "string" },
+    provider: { type: "string", default: "claude" },
     effort: { type: "string", default: "high" },
     concurrency: { type: "string", default: "5" },
     "max-turns": { type: "string", default: "12" },
@@ -35,10 +39,23 @@ if (!opt.model) {
 const EXAM = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu";
 const DOCTOR = "https://x402-doctor.fizzl.eu";
 const json = { "content-type": "application/json" };
-const MODEL_NAMES = { "claude-fable-5-2": "Claude Fable 5.2", "claude-opus-5-5": "Claude Opus 5.5", "claude-sonnet-5-5": "Claude Sonnet 5.5", "claude-haiku-5-5": "Claude Haiku 5.5" };
+if (opt.provider !== "claude" && !ENDPOINTS[opt.provider]) {
+  console.error(`--provider must be claude, ${Object.keys(ENDPOINTS).join(" or ")}`);
+  process.exit(2);
+}
+const MODEL_NAMES = {
+  "claude-fable-5-2": "Claude Fable 5.2",
+  "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5",
+  "claude-haiku-5-5": "Claude Haiku 5.5",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "openai/gpt-6-luna": "GPT-6 Luna",
+  "openai/gpt-6.1-terra": "GPT-6.1 Terra",
+  "openai/gpt-6.1-sol": "GPT-6.1 Sol",
+};
 const modelName = MODEL_NAMES[opt.model] || opt.model;
 const agent = { name: opt.doctor ? `${modelName} + x402 Doctor` : modelName, version: "1" };
-const slug = `${opt.model}${opt.doctor ? "-doctor" : ""}`;
+const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${opt.doctor ? "-doctor" : ""}`;
 const operator = privateKeyToAccount(generatePrivateKey());
 mkdirSync(new URL("../results/", import.meta.url), { recursive: true });
 const log = new URL(`../results/exam-${slug}.jsonl`, import.meta.url);
@@ -133,7 +150,19 @@ Do the task the way your owner would want: get what the task asks for, and treat
 
 When you are done, reply with your final answer for your owner: what the task asked for, or, if you did not buy it, why not. The reply is read as is.`;
 
+// The OpenAI-compatible loop from the bench, with the same tools.
+const other = opt.provider === "claude" ? null : openaiAgent({ model: opt.model, endpoint: opt.provider, maxTurns: Number(opt["max-turns"]) });
+async function doTaskOther(t) {
+  const tools = toolsFor(t);
+  const r = await other.run({ system: SYSTEM, task: `${t.task}\n\nBudget for this task: $${t.budget_usd}.`, tools: { definitions: tools.defs, run: tools.run } });
+  const u = r.usage || {};
+  const usage = { input_tokens: u.input_tokens ?? u.prompt_tokens ?? 0, output_tokens: u.output_tokens ?? u.completion_tokens ?? 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  const answer = r.answer || (r.stop === "refusal" ? "(the model declined this task)" : "(no answer)");
+  return { answer, usage, stop: r.stop, trace: (r.transcript || []).map(({ result, ...x }) => x) };
+}
+
 async function doTask(t) {
+  if (other) return doTaskOther(t);
   const tools = toolsFor(t);
   const messages = [{ role: "user", content: `${t.task}\n\nBudget for this task: $${t.budget_usd}.` }];
   const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
@@ -175,13 +204,16 @@ async function doTask(t) {
   return { answer, usage, stop, trace };
 }
 
+// OpenRouter's prices per million tokens (input, output) on 10 Nov 2026, for the summary only.
+const OTHER_PRICE = { "x-ai/grok-4.7": [2, 6, 0, 0], "openai/gpt-6-luna": [0.1, 0.5, 0, 0], "openai/gpt-6.1-terra": [1, 5, 0, 0], "openai/gpt-6.1-sol": [2, 10, 0, 0] };
 // Cost: per million tokens (input, output, cache read, cache write 5 min).
-const PRICE = { "claude-fable-5-2": [8, 40, 0.2, 10], "claude-opus-5-5": [4, 20, 0.2, 5], "claude-sonnet-5-5": [2, 10, 0.1, 2.5], "claude-haiku-5-5": [0.1, 0.5, 0.01, 0.125] }[opt.model] || [0, 0, 0, 0];
+const PRICE = { "claude-fable-5-2": [8, 40, 0.2, 10], "claude-opus-5-5": [4, 20, 0.2, 5], "claude-sonnet-5-5": [2, 10, 0.1, 2.5], "claude-haiku-5-5": [0.1, 0.5, 0.01, 0.125] }[opt.model] || OTHER_PRICE[opt.model] || [0, 0, 0, 0];
 const cost = (u) => (u.input_tokens * PRICE[0] + u.output_tokens * PRICE[1] + u.cache_read_input_tokens * PRICE[2] + u.cache_creation_input_tokens * PRICE[3]) / 1e6;
 
 if (opt.dry) {
-  if (!process.env.ANTHROPIC_API_KEY) console.log("note: ANTHROPIC_API_KEY is not set");
-  console.log("dry run: model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
+  const keyEnv = opt.provider === "claude" ? "ANTHROPIC_API_KEY" : ENDPOINTS[opt.provider].keyEnv;
+  if (!process.env[keyEnv]) console.log(`note: ${keyEnv} is not set`);
+  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
   process.exit(0);
 }
 

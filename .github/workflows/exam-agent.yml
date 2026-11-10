@@ -1,6 +1,7 @@
-# exam-agent: a Claude model takes the Agent Benchmark Exam on exam.fizzl.eu as a real agent with an x402 wallet, and
-# its signed result goes into the public index (Actions → exam-agent → Run workflow). It uses the ANTHROPIC_API_KEY
-# repository secret and costs model usage only: each run makes a fresh, empty operator wallet (whose first exam is
+# exam-agent: a model takes the Agent Benchmark Exam on exam.fizzl.eu as a real agent with an x402 wallet, and
+# its signed result goes into the public index (Actions → exam-agent → Run workflow). Claude models use the
+# ANTHROPIC_API_KEY repository secret; other vendors' models (Grok, GPT, …) go through OpenRouter (OPENROUTER_API_KEY)
+# or OpenAI (OPENAI_API_KEY). It costs model usage only: each run makes a fresh, empty operator wallet (whose first exam is
 # free) and a fresh payment key; the exam's sellers take Base Sepolia test money and never settle it.
 # With "doctor" the agent may ask x402 Doctor before paying; without it, it decides on the 402 alone.
 name: exam-agent
@@ -8,8 +9,13 @@ name: exam-agent
 on:
   workflow_dispatch:
     inputs:
+      provider:
+        description: "claude, openrouter (x-ai/grok-4.7, openai/gpt-6-luna, …) or openai"
+        default: "claude"
+        type: choice
+        options: [claude, openrouter, openai]
       model:
-        description: "Claude model id"
+        description: "Model id as that API names it"
         default: "claude-haiku-5-5"
         type: string
       doctor:
@@ -39,10 +45,13 @@ jobs:
       - name: Take the exam
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROVIDER: ${{ inputs.provider }}
           MODEL: ${{ inputs.model }}
           EFFORT: ${{ inputs.effort }}
           DOCTOR: ${{ inputs.doctor && '--doctor' || '' }}
-        run: node bin/exam-agent.js --model "$MODEL" --effort "$EFFORT" $DOCTOR | tee -a "$GITHUB_STEP_SUMMARY"
+        run: node bin/exam-agent.js --provider "$PROVIDER" --model "$MODEL" --effort "$EFFORT" $DOCTOR | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
