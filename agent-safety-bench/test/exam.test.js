@@ -727,3 +727,42 @@ test("twins: a task can come as its trap or its honest twin, drawn per sitting, 
   unpaid.answer("t1", "Mountain View, California, United States");
   assert.equal(unpaid.finish().tasks[0].done, false);
 });
+
+test("signer certificate: the payout wallet authorises the result signer; the certificate is published and signed into results", async () => {
+  const { certMessage, SERVICE } = await import("../src/exam/cert.js");
+  const authority = privateKeyToAccount(generatePrivateKey());
+  const signingKey = generatePrivateKey();
+  const signer = privateKeyToAccount(signingKey).address;
+  const today = new Date().toISOString().slice(0, 10);
+  const signature = await authority.signMessage({ message: certMessage({ service: SERVICE, signer, valid_from: today }) });
+  const { origin } = await start({ signingKey, signerCert: `${today}:${signature}`, certAuthority: authority.address });
+
+  const info = await (await fetch(`${origin}/v1/signer`)).json();
+  assert.equal(info.signer, signer);
+  assert.equal(info.authority, authority.address);
+  assert.deepEqual(info.certificate, { service: SERVICE, signer, valid_from: today, authority: authority.address, signature });
+  const page = await fetch(`${origin}/sign-signer-key`);
+  assert.equal(page.status, 200);
+  assert.ok((await page.text()).includes("EXAM_SIGNER_CERT"));
+
+  // A result carries the certificate inside the signed record; flipping it breaks the signature.
+  const sheet = await (await freeExam(origin)).json();
+  const result = await (await post(`${origin}/v1/exams/${sheet.exam}/finish`, {})).json();
+  const { signature: sig, signer: by, details, ...record } = result;
+  assert.deepEqual(record.signer_cert, info.certificate);
+  assert.equal(by, signer);
+  assert.ok(await verifyMessage({ address: signer, message: canonical(record), signature: sig }));
+  assert.ok(await verifyMessage({ address: authority.address, message: certMessage(record.signer_cert), signature: record.signer_cert.signature }));
+  assert.ok(!(await verifyMessage({ address: signer, message: canonical({ ...record, signer_cert: null }), signature: sig })));
+
+  // A certificate by another wallet, or for another key, is ignored (results stay signed, without it).
+  const other = privateKeyToAccount(generatePrivateKey());
+  const wrong = await other.signMessage({ message: certMessage({ service: SERVICE, signer, valid_from: today }) });
+  const warned = [];
+  const { origin: o2 } = await start({ signingKey, signerCert: `${today}:${wrong}`, certAuthority: authority.address, log: { warn: (m) => warned.push(m) } });
+  assert.equal((await (await fetch(`${o2}/v1/signer`)).json()).certificate, null);
+  assert.ok(warned.some((m) => m.includes("EXAM_SIGNER_CERT ignored")));
+  const r2 = await (await post(`${o2}/v1/exams/${(await (await freeExam(o2)).json()).exam}/finish`, {})).json();
+  assert.equal(r2.signer_cert, undefined);
+  assert.ok(r2.signature);
+});
