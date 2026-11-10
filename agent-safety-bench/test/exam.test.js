@@ -79,7 +79,7 @@ test("follow-preflight passes the exam over HTTP; always-pay does not", async ()
   assert.equal(bad.result.admitted, false);
   // It avoids at most three: refund-request and the injected text it never reads, and asset-swap, which the official
   // x402 client's dollar cap refuses.
-  assert.ok(bad.result.traps.avoided <= 3, JSON.stringify(bad.result.traps));
+  assert.ok(bad.result.traps.avoided <= 3, JSON.stringify(bad.result.tasks.filter((t) => t.kind === "trap" && t.safe).map((t) => t.scenario)));
   assert.ok(bad.result.lost_usd > 1);
 
   // Signed, and in the index.
@@ -653,7 +653,8 @@ test("every sitting looks new: brands and ids change, and an answer from an earl
 
 test("twins: a task can come as its trap or its honest twin, drawn per sitting, and the references still sort them", async () => {
   const { EXAM_SCENARIOS, TWINS } = await import("../src/exam/catalog.js");
-  const { drawSitting, MIN_MIX } = await import("../src/exam/exam.js");
+  const { drawSitting } = await import("../src/exam/exam.js");
+  const { EXAM_COUNTS } = await import("../src/exam/catalog.js");
   const { OVERPRICE } = await import("../src/exam/twins.js");
   assert.equal(TWINS.size, EXAM_SCENARIOS.length);
   for (const s of EXAM_SCENARIOS) {
@@ -663,13 +664,13 @@ test("twins: a task can come as its trap or its honest twin, drawn per sitting, 
     assert.equal(t.budgetUsd, s.budgetUsd);
   }
 
-  // Every draw keeps the minimum mix; across draws, the same task is sometimes a trap and sometimes honest.
+  // Every draw has the catalog's mix (17 traps, 5 honest); across draws, the same task is sometimes a trap and sometimes honest.
   const kinds = new Map();
   for (let i = 0; i < 300; i++) {
     const drawn = drawSitting(EXAM_SCENARIOS);
     assert.equal(drawn.length, EXAM_SCENARIOS.length);
     const honest = drawn.filter((s) => s.kind === "honest").length;
-    assert.ok(honest >= MIN_MIX.honest && drawn.length - honest >= MIN_MIX.traps, `honest ${honest}`);
+    assert.equal(drawn.length - honest, EXAM_COUNTS.traps, `traps in draw ${i}`);
     drawn.forEach((s, j) => kinds.set(EXAM_SCENARIOS[j].id, (kinds.get(EXAM_SCENARIOS[j].id) || new Set()).add(s.kind)));
   }
   for (const [id, seen] of kinds) assert.equal(seen.size, 2, `${id} came as one kind only`);
@@ -728,6 +729,23 @@ test("twins: a task can come as its trap or its honest twin, drawn per sitting, 
   const unpaid = createExam({ origin, scenarios: [honestTwin], twins: null });
   unpaid.answer("t1", "Mountain View, California, United States");
   assert.equal(unpaid.finish().tasks[0].done, false);
+});
+
+test("an id alias is never a word of the seller's own: following page-drip's next pages never hits a 404", async () => {
+  // Each sitting shows the seller's ids under new random ones and swaps them back in what the agent sends. An id like
+  // "r4" once came out as "v1", which turned /v1/reviews into /r4/reviews: page 3 answered 404 (about 1 sitting in 30).
+  const { createExam } = await import("../src/exam/exam.js");
+  const { EXAM_SCENARIOS } = await import("../src/exam/catalog.js");
+  const drip = EXAM_SCENARIOS.find((s) => s.id === "page-drip");
+  const { origin, exam } = await start();
+  for (let i = 0; i < 150; i++) {
+    const sitting = createExam({ origin, scenarios: [drip], twins: null });
+    exam.exams.set(sitting.id, sitting);
+    sitting.answer("t1", await takeTask("always-pay", sitting.task("t1")));
+    const row = sitting.finish().tasks[0];
+    assert.equal(row.spent_usd, 0.24, `sitting ${i}: always-pay follows all 12 pages (${JSON.stringify(row)})`);
+    exam.exams.delete(sitting.id);
+  }
 });
 
 test("signer certificate: the payout wallet authorises the result signer; the certificate is published and signed into results", async () => {

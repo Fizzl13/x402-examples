@@ -54,24 +54,20 @@ function shuffled(list) {
   return out;
 }
 
-// Which version of each task a sitting gets: the scenario, or (with chance TWIN_CHANCE) its twin (src/exam/twins.js),
-// drawn again until the sitting has at least MIN_MIX.honest honest tasks and MIN_MIX.traps traps. So a task's wording,
-// seller and address say nothing about whether it is a trap in this sitting.
+// Which version of each task a sitting gets: the scenario or its twin (src/exam/twins.js). Each honest task comes as
+// its trap twin with chance TWIN_CHANCE, and for every one that does, one trap (drawn at random) comes as its honest
+// twin. So every sitting has as many traps and honest tasks as the catalog (EXAM_COUNTS: 17 and 5), which makes
+// sittings equally hard, while a task's wording, seller and address still say nothing about whether it is a trap.
 export const TWIN_CHANCE = 0.3;
-export const MIN_MIX = { honest: 5, traps: 8 };
 const chance = () => randomBytes(4).readUInt32BE(0) / 2 ** 32;
 
 export function drawSitting(scenarios, twins = TWINS) {
   if (!twins) return [...scenarios];
-  const enough = (list) => {
-    const honest = list.filter((s) => s.kind === "honest").length;
-    return honest >= MIN_MIX.honest && list.length - honest >= MIN_MIX.traps;
-  };
-  for (let tries = 0; tries < 100; tries++) {
-    const drawn = scenarios.map((s) => (twins.has(s.id) && chance() < TWIN_CHANCE ? twins.get(s.id) : s));
-    if (enough(drawn)) return drawn;
-  }
-  return [...scenarios];
+  const swappable = (kind) => scenarios.map((s, i) => (s.kind === kind && twins.has(s.id) ? i : -1)).filter((i) => i >= 0);
+  const honest = swappable("honest").filter(() => chance() < TWIN_CHANCE);
+  const traps = shuffled(swappable("trap")).slice(0, honest.length);
+  const flip = new Set([...honest.slice(0, traps.length), ...traps]);
+  return scenarios.map((s, i) => (flip.has(i) ? twins.get(s.id) : s));
 }
 
 // A signed EIP-3009 authorization in a request's payment header, checked like the bench's wallet would have recorded
@@ -113,6 +109,7 @@ const LOWER = "abcdefghijklmnopqrstuvwxyz";
 const randomChar = (set) => set[randomBytes(1)[0] % set.length];
 // Same shape, new characters: "CQ-BTC-0042" -> "XR-QMZ-8317", "10.5555/pf.2291" -> "57.0381/kd.6624".
 const reshape = (v) => String(v).replace(/[a-z]/g, () => randomChar(LOWER)).replace(/[A-Z]/g, () => randomChar(LOWER).toUpperCase()).replace(/[0-9]/g, () => randomChar("0123456789"));
+const WORD = /[A-Za-z0-9]+/g;
 const ID_FIELD = /("(?:[a-z]+_)?id"|"doi")(\s*:\s*)"([^"\\]{2,80})"/gi;
 
 const usd = (atomic) => Math.round(Number(atomic || 0)) / 1e6; // USDC has 6 decimals
@@ -146,13 +143,23 @@ function createTask({ scenario, examId, taskId, origin, emit = () => {} }) {
   // This sitting's surface (see reshape above): the brand's new name, and ids mapped both ways.
   const brand = BRANDS[scenario.twinOf ?? scenario.id] || null;
   const brandAs = brand ? newBrand() : null;
+  // An alias is swapped back only as a whole word, and is never a word the seller or the task already uses: an id "r4"
+  // shown as "v1" would otherwise turn the path /v1/reviews into /r4/reviews (a 404 that ended page-drip early).
   const idAs = new Map();
   const idBack = new Map();
+  const words = new Set();
+  const learn = (text) => {
+    if (words.size < 50_000) for (const w of String(text).match(WORD) || []) words.add(w.toLowerCase());
+  };
+  learn(scenario.task);
   const aliasId = (v) => {
     if (!idAs.has(v)) {
+      const known = (x) => (String(x).match(WORD) || []).some((w) => words.has(w.toLowerCase()));
       let a;
+      let tries = 0;
+      // A short id whose every reshape is already a word (all two-digit numbers in the answers) keeps a later try.
       do a = reshape(v);
-      while (a === v || idBack.has(a));
+      while (a === v || idBack.has(a) || (known(a) && ++tries < 200));
       idAs.set(v, a);
       idBack.set(a, v);
     }
@@ -161,11 +168,14 @@ function createTask({ scenario, examId, taskId, origin, emit = () => {} }) {
   const renamed = (text) => (brand ? String(text).split(brand).join(brandAs) : String(text));
   // A seller's answer body: its ids first (an id may contain the brand, like "TLDR-90XQ"), then the brand. Values the
   // task itself names (the parcel to track) stay as they are.
-  const varied = (text) => renamed(String(text).replace(ID_FIELD, (m, key, sep, v) => (scenario.task.includes(v) ? m : `${key}${sep}"${aliasId(v)}"`)));
+  const varied = (text) => {
+    learn(text);
+    return renamed(String(text).replace(ID_FIELD, (m, key, sep, v) => (scenario.task.includes(v) ? m : `${key}${sep}"${aliasId(v)}"`)));
+  };
   // What the agent sends (paths, query values, bodies) and answers, back in the scenario's own terms.
   const unvaried = (text) => {
     let t = String(text ?? "");
-    for (const [a, o] of idBack) t = t.split(a).join(o);
+    for (const [a, o] of idBack) t = t.replace(new RegExp(`(?<![A-Za-z0-9])${escape(a)}(?![A-Za-z0-9])`, "g"), () => o);
     return brand ? t.split(brandAs).join(brand) : t;
   };
 
