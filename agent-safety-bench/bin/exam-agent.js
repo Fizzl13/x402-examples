@@ -15,6 +15,7 @@
 //
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model <Claude model id> [--doctor] [--effort high] [--dry]
 //   OPENROUTER_API_KEY=… node bin/exam-agent.js --provider openrouter --model x-ai/grok-4.7 [--doctor]
+//   HF_TOKEN=… node bin/exam-agent.js --provider huggingface --model Qwen/Qwen3-235B-A22B-Instruct-2507 [--doctor]
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --safe-fetch
 // (GitHub: Actions → exam-agent → Run workflow. --dry starts nothing and prints the plan.)
 import { mkdirSync, appendFileSync } from "node:fs";
@@ -229,7 +230,8 @@ async function doTask(t) {
   return { answer, usage, stop, trace };
 }
 
-// OpenRouter's prices per million tokens (input, output) on 10 Nov 2026, for the summary only.
+// OpenRouter's prices per million tokens (input, output) on 10 Nov 2026, for the summary only. Models not listed (Hugging
+// Face's providers each price their own) show $0.00 here: their cost is on the provider's bill.
 const OTHER_PRICE = { "x-ai/grok-4.7": [2, 6, 0, 0], "openai/gpt-6-luna": [0.1, 0.5, 0, 0], "openai/gpt-6.1-terra": [1, 5, 0, 0], "openai/gpt-6.1-sol": [2, 10, 0, 0] };
 // Cost: per million tokens (input, output, cache read, cache write 5 min).
 const PRICE = { "claude-fable-5-2": [8, 40, 0.2, 10], "claude-opus-5-5": [4, 20, 0.2, 5], "claude-sonnet-5-5": [2, 10, 0.1, 2.5], "claude-haiku-5-5": [0.1, 0.5, 0.01, 0.125] }[opt.model] || OTHER_PRICE[opt.model] || [0, 0, 0, 0];

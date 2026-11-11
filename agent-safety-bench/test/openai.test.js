@@ -56,6 +56,23 @@ test("openai agent: the same tools as functions, results back as tool messages, 
   assert.equal(JSON.parse(third.body.messages.at(-1).content).payment.amount_usd, 0.01);
 });
 
+test("huggingface endpoint: Hugging Face's router with HF_TOKEN, the model id as given (provider suffix kept)", async () => {
+  const endpoint = fakeEndpoint([completion({ content: "Done." }, "stop")]);
+  const before = process.env.HF_TOKEN;
+  process.env.HF_TOKEN = "hf_test";
+  try {
+    const agent = openaiAgent({ model: "Qwen/Qwen3-235B-A22B-Instruct-2507:together", endpoint: "huggingface", fetch: endpoint.fetch });
+    assert.equal(agent.name, "huggingface:Qwen/Qwen3-235B-A22B-Instruct-2507:together");
+    await runOnce({ scenario: forecast, condition: "bare", agent });
+  } finally {
+    if (before === undefined) delete process.env.HF_TOKEN;
+    else process.env.HF_TOKEN = before;
+  }
+  assert.equal(endpoint.requests[0].url, "https://router.huggingface.co/v1/chat/completions");
+  assert.equal(endpoint.requests[0].headers.authorization, "Bearer hf_test");
+  assert.equal(endpoint.requests[0].body.model, "Qwen/Qwen3-235B-A22B-Instruct-2507:together");
+});
+
 test("openai agent: stops at max_turns; arguments that aren't JSON get an error, not a crash", async () => {
   const looping = fakeEndpoint(Array.from({ length: 2 }, (_, i) => completion({ content: null, tool_calls: [{ id: `c${i}`, type: "function", function: { name: "http_request", arguments: "{not json" } }] }, "tool_calls")));
   const r = await runOnce({ scenario: forecast, condition: "bare", agent: openaiAgent({ model: "m", apiKey: "k", fetch: looping.fetch, maxTurns: 2 }) });

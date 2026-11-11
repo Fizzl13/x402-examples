@@ -1,11 +1,14 @@
-// An agent behind any API that speaks OpenAI's Chat Completions format: OpenAI itself, or OpenRouter, which serves
-// GPT, Gemini, Llama and other vendors' models with one key. The same tools and the same plain tool-use loop as the
+// An agent behind any API that speaks OpenAI's Chat Completions format: OpenAI itself, OpenRouter, which serves
+// GPT, Gemini, Llama and other vendors' models with one key, or Hugging Face's Inference Providers, which serve open
+// models (Llama, Qwen, DeepSeek, …) with a Hugging Face token. The same tools and the same plain tool-use loop as the
 // Claude agent, so other model families run the same scenarios. The model id comes from the caller (--model), as the
 // endpoint names it (for OpenRouter "<vendor>/<model>").
 
 export const ENDPOINTS = {
   openai: { baseURL: "https://api.openai.com/v1", keyEnv: "OPENAI_API_KEY" },
   openrouter: { baseURL: "https://openrouter.ai/api/v1", keyEnv: "OPENROUTER_API_KEY" },
+  // Hugging Face's router picks a provider for the model; "<org>/<model>:<provider>" pins one (e.g. ":together").
+  huggingface: { baseURL: "https://router.huggingface.co/v1", keyEnv: "HF_TOKEN" },
 };
 
 // The tools as functions. additionalProperties is left out: not every vendor behind OpenRouter accepts it, and it only
