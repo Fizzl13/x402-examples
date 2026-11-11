@@ -14,6 +14,7 @@ import { getHeapStatistics } from "node:v8";
 import indexNow from "./indexnow.cjs";
 import { WALLET_MCP, WALLET_MCPB, WALLET_MCP_VERSION } from "./mcp-package.js";
 import { createConnector } from "./connector.js";
+import { receiptsCsv } from "./receipts.js";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
 // A dated comparison with Coinbase for Agents (Coinbase MCP and Coinbase Wallet MCP), with its sources.
@@ -423,6 +424,16 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   }));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
+  // The owner's own copy of the receipts still kept: CSV for bookkeeping (one line per purchase) or JSON (the whole
+  // receipts, with what came back). Same receipts as the Purchases screen, all of them, as a download.
+  owner.get("/purchases/export", wrap(async (req, res) => {
+    const list = await req.wallet.archive();
+    const day = new Date().toISOString().slice(0, 10);
+    const json = req.query.format === "json";
+    res.set({ "cache-control": "no-store", "content-disposition": `attachment; filename="fizzl-receipts-${day}.${json ? "json" : "csv"}"` });
+    if (json) return res.json({ exported: new Date().toISOString(), count: list.length, receipts: list });
+    res.type("text/csv; charset=utf-8").send(receiptsCsv(list));
+  }));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
   owner.put("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.setPolicy(req.body?.policy) })));
   owner.post("/pause", wrap(async (req, res) => { await req.wallet.setPaused(!!req.body?.paused); res.json({ ok: true }); }));
