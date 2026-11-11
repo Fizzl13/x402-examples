@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
-import { pair, serverSigner, ensureWallet, readWallet, usdcBalance, buyUsdcUrl, WALLET_URL } from "../wallet.js";
+import { pair, serverSigner, ensureWallet, readWallet, usdcBalance, onrampLink, WALLET_URL } from "../wallet.js";
 import { main, stateStore } from "../cli.js";
 import { SafePayError } from "../index.js";
 
@@ -26,6 +26,7 @@ function server({ waits = 1, answers = [{ status: "ok", entries: ["e1"], purchas
     if (u.pathname === "/v1/reserve") return Response.json(answers.shift() ?? { status: "ok", entries: [], purchaseId: null });
     if (u.pathname.startsWith("/v1/approvals/")) return Response.json(approval === "approved" ? { status: "approved", entries: ["e2"], purchaseId: "p2" } : { status: approval });
     if (u.pathname === "/v1/spent") return Response.json({ ok: true });
+    if (u.pathname === "/v1/onramp") return Response.json({ url: `https://pay.coinbase.com/buy/select-asset?sessionToken=tok&defaultNetwork=base&defaultAsset=USDC&presetFiatAmount=${u.searchParams.get("amount")}`, address: "0x" + "ab".repeat(20), network: "base", asset: "USDC", amount_usd: Number(u.searchParams.get("amount")), expires_in_s: 300 });
     return Response.json({ error: "nope" }, { status: 404 });
   };
   return { log, fetch };
@@ -134,20 +135,40 @@ test("cli init: a wallet without a link, and how to fund it", async () => {
   assert.equal(await main(["init"], { fetch: empty, store: stateStore({ home }), out: (x) => out.push(x), err: () => {} }), 0);
   assert.match(out.join("\n"), /Made a wallet for this computer/);
   assert.match(out.join("\n"), /Not linked to a Fizzl wallet/);
-  const w = readWallet(home);
   assert.match(out.join("\n"), /add a few dollars of USDC on Base/);
-  assert.ok(out.join("\n").includes(`with a card (Coinbase, $5; open it in your browser): https://x402-doctor.fizzl.eu/api/onramp?address=${w.address}&amount=5`));
+  assert.match(out.join("\n"), /with a card: run connect first, then {2}npx x402-safe-fetch fund/);
   assert.match(out.join("\n"), /choose the Base network/);
-  assert.equal(w.server, undefined);
+  assert.equal(readWallet(home).server, undefined);
 
-  const json = [];
-  assert.equal(await main(["wallet", "--json"], { fetch: empty, store: stateStore({ home }), out: (x) => json.push(x), err: () => {} }), 0);
-  assert.equal(JSON.parse(json.join("")).buy_usdc_url, buyUsdcUrl(w.address));
+  const err = [];
+  assert.equal(await main(["fund"], { fetch: empty, store: stateStore({ home }), out: (x) => err.push(x), err: () => {} }), 1);
+  assert.match(err.join("\n"), /goes through your Fizzl wallet: run {2}npx x402-safe-fetch connect {2}first/);
 });
 
-test("buyUsdcUrl: Doctor's Coinbase Onramp link for one address, $5 unless asked", () => {
-  const u = new URL(buyUsdcUrl("0x6B0F4651eD42893ab58139938175E4a69f175F25", { amount: 20 }));
-  assert.equal(u.origin + u.pathname, "https://x402-doctor.fizzl.eu/api/onramp");
-  assert.deepEqual(Object.fromEntries(u.searchParams), { address: "0x6B0F4651eD42893ab58139938175E4a69f175F25", amount: "20" });
-  assert.equal(new URL(buyUsdcUrl("0x6B0F4651eD42893ab58139938175E4a69f175F25")).searchParams.get("amount"), "5");
+test("cli fund: a Coinbase checkout asked through the linked Fizzl wallet, with the agent key", async () => {
+  const home = tmpHome();
+  const store = stateStore({ home });
+  const s = server();
+  assert.equal(await main(["connect", "--name", "laptop"], { fetch: s.fetch, store, sleep: noSleep, env: {}, out: () => {}, err: () => {} }), 0);
+  const out = [];
+  assert.equal(await main(["fund", "--amount", "10"], { fetch: s.fetch, store, out: (x) => out.push(x), err: () => {} }), 0);
+  const call = s.log.calls.find((c) => c.path === "/v1/onramp");
+  assert.equal(call.auth, "Bearer awk_test");
+  assert.match(out.join("\n"), /buy \$10 of USDC with a card \(works once, for 5 minutes\)/);
+  assert.match(out.join("\n"), /https:\/\/pay\.coinbase\.com\/buy\/select-asset\?sessionToken=tok&.*presetFiatAmount=10/);
+
+  const json = [];
+  assert.equal(await main(["fund", "--json"], { fetch: s.fetch, store, out: (x) => json.push(x), err: () => {} }), 0);
+  assert.equal(JSON.parse(json.join("")).amount_usd, 5);
+
+  const linkedOut = [];
+  const empty = async (url) => (new URL(url).hostname === "mainnet.base.org" ? Response.json({ result: "0x0" }) : s.fetch(url));
+  assert.equal(await main(["wallet"], { fetch: empty, store, out: (x) => linkedOut.push(x), err: () => {} }), 0);
+  assert.match(linkedOut.join("\n"), /with a card: npx x402-safe-fetch fund/);
+
+  const refused = async (url) => (new URL(url).pathname === "/v1/onramp" ? Response.json({ error: "unavailable", message: "Buying with a card isn't set up on this server." }, { status: 503 }) : s.fetch(url));
+  const no = [];
+  assert.equal(await main(["fund"], { fetch: refused, store, out: (x) => no.push(x), err: () => {} }), 1);
+  assert.equal(no.join("\n"), "Buying with a card isn't set up on this server.");
+  await assert.rejects(onrampLink({ server: { url: WALLET_URL, key: "awk_x" }, fetch: refused }), /isn't set up/);
 });

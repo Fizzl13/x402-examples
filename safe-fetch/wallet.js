@@ -13,14 +13,6 @@ import { SafePayError } from "./index.js";
 export const WALLET_URL = "https://wallet.fizzl.eu";
 export const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_RPC = "https://mainnet.base.org";
-export const ONRAMP_URL = "https://x402-doctor.fizzl.eu/api/onramp";
-
-// A link to buy USDC on Base with a card at Coinbase, delivered to `address`. Each visit starts a new Coinbase session
-// (x402 Doctor asks Coinbase Onramp for it); the buyer pays Coinbase and Fizzl never holds the money.
-export function buyUsdcUrl(address, { amount = 5 } = {}) {
-  return `${ONRAMP_URL}?${new URLSearchParams({ address, amount: String(amount) })}`;
-}
-
 export function walletFile(home) {
   return path.join(home, "wallet.json");
 }
@@ -93,6 +85,16 @@ export async function pair({ address, label = "x402-safe-fetch", url = WALLET_UR
     if (p?.status === "linked" && typeof p.key === "string") return { url: base, key: p.key, agent: p.agent ?? null };
   }
   throw new Error("the code expired before it was approved (10 minutes); run connect again");
+}
+
+/**
+ * A Coinbase checkout (single use, 5 minutes) to buy USDC on Base with a card, sent to this wallet's own address: the
+ * owner's wallet server checks the agent key and asks for it (x402 Doctor holds the CDP key). Coinbase takes the payment
+ * and sends the USDC; Fizzl never holds the money. Returns { url, address, amount_usd, expires_in_s }.
+ */
+export async function onrampLink({ server, amount = 5, fetch = globalThis.fetch }) {
+  const base = server.url.replace(/\/$/, "");
+  return call(fetch, base, server.key, "GET", `/v1/onramp?amount=${encodeURIComponent(String(amount))}`);
 }
 
 /**
