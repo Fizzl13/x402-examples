@@ -9,6 +9,7 @@ import { encodeFunctionData, erc20Abi } from "viem";
 import { canonicalJson, inputHash } from "x402-safe-fetch";
 import { guardWallet } from "presign-guard-wallet";
 import { createApp } from "../src/app.js";
+import { createOnramp } from "../src/onramp.js";
 import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
@@ -41,7 +42,7 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined, allowance = null } = {}) {
+async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined, allowance = null, onramp = null } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
@@ -63,7 +64,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     ...(mailer ? { mailer } : {}),
     ...(xaman ? { xaman } : {}),
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, allowance, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, allowance, onramp, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -2993,4 +2994,53 @@ test("catalog: each search result says how much of the question it covers (rare 
   assert.equal(out["all.example"], 1);
   assert.ok(out["poem.example"] < 0.6 && out["notary.example"] < 0.6, JSON.stringify(out));
   assert.equal((await catalog.search("")).results[0]?.coverage, undefined);
+});
+
+test("buy USDC with a card: an owner for their own agents' wallets, an agent for its own wallet only; Doctor gets ONRAMP_KEY", async () => {
+  const seen = [];
+  const doctor = async (url, init) => {
+    seen.push({ url: new URL(url), auth: init.headers.authorization });
+    const u = new URL(url);
+    return Response.json({ url: `https://pay.coinbase.com/buy/select-asset?sessionToken=t${seen.length}&defaultNetwork=base&defaultAsset=USDC&presetFiatAmount=${u.searchParams.get("amount")}` });
+  };
+  const onramp = createOnramp({ key: "shared-onramp-key", url: "https://doctor.test/api/onramp", fetch: doctor, perHour: 2 });
+  const { owner, agent, base, server } = await boot({ onramp });
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).onramp, true);
+    const mine = "0x" + "ab".repeat(20), other = "0x" + "cd".repeat(20);
+    const { body: st } = await owner("GET", "/api/state");
+    const id = st.agents[0].id;
+
+    assert.equal((await agent("GET", "/v1/onramp")).status, 409, "no address linked to the agent yet");
+    assert.equal((await owner("POST", "/api/onramp", { address: mine })).status, 403, "not one of the account's wallets");
+    await owner("PUT", `/api/agents/${id}/address`, { address: mine });
+
+    const a = await agent("GET", "/v1/onramp?amount=5");
+    assert.equal(a.status, 200);
+    assert.match(a.body.url, /^https:\/\/pay\.coinbase\.com\/buy\/select-asset\?sessionToken=t1&/);
+    assert.deepEqual({ ...a.body, url: 0 }, { url: 0, address: mine, network: "base", asset: "USDC", amount_usd: 5, expires_in_s: 300 });
+    assert.equal(seen[0].auth, "Bearer shared-onramp-key");
+    assert.equal(seen[0].url.searchParams.get("address"), mine);
+
+    const o = await owner("POST", "/api/onramp", { address: mine.toUpperCase().replace("0X", "0x"), amount: 20 });
+    assert.equal(o.status, 200);
+    assert.match(o.body.url, /presetFiatAmount=20/);
+    assert.equal((await owner("POST", "/api/onramp", { address: other })).status, 403);
+    assert.equal((await owner("POST", "/api/onramp", { address: mine, amount: 9999 })).status, 400);
+    assert.equal((await fetch(`${base}/api/onramp`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: mine }) })).status, 401, "signed in only");
+    assert.equal((await fetch(`${base}/v1/onramp`)).status, 401, "agent key only");
+
+    const limited = await agent("GET", "/v1/onramp");
+    assert.equal(limited.status, 429, "a few per hour per account");
+    assert.equal(seen.length, 2);
+  } finally { server.close(); }
+
+  const off = await boot();
+  try {
+    assert.equal((await (await fetch(`${off.base}/api/config`)).json()).onramp, false);
+    assert.equal((await off.agent("GET", "/v1/onramp")).status, 503);
+  } finally { off.server.close(); }
+
+  const down = createOnramp({ key: "k", url: "https://doctor.test/api/onramp", fetch: async () => Response.json({ error: "nope" }, { status: 401 }) });
+  await assert.rejects(down.link("acct", "0x" + "ab".repeat(20)), { status: 502, message: /try again/ });
 });

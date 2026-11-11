@@ -23,6 +23,8 @@ services:
         sync: false
       - key: PASS_SALE_KEY
         sync: false
+      - key: ONRAMP_KEY # the same long random value as on x402 Doctor: buy USDC with a card (src/onramp.js)
+        sync: false
       - key: MANDATE_SECRET
         sync: false
       - key: PG1_API_KEY

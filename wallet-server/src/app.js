@@ -44,7 +44,7 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault" }) {
+export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault", onramp = null }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -70,7 +70,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     res.json({ ok: true, memory: { rss_mb: mb(rss), heap_mb: mb(heapUsed), heap_total_mb: mb(heapTotal), heap_limit_mb: mb(getHeapStatistics().heap_size_limit), external_mb: mb(external) }, uptime_s: Math.round(process.uptime()) });
   });
   // What the sign-in page offers.
-  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, algorand: signInWithWallet && !!accounts.algorandEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username }));
+  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, algorand: signInWithWallet && !!accounts.algorandEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username, onramp: !!onramp?.enabled }));
 
   // ---------- agents ----------
   const agentOnly = async (req, res, next) => {
@@ -102,6 +102,12 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   v1.post("/spent", wrap(async (req, res) => res.json(await req.wallet.spent(req.agent, ids(req.body?.entries), req.body?.result, { purchaseId: req.body?.purchaseId }))));
   v1.post("/purchases/annotate", wrap(async (req, res) => res.json(await req.wallet.annotate(req.agent, ids(req.body?.ids), req.body?.outcome))));
   v1.get("/spending", wrap(async (req, res) => res.json({ spending: await req.wallet.spending() })));
+  // Buy USDC with a card for this agent's own wallet (src/onramp.js): only the address linked to its key, never one it names.
+  v1.get("/onramp", wrap(async (req, res) => {
+    if (!onramp) return res.status(503).json({ error: "unavailable", message: "Buying with a card isn't set up on this server." });
+    if (!/^0x[0-9a-fA-F]{40}$/.test(req.agent.address ?? "")) return res.status(409).json({ error: "no_address", message: "This agent has no wallet address on Base yet: link it with a code (npx x402-safe-fetch connect) or set it on the dashboard." });
+    res.set("cache-control", "no-store").json(await onramp.link(req.account, req.agent.address, req.query.amount));
+  }));
   // On-chain limits (src/allowance.js): the agent's wallet is low or short for a payment; the charger tops it up from
   // the owner's wallet, within the limit the owner set on chain, to the address the owner set (never one the agent names).
   v1.get("/onchain", wrap(async (req, res) => {
@@ -386,6 +392,15 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     res.set("cache-control", "no-store").json(out);
   }));
   owner.get("/state", wrap(async (req, res) => res.json({ ...(await req.wallet.state()), onchain: allowance?.enabled ? allowance.contract : null })));
+  // Buy USDC with a card (src/onramp.js), only for the owner's own wallet or one of their agents' wallets.
+  owner.post("/onramp", wrap(async (req, res) => {
+    if (!onramp) return res.status(503).json({ error: "unavailable", message: "Buying with a card isn't set up on this server." });
+    const address = String(req.body?.address ?? "");
+    const me = await accounts.me(req.account);
+    const own = [me?.address, ...(await req.wallet.agents()).map((a) => a.address)].filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a ?? "")).map((a) => a.toLowerCase());
+    if (!own.includes(address.toLowerCase())) return res.status(403).json({ error: "not_yours", message: "Only for your own wallet or one of your agents' wallets (save the agent's address first)." });
+    res.set("cache-control", "no-store").json(await onramp.link(req.account, address, req.body?.amount));
+  }));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
   owner.get("/purchases/:id", wrap(async (req, res) => res.json({ purchase: await req.wallet.purchase(req.params.id) })));
