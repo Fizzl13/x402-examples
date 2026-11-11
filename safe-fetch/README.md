@@ -144,7 +144,9 @@ The preflight itself is capped at $0.002 and paid with the same schemes. `receip
 
 A seller can take the payment and still answer with an error: a 405, a 500, or another 402 asking to pay again. Paying the same request again then usually costs a second payment for nothing. In the agent exam at [exam.fizzl.eu](https://exam.fizzl.eu) this was the most common loss: every model we examined did it at least once, with or without a preflight, because a preflight only sees the 402 before paying.
 
-So safe-fetch remembers each paid request (method, URL and body) whose paid answer was not a success. Calling that same request again within 30 minutes throws `SafePayError` with code `paid_no_delivery` (and `error.earlier`: when it was paid and what it was answered with), without paying and without buying another preflight. A different request is not affected, and a success clears it.
+So safe-fetch remembers each paid endpoint (method, origin and path) whose paid answer was not a success. Calling that endpoint again within 30 minutes, with any query string or body, throws `SafePayError` with code `paid_no_delivery` (and `error.earlier`: when it was paid and what it was answered with), without paying and without buying another preflight. Another endpoint is not affected, and a success clears it.
+
+The query and the body are left out on purpose. Since 0.16.2: in the exam, an open model that was refused added `&nonce=1`, `&nonce=2`, … to the URL, and each "new" request was paid (eight times). A seller that took your money without delivering doesn't get paid again on that endpoint, whatever the agent changes in the request.
 
 ```js
 const safeFetch = createSafeFetch({

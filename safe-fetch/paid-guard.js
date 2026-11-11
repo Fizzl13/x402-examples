@@ -4,32 +4,29 @@
 // (a 405, a 500, or another 402 asking to pay again), and the agent pays the same request again, and again. Every
 // model we examined did it at least once, with or without a preflight: the preflight only sees the 402 before paying.
 //
-// The guard remembers each paid request (method, URL and body) whose paid answer was not a success. Paying that same
-// request again within the window is refused, so the loss stops at one payment. A success clears it. A different
-// request (another URL, method or body) is not affected. No dependencies: it runs anywhere fetch does.
+// The guard remembers each paid endpoint (method, origin and path) whose paid answer was not a success. Paying that
+// endpoint again within the window is refused, so the loss stops at one payment. The query string and the body are
+// left out on purpose: in the exam, a model that was refused added "&nonce=1", "&nonce=2", ... to the URL and paid
+// eight more times. A success clears it. Another endpoint (another path, method or host) is not affected. No
+// dependencies: it runs anywhere fetch does.
 
 export const PAID_ERROR_MS = 30 * 60 * 1000;
 
-// A short, stable fingerprint of the body (FNV-1a, 32 bit): the key holds no request content.
-function bodyKey(body) {
-  if (body === undefined || body === null) return "";
-  const text = typeof body === "string" ? body : body instanceof URLSearchParams ? body.toString() : ArrayBuffer.isView(body) ? new TextDecoder().decode(body) : body instanceof ArrayBuffer ? new TextDecoder().decode(new Uint8Array(body)) : String(body);
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
+/** The endpoint as the guard sees it: method, origin and path (no query, no body, no fragment). */
+export function purchaseKey(url, { method = "GET" } = {}) {
+  let endpoint = String(url);
+  try {
+    const u = new URL(endpoint);
+    endpoint = `${u.origin}${u.pathname.replace(/\/+$/, "") || "/"}`;
+  } catch {
+    endpoint = endpoint.split(/[?#]/)[0];
   }
-  return `${text.length}:${h.toString(16)}`;
-}
-
-/** The request as the guard sees it: method, URL and a fingerprint of the body. */
-export function purchaseKey(url, { method = "GET", body } = {}) {
-  return `${String(method).toUpperCase()} ${String(url)} ${bodyKey(body)}`;
+  return `${String(method).toUpperCase()} ${endpoint}`;
 }
 
 /**
  * @param {object} [options]
- * @param {number} [options.windowMs]  how long a paid request that wasn't delivered stays blocked (default 30 minutes)
+ * @param {number} [options.windowMs]  how long a paid endpoint that didn't deliver stays blocked (default 30 minutes)
  * @param {() => number} [options.now]
  */
 export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {}) {
@@ -60,5 +57,5 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
 
 /** The refusal text, for an error or a tool answer. */
 export function paidTwiceMessage(url, earlier) {
-  return `not paid again: ${url} was already paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} without delivering. Paying the same request again would most likely be charged again for nothing; ask the seller, or try a different request.`;
+  return `not paid again: ${purchaseKey(url).replace(/^GET /, "")} was already paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} without delivering. Paying this endpoint again (with any query or body) would most likely be charged again for nothing; ask the seller, or use another seller.`;
 }
