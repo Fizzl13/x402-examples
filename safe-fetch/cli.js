@@ -9,6 +9,7 @@
 //   npx x402-safe-fetch connect                            a wallet for this computer, linked to your Fizzl wallet
 //   npx x402-safe-fetch pay <url> --max 0.05 --daily 1
 //   npx x402-safe-fetch spent                              what was paid today, and what is left
+//   npx x402-safe-fetch fund                               buy USDC with a card (needs connect)
 //
 // Pays USDC on Base from this computer's own wallet (init or connect make it; EVM_PRIVATE_KEY overrides it). Linked
 // to a Fizzl Agent Wallet (connect), the owner's limits and approvals apply to every payment (wallet.js). The day's spend and the
@@ -18,7 +19,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureWallet, readWallet, writeWallet, pair, serverSigner, usdcBalance, buyUsdcUrl, WALLET_URL } from "./wallet.js";
+import { ensureWallet, readWallet, writeWallet, pair, serverSigner, usdcBalance, onrampLink, WALLET_URL } from "./wallet.js";
 import {
   createSafeFetch, SafePayError, receiptOf, readOffer, usdOfOption, answerCheckOf, purchaseKey, paidTwiceMessage,
   PAID_ERROR_MS, DOCTOR_URL, VERSION,
@@ -31,8 +32,9 @@ const HELP = `x402-safe-fetch ${VERSION}: pay for an API call from the command l
 
   connect              Start here. Makes a wallet for this computer and links it to your Fizzl wallet
                        (wallet.fizzl.eu): approve the code on your phone. Your limits and approvals then apply.
-  init                 Only the wallet for this computer, not linked: shows its address and a link to buy USDC with a card.
+  init                 Only the wallet for this computer, not linked: shows the address to send USDC on Base to.
   wallet               This computer's wallet: address, USDC balance, and whether it is linked.
+  fund                 Buy USDC with a card for this wallet (Coinbase checkout, $5; --amount <usd>). Needs connect.
   find <need>          Free. Who sells it (Fizzl Buy's pick): URL, price, and how often it delivered.
   check <url>          Free, pays nothing. The price per network and x402 Doctor's free check of the endpoint.
   pay <url>            Pays one call in USDC on Base, only if x402 Doctor's preflight says go.
@@ -238,7 +240,7 @@ async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOption
 async function init(args, { store, fetch }) {
   const { wallet, created } = await ensureWallet(store.home);
   const usdc = await usdcBalance(wallet.address, { fetch });
-  return { ok: true, created, address: wallet.address, usdc_base: usdc, buy_usdc_url: buyUsdcUrl(wallet.address), linked: wallet.server ? { url: wallet.server.url, agent: wallet.server.agent } : null, file: path.join(store.home, "wallet.json") };
+  return { ok: true, created, address: wallet.address, usdc_base: usdc, linked: wallet.server ? { url: wallet.server.url, agent: wallet.server.agent } : null, file: path.join(store.home, "wallet.json") };
 }
 
 async function connect(args, { store, fetch, say, sleep }) {
@@ -251,14 +253,28 @@ async function connect(args, { store, fetch, say, sleep }) {
   });
   writeWallet(store.home, { ...wallet, server: linked });
   const usdc = await usdcBalance(wallet.address, { fetch });
-  return { ok: true, address: wallet.address, linked: { url: linked.url, agent: linked.agent }, usdc_base: usdc, buy_usdc_url: buyUsdcUrl(wallet.address) };
+  return { ok: true, address: wallet.address, linked: { url: linked.url, agent: linked.agent }, usdc_base: usdc };
 }
 
 async function walletInfo(args, { store, fetch }) {
   const wallet = readWallet(store.home);
   if (!wallet) return { ok: false, code: "no_wallet", message: "no wallet yet: run  npx x402-safe-fetch connect  (or init)" };
   const usdc = await usdcBalance(wallet.address, { fetch });
-  return { ok: true, address: wallet.address, usdc_base: usdc, buy_usdc_url: buyUsdcUrl(wallet.address), linked: wallet.server ? { url: wallet.server.url, agent: wallet.server.agent } : null };
+  return { ok: true, address: wallet.address, usdc_base: usdc, linked: wallet.server ? { url: wallet.server.url, agent: wallet.server.agent } : null };
+}
+
+// A Coinbase checkout for this wallet, asked through the owner's Fizzl wallet (it checks the agent key first).
+async function fund(args, { store, fetch }) {
+  const wallet = readWallet(store.home);
+  if (!wallet) return { ok: false, code: "no_wallet", message: "no wallet yet: run  npx x402-safe-fetch connect  first" };
+  if (!wallet.server) return { ok: false, code: "not_linked", message: `Buying with a card goes through your Fizzl wallet: run  npx x402-safe-fetch connect  first (free), then fund. Or send USDC on Base to ${wallet.address}.` };
+  const amount = money(args.flags.amount, "amount") ?? 5;
+  try {
+    const r = await onrampLink({ server: wallet.server, amount, fetch });
+    return { ok: true, url: r.url, address: r.address ?? wallet.address, amount_usd: r.amount_usd ?? amount, expires_in_s: r.expires_in_s ?? 300 };
+  } catch (err) {
+    return { ok: false, code: "fund_unavailable", message: String(err.message).replace(/^wallet server \/v1\/onramp[^:]*: /, "") };
+  }
 }
 
 function spent(args, { store }) {
@@ -305,11 +321,14 @@ function text(cmd, r) {
     if (!r.usdc_base) {
       lines.push(
         "To pay, add a few dollars of USDC on Base to the address above:",
-        `  with a card (Coinbase, $5; open it in your browser): ${r.buy_usdc_url}`,
+        r.linked ? "  with a card: npx x402-safe-fetch fund  (Coinbase checkout, $5)" : "  with a card: run connect first, then  npx x402-safe-fetch fund",
         "  or send USDC from Coinbase, a wallet app or an exchange (choose the Base network).",
       );
     }
     lines.push('Then: npx x402-safe-fetch find "what you need"');
+  } else if (cmd === "fund") {
+    if (!r.ok) return r.message;
+    lines.push(`Open this in your browser to buy $${r.amount_usd} of USDC with a card (works once, for ${Math.round(r.expires_in_s / 60)} minutes):`, "", `  ${r.url}`, "", `Coinbase sends the USDC to ${r.address} on Base, usually within minutes. Fizzl never holds the money.`, "Outside the US you sign in to (or create) a Coinbase account.");
   } else if (cmd === "spent") {
     lines.push(`${r.day}: $${r.spent_today_usd} paid in ${r.calls} call(s), $${r.left_usd} left of $${r.daily_limit_usd}`);
     if (r.blocked_endpoints.length) lines.push("Not paid again for now (took money without delivering):", ...r.blocked_endpoints.map((b) => `  ${b}`));
@@ -321,7 +340,7 @@ export async function main(argv, { fetch = globalThis.fetch, env = process.env, 
   const args = parseArgs(argv);
   const cmd = args._[0];
   if (!cmd || args.flags.help || cmd === "help") { out(HELP); return cmd || args.flags.help ? 0 : 2; }
-  const commands = { connect, init, wallet: walletInfo, find, check, pay, spent };
+  const commands = { connect, init, wallet: walletInfo, fund, find, check, pay, spent };
   if (!commands[cmd]) { err(`unknown command "${cmd}"\n\n${HELP}`); return 2; }
   try {
     const say = args.flags.json ? () => {} : (s) => err(s);
