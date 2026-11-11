@@ -111,9 +111,9 @@ export function fizzlBuyOption({ query, cap, sellers }) {
   };
 }
 
-export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals }) {
+export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals, cardBuy = false }) {
   const router = express.Router();
-  const payments = createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl, baseRpc, xaman, xrplRpc, solanaRpc, fetch: fetchImpl, sellerFetch, lookup, allowPrivate, statusWaitMs, paidTimeoutMs, retryPauseMs, version, now, refusals });
+  const payments = createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl, baseRpc, xaman, xrplRpc, solanaRpc, fetch: fetchImpl, sellerFetch, lookup, allowPrivate, statusWaitMs, paidTimeoutMs, retryPauseMs, version, now, refusals, cardBuy });
   router.use(payments.router);
   const origin = (req) => (publicUrl ? new URL(publicUrl).origin : `${req.protocol}://${req.get("host")}`);
   const metadataUrl = (req) => `${origin(req)}/.well-known/oauth-protected-resource/mcp`;
@@ -275,7 +275,7 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
       try {
         const [me, spending] = await Promise.all([accounts.me(account), wallet.spending()]);
         track("wallet_status");
-        return result({ connector: agent.name, account: accountLabel(account), plan: me.plan, paused: !!agent.paused, limits: spending, limits_note: LIMITS_NOTE, payments: PAYING, dashboard: `${o}/` });
+        return result({ connector: agent.name, account: accountLabel(account), plan: me.plan, paused: !!agent.paused, limits: spending, limits_note: LIMITS_NOTE, payments: PAYING, ...(cardBuy ? { buy_usdc: `No USDC yet? Your user can buy it with a card at ${o}/?fund=1 (Coinbase, sent straight to their wallet on Base).` } : {}), dashboard: `${o}/` });
       } catch (err) { console.error("[connector] status", err); return failure("The wallet's status can't be read right now. Try again in a minute."); }
     });
     server.registerTool("find_services", {

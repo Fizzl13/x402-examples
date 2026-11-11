@@ -186,7 +186,9 @@ async function readText(res, limit) {
   return text;
 }
 
-export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, paidTimeoutMs = PAID_TIMEOUT_MS, retryPauseMs = RETRY_PAUSE_MS, version = "0", now = () => Date.now(), refusals = undefined }) {
+export function createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl = "https://x402-doctor.fizzl.eu", baseRpc = "https://mainnet.base.org", xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch = globalThis.fetch, lookup = (h) => dnsLookup(h, { all: true }), allowPrivate = false, statusWaitMs = STATUS_WAIT_MS, paidTimeoutMs = PAID_TIMEOUT_MS, retryPauseMs = RETRY_PAUSE_MS, version = "0", now = () => Date.now(), refusals = undefined, cardBuy = false }) {
+  // With Coinbase Onramp on (ONRAMP_KEY), a wallet without enough USDC can be topped up with a card from the dashboard.
+  const cardHint = (origin) => (cardBuy ? ` No crypto yet? Buy USDC with a card at ${origin}/?fund=1 (Coinbase sends it straight to the wallet on Base; Fizzl never holds the money).` : "");
   // The seller hears why the connector didn't ask the owner to pay, when its 402 names a refusal url on its own site
   // (the draft refusal extension, x402-foundation/x402#4087): only the wallet's automatic checks (price, network),
   // never the owner's own "no", and nothing about the owner or the wallet (no "by"). An OFAC hit isn't sent: the draft
@@ -350,7 +352,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
     let lowOnBase = false;
     if (owner && offer && balance !== null && balance < BigInt(offer.amount)) {
-      if (!onSol && !onXrpl) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${usd(offer.amount)} this API asks. They can add USDC on Base to that address and ask again.` };
+      if (!onSol && !onXrpl) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${usd(offer.amount)} this API asks. They can add USDC on Base to that address and ask again.${cardHint(origin)}` };
       offer = null; // too little USDC on Base: the other ways only
       lowOnBase = true;
     }
@@ -594,7 +596,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       if (!picked) return res.status(400).json({ error: "no_wallet", message: "Connect the wallet you want to pay with." });
       const [onList, balance] = await Promise.all([sanctioned(picked), usdcBalance(picked)]);
       if (onList) return res.status(403).json({ error: "sanctioned", message: `${short(picked)} is on the OFAC sanctions list. Nothing was paid.` });
-      if (balance !== null && balance < BigInt(r.offer.amount)) return res.status(400).json({ error: "low_balance", message: `${short(picked)} has $${usd(balance)} USDC on Base, less than $${r.price}. Add USDC on Base to it, or pick another wallet.` });
+      if (balance !== null && balance < BigInt(r.offer.amount)) return res.status(400).json({ error: "low_balance", message: `${short(picked)} has $${usd(balance)} USDC on Base, less than $${r.price}. Add USDC on Base to it, or pick another wallet.${cardHint(r.origin)}` });
       from = picked;
     }
     if (r.offer.escrow) {

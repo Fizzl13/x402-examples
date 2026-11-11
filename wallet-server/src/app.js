@@ -699,7 +699,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   // The wallet as a connector for ChatGPT, Grok and other remote MCP apps: OAuth and /mcp (src/connector.js).
-  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", ...connector }));
+  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", cardBuy: !!onramp?.enabled, ...connector }));
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
   // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.
