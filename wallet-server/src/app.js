@@ -44,14 +44,16 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// How many proxies in front append to X-Forwarded-For: on Render a request arrives with three entries for a client that
-// sent none (measured for x402 Doctor and the exam server, the same Render setup). Express takes the client address that
-// many hops from the right, so an X-Forwarded-For the client writes itself can't pick it. With 1, req.ip was a Render
-// hop shared by everyone: per-address limits and sign-in lockouts were shared, and Coinbase Onramp needs the buyer's own
-// IP (clientIp). TRUST_PROXY_HOPS overrides it (0 to 10).
+// How many proxies in front append to X-Forwarded-For. This server runs in Render's Frankfurt region, where a request
+// from a client that sent none arrives with two entries (the client, then Render's hop: logged 11 Nov 2026 by the
+// "[proxy]" line below). x402 Doctor and the exam server, in Oregon, see three and trust 3. Express takes the address
+// that many hops in from the socket, so an X-Forwarded-For the client writes itself can't pick it; trusting more hops
+// than there are takes the leftmost entry, which the client can write. With 1, req.ip was the Render hop, shared by
+// everyone: per-address limits and sign-in lockouts were shared, and Coinbase Onramp needs the buyer's own IP
+// (clientIp). TRUST_PROXY_HOPS overrides it (0 to 10).
 export function trustProxyHops(value = process.env.TRUST_PROXY_HOPS) {
   const n = Number(value);
-  return Number.isInteger(n) && n >= 0 && n <= 10 && String(value ?? "").trim() !== "" ? n : 3;
+  return Number.isInteger(n) && n >= 0 && n <= 10 && String(value ?? "").trim() !== "" ? n : 2;
 }
 
 export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault", onramp = null, proxyHops = trustProxyHops() }) {

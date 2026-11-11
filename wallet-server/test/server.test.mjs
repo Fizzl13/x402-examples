@@ -3022,9 +3022,9 @@ test("buy USDC with a card: an owner for their own agents' wallets, an agent for
     assert.equal(seen[0].auth, "Bearer shared-onramp-key");
     assert.equal(seen[0].url.searchParams.get("address"), mine);
     assert.equal(seen[0].url.searchParams.get("client_ip"), "127.0.0.1", "the buyer's IP, for Coinbase's clientIp (IPv4-mapped made plain)");
-    // As behind Render: the client wrote 6.6.6.6 itself, Render's first proxy added the real address and two more hops
-    // follow (the last as the socket's address, here 127.0.0.1). Three hops back is the real one, never the client's.
-    const viaProxy = await fetch(`${base}/v1/onramp`, { headers: { authorization: `Bearer ${key}`, "x-forwarded-for": "6.6.6.6, 203.0.113.9, 10.0.0.1, 10.0.0.2" } });
+    // As behind Render in Frankfurt: the client wrote 6.6.6.6 itself, Render's proxy added the real address and its own
+    // hop, and the socket is the last hop (here 127.0.0.1). Two hops in is the real one, never the client's.
+    const viaProxy = await fetch(`${base}/v1/onramp`, { headers: { authorization: `Bearer ${key}`, "x-forwarded-for": "6.6.6.6, 203.0.113.9, 10.0.0.1" } });
     assert.equal(viaProxy.status, 200);
     assert.equal(seen.at(-1).url.searchParams.get("client_ip"), "203.0.113.9");
 
