@@ -110,7 +110,14 @@ export function openaiAgent({ model, endpoint = "openai", maxTurns = 20, apiKey,
           } catch {
             input = null;
           }
-          const result = input ? await tools.run(call.function.name, input) : { error: "the arguments are not valid JSON" };
+          // A tool that throws (a request the HTTP client refuses, a network error) answers the model with the error, as
+          // the Claude agent does; it doesn't end the run.
+          let result;
+          try {
+            result = input ? await tools.run(call.function.name, input) : { error: "the arguments are not valid JSON" };
+          } catch (err) {
+            result = { error: String(err?.message ?? err).split("\n")[0] };
+          }
           transcript.push({ turn: turns, tool: call.function?.name, input: input ?? call.function?.arguments, result });
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
         }
