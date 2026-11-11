@@ -6,16 +6,19 @@
 //
 //   npx x402-safe-fetch find "bitcoin price in usd"        free: who sells it, at what price, and whether it delivers
 //   npx x402-safe-fetch check <url>                        free: the price and x402 Doctor's free check; pays nothing
-//   EVM_PRIVATE_KEY=0x… npx x402-safe-fetch pay <url> --max 0.05 --daily 1
+//   npx x402-safe-fetch connect                            a wallet for this computer, linked to your Fizzl wallet
+//   npx x402-safe-fetch pay <url> --max 0.05 --daily 1
 //   npx x402-safe-fetch spent                              what was paid today, and what is left
 //
-// Pays USDC on Base from EVM_PRIVATE_KEY (use a dedicated wallet with a few dollars). The day's spend and the
+// Pays USDC on Base from this computer's own wallet (init or connect make it; EVM_PRIVATE_KEY overrides it). Linked
+// to a Fizzl Agent Wallet (connect), the owner's limits and approvals apply to every payment (wallet.js). The day's spend and the
 // endpoints that took money without delivering are kept in ~/.x402-safe-fetch/state.json (X402_SAFE_FETCH_HOME
 // moves it), so the limits and the paid-twice guard hold across commands.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ensureWallet, readWallet, writeWallet, pair, serverSigner, usdcBalance, WALLET_URL } from "./wallet.js";
 import {
   createSafeFetch, SafePayError, receiptOf, readOffer, usdOfOption, answerCheckOf, purchaseKey, paidTwiceMessage,
   PAID_ERROR_MS, DOCTOR_URL, VERSION,
@@ -26,9 +29,13 @@ const PREFLIGHT_USD = 0.001;
 
 const HELP = `x402-safe-fetch ${VERSION}: pay for an API call from the command line, checked first.
 
+  connect              Start here. Makes a wallet for this computer and links it to your Fizzl wallet
+                       (wallet.fizzl.eu): approve the code on your phone. Your limits and approvals then apply.
+  init                 Only the wallet for this computer, not linked: shows the address to send USDC on Base to.
+  wallet               This computer's wallet: address, USDC balance, and whether it is linked.
   find <need>          Free. Who sells it (Fizzl Buy's pick): URL, price, and how often it delivered.
   check <url>          Free, pays nothing. The price per network and x402 Doctor's free check of the endpoint.
-  pay <url>            Pays one call in USDC on Base from EVM_PRIVATE_KEY, only if x402 Doctor's preflight says go.
+  pay <url>            Pays one call in USDC on Base, only if x402 Doctor's preflight says go.
   spent                What was paid today and what is left of the day's limit.
 
 Options for pay (check takes --method and --data too):
@@ -83,7 +90,7 @@ export function stateStore({ home = process.env.X402_SAFE_FETCH_HOME || path.joi
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, JSON.stringify(s, null, 2), { mode: 0o600 });
   }
-  return { file, read, write, now };
+  return { home, file, read, write, now };
 }
 
 function requestInit(flags) {
@@ -133,7 +140,7 @@ async function check(args, { fetch }) {
   return { ok: true, url, status: 402, paid: false, options, doctor };
 }
 
-async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOptions = {} }) {
+async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOptions = {}, say = () => {} }) {
   if (args.flags["dry-run"]) return check(args, { fetch });
   const url = targetUrl(args);
   const init = requestInit(args.flags);
@@ -150,9 +157,12 @@ async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOption
   if (earlier) return { ok: false, url, code: "paid_no_delivery", message: paidTwiceMessage(url, earlier), earlier };
 
   let register;
+  let linked = null; // the Fizzl wallet's signer, when this computer's wallet is linked
   if (!createPayingFetch) {
-    const raw = String(env.EVM_PRIVATE_KEY || "").trim();
-    if (!raw) throw new UsageError("set EVM_PRIVATE_KEY: a dedicated wallet with a few dollars of USDC on Base");
+    const envKey = String(env.EVM_PRIVATE_KEY || "").trim();
+    const own = envKey ? null : readWallet(store.home);
+    const raw = envKey || own?.privateKey;
+    if (!raw) throw new UsageError("no wallet yet: run  npx x402-safe-fetch connect  (or init), or set EVM_PRIVATE_KEY");
     let ExactEvmScheme, privateKeyToAccount;
     try {
       ({ ExactEvmScheme } = await import("@x402/evm/exact/client"));
@@ -161,7 +171,10 @@ async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOption
       throw new UsageError("paying needs @x402/evm and viem: npx -p x402-safe-fetch -p @x402/evm -p viem x402-safe-fetch pay <url>");
     }
     const account = privateKeyToAccount(raw.startsWith("0x") ? raw : `0x${raw}`);
-    register = (client) => client.register("eip155:8453", new ExactEvmScheme(account));
+    if (own?.server?.key) {
+      linked = serverSigner({ account, server: own.server, fetch, purchase: { url, description: "x402-safe-fetch pay" }, onWait: (summary) => say(`Waiting for your approval (${summary}): check Telegram or ${own.server.url}`) });
+    }
+    register = (client) => client.register("eip155:8453", new ExactEvmScheme(linked ?? account));
   }
 
   let preflights = 0;
@@ -194,7 +207,7 @@ async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOption
   const verdict = () => preflight && { verdict: preflight.verdict, summary: preflight.summary };
 
   try {
-    const res = await safeFetch(url, init);
+    const res = await safeFetch(url, init).finally(() => linked?.finish("x402-safe-fetch"));
     const text = await res.text();
     const receipt = receiptOf(res);
     // A response after a preflight means the endpoint was paid (or a payment was sent): a 2xx clears it, anything else
@@ -211,10 +224,41 @@ async function pay(args, { fetch, env, store, createPayingFetch, safeFetchOption
       ...(delivered ? {} : { code: "not_delivered", message: `paid, but the endpoint answered HTTP ${res.status}; it won't be paid again for 30 minutes` }),
     };
   } catch (err) {
+    const refused = linked?.state.denied;
+    if (refused) {
+      const totals = settle(null);
+      return { ok: false, url, code: refused.code, message: `not paid: your Fizzl wallet says no: ${refused.summary}`, preflight: verdict(), ...totals };
+    }
     if (!(err instanceof SafePayError)) throw err;
     const totals = settle(null);
     return { ok: false, url, code: err.code, message: err.message, preflight: verdict() ?? (err.preflight ? { verdict: err.preflight.verdict, summary: err.preflight.summary } : null), reasons: (err.preflight?.reasons || []).filter((r) => r.level !== "info").map((r) => ({ level: r.level, code: r.code, message: r.message })), ...totals };
   }
+}
+
+async function init(args, { store, fetch }) {
+  const { wallet, created } = await ensureWallet(store.home);
+  const usdc = await usdcBalance(wallet.address, { fetch });
+  return { ok: true, created, address: wallet.address, usdc_base: usdc, linked: wallet.server ? { url: wallet.server.url, agent: wallet.server.agent } : null, file: path.join(store.home, "wallet.json") };
+}
+
+async function connect(args, { store, fetch, say, sleep }) {
+  const { wallet } = await ensureWallet(store.home);
+  const url = String(args.flags.server || WALLET_URL);
+  const label = String(args.flags.name || `x402-safe-fetch on ${os.hostname()}`).slice(0, 40);
+  const linked = await pair({
+    address: wallet.address, label, url, fetch, sleep,
+    onCode: ({ code, url: link }) => say(`Open this on your phone and approve:\n\n  ${link}\n\n  code ${code}  (valid 10 minutes)\n\nNo Fizzl wallet yet? One is made when you sign in. Waiting...`),
+  });
+  writeWallet(store.home, { ...wallet, server: linked });
+  const usdc = await usdcBalance(wallet.address, { fetch });
+  return { ok: true, address: wallet.address, linked: { url: linked.url, agent: linked.agent }, usdc_base: usdc };
+}
+
+async function walletInfo(args, { store, fetch }) {
+  const wallet = readWallet(store.home);
+  if (!wallet) return { ok: false, code: "no_wallet", message: "no wallet yet: run  npx x402-safe-fetch connect  (or init)" };
+  const usdc = await usdcBalance(wallet.address, { fetch });
+  return { ok: true, address: wallet.address, usdc_base: usdc, linked: wallet.server ? { url: wallet.server.url, agent: wallet.server.agent } : null };
 }
 
 function spent(args, { store }) {
@@ -252,6 +296,14 @@ function text(cmd, r) {
       if (r.status && r.body !== undefined) lines.push(typeof r.body === "string" ? r.body.slice(0, 600) : JSON.stringify(r.body).slice(0, 600));
     }
     if (r.spent_today_usd !== undefined) lines.push(`Today: $${r.spent_today_usd} of $${r.daily_limit_usd}`);
+  } else if (cmd === "init" || cmd === "connect" || cmd === "wallet") {
+    if (!r.ok) return r.message;
+    if (cmd === "init" && r.created) lines.push("Made a wallet for this computer (the key stays here, readable by you only).");
+    if (cmd === "connect") lines.push(`Linked to your Fizzl wallet${r.linked?.agent ? ` as "${r.linked.agent}"` : ""}: your limits and approvals now apply.`);
+    lines.push(`Address: ${r.address}`, `USDC on Base: ${r.usdc_base === null ? "?" : `$${r.usdc_base}`}`);
+    if (cmd !== "connect") lines.push(r.linked ? `Linked to ${r.linked.url}${r.linked.agent ? ` as "${r.linked.agent}"` : ""}` : "Not linked to a Fizzl wallet (run connect for limits and phone approvals).");
+    if (!r.usdc_base) lines.push("To pay, send a few dollars of USDC on Base to the address above (from Coinbase, a wallet app or an exchange; choose the Base network).");
+    lines.push('Then: npx x402-safe-fetch find "what you need"');
   } else if (cmd === "spent") {
     lines.push(`${r.day}: $${r.spent_today_usd} paid in ${r.calls} call(s), $${r.left_usd} left of $${r.daily_limit_usd}`);
     if (r.blocked_endpoints.length) lines.push("Not paid again for now (took money without delivering):", ...r.blocked_endpoints.map((b) => `  ${b}`));
@@ -259,14 +311,15 @@ function text(cmd, r) {
   return lines.join("\n");
 }
 
-export async function main(argv, { fetch = globalThis.fetch, env = process.env, store = stateStore(), createPayingFetch, safeFetchOptions, out = console.log, err = console.error } = {}) {
+export async function main(argv, { fetch = globalThis.fetch, env = process.env, store = stateStore(), createPayingFetch, safeFetchOptions, sleep, out = console.log, err = console.error } = {}) {
   const args = parseArgs(argv);
   const cmd = args._[0];
   if (!cmd || args.flags.help || cmd === "help") { out(HELP); return cmd || args.flags.help ? 0 : 2; }
-  const commands = { find, check, pay, spent };
+  const commands = { connect, init, wallet: walletInfo, find, check, pay, spent };
   if (!commands[cmd]) { err(`unknown command "${cmd}"\n\n${HELP}`); return 2; }
   try {
-    const r = await commands[cmd](args, { fetch, env, store, createPayingFetch, safeFetchOptions });
+    const say = args.flags.json ? () => {} : (s) => err(s);
+    const r = await commands[cmd](args, { fetch, env, store, createPayingFetch, safeFetchOptions, say, sleep });
     out(args.flags.json ? JSON.stringify(r) : text(cmd === "pay" && args.flags["dry-run"] ? "check" : cmd, r));
     return r.ok ? 0 : 1;
   } catch (e) {
