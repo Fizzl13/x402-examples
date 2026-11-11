@@ -152,7 +152,7 @@ export declare function verifyReceipt(body: unknown, options?: { signers?: strin
 /** The reason code reported with a refused outcome: the preflight's first reason at its verdict's level. */
 export function refusalReason(preflight: { verdict?: string; reasons?: { level?: string; code?: string }[] }): string;
 
-/** Remembers paid requests that weren't delivered, so the same request isn't paid again (used by createSafeFetch; usable on its own). */
+/** Remembers paid endpoints (method, origin and path) that took a payment without delivering, so they aren't paid again with any query or body (used by createSafeFetch; usable on its own). */
 export declare function createPaidGuard(options?: { windowMs?: number; now?: () => number }): {
   blocked(url: string, init?: { method?: string; body?: unknown }): { at: number; status: number } | null;
   record(url: string, init: { method?: string; body?: unknown } | undefined, status: number): void;

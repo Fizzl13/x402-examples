@@ -25,8 +25,8 @@
 // hash of the refused offer; no query, no keys, nothing about the buyer or this client), once a day per endpoint and
 // reason. A screening_hit isn't sent: the draft takes it only signed. Off by default.
 // A paid request answered without delivery (an error, or another 402) is never paid again on its own: the same
-// method, URL and body within paidErrorMs throws SafePayError code "paid_no_delivery" (onPaidError "stop", the
-// default). The most common loss in the agent exam (exam.fizzl.eu) was paying again after a seller took the payment
+// endpoint (method, origin and path; any query or body) within paidErrorMs throws SafePayError code
+// "paid_no_delivery" (onPaidError "stop", the default). The most common loss in the agent exam (exam.fizzl.eu) was paying again after a seller took the payment
 // and answered with an error; a preflight can't see that, it only reads the 402 before paying (paid-guard.js).
 // Every preflight must carry Doctor's signed receipt for exactly this request
 // (endpoint, method, budget, network), checked against Doctor's pinned signer:

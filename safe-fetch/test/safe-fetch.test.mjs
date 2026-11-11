@@ -572,7 +572,7 @@ function paidErrorWorld(statuses) {
   return { log, baseFetch, createPayingFetch };
 }
 
-test("paid-twice guard: a request paid and answered with an error is not paid again (no preflight bought either); another request is", async () => {
+test("paid-twice guard: an endpoint paid and answered with an error is not paid again (no preflight bought either); another endpoint is", async () => {
   let t = 1_000_000;
   const w = paidErrorWorld([405]);
   const sf = make(w, { now: () => t });
@@ -586,14 +586,39 @@ test("paid-twice guard: a request paid and answered with an error is not paid ag
   });
   assert.equal(w.log.paid.length, 1);
   assert.equal(w.log.preflights, 1, "the second call stopped before buying a preflight");
-  // A different body, method or URL is another purchase.
-  await sf(PAID, { method: "POST", body: '{"q":2}' });
+  // Another body or query on the same endpoint is still that endpoint: not paid.
+  await assert.rejects(sf(PAID, { method: "POST", body: '{"q":2}' }), { code: "paid_no_delivery" });
+  await assert.rejects(sf(`${PAID}?nonce=1`, { method: "POST", body: '{"q":1}' }), { code: "paid_no_delivery" });
+  assert.equal(w.log.paid.length, 1);
+  // Another method or path is another endpoint.
   await sf(PAID, { method: "GET" });
+  await sf("https://api.example.com/other", { method: "POST", body: '{"q":1}' });
   assert.equal(w.log.paid.length, 3);
-  // After the window the same request may be paid again.
+  // After the window the endpoint may be paid again.
   t += 30 * 60 * 1000;
   await sf(PAID, { method: "POST", body: '{"q":1}' });
   assert.equal(w.log.paid.length, 4);
+});
+
+test("paid-twice guard: changing the query string doesn't get around it (the exam's '&nonce=1' loop)", async () => {
+  const w = paidErrorWorld([402, 402, 402]);
+  const sf = make(w);
+  const url = `${PAID}?to=nl&text=The%20meeting%20is%20moved`;
+  assert.equal((await sf(url)).status, 402);
+  for (const again of [url, `${url}&nonce=1`, `${url}&nonce=2`, `${PAID}/?to=nl`, `${PAID}#retry`]) {
+    await assert.rejects(sf(again), (err) => {
+      assert.equal(err.code, "paid_no_delivery");
+      assert.match(err.message, /^not paid again: https:\/\/api\.example\.com\/paid was already paid .* HTTP 402/);
+      assert.doesNotMatch(err.message, /meeting/, "the message names the endpoint, not the query");
+      return true;
+    });
+  }
+  assert.equal(w.log.paid.length, 1, "one payment lost, not nine");
+
+  const { purchaseKey } = await import("../index.js");
+  assert.equal(purchaseKey(`${PAID}?a=1#x`, { method: "post", body: "{}" }), "POST https://api.example.com/paid");
+  assert.equal(purchaseKey("https://API.example.com:443/paid/"), "GET https://api.example.com/paid");
+  assert.equal(purchaseKey("not a url?q=1"), "GET not a url");
 });
 
 test("paid-twice guard: another 402 after paying blocks too; a success clears; trusted hosts are guarded as well", async () => {
