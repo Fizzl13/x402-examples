@@ -3,7 +3,7 @@
 // holds the CDP key and starts the Coinbase session; it does that only for this server (ONRAMP_KEY, the same on both).
 // The buyer pays Coinbase in Coinbase's own checkout and Coinbase sends the USDC; Fizzl never holds the money.
 // Coinbase binds each session to the buyer's IP (clientIp): this server passes the IP of the request that asked
-// (req.ip: with trust proxy at Render's three hops, the entry its first proxy wrote, which a client can't set).
+// (req.ip: with trust proxy at Render's hop count, the entry its proxy wrote, which a client can't set).
 
 import { isIP } from "node:net";
 
