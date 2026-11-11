@@ -61,6 +61,9 @@ const verdictView = (v) => (v ? {
 
 // plan(): what this account may use; null fields mean unlimited (a self-hosted server, or Pro).
 const UNLIMITED = { name: "unlimited", maxAgents: null, receiptDays: 90 };
+// At most this many receipts in one download (90 days of a busy agent; each receipt holds up to 16,000 characters
+// of what came back, so the JSON stays well under 100 MB).
+const ARCHIVE_MAX = 5000;
 
 // track(route, { input, result, usd }): anonymous usage statistics (src/usage.js): the seller's host and
 // the amount of a purchase, never who, what for, or to which address.
@@ -106,6 +109,20 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     const entries = charges.filter((c) => BigInt(c.amount) > 0n).map((c) => ({ id: id("sp"), at: now(), budget: c.budget, amount: String(c.amount), agent: agent.id, method: info.method, chainId: info.chainId ?? null, to: info.to ?? null }));
     await store.addEntries(entries);
     return entries;
+  }
+
+  // The newest n receipts still kept, whole, newest first. Receipts made before the list existed are found through
+  // the activity log.
+  async function kept(n) {
+    const list = await store.listPurchases(n);
+    const seen = new Set(list.map((p) => p.id));
+    for (const e of await store.listEvents(500)) {
+      if (!e.purchase || seen.has(e.purchase)) continue;
+      seen.add(e.purchase);
+      const p = await store.getPurchase(e.purchase);
+      if (p) list.push(p);
+    }
+    return list.sort((x, y) => y.createdAt - x.createdAt).slice(0, n);
   }
 
   // A receipt for one signature: what, how much, to whom, the verdict, the approval, and later the result.
@@ -526,6 +543,9 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       });
     },
 
+    // Every receipt still kept (7 days on Free, 90 on Pro), whole and newest first: the owner's own archive.
+    async archive() { return kept(ARCHIVE_MAX); },
+
     async purchase(purchaseId) {
       const p = typeof purchaseId === "string" ? await store.getPurchase(purchaseId) : null;
       if (!p) throw Object.assign(new Error("no such receipt (receipts are kept 90 days)"), { status: 404 });
@@ -536,15 +556,7 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
     // existed are found through the activity log.
     async purchases({ agent = null, limit = 100 } = {}) {
       const n = Math.min(200, Math.max(1, Number(limit) || 100));
-      const list = await store.listPurchases(n);
-      const seen = new Set(list.map((p) => p.id));
-      for (const e of await store.listEvents(500)) {
-        if (!e.purchase || seen.has(e.purchase)) continue;
-        seen.add(e.purchase);
-        const p = await store.getPurchase(e.purchase);
-        if (p) list.push(p);
-      }
-      return list.filter((p) => !agent || p.agent === agent).sort((x, y) => y.createdAt - x.createdAt).slice(0, n)
+      return (await kept(n)).filter((p) => !agent || p.agent === agent).slice(0, n)
         .map(({ id, agent, agentName, method, chainId, to, amounts, what, verdict, approval, status, outcome, createdAt }) => ({ id, agent, agentName, method, chainId, to, amounts, what, verdict: verdict?.verdict ?? null, approvedBy: approval?.by ?? null, status, error: outcome?.error ?? null, httpStatus: outcome?.httpStatus ?? null, createdAt }));
     },
 

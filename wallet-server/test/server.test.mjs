@@ -78,7 +78,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     return { status: r.status, body: await r.json().catch(() => null) };
   };
   const { body: { key } } = await owner("POST", "/api/agents", { name: "research-agent" });
-  return { base, server, owner, agent: agentCall(key), agentCall, key, tg, accounts, store };
+  return { base, server, owner, agent: agentCall(key), agentCall, key, tg, accounts, store, cookie };
 }
 
 test("login: wrong password refused and slowed down; the dashboard needs the cookie", async () => {
@@ -308,7 +308,7 @@ test("end to end: presign-guard-wallet with `server` signs, asks, waits, stops",
 });
 
 test("receipts: what was bought, verdict, approval, result and outcome, per payment", async () => {
-  const { owner, key, base, server, tg, agent } = await boot();
+  const { owner, key, base, server, tg, agent, cookie } = await boot();
   try {
     let fail = false;
     const stub = { chain: { id: 8453 }, account: { address: "0x2222222222222222222222222222222222222222" }, sendTransaction: async () => { if (fail) throw new Error("rpc down"); return "0xabc123"; } };
@@ -386,6 +386,27 @@ test("receipts: what was bought, verdict, approval, result and outcome, per paym
     assert.equal((await owner("GET", "/api/purchases?agent=ag_nobody")).body.purchases.length, 0);
     assert.equal((await owner("GET", "/api/purchases?limit=1")).body.purchases.length, 1);
     assert.equal((await agent("GET", "/api/purchases")).status, 401);
+
+    // The owner's own archive: every kept receipt as CSV (a download) or as whole receipts (JSON); owners only.
+    const csv = await fetch(`${base}/api/purchases/export`, { headers: { cookie } });
+    assert.equal(csv.status, 200);
+    assert.match(csv.headers.get("content-type"), /^text\/csv/);
+    assert.match(csv.headers.get("content-disposition"), /^attachment; filename="fizzl-receipts-\d{4}-\d{2}-\d{2}\.csv"$/);
+    const rows = (await csv.text()).replace(/^\ufeff/, "").trim().split("\r\n");
+    assert.equal(rows[0], "date_utc,agent,what,url,usdc,amounts,chain_id,to,status,approved_by,verdict,http_status,error,receipt_id");
+    assert.equal(rows.length, 4);
+    assert.match(rows[1], /,doomed,/);
+    assert.match(rows[1], /,failed,/);
+    assert.match(rows[3], /,BTC signal,/);
+    assert.match(rows[3], new RegExp(`,${list[2].id}$`));
+    const full = await fetch(`${base}/api/purchases/export?format=json`, { headers: { cookie } });
+    assert.match(full.headers.get("content-disposition"), /\.json"$/);
+    const archived = await full.json();
+    assert.equal(archived.count, 3);
+    assert.equal(archived.receipts[1].what.description, "full market report");
+    assert.equal(archived.receipts[1].approval.by, "dashboard");
+    assert.equal((await agent("GET", "/api/purchases/export")).status, 401);
+    assert.equal((await fetch(`${base}/api/purchases/export`)).status, 401);
   } finally { server.close(); }
 });
 

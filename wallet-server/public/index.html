@@ -136,10 +136,8 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .day { padding: 24px; display: grid; gap: 14px; }
 #app .home-h { margin: 0 0 12px; font: 600 20px/1.2 var(--display); letter-spacing: normal; text-transform: none; }
 #needs[hidden] { display: none !important; }
-#app.first-run .overview .day, #app.first-run .overview .home-sum, #app.first-run .overview .home-search, #app.first-run .overview .actions, #app.first-run #rule { display: none !important; }
+#app.first-run .overview .day, #app.first-run .overview .home-sum, #app.first-run .overview .actions, #app.first-run #rule { display: none !important; }
 #app .home-needs { padding-block: 20px 0; }
-.overview .home-search { display: flex; gap: 8px; }
-.overview .home-search input { flex: 1; min-width: 0; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 15px; }
 .overview .home-sum { margin: 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; color: var(--soft); font-size: 15px; }
 .overview .home-sum a { color: inherit; text-decoration: none; }
 .overview .home-sum b { color: var(--text); font-size: 18px; }
@@ -201,6 +199,15 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .explain { padding: 18px 20px; display: grid; gap: 8px; margin-bottom: 16px; color: var(--soft); }
 .explain b { color: var(--text); }
 .buybar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 14px; }
+.buybar input { flex: 1 1 200px; min-width: 0; min-height: 40px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 14px; }
+.buystats { margin: -4px 0 10px; }
+.buystats:empty { display: none; }
+.buyday { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin: 14px 2px 2px; color: var(--muted); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; }
+.buyday:first-child { margin-top: 0; }
+.buyday b { color: var(--soft); font-weight: 700; }
+#buyMore { margin-top: 12px; }
+.buyarchive { margin-top: 18px; padding: 16px 18px; display: grid; gap: 10px; }
+.buyarchive .btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .buybar select { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,10,.6); color: var(--text); font: inherit; font-size: 13px; }
 .buy { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 14px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--mint); border-radius: 10px; background: rgba(2,10,10,.4); width: 100%; text-align: left; cursor: pointer; color: inherit; font: inherit; font-size: 13px; }
 .buy.failed { border-left-color: var(--rose); } .buy.signing { border-left-color: var(--cyan); }
@@ -708,6 +715,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <nav class="tabs" id="tabs" role="tablist" aria-label="Wallet sections">
       <button type="button" role="tab" data-go="overview" aria-selected="true"><span class="ti" aria-hidden="true">◉</span><span>Home</span><i class="tbadge" id="tabPending" hidden>0</i></button>
       <button type="button" role="tab" data-go="agents" aria-selected="false"><span class="ti" aria-hidden="true">◎</span><span>Agents</span></button>
+      <button type="button" role="tab" data-go="find" aria-selected="false"><span class="ti" aria-hidden="true"><svg viewBox="0 0 24 24" width="1em" height="1em" style="display:block"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span><span>Find</span></button>
       <button type="button" role="tab" data-go="purchases" aria-selected="false"><span class="ti" aria-hidden="true">≡</span><span>Purchases</span></button>
       <button type="button" role="tab" data-go="account" aria-selected="false"><span class="ti" aria-hidden="true">◐</span><span>Account</span></button>
       <button type="button" role="tab" data-go="stats" aria-selected="false" id="statsTab" hidden><span class="ti" aria-hidden="true">▤</span><span>Stats</span></button>
@@ -768,7 +776,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <div id="budgets"></div>
         <span class="note" id="pausedNote"></span>
       </div>
-      <form class="home-search" id="homeSearch" role="search"><input id="homeQ" type="search" placeholder="e.g. weather, bitcoin price" maxlength="200" aria-label="Find a paid service" autocomplete="off"><button class="button small" type="submit">Search</button></form>
       <p class="home-sum"><a href="#agentsSec"><b id="agentsActive">0</b> <span id="agentsNote">active</span></a><span aria-hidden="true">·</span><a href="#needs"><b id="pendingN">0</b> waiting for you</a></p>
       <div class="actions">
         <button class="button stop small" id="pauseAll">Pause all agents</button>
@@ -777,8 +784,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
 
     <section class="section" id="findSec" data-tab="find">
-      <p class="note" style="margin:0 0 8px"><a href="#/overview" class="link">← Home</a></p>
       <h3 class="home-h">Find a paid service</h3>
+      <p class="note" style="margin:-4px 0 12px">Search the x402 catalog for an API your agent can buy: what it costs, where it pays, and how reliable the seller is.</p>
       <div class="finder" id="finder">
         <form class="searchbar" id="searchForm" role="search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -937,11 +944,18 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     <section class="section" id="buysSec" data-tab="purchases">
       <h3 class="home-h">Purchases</h3>
       <div class="buybar">
-        <label class="note" for="buyAgent">Agent</label>
-        <select id="buyAgent"><option value="">All agents</option></select>
-        <span class="note" id="buyStats" role="status"></span>
+        <input id="buyQ" type="search" placeholder="Search receipts, e.g. weather" maxlength="100" aria-label="Search receipts" autocomplete="off">
+        <select id="buyAgent" aria-label="Agent"><option value="">All agents</option></select>
+        <select id="buyStatus" aria-label="Status"><option value="">Paid and failed</option><option value="paid">Paid</option><option value="failed">Failed</option></select>
       </div>
+      <p class="note buystats" id="buyStats" role="status"></p>
       <div class="rows" id="buys"></div>
+      <button class="button ghost small" type="button" id="buyMore" hidden>Show more</button>
+      <div class="card buyarchive" id="buyArchive">
+        <span class="tag">KEEP YOUR RECEIPTS</span>
+        <p class="note" id="buyKeep" style="margin:0">Receipts are kept 7 days on Free and 90 days on Pro, then deleted. Download them to keep your own copy.</p>
+        <div class="btns"><a class="button ghost small" href="/api/purchases/export" download data-track="receipts_csv">Download CSV</a><a class="button ghost small" href="/api/purchases/export?format=json" download data-track="receipts_json">Full receipts (JSON)</a></div>
+      </div>
     </section>
 
     <section class="section" id="activitySec" data-tab="purchases">
@@ -2078,7 +2092,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   $("#searchOut").addEventListener("click", (e) => { const b = e.target.closest("button[data-q-host]"); if (!b) return; $("#searchMax").value = ""; activeCat = null; renderCats(); $("#searchQ").value = b.dataset.qHost; search(b.dataset.qHost); });
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); search($("#searchQ").value); });
   // Home's search box: the same catalog search, on its own page.
-  $("#homeSearch").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#homeQ").value.trim(); $("#searchQ").value = q; showTab("find"); if (q) search(q); $("#homeQ").value = ""; });
   $("#searchMax").addEventListener("change", () => { loadCats(); if ($("#searchQ").value.trim() || activeCat) search($("#searchQ").value); });
   $("#searchChips").addEventListener("click", (e) => { const b = e.target.closest("button[data-q]"); if (!b) return; $("#searchQ").value = b.dataset.q; search(b.dataset.q); });
 
@@ -2405,7 +2418,6 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
 
   // Purchases: what the agents bought, newest first, each opening its receipt.
   let buys = [];
-  const when = (t) => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   function boughtWhat(p) {
     if (p.what?.description) return p.what.description;
     if (p.what?.url) { try { const u = new URL(p.what.url); return u.host + u.pathname; } catch { return p.what.url; } }
@@ -2414,22 +2426,59 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   async function loadPurchases() {
     try { buys = (await api("GET", "/api/purchases?limit=200")).purchases; renderPurchases(); } catch {}
   }
+  // Purchases: the receipts per day, newest first, with search, agent and status filters, 40 at a time.
+  // (Polled every few seconds: the list is only redrawn when something in it or in the filters changed.)
+  const BUY_PAGE = 40;
+  let buyShown = BUY_PAGE, buySig = "";
+  const buyUsdc = (list) => list.filter((p) => p.status !== "failed").flatMap((p) => p.amounts ?? []).map((a) => /^([\d.]+) USDC$/.exec(a)?.[1]).filter(Boolean).reduce((x, y) => x + Number(y), 0);
+  const buyText = (p) => [boughtWhat(p), p.what?.url, p.agentName, p.to, ...(p.amounts ?? []), p.status === "failed" ? "failed" : "paid", p.error].filter(Boolean).join(" ").toLowerCase();
+  function buyDay(t) {
+    const d = new Date(t), today = new Date();
+    const days = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86_400_000);
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) });
+  }
   function renderPurchases() {
     const sel = $("#buyAgent"), pick = sel.value;
     const names = new Map([...(state?.agents ?? []).map((a) => [a.id, a.name]), ...buys.map((p) => [p.agent, p.agentName])]);
     const opts = `<option value="">All agents</option>` + [...names].map(([id, n]) => `<option value="${esc(id)}"${id === pick ? " selected" : ""}>${esc(n)}</option>`).join("");
     if (sel.innerHTML !== opts) sel.innerHTML = opts;
-    const list = buys.filter((p) => !pick || p.agent === pick);
-    const usdc = list.filter((p) => p.status !== "failed").flatMap((p) => p.amounts ?? []).map((a) => /^([\d.]+) USDC$/.exec(a)?.[1]).filter(Boolean).reduce((x, y) => x + Number(y), 0);
-    $("#buyStats").textContent = list.length ? `${list.length} purchase${list.length === 1 ? "" : "s"} · ${+usdc.toFixed(4)} USDC paid` : "";
+    const q = $("#buyQ").value.trim().toLowerCase(), st = $("#buyStatus").value;
+    const days = me?.limits?.receiptDays;
+    const sig = JSON.stringify([buys.map((p) => [p.id, p.status, p.approvedBy]), pick, q, st, buyShown, days, buyDay(Date.now())]);
+    if (sig === buySig) return;
+    buySig = sig;
+    $("#buyKeep").textContent = `Receipts are kept ${days ?? 7} days${(days ?? 7) < 90 ? " on Free (90 days on Pro)" : ""}, then deleted. Download them to keep your own copy: a CSV for your books, or the full receipts with what your agents got back.`;
+    $("#buyArchive").hidden = !buys.length;
+    $("#buyArchive .btns").hidden = DEMO;
+    const list = buys.filter((p) => (!pick || p.agent === pick) && (!st || (st === "failed") === (p.status === "failed")) && (!q || buyText(p).includes(q)));
+    $("#buyStats").textContent = list.length ? `${list.length} purchase${list.length === 1 ? "" : "s"} · ${+buyUsdc(list).toFixed(4)} USDC paid${buys.length >= 200 ? " · the newest 200 are listed here; the download has them all" : ""}` : "";
     const status = { signed: "paid", signing: "paying", failed: "failed" };
-    $("#buys").innerHTML = list.length ? list.map((p) => {
+    const perDay = new Map();
+    for (const p of list) { const d = buyDay(p.createdAt); perDay.set(d, [...(perDay.get(d) ?? []), p]); }
+    let html = "", day = null;
+    for (const p of list.slice(0, buyShown)) {
+      const d = buyDay(p.createdAt);
+      if (d !== day) {
+        day = d;
+        const those = perDay.get(d);
+        html += `<div class="buyday"><b>${esc(d)}</b><span>${those.length} · ${+buyUsdc(those).toFixed(4)} USDC</span></div>`;
+      }
       const w = boughtWhat(p);
-      const meta = [when(p.createdAt), p.agentName, p.approvedBy ? `approved on ${p.approvedBy}` : null, p.status === "failed" && p.error ? p.error : null].filter(Boolean).join(" · ");
-      return `<button type="button" class="buy ${esc(p.status)}" data-receipt="${esc(p.id)}" aria-label="Open the receipt: ${esc(w)}"><span class="w">${esc(w)}</span><span class="a">${esc(p.amounts?.join(" + ") || "")}</span><span class="m">${esc(meta)}</span><span class="s s-${esc(p.status)}">${esc(status[p.status] ?? p.status)} ›</span></button>`;
-    }).join("") : `<div class="card empty">${pick ? "This agent hasn't bought anything yet." : "Nothing bought yet. When your agents pay for something, it shows up here: what it was, how much, and the full receipt."}</div>`;
+      const meta = [new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), p.agentName, p.approvedBy ? `approved on ${p.approvedBy}` : null, p.status === "failed" && p.error ? p.error : null].filter(Boolean).join(" · ");
+      html += `<button type="button" class="buy ${esc(p.status)}" data-receipt="${esc(p.id)}" aria-label="Open the receipt: ${esc(w)}"><span class="w">${esc(w)}</span><span class="a">${esc(p.amounts?.join(" + ") || "")}</span><span class="m">${esc(meta)}</span><span class="s s-${esc(p.status)}">${esc(status[p.status] ?? p.status)} ›</span></button>`;
+    }
+    $("#buys").innerHTML = html || `<div class="card empty">${q || st ? "No receipt matches. Try another word, or clear the filters." : pick ? "This agent hasn't bought anything yet." : "Nothing bought yet. When your agents pay for something, it shows up here: what it was, how much, and the full receipt."}</div>`;
+    const more = list.length - buyShown;
+    $("#buyMore").hidden = more <= 0;
+    $("#buyMore").textContent = `Show ${Math.min(BUY_PAGE, more)} more`;
   }
-  $("#buyAgent").addEventListener("change", renderPurchases);
+  const buyFilter = () => { buyShown = BUY_PAGE; renderPurchases(); };
+  $("#buyAgent").addEventListener("change", buyFilter);
+  $("#buyStatus").addEventListener("change", buyFilter);
+  $("#buyQ").addEventListener("input", buyFilter);
+  $("#buyMore").addEventListener("click", () => { buyShown += BUY_PAGE; renderPurchases(); });
   document.addEventListener("change", (e) => { if (e.target.id === "payChain") { try { localStorage.setItem("aw_paychain", e.target.value); } catch {} } });
 
   async function refresh() {
