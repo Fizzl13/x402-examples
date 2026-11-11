@@ -933,6 +933,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const money = (v) => v === null || v === undefined ? "—" : `$${Number(v) < 1 ? Number(v).toFixed(2) : String(+Number(v).toFixed(2))}`;
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   let state = null, editing = false, timer = null, howtoSet = false;
+  let CARD_BUY = false; // Buy USDC with a card (Coinbase Onramp): set from /api/config below (always on in the demo)
   const openAgents = new Set(); // compact agent rows the owner opened (kept through the refresh)
   const triedSite = new Set(); // agents without a site we tried to fill in once (this page load)
 
@@ -1568,7 +1569,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!DEMO) loadMonitors();
     renderFollow(); renderTell(); setupAgents(); renderApp(); renderMail(); renderKeys();
     $("#addrLine").hidden = !me.address;
-    if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : me.chain === "algorand" ? " · ALGORAND" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>`;
+    // Your own wallet on Base can be topped up with a card too (Coinbase Onramp, POST /api/onramp checks it's yours).
+    const evm = /^0x[0-9a-fA-F]{40}$/.test(me.address ?? "");
+    if (me.address) $("#addrLine").innerHTML = `<span class="tag">YOUR WALLET${me.chain === "solana" ? " · SOLANA" : me.chain === "xrpl" ? " · XRP LEDGER" : me.chain === "algorand" ? " · ALGORAND" : ""}</span><code>${esc(me.address)}</code><button class="button small" type="button" data-copy="${esc(me.address)}">Copy</button>${evm ? `<button class="button small primary" type="button" data-cardbuy="${esc(me.address)}" data-cardbuy-own ${CARD_BUY ? "" : "hidden"}>Buy $5 of USDC with a card</button><div class="msg" role="status" style="flex-basis:100%;margin:0"></div>` : ""}`;
     if (me.admin) {
       $("#planCard").innerHTML = `<span class="tag">YOUR PLAN</span><div class="big">Owner</div><p class="note">This is your own server: no limits. Customers sign in with their wallet and pay for Pro themselves.</p><div class="btns"><a class="button small" href="/api/admin/payments.csv">Download Pro payments (CSV)</a></div><div id="ownerWithdrawals" style="display:grid;gap:6px"></div><p class="note" style="margin:0">Your approvals go to the Telegram chat set in TELEGRAM_CHAT_ID on Render, and to your phone once you turn on notifications there (On your phone, below).</p>`;
       if (!DEMO) api("GET", "/api/admin/withdrawals").then((r) => renderWithdrawals(r.withdrawals), () => {});
@@ -2107,8 +2110,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   let fundTo = null; // the tested agent's wallet address
   // Buy USDC with a card (Coinbase Onramp) when this server has it (ONRAMP_KEY): /api/config says so.
-  let CARD_BUY = DEMO;
-  if (!DEMO) fetch("/api/config").then((r) => r.json()).then((c) => { CARD_BUY = !!c.onramp; }).catch(() => {});
+  if (DEMO) CARD_BUY = true;
+  else fetch("/api/config").then((r) => r.json()).then((c) => { CARD_BUY = !!c.onramp; document.querySelectorAll("[data-cardbuy-own]").forEach((b) => { b.hidden = !CARD_BUY; }); }).catch(() => {});
   const USDC_HOWTO = `<details class="note"><summary>No USDC on Base yet?</summary><ol class="setup-steps" style="margin:6px 0 0">
     <li><b>From an exchange.</b> Buy USDC on Coinbase, Kraken, Binance or OKX, then withdraw (send) it to the agent's address and pick <b>Base</b> as the network. On Coinbase: Send → USDC → paste the address → network Base.</li>
     <li><b>From your own wallet.</b> Have USDC on Ethereum or another network? Coinbase Wallet and MetaMask can swap or bridge it to Base in the app. Then use the buttons above.</li>
@@ -2141,7 +2144,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   // Opens Coinbase's checkout in a new tab: the tab opens on the click (so it isn't blocked), the link arrives after.
   async function cardBuy(btn) {
-    const say = (t, cls = "") => { const m = $("#fundMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
+    const say = (t, cls = "") => { const m = btn.closest("#addrLine")?.querySelector(".msg") ?? $("#fundMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
     if (DEMO) return say("This is the demo: on your own account this opens Coinbase's checkout for USDC on Base, sent to this wallet.", "good");
     const tab = window.open("", "_blank");
     btn.disabled = true;
@@ -2196,6 +2199,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     if (!q.has("fund")) return;
     q.delete("fund");
     history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    // No agents yet but a wallet of your own on Base: its card button is on the Account tab.
+    if (me?.address && /^0x[0-9a-fA-F]{40}$/.test(me.address) && !(state?.agents ?? []).some((a) => a.address)) { showTab("account"); scrollTo($("#addrLine"), "center"); return; }
     showTab("agents");
     scrollTo($("#setupCard"), "center");
     setTimeout(() => { scrollTo($("#setupCard"), "center"); runSetup(); }, 600); // after the first refresh has listed the agents
