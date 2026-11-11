@@ -898,6 +898,7 @@ export function createWallet(config, overrides = {}) {
         spending: await guarded.spending().catch((err) => `unavailable (${err.message})`),
         approvals: config.server ? "wallet server (dashboard / Telegram)" : config.ac2 ? `signed in the owner's own wallet over AC2${config.ac2.owner ? ` (${config.ac2.owner})` : " (the paired wallet)"}` : config.telegram ? "Telegram" : "none: anything over a limit is refused",
         maxPaymentUsd: config.maxPaymentUsd,
+        ...(config.server && config.chainName === "base" && usdcBalance === 0n && { topUp: "No USDC yet. Your owner can buy it with a card: call buy_usdc for a Coinbase checkout link (sent straight to this wallet on Base), or they send USDC on Base to the address above." }),
         ...(onchain?.on && { onchainLimit: {
           perDayUsdc: onchain.perPeriodUsdc, leftTodayUsdc: onchain.leftThisPeriodUsdc, floatUsdc: onchain.floatUsdc,
           note: "your owner's USDC stays in their wallet; this wallet is topped up to the float from it, within the limit a day the chain keeps (done for you before a payment when it runs low)",
@@ -994,6 +995,16 @@ export function createWallet(config, overrides = {}) {
       });
     },
 
+    // Buy USDC with a card for this wallet (Coinbase Onramp through the wallet server, GET /v1/onramp with this agent's
+    // key): a checkout link the owner opens; Coinbase sends the USDC straight to this wallet on Base. Nothing is paid here.
+    async buyUsdc({ amount = 5 } = {}) {
+      if (!config.server?.url || !config.server?.key) throw new Error("Buying with a card goes through the Fizzl wallet server: link this wallet first (WALLET_SERVER_URL + WALLET_SERVER_KEY, or leave AGENT_KEY out and link with a code).");
+      if (config.chainName !== "base") throw new Error(`Card purchases send USDC on Base; this wallet runs on ${config.chainName}.`);
+      const res = await plainFetch(`${config.server.url.replace(/\/$/, "")}/v1/onramp?amount=${encodeURIComponent(amount)}`, { headers: { authorization: `Bearer ${config.server.key}`, accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || typeof j.url !== "string") throw new Error(j.message || j.error || `the wallet server answered HTTP ${res.status}`);
+      return { ...j, next: `Give your owner this link: ${j.url} . They pay Coinbase by card, Apple Pay or Google Pay (outside the US they sign in to Coinbase) and the USDC arrives in this wallet (${account.address}) on Base, usually within minutes. The link works for 5 minutes. Fizzl never holds the money.` };
+    },
     // Is a text the agent received a trap (prompt injection)? presign-guard's check: the free verdict
     // (POST /v1/injection/quick: up to 8,000 characters, 10 calls an hour), or with detailed the paid one ($0.01 through
     // payX402, so it counts toward the limits and is on the owner's receipt) with the reason codes and probabilities.
@@ -1071,6 +1082,7 @@ export function setupWallet() {
     address: null,
     sessionsOn: false,
     status: notSetUp,
+    buyUsdc: notSetUp,
     findServices: notSetUp,
     payX402: notSetUp,
     sendUsdc: notSetUp,
@@ -1162,6 +1174,7 @@ export function linkingWallet(env = process.env, { fetchImpl = fetch, onLinked =
     sessionsOn: false,
     async status() { const p = await code(); return { linked: false, link: { url: p.url, code: p.code, minutesLeft: Math.max(1, Math.ceil((p.until - now()) / 60_000)) }, agentWallet: address, next: message(p) }; },
     findServices: notLinked,
+    buyUsdc: notLinked,
     payX402: notLinked,
     sendUsdc: notLinked,
     sendNative: notLinked,
@@ -1209,6 +1222,13 @@ export function createServer(wallet) {
     if (body !== undefined && typeof body !== "string" && !Object.keys(h).some((k) => k.toLowerCase() === "content-type")) h["content-type"] = "application/json";
     return wallet.payX402({ url, method, body, headers: h, maxPriceUsd: max_price_usd, reason });
   }));
+
+  server.registerTool("buy_usdc", {
+    title: "Buy USDC with a card",
+    description: "When this wallet has no or too little USDC and your owner has no crypto: get a Coinbase checkout link where they buy USDC with a card, Apple Pay or Google Pay; Coinbase sends it straight to this wallet on Base. Nothing is paid by you: give your owner the link (it works for 5 minutes). Needs a wallet linked to the Fizzl wallet server.",
+    inputSchema: { amount_usd: z.number().int().min(1).max(500).optional().describe("Dollars of USDC to buy (default 5; a few dollars is plenty for x402 calls)") },
+    annotations: { openWorldHint: true },
+  }, result(({ amount_usd }) => wallet.buyUsdc({ amount: amount_usd ?? 5 })));
 
   server.registerTool("send_usdc", {
     title: "Send USDC",

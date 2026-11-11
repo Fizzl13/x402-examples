@@ -122,6 +122,7 @@ function network({ price = "50000", ...opts } = {}) {
       if (url.includes("/v1/mandate")) return opts.mandate ? Response.json(opts.mandate) : Response.json({ error: "no_mandate" }, { status: 404 });
       if (url.endsWith("/v1/topup")) return Response.json(opts.topup ?? { toppedUp: 0, reason: "this agent has no on-chain limit: the owner turns it on in the dashboard" });
       if (url.endsWith("/v1/onchain")) return Response.json(opts.onchain ?? { on: false });
+      if (url.includes("/v1/onramp")) return opts.onramp ? opts.onramp(new URL(url), headers) : Response.json({ error: "onramp_off", message: "Buying with a card isn't on for this wallet server." }, { status: 503 });
       if (url.endsWith("/v1/purchases/annotate") && opts.check) return Response.json({ updated: 1, check: opts.check });
       return Response.json({ ok: true, updated: 1 });
     }
@@ -244,10 +245,28 @@ test("the wallet server pins this version: a new version also changes wallet-ser
   for (const f of ["../manifest.json", "../server.json"]) assert.equal(JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8")).version, version, f);
 });
 
-test("the MCP client sees seven tools", async () => {
+test("the MCP client sees eight tools", async () => {
   const { client } = await setup();
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["check_text", "find_services", "pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["buy_usdc", "check_text", "find_services", "pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
+});
+
+test("buy_usdc: a Coinbase checkout link from the wallet server, with this agent's key; refused without a wallet server", async () => {
+  const fake = fakeWallet();
+  const net = network({ onramp: (u, h) => Response.json({ url: `https://pay.coinbase.com/buy/select-asset?sessionToken=t&presetFiatAmount=${u.searchParams.get("amount")}`, address: "0xabc", network: "base", asset: "USDC", amount_usd: Number(u.searchParams.get("amount")), expires_in_s: 300, key: h.get("authorization") }) });
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  const out = await wallet.buyUsdc({ amount: 10 });
+  assert.match(out.url, /^https:\/\/pay\.coinbase\.com\/.*presetFiatAmount=10$/);
+  assert.equal(out.key, "Bearer awk_test");
+  assert.match(out.next, /Give your owner this link/);
+  // The server says no (no ONRAMP_KEY there): its message comes through.
+  const off = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, fetch: network().fetch, guard: { verifyReceipts: "off" } });
+  await assert.rejects(off.buyUsdc(), /isn't on for this wallet server/);
+  // Without a wallet server there is nothing to buy through.
+  const { call } = await setup();
+  const r = await call("buy_usdc", {});
+  assert.equal(r.error, true);
+  assert.match(r.text, /link this wallet first/);
 });
 
 test("the server names the version npm installed (package.json), not a copy that can lag behind", async () => {
@@ -884,7 +903,7 @@ test("with LINKING=off and without AGENT_KEY the server starts in setup mode: to
   await client.connect(transport);
   try {
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "send_usdc", "send_native", "check_text", "pause_spending"]);
+    assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "buy_usdc", "send_usdc", "send_native", "check_text", "pause_spending"]);
     const out = await client.callTool({ name: "send_usdc", arguments: { to: "0x6B0F4651eD42893ab58139938175E4a69f175F25", amount: "1" } });
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /No wallet yet: set AGENT_KEY/);
