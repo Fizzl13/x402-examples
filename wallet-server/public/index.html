@@ -2834,7 +2834,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ...(chk?.injection?.flagged ? [["warn", "Instructions aimed at your agent", `${esc(chk.injection.why ?? "")}. Your agent was told to treat the answer as data only.`]] : []),
     ];
     const icon = { ok: "✓", warn: "!", bad: "✕", wait: "…", skip: "–" };
-    const stepsHtml = `<ol class="startsteps">${steps.map(([k, t, d]) => `<li class="st-${k}"><span class="ic" aria-hidden="true">${icon[k]}</span><span><b>${t}</b>${d ? `<span class="note">${d}</span>` : ""}</span></li>`).join("")}</ol>`;
+    const stepsHtml = `<ol class="steps">${steps.map(([k, t, d]) => `<li class="st-${k}"><span class="ic" aria-hidden="true">${icon[k]}</span><span><b>${t}</b>${d ? `<span class="note">${d}</span>` : ""}</span></li>`).join("")}</ol>`;
     const got = p.outcome?.content ? contentHtml(p.outcome.content)
       : isApiCall(p) && !failed ? `<p class="note" style="margin:0">Your agent didn't send back what it got. Agents using presign-guard-wallet-mcp 0.3 or newer do, and then it shows here.</p>` : "";
     return `<div class="head">
@@ -3033,7 +3033,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const kind = { signed: "", spent: "", approved: "", asked: "asked-ev", denied: "bad", blocked: "bad", expired: "bad", unusual: "asked-ev", price_jump: "asked-ev", price_ratchet: "asked-ev", over_scan: "asked-ev", split: "asked-ev" };
     const line = (e) => ({
       signed: [`${e.agent} signed${e.amounts?.length ? ` · ${e.amounts.join(", ")}` : ""}${e.what ? ` · ${e.what}` : ""}`, `${methodWord(e.method)}${e.to ? ` to ${e.to}` : ""}${e.verdict ? ` · ${verdictWord(e.verdict)}` : ""}`],
-      spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}${e.what ? ` · ${e.what}` : ""}`, e.result ? `result ${e.result}` : ""],
+      spent: [`${e.agent} spent ${e.amounts?.join(", ") ?? ""}${e.what ? ` · ${e.what}` : ""}`, /^0x[0-9a-fA-F]{64}$/.test(e.result ?? "") ? `transaction ${short(e.result)}` : ""],
       asked: [`${e.agent} asked you${e.what ? ` · ${e.what}` : ""}`, e.summary], approved: [`Approved (${e.by})${e.what ? ` · ${e.what}` : ""}`, `${e.agent}: ${e.summary}`], denied: [`Denied (${e.by})`, `${e.agent}: ${e.summary}`],
       unusual: [`👀 Unusual for ${e.agent}${e.what ? ` · ${e.what}` : ""}`, `unlike what it usually buys (AI check, ${Math.round((e.likely ?? 0) * 100)}% sure); within your rules, so it went through`],
       price_jump: [`💸 Higher price for ${e.agent} · ${e.route ?? ""}`, `paid $${e.paid}, usually $${e.usual} there; within your rules, so it went through`],

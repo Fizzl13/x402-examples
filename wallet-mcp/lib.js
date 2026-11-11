@@ -665,6 +665,18 @@ export function createWallet(config, overrides = {}) {
     } catch { return null; }
   }
 
+  // A wallet linked to the Fizzl wallet server with no USDC at all (a new agent's wallet): no payment can go through,
+  // and trying would only end in a failed safety check (presign-guard is paid per check, from this wallet). Say so,
+  // with the next step, before anything is signed. Only when nothing else could pay: no USDC on Base, no Solana,
+  // Algorand or XRPL account, and no USDC.e on Tempo. A balance that can't be read never stops a payment.
+  async function emptyWallet() {
+    if (!config.server || config.chainName !== "base" || config.solana || config.algorand || config.xrpl) return false;
+    const zero = (read) => read.then((v) => v === 0n, () => false);
+    if (!(await zero(publicClient.readContract({ address: usdc[0], abi: erc20Abi, functionName: "balanceOf", args: [account.address] })))) return false;
+    return !tempoNet || zero(tempoOf().public.readContract({ address: tempoNet.token, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }));
+  }
+  const EMPTY = () => `This agent's wallet has no USDC yet (0 USDC on Base at ${account.address}), so nothing was paid or signed. Ask your owner to add a few dollars: call buy_usdc for a Coinbase checkout link (card, Apple Pay or Google Pay; sent straight to this wallet), or they send USDC on Base to ${account.address}. Then ask again.`;
+
   // wallet server (GET /v1/mandate, kept 5 minutes; none or unreachable = pay without one; the server holds
   // the agent to its mandate either way).
   let serverMandate = { at: 0, value: null };
@@ -983,7 +995,8 @@ export function createWallet(config, overrides = {}) {
     async payX402({ url, method = "GET", body, headers, maxPriceUsd, reason }) {
       if (!/^https?:\/\//.test(url)) throw new TypeError("url must start with https:// or http://");
       await noRepeat(url, method);
-      await topUpFor(Math.min(Number(maxPriceUsd ?? config.maxPaymentUsd), config.maxPaymentUsd));
+      const top = await topUpFor(Math.min(Number(maxPriceUsd ?? config.maxPaymentUsd), config.maxPaymentUsd));
+      if (!top?.toppedUp && await emptyWallet()) throw Object.assign(new Error(EMPTY()), { code: "no_usdc" });
       return guarded.withPurchase({ url, description: reason || `${method} ${new URL(url).host}` }, async (report) => {
         const out = await callX402({ url, method, body, headers, maxPriceUsd });
         // The answer goes on the owner's receipt too (wallet server), so they can see what was bought.

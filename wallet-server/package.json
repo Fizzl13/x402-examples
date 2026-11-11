@@ -10,7 +10,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "e2e": "node e2e/flow.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
