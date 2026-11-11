@@ -18,6 +18,19 @@ The preflight reads the endpoint's 402 challenge and checks, among others, the p
 npm install x402-safe-fetch @x402/fetch @x402/evm viem
 ```
 
+## Command line
+
+An agent that works in a terminal (or you) can pay for one API call with one command, with the same checks:
+
+```sh
+npx x402-safe-fetch find "bitcoin price in usd"     # free: who sells it, the price, how often it delivered
+npx x402-safe-fetch check <url>                     # free: the price per network and x402 Doctor's free check; pays nothing
+EVM_PRIVATE_KEY=0x… npx x402-safe-fetch pay <url> --max 0.05 --daily 1
+npx x402-safe-fetch spent                           # what was paid today, and what is left
+```
+
+`pay` pays USDC on Base, only when x402 Doctor's preflight says go: the cheapest option within `--max`, all calls of the UTC day together within `--daily` (preflights included), and the paid answer checked for instructions aimed at your agent (`--no-answer-check` turns that off). An endpoint that took a payment without delivering isn't paid again for 30 minutes, also by the next command and whatever is added to its URL. `--method POST --data '{"q":1}'` sends a body, `--dry-run` is `check`, and `--json` prints one line of JSON (with the answer, the transaction hash and the day's spend). Exit code 0 is done, 1 is not paid (a check said no, or a limit), 2 is a usage error. The day's spend is kept in `~/.x402-safe-fetch/state.json` (`X402_SAFE_FETCH_HOME` moves it). Use a dedicated wallet with a few dollars.
+
 ## Use
 
 ```js
