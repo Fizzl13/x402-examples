@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
-import { pair, serverSigner, ensureWallet, readWallet, usdcBalance, WALLET_URL } from "../wallet.js";
+import { pair, serverSigner, ensureWallet, readWallet, usdcBalance, buyUsdcUrl, WALLET_URL } from "../wallet.js";
 import { main, stateStore } from "../cli.js";
 import { SafePayError } from "../index.js";
 
@@ -134,6 +134,20 @@ test("cli init: a wallet without a link, and how to fund it", async () => {
   assert.equal(await main(["init"], { fetch: empty, store: stateStore({ home }), out: (x) => out.push(x), err: () => {} }), 0);
   assert.match(out.join("\n"), /Made a wallet for this computer/);
   assert.match(out.join("\n"), /Not linked to a Fizzl wallet/);
-  assert.match(out.join("\n"), /send a few dollars of USDC on Base/);
-  assert.equal(readWallet(home).server, undefined);
+  const w = readWallet(home);
+  assert.match(out.join("\n"), /add a few dollars of USDC on Base/);
+  assert.ok(out.join("\n").includes(`with a card (Coinbase, $5; open it in your browser): https://x402-doctor.fizzl.eu/api/onramp?address=${w.address}&amount=5`));
+  assert.match(out.join("\n"), /choose the Base network/);
+  assert.equal(w.server, undefined);
+
+  const json = [];
+  assert.equal(await main(["wallet", "--json"], { fetch: empty, store: stateStore({ home }), out: (x) => json.push(x), err: () => {} }), 0);
+  assert.equal(JSON.parse(json.join("")).buy_usdc_url, buyUsdcUrl(w.address));
+});
+
+test("buyUsdcUrl: Doctor's Coinbase Onramp link for one address, $5 unless asked", () => {
+  const u = new URL(buyUsdcUrl("0x6B0F4651eD42893ab58139938175E4a69f175F25", { amount: 20 }));
+  assert.equal(u.origin + u.pathname, "https://x402-doctor.fizzl.eu/api/onramp");
+  assert.deepEqual(Object.fromEntries(u.searchParams), { address: "0x6B0F4651eD42893ab58139938175E4a69f175F25", amount: "20" });
+  assert.equal(new URL(buyUsdcUrl("0x6B0F4651eD42893ab58139938175E4a69f175F25")).searchParams.get("amount"), "5");
 });
