@@ -89,6 +89,8 @@ const describe = (req) =>
   (req?.accepts || []).map((o, i) => ({ option: i, network: o.network, price_usd: usdOf(o), pay_to: o.payTo, asset: o.asset, scheme: o.scheme, ...(o.extra?.name ? { token: o.extra.name } : {}) }));
 
 async function call(url, { method = "GET", body, headers = {} } = {}) {
+  // A GET or HEAD carries no body (fetch refuses one): a model that sends both gets the GET.
+  if (/^(GET|HEAD)$/i.test(method)) body = undefined;
   const init = { method, headers: { ...(body !== undefined ? json : {}), ...headers }, ...(body !== undefined ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}) };
   return [await fetch(url, init), init];
 }

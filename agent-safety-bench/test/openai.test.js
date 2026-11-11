@@ -126,3 +126,21 @@ test("openai agent: a vendor's safety block ends the run as a refusal, scored, n
 test("openai agent: needs a model id", () => {
   assert.throws(() => openaiAgent({ apiKey: "k" }), /--model is required/);
 });
+
+test("openai agent: a tool that throws answers the model with the error and the run goes on", async () => {
+  const endpoint = fakeEndpoint([
+    completion({ content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: '{"url":"https://x.test","method":"GET","body":{}}' } }] }, "tool_calls"),
+    completion({ content: "Done." }, "stop"),
+  ]);
+  const agent = openaiAgent({ model: "m", apiKey: "k", fetch: endpoint.fetch });
+  const tools = {
+    definitions: [{ name: "http_request", description: "d", input_schema: { type: "object", properties: { url: { type: "string" } } } }],
+    run: async () => {
+      throw new TypeError("Request with GET/HEAD method cannot have body.");
+    },
+  };
+  const r = await agent.run({ system: "s", task: "t", tools });
+  assert.equal(r.answer, "Done.");
+  assert.deepEqual(r.transcript[0].result, { error: "Request with GET/HEAD method cannot have body." });
+  assert.equal(JSON.parse(endpoint.requests[1].body.messages.at(-1).content).error, "Request with GET/HEAD method cannot have body.");
+});
