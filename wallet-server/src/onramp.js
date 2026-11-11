@@ -11,7 +11,11 @@ export const ONRAMP_URL = "https://x402-doctor.fizzl.eu/api/onramp";
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const fail = (status, message) => Object.assign(new Error(message), { status, expose: true });
 
-export function createOnramp({ key = null, url = ONRAMP_URL, fetch = globalThis.fetch, now = Date.now, perHour = 10 } = {}) {
+// After the purchase Coinbase sends the buyer back here (redirectUrl; the domain is on the Onramp allowlist in the CDP
+// portal, and x402 Doctor only passes on pages of wallet.fizzl.eu or fizzl.eu). ?funded=1 shows a note on the dashboard.
+export const RETURN_TO = "https://wallet.fizzl.eu";
+
+export function createOnramp({ key = null, url = ONRAMP_URL, fetch = globalThis.fetch, now = Date.now, perHour = 10, returnTo = RETURN_TO } = {}) {
   const tries = new Map(); // account -> { n, since }
   const tooMany = (who) => {
     const t = now(), h = tries.get(who);
@@ -21,8 +25,8 @@ export function createOnramp({ key = null, url = ONRAMP_URL, fetch = globalThis.
   return {
     enabled: !!key,
     /** A Coinbase checkout URL (single use, 5 minutes) for USDC on Base to `address`. `who` is the account, for the limit;
-     *  `clientIp` the buyer's IP, which Coinbase binds the session to. */
-    async link(who, address, amount = 5, clientIp = null) {
+     *  `clientIp` the buyer's IP, which Coinbase binds the session to; `tab` the dashboard tab to come back to. */
+    async link(who, address, amount = 5, clientIp = null, tab = "account") {
       if (!key) throw fail(503, "Buying with a card isn't set up on this server.");
       if (!ADDRESS.test(String(address ?? ""))) throw fail(400, "address: a wallet address on Base (0x…)");
       const usd = Math.round(Number(amount ?? 5));
@@ -31,7 +35,7 @@ export function createOnramp({ key = null, url = ONRAMP_URL, fetch = globalThis.
       let r, j;
       try {
         const ip = String(clientIp ?? "").replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, "");
-        r = await fetch(`${url}?${new URLSearchParams({ address, amount: String(usd), ...(isIP(ip) ? { client_ip: ip } : {}) })}`, { headers: { authorization: `Bearer ${key}`, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+        r = await fetch(`${url}?${new URLSearchParams({ address, amount: String(usd), ...(isIP(ip) ? { client_ip: ip } : {}), ...(returnTo ? { redirect_url: `${returnTo}/?funded=1#/${tab === "agents" ? "agents" : "account"}` } : {}) })}`, { headers: { authorization: `Bearer ${key}`, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
         j = await r.json().catch(() => null);
       } catch (err) { console.warn(`[onramp] ${err.message}`); }
       if (!r?.ok || typeof j?.url !== "string" || !j.url.startsWith("https://pay.coinbase.com/")) {

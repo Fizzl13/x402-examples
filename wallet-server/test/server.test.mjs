@@ -3022,6 +3022,7 @@ test("buy USDC with a card: an owner for their own agents' wallets, an agent for
     assert.equal(seen[0].auth, "Bearer shared-onramp-key");
     assert.equal(seen[0].url.searchParams.get("address"), mine);
     assert.equal(seen[0].url.searchParams.get("client_ip"), "127.0.0.1", "the buyer's IP, for Coinbase's clientIp (IPv4-mapped made plain)");
+    assert.equal(seen[0].url.searchParams.get("redirect_url"), "https://wallet.fizzl.eu/?funded=1#/agents", "back to the dashboard after the purchase (an agent's wallet: the Agents tab)");
     // As behind Render in Frankfurt: the client wrote 6.6.6.6 itself, Render's proxy added the real address and its own
     // hop, and the socket is the last hop (here 127.0.0.1). Two hops in is the real one, never the client's.
     const viaProxy = await fetch(`${base}/v1/onramp`, { headers: { authorization: `Bearer ${key}`, "x-forwarded-for": "6.6.6.6, 203.0.113.9, 10.0.0.1" } });
