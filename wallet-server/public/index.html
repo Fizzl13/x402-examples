@@ -2106,6 +2106,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // ---------- fund the agent: USDC on Base from the owner's own wallet, in one click ----------
   const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   let fundTo = null; // the tested agent's wallet address
+  // Buy USDC with a card (Coinbase Onramp) when this server has it (ONRAMP_KEY): /api/config says so.
+  let CARD_BUY = DEMO;
+  if (!DEMO) fetch("/api/config").then((r) => r.json()).then((c) => { CARD_BUY = !!c.onramp; }).catch(() => {});
   const USDC_HOWTO = `<details class="note"><summary>No USDC on Base yet?</summary><ol class="setup-steps" style="margin:6px 0 0">
     <li><b>From an exchange.</b> Buy USDC on Coinbase, Kraken, Binance or OKX, then withdraw (send) it to the agent's address and pick <b>Base</b> as the network. On Coinbase: Send → USDC → paste the address → network Base.</li>
     <li><b>From your own wallet.</b> Have USDC on Ethereum or another network? Coinbase Wallet and MetaMask can swap or bridge it to Base in the app. Then use the buttons above.</li>
@@ -2115,6 +2118,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     return `<div class="fund"><span class="tag">${low ? "FUND YOUR AGENT" : "TOP UP"}</span>
       <p class="note" style="margin:0">Send USDC on Base to <b>${esc(agent.name)}</b>'s wallet. ${low ? "Only what it may spend: a few dollars is plenty for x402 calls (no ETH needed)." : ""}</p>
       <div class="btns" style="margin:0">${[1, 5, 10].map((n) => `<button class="button ${n === 5 && low ? "primary" : "ghost"} small" type="button" data-fund="${n}">Send ${n} USDC</button>`).join("")}<button class="button ghost small" type="button" data-copy="${esc(agent.address)}">Copy address</button></div>
+      ${CARD_BUY ? `<p class="note" style="margin:0"><b style="color:var(--text)">No crypto yet?</b> <button class="button ghost small" type="button" data-cardbuy="${esc(agent.address)}">Buy $5 of USDC with a card</button> Coinbase sells it to you (card, Apple Pay or Google Pay; outside the US you sign in to Coinbase) and sends it straight to this wallet on Base. Fizzl never holds the money.</p>` : ""}
       <div class="msg" id="fundMsg" role="status"></div>
       <p class="note" style="margin:0">Sent from the wallet you have in this browser (MetaMask, Coinbase Wallet, …) to <code>${esc(agent.address.slice(0, 6))}…${esc(agent.address.slice(-4))}</code>. Or copy the address and send from any wallet or exchange, on <b>Base</b>.</p>
       ${USDC_HOWTO}</div>`;
@@ -2135,6 +2139,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       else say(`Sent ${amount} USDC to the agent's wallet.`, "good");
     } catch (err) { say(walletError(err), "bad"); }
   }
+  // Opens Coinbase's checkout in a new tab: the tab opens on the click (so it isn't blocked), the link arrives after.
+  async function cardBuy(btn) {
+    const say = (t, cls = "") => { const m = $("#fundMsg"); if (m) { m.textContent = t; m.className = `msg ${cls}`; } };
+    if (DEMO) return say("This is the demo: on your own account this opens Coinbase's checkout for USDC on Base, sent to this wallet.", "good");
+    const tab = window.open("", "_blank");
+    btn.disabled = true;
+    try {
+      const r = await api("POST", "/api/onramp", { address: btn.dataset.cardbuy, amount: 5 });
+      if (tab) { tab.opener = null; tab.location.href = r.url; say("Coinbase's checkout is open in a new tab. The USDC arrives in this wallet on Base, usually within minutes.", "good"); }
+      else location.href = r.url;
+    } catch (err) { tab?.close(); if (err.message !== "login") say(err.message, "bad"); }
+    finally { btn.disabled = false; }
+  }
+  document.addEventListener("click", (e) => { const b = e.target.closest("[data-cardbuy]"); if (b) cardBuy(b); });
   $("#newKey").addEventListener("click", async (e) => { const fb = e.target.closest("[data-fund]"); if (fb) { fb.disabled = true; try { await fundAgent(Number(fb.dataset.fund)); } finally { fb.disabled = false; } } });
 
   // ---------- linking an agent with a code (wallet-mcp without keys asks for one: /v1/pair/start) ----------
@@ -2170,6 +2188,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#pairCode").value = code;
     scrollTo($("#pairCard"), "center");
     pairLookup(code);
+  }
+  // fizzl.eu/start's "buy with a card" lands here with ?fund=1: once signed in, the setup check shows the fund box
+  // (its "Buy $5 of USDC with a card" button) for the agent's wallet.
+  function fundFromLink() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has("fund")) return;
+    q.delete("fund");
+    history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    showTab("agents");
+    scrollTo($("#setupCard"), "center");
+    setTimeout(() => { scrollTo($("#setupCard"), "center"); runSetup(); }, 600); // after the first refresh has listed the agents
   }
   $("#setupRun").addEventListener("click", runSetup);
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
@@ -2292,6 +2321,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
     loadCats();
     pairFromLink();
+    fundFromLink();
   }
 
   const usdc = () => state?.policy?.tokens?.USDC ?? {};

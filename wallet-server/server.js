@@ -49,6 +49,7 @@
 //                       and for the price a seller asked Doctor (the charged-more-than-others heads-up)
 //   PASS_SALE_KEY       optional: long random string, the same on x402 Doctor; lets Doctor hand in Fizzl Passes it sold
 //                       over x402 (POST /hooks/pass-sale)
+//   ONRAMP_KEY          optional: long random string, the same on x402 Doctor; lets owners and agents buy USDC with a card
 //   DRAFT_KEY           optional: long random string, the same as the GitHub secret of the outreach-draft workflow;
 //                       lets Claude hand in written messages as drafts (never sends)
 //   OUTREACH_DAILY_LIMIT optional: most outreach mails per UTC day (default 10)
@@ -85,6 +86,7 @@ import { base } from "viem/chains";
 import { createRanker } from "./src/jev-rank.js";
 import { createAnswerChecker } from "./src/jev-answer.js";
 import { createRuleChecker } from "./src/jev-rule.js";
+import { createOnramp } from "./src/onramp.js";
 
 const env = process.env;
 const store = env.WALLET_REDIS_URL ? await redisStore(env.WALLET_REDIS_URL.trim()) : (console.warn("[store] WALLET_REDIS_URL not set: state lives in memory and is lost on restart"), memoryStore());
@@ -165,7 +167,7 @@ catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
 // Errors (5xx, crashes) to Sentry when SENTRY_DSN is set: never request data (src/error-report.js).
 const errorReporter = createErrorReporter({ dsn: env.SENTRY_DSN, service: "fizzl-wallet-server", release: JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version });
 errorReporter.installProcessHooks();
-const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, onramp: env.ONRAMP_KEY?.trim() ? createOnramp({ key: env.ONRAMP_KEY.trim() }) : null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);
