@@ -698,6 +698,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </nav>
 
     <div class="card pushbar" id="linkBar" hidden></div>
+    <div class="fund" id="fundedBar" role="status" hidden></div>
     <div class="card pushbar" id="pushBar" hidden><span>📱 Get approvals as a notification on this phone, and approve with one tap.</span><button class="button primary small" type="button" data-push="on">Turn on</button><button class="link" type="button" id="pushBarLater">Later</button></div>
     <section class="section home-needs" id="needs" data-tab="overview" hidden>
       <h3 class="home-h">Waiting for you</h3>
@@ -2195,14 +2196,25 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // fizzl.eu/start's "buy with a card" lands here with ?fund=1: once signed in, the setup check shows the fund box
   // (its "Buy $5 of USDC with a card" button) for the agent's wallet.
   // ?fund=1 survives the sign-in (a wallet or Xaman sign-in can reload the page without it): kept for this tab.
+  // ?funded=1: back from Coinbase's checkout (its redirectUrl), shown once as a note.
   try {
     const q = new URLSearchParams(location.search);
-    if (q.has("fund")) {
-      sessionStorage.setItem("fizzl.fund", "1");
-      q.delete("fund");
-      history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    for (const k of ["fund", "funded"]) {
+      if (!q.has(k)) continue;
+      sessionStorage.setItem(`fizzl.${k}`, "1");
+      q.delete(k);
     }
+    if (location.search !== (q.size ? `?${q}` : "")) history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
   } catch {}
+  function fundedNote() {
+    let back = false;
+    try { back = sessionStorage.getItem("fizzl.funded") === "1"; sessionStorage.removeItem("fizzl.funded"); } catch {}
+    if (!back) return;
+    const bar = $("#fundedBar");
+    bar.innerHTML = `<span class="tag">BACK FROM COINBASE</span><p class="note" style="margin:0"><b style="color:var(--text)">Thanks.</b> Coinbase is sending your USDC to the wallet on Base. It usually arrives within a few minutes, and the balance here updates by itself. Coinbase e-mails you the receipt.</p><div class="btns" style="margin:0"><button class="button ghost small" type="button" id="fundedClose">OK</button></div>`;
+    bar.hidden = false;
+    $("#fundedClose").addEventListener("click", () => { bar.hidden = true; });
+  }
   async function fundFromLink() {
     let wanted = false;
     try { wanted = sessionStorage.getItem("fizzl.fund") === "1"; sessionStorage.removeItem("fizzl.fund"); } catch {}
@@ -2354,6 +2366,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     loadCats();
     pairFromLink();
     fundFromLink();
+    fundedNote();
   }
 
   const usdc = () => state?.policy?.tokens?.USDC ?? {};

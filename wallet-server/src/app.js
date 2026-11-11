@@ -126,7 +126,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   v1.get("/onramp", wrap(async (req, res) => {
     if (!onramp) return res.status(503).json({ error: "unavailable", message: "Buying with a card isn't set up on this server." });
     if (!/^0x[0-9a-fA-F]{40}$/.test(req.agent.address ?? "")) return res.status(409).json({ error: "no_address", message: "This agent has no wallet address on Base yet: link it with a code (npx x402-safe-fetch connect) or set it on the dashboard." });
-    res.set("cache-control", "no-store").json(await onramp.link(req.account, req.agent.address, req.query.amount, req.ip));
+    res.set("cache-control", "no-store").json(await onramp.link(req.account, req.agent.address, req.query.amount, req.ip, "agents"));
   }));
   // On-chain limits (src/allowance.js): the agent's wallet is low or short for a payment; the charger tops it up from
   // the owner's wallet, within the limit the owner set on chain, to the address the owner set (never one the agent names).
@@ -419,7 +419,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     const me = await accounts.me(req.account);
     const own = [me?.address, ...(await req.wallet.agents()).map((a) => a.address)].filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a ?? "")).map((a) => a.toLowerCase());
     if (!own.includes(address.toLowerCase())) return res.status(403).json({ error: "not_yours", message: "Only for your own wallet or one of your agents' wallets (save the agent's address first)." });
-    res.set("cache-control", "no-store").json(await onramp.link(req.account, address, req.body?.amount, req.ip));
+    res.set("cache-control", "no-store").json(await onramp.link(req.account, address, req.body?.amount, req.ip, me?.address && address.toLowerCase() === me.address.toLowerCase() ? "account" : "agents"));
   }));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
