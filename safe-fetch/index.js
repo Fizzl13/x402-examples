@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.16.0";
+export const VERSION = "0.16.1";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -159,8 +159,15 @@ export function payableOption(accepts, network, maxUsd) {
   // Base and other EVM chains: "exact" first (what most clients register), then "auth-capture" (Coinbase's escrow:
   // the buyer signs once, the USDC is held and only captured when the seller delivers, e.g. Atom's domain checkout).
   // Either is paid only if your register() added its scheme, and both stay within the budget (x402's spend controls
-  // read the amount, which for auth-capture is the most that can be captured).
-  return on.find((a) => a?.scheme === "exact") ?? on.find((a) => a?.scheme === "auth-capture") ?? on[0] ?? null;
+  // read the amount, which for auth-capture is the most that can be captured). Of several options of a scheme, the
+  // cheapest within the budget: a 402 that lists $0.50 before $0.01 to the same seller is paid a cent, not refused
+  // (or overpaid) because the first one costs more.
+  const cheapest = (scheme) => on
+    .filter((a) => a?.scheme === scheme)
+    .map((a) => ({ a, usd: usdOfOption(a, network) }))
+    .filter((x) => x.usd !== null && x.usd > 0 && !(x.usd > cap + 1e-9))
+    .sort((x, y) => x.usd - y.usd)[0]?.a;
+  return cheapest("exact") ?? cheapest("auth-capture") ?? on.find((a) => a?.scheme === "exact") ?? on.find((a) => a?.scheme === "auth-capture") ?? on[0] ?? null;
 }
 
 // The code that stopped the payment: the preflight's first reason at its verdict's level (no_go, then caution), as

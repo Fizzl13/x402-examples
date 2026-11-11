@@ -418,7 +418,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.16\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.16\.1$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -452,6 +452,12 @@ test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD wi
   assert.equal(payableOption([xrpl("0.01", { issuer: "rFakeIssuer" })], XRPL, 0.05), null, "an RLUSD look-alike");
   assert.equal(payableOption([xrpl("1000", {}, "XRP")], XRPL, 0.05), null, "never XRP");
   assert.equal(payableOption([xrpl("0.02")], XRPL, 0.05).amount, "0.02");
+  // Base: of two exact options, the cheapest within the budget ($0.50 listed first, $0.01 second: the exam's
+  // expensive-first-option); none within the budget: the first exact one, as before (x402's cap then refuses it).
+  const evm = (amount) => ({ scheme: "exact", network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount, payTo: "0x1111111111111111111111111111111111111111" });
+  assert.equal(payableOption([evm("500000"), evm("10000")], "eip155:8453", 1).amount, "10000");
+  assert.equal(payableOption([evm("500000"), evm("10000")], "eip155:8453", 0.05).amount, "10000");
+  assert.equal(payableOption([evm("500000"), evm("200000")], "eip155:8453", 0.05).amount, "500000");
   // Stellar: only Circle's USDC contract, within the budget (7 decimals: 100000 is $0.01).
   const { STELLAR } = await import("../index.js");
   const USDC_SAC = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
