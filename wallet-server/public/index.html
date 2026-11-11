@@ -98,14 +98,30 @@ h3 { font: 600 20px/1.2 var(--display); margin: 0; }
 .overview .stat:hover { border-color: var(--mint); }
 .overview .actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
 .overview .start { grid-column: 1 / -1; padding: 20px; display: grid; gap: 12px; border-color: var(--mint); }
-.overview .start .startsteps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: st; }
-.overview .start li { counter-increment: st; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding-left: 40px; position: relative; }
-.overview .start li > b { display: block; }
-.overview .start li::before { content: counter(st); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--mint); color: var(--mint); display: grid; place-items: center; font-weight: 700; }
-.overview .start li.done::before { content: "✓"; background: var(--mint); color: #000; }
-.overview .start li.done .addform, .overview .start li.done button { display: none; }
-.overview .start li.done b { opacity: .6; }
-.overview .start li > button { justify-self: start; }
+.overview .start .startsteps { margin: 0; padding: 0; list-style: none; display: grid; gap: 16px; counter-reset: st; }
+.overview .start .startsteps > li { counter-increment: st; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding-left: 40px; position: relative; }
+.overview .start .startsteps > li > b { display: block; font-size: 16px; }
+.overview .start .startsteps > li::before { content: counter(st); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--mint); color: var(--mint); display: grid; place-items: center; font-weight: 700; }
+.overview .start .startsteps > li.done::before { content: "✓"; background: var(--mint); color: #000; }
+.overview .start .startsteps > li.done .addform, .overview .start .startsteps > li.done button, .overview .start .startsteps > li.done .routes { display: none; }
+.overview .start .startsteps > li.done b { opacity: .6; }
+.overview .start .startsteps > li.done > .note { display: none; }
+.overview .start .startsteps > li > button, .overview .start .startsteps > li > .btns > button { justify-self: start; }
+.overview .start .btns { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+/* step 1: where does your agent run? one route open at a time */
+.start .routes { display: grid; gap: 8px; }
+.start .route { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: rgba(2,10,10,.45); }
+.start .route[open] { border-color: var(--mint); }
+.start .route > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-weight: 600; color: var(--text); }
+.start .route > summary::-webkit-details-marker { display: none; }
+.start .route > summary small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.start .route > summary::after { content: "▾"; margin-left: auto; color: var(--mint); }
+.start .route[open] > summary::after { content: "▴"; }
+.start .route-body { display: grid; gap: 8px; margin-top: 12px; }
+.start .route-body > p { margin: 0; }
+.start .route-steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--soft); font-size: 14px; }
+.start .route-steps b { color: var(--text); }
+.start .codeform { margin: 0; }
 #newKey, #howto { scroll-margin-top: 90px; }
 @media (max-width: 760px) { .overview { grid-template-columns: 1fr 1fr; } .overview .day { grid-column: 1 / -1; } }
 /* agents: the explanation folds away */
@@ -276,10 +292,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .fz details[open] summary { background: var(--mint); color: #021; }
 .fz .how { display: grid; gap: 10px; margin-top: 12px; }
 .fz .how b { color: var(--text); }
-.askcard .copy, .fz .copy, #pairCard .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
+.askcard .copy, .fz .copy, #pairCard .copy, #connectorCard .copy, .start .copy { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
 #pairCard .copy { margin-top: 6px; }
 #pairCard .setup-steps a { color: var(--mint); text-decoration: underline; }
-.askcard .copy code, .fz .copy code, #pairCard .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
+.askcard .copy code, .fz .copy code, #pairCard .copy code, #connectorCard .copy code, .start .copy code { display: block; padding: 9px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(2,10,10,.6); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--soft); overflow-wrap: anywhere; white-space: pre-wrap; }
 .newkey { padding: 18px; border-color: var(--mint); display: grid; gap: 10px; }
 .wallet-more { width: 100%; margin-top: 10px; justify-content: center; }
 .more-wallets { display: grid; gap: 14px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(97,245,195,.04); }
@@ -706,16 +722,46 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     </section>
     <section class="overview" id="overviewSec" data-tab="overview">
       <div class="card start" id="startCard" hidden>
-        <span class="tag">GET STARTED · 3 STEPS, ABOUT 5 MINUTES</span>
+        <span class="tag">YOUR AGENT IN 3 STEPS · ABOUT 5 MINUTES</span>
         <ol class="startsteps">
-          <li id="st1"><b>Make a key for your agent</b><span class="note">Any name, e.g. claude or cursor.</span>
-            <form class="addform" id="startAdd"><input id="startName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="Agent name"><button class="button primary small" type="submit">Make key</button></form></li>
-          <li id="st2"><b>Connect it to your AI app</b><span class="note">Paste the ready-made setup into Claude Desktop, Claude Code or Cursor, then restart the app.</span>
-            <button class="button ghost small" type="button" data-start="connect">Show the setup</button></li>
-          <li id="st3"><b>Check that it works</b><span class="note">Ask your agent “what is my wallet status?”. This step turns green the moment it reaches the wallet. No USDC needed yet.</span>
-            <button class="button ghost small" type="button" data-start="test">Test my setup</button></li>
+          <li id="st1"><b>Connect your agent</b><span class="note">Where does your AI assistant run? Tap one.</span>
+            <div class="routes">
+              <details class="route" name="route" data-route="desktop" open><summary>Claude Desktop <small>Mac or Windows · easiest</small></summary><div class="route-body">
+                <ol class="route-steps">
+                  <li><a class="button primary small" href="/download/claude-desktop" data-track="start_download">Download the wallet</a><br>Open the file: Claude Desktop installs it. No Node.js, no keys.</li>
+                  <li>Ask Claude <b>“what is my wallet status?”</b> It makes its own wallet on your computer (the key never leaves it) and shows a code.</li>
+                  <li>Enter that code below.</li>
+                </ol></div></details>
+              <details class="route" name="route" data-route="code"><summary>Claude Code, Cursor or a terminal <small>with Node.js</small></summary><div class="route-body">
+                <p class="note">Claude Code:</p>
+                <div class="copy"><code>claude mcp add wallet -- npx -y {{WALLET_MCP}}</code><button class="button ghost small" type="button" data-copy="claude mcp add wallet -- npx -y {{WALLET_MCP}}">Copy</button></div>
+                <p class="note">Cursor or another MCP app, in its MCP config:</p>
+                <div class="copy"><code>{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }</code><button class="button ghost small" type="button" data-copy='{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }'>Copy</button></div>
+                <p class="note">Your own scripts, in a terminal:</p>
+                <div class="copy"><code>npx x402-safe-fetch connect</code><button class="button ghost small" type="button" data-copy="npx x402-safe-fetch connect">Copy</button></div>
+                <p class="note">Then ask your agent <b style="color:var(--text)">“what is my wallet status?”</b> (the terminal shows it right away). You get a code: enter it below.</p>
+              </div></details>
+              <details class="route" name="route" data-route="app"><summary>Claude or ChatGPT app <small>phone or web</small></summary><div class="route-body">
+                <p class="note">Add this address to the app as a custom connector:</p>
+                <div class="copy"><code class="mcpUrl">https://wallet.fizzl.eu/mcp</code><button class="button ghost small mcpUrl" type="button" data-copy="https://wallet.fizzl.eu/mcp">Copy</button></div>
+                <ul class="route-steps">
+                  <li><b>Claude:</b> Settings → Connectors → Add custom connector.</li>
+                  <li><b>ChatGPT:</b> Settings → Apps &amp; Connectors → Advanced settings → Developer mode on, then Create.</li>
+                </ul>
+                <p class="note">Sign in with this account and tap Allow: the app shows up under Agents, no code needed. You sign every payment yourself, in your own wallet app (MetaMask, Phantom or Xaman). <a href="/connector" style="text-decoration:underline">Step by step</a></p>
+              </div></details>
+              <details class="route" name="route" data-route="key"><summary>With an API key <small>for your own code</small></summary><div class="route-body">
+                <p class="note">Your agent sends this key with each payment request; you paste the ready-made setup into its config yourself.</p>
+                <form class="addform" id="startAdd"><input id="startName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="Agent name"><button class="button primary small" type="submit">Make key</button></form>
+              </div></details>
+            </div>
+            <form class="addform codeform" id="startPair"><input id="startCode" placeholder="Code, e.g. K7QF-29XM" maxlength="12" autocomplete="off" autocapitalize="characters" aria-label="Code from your agent"><button class="button primary small" type="submit">Link agent</button></form></li>
+          <li id="st2"><b>Check that it works</b><span class="note">Ask your agent “what is my wallet status?”. This step turns green the moment it reaches the wallet. No USDC needed yet.</span>
+            <div class="btns"><button class="button ghost small" type="button" data-start="test">Test my setup</button><button class="link" type="button" data-start="connect" id="stSetup" hidden>Show the key's setup</button></div></li>
+          <li id="st3"><b>Give it a few dollars</b><span class="note">Your agent pays in USDC on Base, within the limits you set. No crypto yet? Buy it with a card, Apple Pay or Google Pay through Coinbase, sent straight to your agent's wallet.</span>
+            <button class="button ghost small" type="button" data-start="fund">Add USDC</button></li>
         </ol>
-        <p class="note" style="margin:0">No keys to copy: <button class="link" type="button" data-start="pair">link your agent with a code</button> instead.</p>
+        <p class="note" id="stHide" style="margin:0" hidden>Your agent works. <button class="link" type="button" data-start="hide">Done, hide these steps</button></p>
       </div>
       <div class="card day">
         <span class="tag" id="windowLabel">SPENT · ROLLING 24H</span>
@@ -809,24 +855,37 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div id="newKey"></div>
       <input class="agentfilter" id="agentFilter" type="search" placeholder="Find an agent" aria-label="Find an agent" hidden>
       <div class="agents" id="agents"></div>
-      <form class="addform" id="addForm" style="margin-top:16px">
-        <input id="agentName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="New agent name">
-        <button class="button" type="submit">Add agent</button>
-      </form>
-      <details class="advanced connect" id="connectBox"><summary>Connect an agent · test it · what to ask</summary><div class="connect-cards">
+      <details class="advanced connect" id="connectBox"><summary>Add or connect an agent · test it · what to ask</summary><div class="connect-cards">
       <div class="card setup" id="pairCard">
-        <span class="tag">EASIEST: LINK AN AGENT WITH A CODE · NO KEYS TO COPY</span>
+        <span class="tag">EASIEST: LINK YOUR AGENT WITH A CODE · NO KEYS TO COPY</span>
         <ol class="setup-steps" style="margin:0">
-          <li><b style="color:#fff">Install the wallet in your AI app</b>, without keys:
+          <li><b style="color:#fff">Install the wallet where your agent runs</b>, without keys:
             <p class="note" style="margin:6px 0 0"><b style="color:#fff">Claude Desktop:</b> <a href="/download/claude-desktop" data-track="pair_download">download the wallet</a> and open the file: Claude Desktop installs it. No Node.js needed.</p>
+            <p class="note" style="margin:8px 0 0"><b style="color:#fff">Claude Code:</b></p>
             <div class="copy"><code>claude mcp add wallet -- npx -y {{WALLET_MCP}}</code><button class="button ghost small" type="button" data-copy="claude mcp add wallet -- npx -y {{WALLET_MCP}}">Copy</button></div>
+            <p class="note" style="margin:8px 0 0"><b style="color:#fff">Cursor or another MCP app</b>, in its MCP config:</p>
             <div class="copy"><code>{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }</code><button class="button ghost small" type="button" data-copy='{ "mcpServers": { "wallet": { "command": "npx", "args": ["-y", "{{WALLET_MCP}}"] } } }'>Copy</button></div>
-            <span class="note">The first line is for Claude Code, the second for Cursor and other apps (their MCP config file).</span></li>
-          <li><b style="color:#fff">Ask your agent “what is my wallet status?”</b> It makes its own wallet on your computer (the key never leaves it) and gives you a code.</li>
+            <p class="note" style="margin:8px 0 0"><b style="color:#fff">Your own scripts</b>, in a terminal:</p>
+            <div class="copy"><code>npx x402-safe-fetch connect</code><button class="button ghost small" type="button" data-copy="npx x402-safe-fetch connect">Copy</button></div></li>
+          <li><b style="color:#fff">Ask your agent “what is my wallet status?”</b> It makes its own wallet on your computer (the key never leaves it) and gives you a code. The terminal shows the code right away.</li>
           <li><b style="color:#fff">Enter the code here</b> and give the agent a name. It can pay right away, within your rules.</li>
         </ol>
-        <form class="addform" id="pairForm"><input id="pairCode" placeholder="Code from your agent, e.g. K7QF-29XM" maxlength="12" autocomplete="off" autocapitalize="characters" aria-label="Code from your agent"><button class="button primary small" type="submit">Look up</button></form>
+        <form class="addform" id="pairForm"><input id="pairCode" placeholder="Code, e.g. K7QF-29XM" maxlength="12" autocomplete="off" autocapitalize="characters" aria-label="Code from your agent"><button class="button primary small" type="submit">Look up</button></form>
         <div id="pairOut" role="status" aria-live="polite"></div>
+      </div>
+      <div class="card setup" id="connectorCard">
+        <span class="tag">IN THE CLAUDE OR CHATGPT APP · PHONE OR WEB</span>
+        <p class="note" style="margin:0">Add this address to the app as a custom connector, sign in with this account and tap Allow. The app then shows up here as an agent. You sign every payment yourself, in your own wallet app (MetaMask, Phantom or Xaman).</p>
+        <div class="copy"><code class="mcpUrl">https://wallet.fizzl.eu/mcp</code><button class="button ghost small mcpUrl" type="button" data-copy="https://wallet.fizzl.eu/mcp">Copy</button></div>
+        <p class="note" style="margin:0"><b style="color:#fff">Claude:</b> Settings → Connectors → Add custom connector. <b style="color:#fff">ChatGPT:</b> Settings → Apps &amp; Connectors → Advanced settings → Developer mode on, then Create. <a href="/connector" style="text-decoration:underline">Step by step, also for Grok</a></p>
+      </div>
+      <div class="card setup" id="apiKeyCard">
+        <span class="tag">ANOTHER WAY: AN API KEY</span>
+        <p class="note" style="margin:0">For your own code, or an app you set up by hand: your agent sends this key with each payment request. You get the key and a ready-made setup to paste.</p>
+        <form class="addform" id="addForm">
+          <input id="agentName" placeholder="Agent name, e.g. claude" maxlength="40" required aria-label="New agent name">
+          <button class="button" type="submit">Make key</button>
+        </form>
       </div>
       <div class="card setup" id="setupCard">
         <span class="tag">IS EVERYTHING READY? TEST IT WITHOUT PAYING</span>
@@ -846,7 +905,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       </div></details>
       <p class="note" style="margin:12px 0 0" id="agentPlanNote"></p>
       <details class="howto" id="howto">
-        <summary>How it works · connect an agent · Fizzl services</summary>
+        <summary>How it works · what an agent is · Fizzl services</summary>
         <div class="yourkeys">
           <h3>Your agent's money stays <span>in your agent's wallet.</span></h3>
           <p class="lead">Custodial agent wallets hold your money for you. Fizzl never does: your agent signs with its own key, and this server only counts, asks and records. If Fizzl disappeared tomorrow, the money would still be in your agent's wallet.</p>
@@ -1813,7 +1872,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay), p.dataset.tier); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
-    if (e.target.closest("[data-goadd]")) { goAdd(); return; }
+    if (e.target.closest("[data-goadd]")) { goAdd("key"); return; }
     const cp = e.target.closest("button[data-copy]");
     if (cp) { const was = cp.textContent; const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = was; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }
     if (e.target.closest("#tgCopy")) { const i = $("#tgCommand"); i.select(); const done = () => { $("#tgCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
@@ -2026,14 +2085,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   // The skill line names this server (wallet.fizzl.eu, or wherever the page is served from).
   { const line = `Connect to ${location.host}/skill.md`; $("#skillLine").textContent = line; $("#skillCopy").dataset.copy = line; }
 
-  // The top bar's "Add agent" jumps to the form under Agents, ready to type a name.
-  // (So does "Make my agent key" on the Fizzl agents.)
-  function goAdd() {
+  // The top bar's "Add agent" opens "Add or connect an agent" under Agents at the easiest way (a code from the agent).
+  // "Make my agent key" on the Fizzl services goes to the API-key form, ready to type a name.
+  function goAdd(how) {
     showTab("agents");
-    $("#agentsSec").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-    setTimeout(() => $("#agentName").focus({ preventScroll: true }), 400);
+    const key = how === "key";
+    scrollTo(key ? $("#apiKeyCard") : $("#pairCard"), key ? "center" : "start");
+    if (key) setTimeout(() => $("#agentName").focus({ preventScroll: true }), 400);
   }
-  $("#addAgentTop").addEventListener("click", goAdd);
+  $("#addAgentTop").addEventListener("click", () => goAdd());
+  // The connector address names this server (wallet.fizzl.eu, or wherever the page is served from over https).
+  if (/^https:\/\//.test(location.origin)) for (const el of document.querySelectorAll(".mcpUrl")) { if (el.dataset.copy) el.dataset.copy = `${location.origin}/mcp`; else el.textContent = `${location.origin}/mcp`; }
   // Get started card: step 1 makes the key through the form under Agents and shows it there (key and setup, once).
   $("#startAdd").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -2047,15 +2109,31 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       if ($("#newKey").firstElementChild || ++tries > 20) { clearInterval(wait); scrollTo($("#newKey").firstElementChild ? $("#newKey") : $("#agentsSec")); }
     }, 150);
   });
+  // The code the agent shows (Claude Desktop, Claude Code, Cursor, npx x402-safe-fetch connect): looked up in the
+  // link-with-a-code card under Agents, where it is linked under a name and the next steps (USDC) show.
+  $("#startPair").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const code = $("#startCode").value.trim();
+    if (!code) { $("#startCode").focus(); return; }
+    $("#startCode").value = "";
+    showTab("agents");
+    $("#pairCode").value = code;
+    scrollTo($("#pairCard"), "center");
+    pairLookup(code);
+  });
+  // Steps stay on Home until an agent has reached the wallet; started on this device, they stay until "Done" (or the
+  // owner is back from buying USDC), so step 3 (a few dollars) isn't gone the moment step 2 turns green.
+  const onboardKey = () => "fizzl.onboard";
+  function onboardDone() { try { localStorage.removeItem(onboardKey()); } catch {} }
   $("#startCard").addEventListener("click", (e) => {
     const b = e.target.closest("[data-start]");
     if (!b) return;
     if (b.dataset.start === "test") { $("#setupTop").click(); return; }
-    if (b.dataset.start === "pair") { showTab("agents"); scrollTo($("#pairCard"), "center"); $("#pairCode").focus({ preventScroll: true }); return; }
-    // Connect: the key and setup just made (shown once), or the how-to under Agents.
+    if (b.dataset.start === "fund") { try { sessionStorage.setItem("fizzl.fund", "1"); } catch {} fundFromLink(); return; }
+    if (b.dataset.start === "hide") { onboardDone(); $("#startCard").hidden = true; return; }
+    // Connect: the key and setup just made (shown once), or the ways to connect under Agents.
     showTab("agents");
-    const target = $("#newKey").firstElementChild ? $("#newKey") : $("#howto");
-    if (target === $("#howto")) $("#howto").open = true;
+    const target = $("#newKey").firstElementChild ? $("#newKey") : $("#pairCard");
     setTimeout(() => scrollTo(target), 30);
   });
   // The footer's buy button goes to the plan card, with "Pay 1 month" ready.
@@ -2213,6 +2291,8 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const bar = $("#fundedBar");
     bar.innerHTML = `<span class="tag">BACK FROM COINBASE</span><p class="note" style="margin:0"><b style="color:var(--text)">Thanks.</b> Coinbase is sending your USDC to the wallet on Base. It usually arrives within a few minutes, and the balance here updates by itself. Coinbase e-mails you the receipt.</p><div class="btns" style="margin:0"><button class="button ghost small" type="button" id="fundedClose">OK</button></div>`;
     bar.hidden = false;
+    onboardDone(); // the steps on Home are done
+    if (state) render();
     $("#fundedClose").addEventListener("click", () => { bar.hidden = true; });
   }
   async function fundFromLink() {
@@ -2843,20 +2923,20 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const active = s.agents.filter((a) => !a.paused).length;
     $("#agentsActive").textContent = active;
     $("#agentsNote").textContent = s.agents.length ? `${s.agents.length === 1 ? "agent" : "agents"} active${active < s.agents.length ? ` of ${s.agents.length}` : ""}${s.paused ? " · all paused" : ""}` : "agents yet: add one";
-    // Get started (top of Overview) until an agent has reached the wallet: make a key, connect it, check it.
+    // Get started (top of Home): connect, check, a few dollars. Shown until an agent has reached the wallet; started
+    // on this device, until the owner says done (or is back from buying USDC).
     const seen = s.agents.some((a) => a.lastSeen);
-    $("#startCard").hidden = DEMO || seen;
+    let onboarding = false;
+    try { if (!seen) localStorage.setItem(onboardKey(), "1"); onboarding = localStorage.getItem(onboardKey()) === "1"; } catch {}
+    $("#startCard").hidden = DEMO || (seen && !onboarding);
     // No agent yet: Home is only the three steps, nothing else to read.
     $("#app").classList.toggle("first-run", !DEMO && s.agents.length === 0);
     $("#st1").classList.toggle("done", s.agents.length > 0);
     $("#st2").classList.toggle("done", seen);
-    // The explanation is open until there is an agent, then folded (the owner can still open it).
-    if (!howtoSet) { $("#howto").open = s.agents.length === 0; $("#connectBox").open = s.agents.length === 0; howtoSet = true; }
-    // No agent yet: connecting is step one, so the how-to sits right under "Add agent", open.
-    const howto = $("#howto"), first = s.agents.length === 0;
-    if (first && howto.previousElementSibling !== $("#addForm")) $("#addForm").after(howto);
-    if (!first && howto.nextElementSibling === $("#connectBox")) $("#agentPlanNote").after(howto);
-    howto.querySelector(":scope > summary").textContent = first ? "Start here: connect your first agent ▾" : "How it works · connect an agent · Fizzl services";
+    $("#stSetup").hidden = seen || !$("#newKey").firstElementChild;
+    $("#stHide").hidden = !seen;
+    // Adding an agent is open until there is one, then folded (the top bar's "Add agent" opens it).
+    if (!howtoSet) { $("#connectBox").open = s.agents.length === 0; howtoSet = true; }
     $("#approvals").innerHTML = s.approvals.length ? s.approvals.map((a) => {
       const v = a.action ? `<span class="verdict v-none">${esc(a.action.kind === "paypal" ? "PayPal" : a.action.kind)}${a.action.customer ? ` · ${esc(a.action.customer)}` : ""}</span>` : a.verdict ? `<span class="verdict v-${esc(a.verdict.verdict)}">${esc(a.verdict.verdict)}${a.verdict.reasons?.length ? ` · ${esc(a.verdict.reasons.join(", "))}` : ""}</span>` : `<span class="verdict v-none">no verified verdict</span>`;
       const left = Math.max(0, Math.round((a.expiresAt - s.now) / 60000));
@@ -2892,7 +2972,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       const buttons = `${siteLine}${mandateLine}${onchainLine}<div class="btns"><button class="button ${a.paused ? "primary" : "ghost"} small" data-act="pause" data-id="${esc(a.id)}" data-paused="${a.paused}">${a.paused ? "Resume" : "Pause"}</button><button class="button ghost small" data-act="remove" data-id="${esc(a.id)}">Remove</button></div>`;
       if (compact) return `<details class="card agentrow" data-agent="${esc(a.id)}"${openAgents.has(a.id) ? " open" : ""}><summary><span class="rowdot" style="color:${st[1]}" aria-hidden="true"></span><span class="name">${esc(a.name)}</span><span class="state" style="color:${st[1]}">${st[0]}</span><span class="meta">spent ${esc(spent)} · seen ${a.lastSeen ? time(a.lastSeen) : "never"}</span></summary>${buttons}</details>`;
       return `<article class="card agent"><header><span class="tag">${esc(a.name)}</span><span class="state" style="color:${st[1]}"><span class="dot"></span>${st[0]}</span></header><div class="note">spent this window: <b style="color:#fff">${esc(spent)}</b></div><div class="note">last seen: ${a.lastSeen ? time(a.lastSeen) : "never"}</div>${buttons}</article>`;
-    }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Add your AI assistant below to get its key.</div>`;
+    }).join("") : `<div class="card empty">No agent called “${esc(q)}”.</div>`) : `<div class="card empty">No agents yet. Connect your AI assistant below: the easiest way is a code from your agent, no keys to copy.</div>`;
     setupAgents();
     for (const a of s.agents) {
       if (a.site || DEMO || triedSite.has(a.id)) continue;
