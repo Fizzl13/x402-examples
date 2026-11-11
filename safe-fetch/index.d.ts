@@ -41,7 +41,7 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" | "answer_injection";
   preflight: Preflight | null;
   url: string | null;
   /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
@@ -50,6 +50,9 @@ export declare class SafePayError extends Error {
   spent?: SpentUsd;
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
   diagnosis?: Diagnosis;
+  /** With code "answer_injection": presign-guard's verdict, and the held-back answer (marked x-answer-check: red). */
+  check?: AnswerCheck;
+  response?: Response;
 }
 
 export interface SafeFetchOptions {
@@ -90,11 +93,30 @@ export interface SafeFetchOptions {
   onPaidError?: "stop" | "pay" | ((earlier: { at: number; status: number }, info: { url: string; method: string }) => boolean | Promise<boolean>);
   /** How long such a request stays blocked, in ms. Default 30 minutes. A success clears it. */
   paidErrorMs?: number;
+  /** Check every paid answer for instructions aimed at your agent (prompt injection) with presign-guard before you get it: "quick" (free, verdict only, 10 an hour), "paid" ($0.01 a check, with reasons) or false (default). */
+  checkAnswers?: false | "quick" | "paid";
+  /** A red answer: "stop" (default) throws code "answer_injection" (paid, answer held back), "flag" returns it with x-answer-check: red, a function decides (true returns it). */
+  onInjection?: "stop" | "flag" | ((check: AnswerCheck, info: { url: string; method: string }) => boolean | Promise<boolean>);
+  onAnswerCheck?: (check: AnswerCheck, info: { url: string; method: string }) => void;
+  /** presign-guard's origin. Default https://presign-guard.fizzl.eu. */
+  injectionUrl?: string;
   fetch?: typeof globalThis.fetch;
   /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
   createPayingFetch?: (cap: string) => typeof globalThis.fetch;
   now?: () => number;
 }
+
+/** presign-guard's verdict on a paid answer (checkAnswers). "paid" adds reasons and a signed receipt. */
+export interface AnswerCheck {
+  verdict: "green" | "orange" | "red";
+  reasons?: { level?: string; code?: string; message?: string }[];
+  [key: string]: unknown;
+}
+/** What checkAnswers found in a paid answer: "green", "orange", "red", "unchecked", or null when it wasn't checked. */
+export declare function answerCheckOf(response: Response): "green" | "orange" | "red" | "unchecked" | null;
+export declare const PRESIGN_GUARD_URL: string;
+export declare const INJECTION_CAP: string;
+export declare const ANSWER_CHECK_HEADER: string;
 
 /** What a safeFetch paid to sellers, in USD (Doctor's preflights and diagnoses not included). */
 export interface SpentUsd {
