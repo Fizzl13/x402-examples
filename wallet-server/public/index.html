@@ -2194,13 +2194,24 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   }
   // fizzl.eu/start's "buy with a card" lands here with ?fund=1: once signed in, the setup check shows the fund box
   // (its "Buy $5 of USDC with a card" button) for the agent's wallet.
-  function fundFromLink() {
+  // ?fund=1 survives the sign-in (a wallet or Xaman sign-in can reload the page without it): kept for this tab.
+  try {
     const q = new URLSearchParams(location.search);
-    if (!q.has("fund")) return;
-    q.delete("fund");
-    history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
-    // No agents yet but a wallet of your own on Base: its card button is on the Account tab.
-    if (me?.address && /^0x[0-9a-fA-F]{40}$/.test(me.address) && !(state?.agents ?? []).some((a) => a.address)) { showTab("account"); scrollTo($("#addrLine"), "center"); return; }
+    if (q.has("fund")) {
+      sessionStorage.setItem("fizzl.fund", "1");
+      q.delete("fund");
+      history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    }
+  } catch {}
+  async function fundFromLink() {
+    let wanted = false;
+    try { wanted = sessionStorage.getItem("fizzl.fund") === "1"; sessionStorage.removeItem("fizzl.fund"); } catch {}
+    if (!wanted) return;
+    // Who is signed in and which agents have a wallet: right after sign-in these aren't loaded yet.
+    const who = me ?? (await api("GET", "/api/me").catch(() => null));
+    const st = state ?? (await api("GET", "/api/state").catch(() => null));
+    // No agent with a wallet yet but a wallet of your own on Base: its card button is on the Account tab.
+    if (/^0x[0-9a-fA-F]{40}$/.test(who?.address ?? "") && !(st?.agents ?? []).some((a) => a.address)) { showTab("account"); scrollTo($("#addrLine"), "center"); return; }
     showTab("agents");
     scrollTo($("#setupCard"), "center");
     setTimeout(() => { scrollTo($("#setupCard"), "center"); runSetup(); }, 600); // after the first refresh has listed the agents
