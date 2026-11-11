@@ -2211,11 +2211,27 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const who = me ?? (await api("GET", "/api/me").catch(() => null));
     const st = state ?? (await api("GET", "/api/state").catch(() => null));
     // No agent with a wallet yet but a wallet of your own on Base: its card button is on the Account tab.
-    if (/^0x[0-9a-fA-F]{40}$/.test(who?.address ?? "") && !(st?.agents ?? []).some((a) => a.address)) { showTab("account"); scrollTo($("#addrLine"), "center"); return; }
+    const evm = (x) => /^0x[0-9a-fA-F]{40}$/.test(x ?? "");
+    const agentAddr = (st?.agents ?? []).some((a) => evm(a.address));
+    if (evm(who?.address) && !agentAddr) { showTab("account"); scrollTo($("#addrLine"), "center"); return; }
     showTab("agents");
     scrollTo($("#setupCard"), "center");
-    setTimeout(() => { scrollTo($("#setupCard"), "center"); runSetup(); }, 600); // after the first refresh has listed the agents
+    setTimeout(async () => {
+      scrollTo($("#setupCard"), "center");
+      await runSetup(); // after the first refresh has listed the agents
+      // No wallet on Base anywhere yet (a new e-mail account): Coinbase needs an address to send the USDC to. Say how to get one.
+      if (!agentAddr && !evm(fundTo) && CARD_BUY) $("#setupOut").insertAdjacentHTML("afterbegin", noWalletYetHtml());
+    }, 600);
   }
+  function noWalletYetHtml() {
+    return `<div class="fund" id="fundFirst"><span class="tag">BUY USDC WITH A CARD</span>
+      <p class="note" style="margin:0"><b style="color:var(--text)">First a wallet for the USDC.</b> Coinbase sends what you buy to a wallet on Base, and there's none here yet. Pick one; the card button then appears:</p>
+      <ol class="setup-steps" style="margin:0">
+        <li><b>Your agent's own wallet</b> (best: it holds only what it may spend). Link your agent in one step on <a href="https://fizzl.eu/start/">fizzl.eu/start</a>: Claude Desktop, or in a terminal <code>npx x402-safe-fetch connect</code>. The button then shows here, under the test.</li>
+        <li><b>A wallet app you already have</b> (MetaMask, Coinbase Wallet). <button class="link" type="button" id="fundFirstOwn">Connect it on the Account tab</button>; the button shows next to its address.</li>
+      </ol></div>`;
+  }
+  document.addEventListener("click", (e) => { if (e.target.closest("#fundFirstOwn")) { showTab("account"); scrollTo($("#linkWallets") ?? $("#planCard"), "center"); } });
   $("#setupRun").addEventListener("click", runSetup);
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
