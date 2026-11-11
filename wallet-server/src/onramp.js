@@ -2,6 +2,10 @@
 // their own wallet or one of their agents' wallets) or an agent with its key (for its own linked wallet). x402 Doctor
 // holds the CDP key and starts the Coinbase session; it does that only for this server (ONRAMP_KEY, the same on both).
 // The buyer pays Coinbase in Coinbase's own checkout and Coinbase sends the USDC; Fizzl never holds the money.
+// Coinbase binds each session to the buyer's IP (clientIp): this server passes the IP of the request that asked
+// (req.ip: with trust proxy at Render's three hops, the entry its first proxy wrote, which a client can't set).
+
+import { isIP } from "node:net";
 
 export const ONRAMP_URL = "https://x402-doctor.fizzl.eu/api/onramp";
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -16,8 +20,9 @@ export function createOnramp({ key = null, url = ONRAMP_URL, fetch = globalThis.
   };
   return {
     enabled: !!key,
-    /** A Coinbase checkout URL (single use, 5 minutes) for USDC on Base to `address`. `who` is the account, for the limit. */
-    async link(who, address, amount = 5) {
+    /** A Coinbase checkout URL (single use, 5 minutes) for USDC on Base to `address`. `who` is the account, for the limit;
+     *  `clientIp` the buyer's IP, which Coinbase binds the session to. */
+    async link(who, address, amount = 5, clientIp = null) {
       if (!key) throw fail(503, "Buying with a card isn't set up on this server.");
       if (!ADDRESS.test(String(address ?? ""))) throw fail(400, "address: a wallet address on Base (0x…)");
       const usd = Math.round(Number(amount ?? 5));
@@ -25,7 +30,8 @@ export function createOnramp({ key = null, url = ONRAMP_URL, fetch = globalThis.
       if (tooMany(String(who))) throw fail(429, "Too many purchases started this hour. Try again later.");
       let r, j;
       try {
-        r = await fetch(`${url}?${new URLSearchParams({ address, amount: String(usd) })}`, { headers: { authorization: `Bearer ${key}`, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+        const ip = String(clientIp ?? "").replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, "");
+        r = await fetch(`${url}?${new URLSearchParams({ address, amount: String(usd), ...(isIP(ip) ? { client_ip: ip } : {}) })}`, { headers: { authorization: `Bearer ${key}`, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
         j = await r.json().catch(() => null);
       } catch (err) { console.warn(`[onramp] ${err.message}`); }
       if (!r?.ok || typeof j?.url !== "string" || !j.url.startsWith("https://pay.coinbase.com/")) {

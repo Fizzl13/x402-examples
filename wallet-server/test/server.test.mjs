@@ -3003,8 +3003,8 @@ test("buy USDC with a card: an owner for their own agents' wallets, an agent for
     const u = new URL(url);
     return Response.json({ url: `https://pay.coinbase.com/buy/select-asset?sessionToken=t${seen.length}&defaultNetwork=base&defaultAsset=USDC&presetFiatAmount=${u.searchParams.get("amount")}` });
   };
-  const onramp = createOnramp({ key: "shared-onramp-key", url: "https://doctor.test/api/onramp", fetch: doctor, perHour: 2 });
-  const { owner, agent, base, server } = await boot({ onramp });
+  const onramp = createOnramp({ key: "shared-onramp-key", url: "https://doctor.test/api/onramp", fetch: doctor, perHour: 3 });
+  const { owner, agent, base, server, key } = await boot({ onramp });
   try {
     assert.equal((await (await fetch(`${base}/api/config`)).json()).onramp, true);
     const mine = "0x" + "ab".repeat(20), other = "0x" + "cd".repeat(20);
@@ -3021,6 +3021,12 @@ test("buy USDC with a card: an owner for their own agents' wallets, an agent for
     assert.deepEqual({ ...a.body, url: 0 }, { url: 0, address: mine, network: "base", asset: "USDC", amount_usd: 5, expires_in_s: 300 });
     assert.equal(seen[0].auth, "Bearer shared-onramp-key");
     assert.equal(seen[0].url.searchParams.get("address"), mine);
+    assert.equal(seen[0].url.searchParams.get("client_ip"), "127.0.0.1", "the buyer's IP, for Coinbase's clientIp (IPv4-mapped made plain)");
+    // As behind Render: the client wrote 6.6.6.6 itself, Render's first proxy added the real address and two more hops
+    // follow (the last as the socket's address, here 127.0.0.1). Three hops back is the real one, never the client's.
+    const viaProxy = await fetch(`${base}/v1/onramp`, { headers: { authorization: `Bearer ${key}`, "x-forwarded-for": "6.6.6.6, 203.0.113.9, 10.0.0.1, 10.0.0.2" } });
+    assert.equal(viaProxy.status, 200);
+    assert.equal(seen.at(-1).url.searchParams.get("client_ip"), "203.0.113.9");
 
     const o = await owner("POST", "/api/onramp", { address: mine.toUpperCase().replace("0X", "0x"), amount: 20 });
     assert.equal(o.status, 200);
@@ -3032,7 +3038,7 @@ test("buy USDC with a card: an owner for their own agents' wallets, an agent for
 
     const limited = await agent("GET", "/v1/onramp");
     assert.equal(limited.status, 429, "a few per hour per account");
-    assert.equal(seen.length, 2);
+    assert.equal(seen.length, 3);
   } finally { server.close(); }
 
   const off = await boot();

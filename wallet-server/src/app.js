@@ -44,10 +44,28 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault", onramp = null }) {
+// How many proxies in front append to X-Forwarded-For: on Render a request arrives with three entries for a client that
+// sent none (measured for x402 Doctor and the exam server, the same Render setup). Express takes the client address that
+// many hops from the right, so an X-Forwarded-For the client writes itself can't pick it. With 1, req.ip was a Render
+// hop shared by everyone: per-address limits and sign-in lockouts were shared, and Coinbase Onramp needs the buyer's own
+// IP (clientIp). TRUST_PROXY_HOPS overrides it (0 to 10).
+export function trustProxyHops(value = process.env.TRUST_PROXY_HOPS) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 10 && String(value ?? "").trim() !== "" ? n : 3;
+}
+
+export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault", onramp = null, proxyHops = trustProxyHops() }) {
   const app = express();
   app.disable("x-powered-by");
-  app.set("trust proxy", 1);
+  app.set("trust proxy", proxyHops);
+  // Once per start: how many X-Forwarded-For entries the first proxied request carried (never the addresses), so the
+  // logs show whether the hop count matches the proxies in front (entries = hops - 1, plus any the client sent).
+  let hopsLogged = false;
+  app.use((req, _res, next) => {
+    const xff = req.get("x-forwarded-for");
+    if (!hopsLogged && xff) { hopsLogged = true; console.log(`[proxy] x-forwarded-for has ${xff.split(",").length} entries; trusting ${proxyHops} proxy hops`); }
+    next();
+  });
   app.use(express.json({ limit: "64kb" }));
   app.use((req, res, next) => {
     res.set("x-content-type-options", "nosniff");
@@ -106,7 +124,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   v1.get("/onramp", wrap(async (req, res) => {
     if (!onramp) return res.status(503).json({ error: "unavailable", message: "Buying with a card isn't set up on this server." });
     if (!/^0x[0-9a-fA-F]{40}$/.test(req.agent.address ?? "")) return res.status(409).json({ error: "no_address", message: "This agent has no wallet address on Base yet: link it with a code (npx x402-safe-fetch connect) or set it on the dashboard." });
-    res.set("cache-control", "no-store").json(await onramp.link(req.account, req.agent.address, req.query.amount));
+    res.set("cache-control", "no-store").json(await onramp.link(req.account, req.agent.address, req.query.amount, req.ip));
   }));
   // On-chain limits (src/allowance.js): the agent's wallet is low or short for a payment; the charger tops it up from
   // the owner's wallet, within the limit the owner set on chain, to the address the owner set (never one the agent names).
@@ -399,7 +417,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     const me = await accounts.me(req.account);
     const own = [me?.address, ...(await req.wallet.agents()).map((a) => a.address)].filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a ?? "")).map((a) => a.toLowerCase());
     if (!own.includes(address.toLowerCase())) return res.status(403).json({ error: "not_yours", message: "Only for your own wallet or one of your agents' wallets (save the agent's address first)." });
-    res.set("cache-control", "no-store").json(await onramp.link(req.account, address, req.body?.amount));
+    res.set("cache-control", "no-store").json(await onramp.link(req.account, address, req.body?.amount, req.ip));
   }));
   owner.use("/services", services);
   owner.get("/purchases", wrap(async (req, res) => res.json({ purchases: await req.wallet.purchases({ agent: typeof req.query.agent === "string" ? req.query.agent : null, limit: req.query.limit }) })));
