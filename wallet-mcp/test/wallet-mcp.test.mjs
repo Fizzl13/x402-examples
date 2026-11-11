@@ -1026,3 +1026,24 @@ test("check_text with a wallet server: the owner's Fizzl Pass proof goes along a
   await make(null).checkText({ text: "hello" });
   assert.deepEqual(seen, [null]);
 });
+
+test("pay_x402 with a wallet server: a new wallet with no USDC at all says so (and how to get some) before anything is checked or signed", async () => {
+  const net = network();
+  const fake = fakeWallet();
+  fake.publicClient.readContract = async () => 0n;
+  fake.tempoPublicClient.readContract = async () => 0n;
+  const wallet = createWallet(configFromEnv({ AGENT_KEY: KEY, WALLET_SERVER_URL: "https://wallet.test", WALLET_SERVER_KEY: "awk_test" }), { walletClient: fake.walletClient, publicClient: fake.publicClient, tempoPublicClient: fake.tempoPublicClient, fetch: net.fetch, guard: { verifyReceipts: "off" } });
+  await assert.rejects(wallet.payX402({ url: API, maxPriceUsd: 0.1, reason: "the answer" }),
+    (err) => err.code === "no_usdc" && /no USDC yet/.test(err.message) && /buy_usdc/.test(err.message) && err.message.includes(wallet.address));
+  assert.equal(net.checks.length, 0, "no (paid) safety check for a payment that can't go through");
+  assert.ok(!net.server.some(([path]) => path === "/v1/reserve"));
+  // USDC.e on Tempo can still pay an MPP seller: then it tries.
+  fake.tempoPublicClient.readContract = async () => 1_000_000n;
+  await wallet.payX402({ url: API, maxPriceUsd: 0.1, reason: "the answer" }).catch(() => {});
+  assert.ok(net.checks.length > 0 || net.server.some(([path]) => path === "/v1/reserve"));
+  // A balance that can't be read never stops a payment.
+  fake.publicClient.readContract = async () => { throw new Error("rpc down"); };
+  const before = net.checks.length;
+  await wallet.payX402({ url: API, maxPriceUsd: 0.1, reason: "the answer" }).catch(() => {});
+  assert.ok(net.checks.length > before);
+});
