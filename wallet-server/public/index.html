@@ -2189,6 +2189,17 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     scrollTo($("#pairCard"), "center");
     pairLookup(code);
   }
+  // fizzl.eu/start's "buy with a card" lands here with ?fund=1: once signed in, the setup check shows the fund box
+  // (its "Buy $5 of USDC with a card" button) for the agent's wallet.
+  function fundFromLink() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has("fund")) return;
+    q.delete("fund");
+    history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+    showTab("agents");
+    scrollTo($("#setupCard"), "center");
+    setTimeout(() => { scrollTo($("#setupCard"), "center"); runSetup(); }, 600); // after the first refresh has listed the agents
+  }
   $("#setupRun").addEventListener("click", runSetup);
   $("#setupAgent").addEventListener("change", () => { setupAgentId = $("#setupAgent").value; });
   $("#setupTop").addEventListener("click", () => {
@@ -2310,6 +2321,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     refresh(); clearInterval(timer); timer = setInterval(refresh, 4000);
     loadCats();
     pairFromLink();
+    fundFromLink();
   }
 
   const usdc = () => state?.policy?.tokens?.USDC ?? {};
