@@ -13,6 +13,7 @@ The agent connects by reading the setup instructions in skill.md; the owner sign
 
 ## For owners
 - [Dashboard](https://wallet.fizzl.eu/): limits, approvals, receipts, agents and mandates
+- No crypto yet? [Buy USDC with a card](https://wallet.fizzl.eu/?fund=1): Coinbase sells it (card, Apple Pay or Google Pay; outside the US with a Coinbase account) and sends it straight to your wallet or your agent's wallet on Base. Fizzl never holds the money. In a terminal: `npx x402-safe-fetch fund`; in Claude Desktop the agent's `buy_usdc` tool gives the link
 - [Privacy](https://wallet.fizzl.eu/privacy) and [terms](https://wallet.fizzl.eu/terms)
 - [Fizzl Agent Wallet and Coinbase for Agents](https://wallet.fizzl.eu/compare/coinbase): the difference with the Coinbase MCP and the Coinbase Wallet MCP (who holds the money, approvals, daily budgets, networks, checks), checked 23 October 2026
 
