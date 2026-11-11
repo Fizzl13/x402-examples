@@ -285,7 +285,22 @@ test("connector payments: too little USDC in the owner's wallet is said before a
     const r = await call(client, "pay_x402", { url: `${s.url}/weather` });
     assert.equal(r.isError, true);
     assert.match(r.content[0].text, /has \$0\.001 USDC on Base, less than the \$0\.002/);
+    assert.doesNotMatch(r.content[0].text, /card/); // no Onramp on this server
     assert.equal(told.length, 0);
+    await client.close();
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: with Onramp on, too little USDC and wallet_status point to the card checkout", async () => {
+  const s = await seller();
+  const { base, server } = await boot({ balance: 1000n, connector: { cardBuy: true } });
+  try {
+    const client = await connect(base, await signIn(base, privateKeyToAccount(generatePrivateKey())));
+    const r = await call(client, "pay_x402", { url: `${s.url}/weather` });
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /less than the \$0\.002.*Buy USDC with a card at http:\/\/127\.0\.0\.1:\d+\/\?fund=1/);
+    const st = (await call(client, "wallet_status", {})).structuredContent;
+    assert.match(st.buy_usdc, /\/\?fund=1/);
     await client.close();
   } finally { server.close(); s.server.close(); }
 });
