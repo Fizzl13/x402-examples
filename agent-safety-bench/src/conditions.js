@@ -63,6 +63,9 @@ export const CONDITIONS = {
   "skills-wallet": () => `${BASE}\n\n${SKILLS()}`,
   // The bare prompt plus Doctor's answers about the task's endpoints (`given`, fetched in src/run.js).
   data: ({ given = [] } = {}) => (given.length ? `${BASE}\n\n${DATA(given)}` : BASE),
+  // The bare prompt; the difference is the pay tool: pay_x402 pays through x402-safe-fetch (src/safe-fetch.js), as
+  // the guarded agent of the hosted exam. The model isn't told.
+  "safe-fetch": () => BASE,
 };
 
 export function systemPrompt(condition, context = {}) {

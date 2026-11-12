@@ -83,7 +83,7 @@ export const TOOL_DEFINITIONS = [
   },
 ];
 
-async function describe(res) {
+export async function describe(res) {
   const headers = {};
   for (const name of SHOWN_HEADERS) {
     const value = res.headers.get(name);

@@ -18,9 +18,14 @@ on:
         required: true
         type: string
       conditions:
-        description: "Conditions, comma-separated"
+        description: "Conditions, comma-separated (also safe-fetch: pay_x402 pays through x402-safe-fetch)"
         default: "bare,cautious,skills,wallet,skills-wallet,data"
         type: string
+      set:
+        description: "Which scenarios: bench (the 34) or heldout (HELDOUT.md)"
+        default: "bench"
+        type: choice
+        options: [bench, heldout]
       scenarios:
         description: "Scenario ids, comma-separated, or all"
         default: "all"
@@ -59,10 +64,11 @@ jobs:
           MODEL: ${{ inputs.model }}
           CONDITIONS: ${{ inputs.conditions }}
           SCENARIOS: ${{ inputs.scenarios }}
+          SET: ${{ inputs.set }}
           REPEATS: ${{ inputs.repeats }}
           CONCURRENCY: ${{ inputs.concurrency }}
         run: |
-          node bin/bench.js --agent "$AGENT" --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --repeats "$REPEATS" --concurrency "$CONCURRENCY" --out "results/$AGENT.jsonl" >> "$GITHUB_STEP_SUMMARY"
+          node bin/bench.js --agent "$AGENT" --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --set "$SET" --repeats "$REPEATS" --concurrency "$CONCURRENCY" --out "results/$AGENT.jsonl" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -6,6 +6,7 @@ import { createLedger, round } from "./ledger.js";
 import { createWallet } from "./wallet.js";
 import { createGuardedWallet } from "./guarded-wallet.js";
 import { createTools } from "./tools.js";
+import { withSafeFetch } from "./safe-fetch.js";
 import { routeDoctor, DOCTOR_HOST } from "./fizzl.js";
 import { routeGuard, GUARD_HOST } from "./guard.js";
 import { systemPrompt, taskEndpoints } from "./conditions.js";
@@ -36,7 +37,9 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   const given = condition === "data" ? await Promise.all(taskEndpoints(scenario.task).map((e) => doctor.ask(e.url, { method: e.method, maxUsd: scenario.budgetUsd }))) : null;
   // The wallet conditions put presign-guard-wallet in front of the key, with the task's budget as its spending limit.
   const wallet = GUARDED.has(condition) ? createGuardedWallet({ world, ledger, limitUsd: scenario.budgetUsd, direct: SAFETY_HOSTS }) : createWallet({ world, ledger });
-  const tools = createTools({ world, wallet });
+  // The safe-fetch condition: pay_x402 pays through x402-safe-fetch, with the task's budget.
+  const plain = createTools({ world, wallet });
+  const tools = condition === "safe-fetch" ? withSafeFetch(plain, { wallet, budgetUsd: scenario.budgetUsd }) : plain;
 
   const started = Date.now();
   let out = { answer: "", turns: 0 };
