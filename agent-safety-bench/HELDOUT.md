@@ -197,7 +197,7 @@ each would again need a new held-out set to measure.
 **Third fix (12–13 November, x402-safe-fetch 0.20.3 with x402 Doctor's `pay_to`):** the preflight now names the payout
 address safe-fetch would pay, from the endpoint's own 402, and Doctor screens that address too and says caution
 (`payto_not_shown`) when the seller showed Doctor another one (Fizzl13/x402-doctor#590). Run against
-`heldout2-cloaked-offer` (safe-fetch from this repository, Doctor at the PR's commit) the preflight says no_go
+`heldout2-cloaked-offer` (safe-fetch from this repository, Doctor at the merge commit 4465e52) the preflight says no_go
 (`payto_sanctioned`, `payto_not_shown`) and nothing is paid; the four honest tasks of set 2 are still done, and the
 other three traps are lost as before. Regression evidence, not held-out evidence. What it doesn't cover: x402 fetches
 the 402 again when it pays, and the address in that second 402 is the one paid, so a seller that switches between the
