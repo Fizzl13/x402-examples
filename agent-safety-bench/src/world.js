@@ -38,8 +38,12 @@ export function createWorld() {
   }
 
   // The fetch x402 Doctor's checks expect (lib/safe-fetch.js): { status, headers, url, text }.
+  // Doctor names itself, as a checker can always be told apart (in production by its IP range): a seller that shows the
+  // checker another 402 than the buyer (held-out set 2, cloaked-offer) can do so here too.
   async function safeFetch(rawUrl, options = {}) {
-    const res = await fetch(rawUrl, options);
+    const headers = new Headers(options.headers || {});
+    if (!headers.has("user-agent")) headers.set("user-agent", "x402-doctor (bench)");
+    const res = await fetch(rawUrl, { ...options, headers });
     return { status: res.status, headers: res.headers, url: new URL(rawUrl).href, text: await res.text(), truncated: false, redirects: 0 };
   }
 
