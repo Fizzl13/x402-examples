@@ -45,7 +45,7 @@ export declare class SafePayError extends Error {
   preflight: Preflight | null;
   url: string | null;
   /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
-  earlier?: { at: number; status: number; redirectedFrom?: string };
+  earlier?: { at: number; status: number; redirectedFrom?: string; pollOf?: string };
   /** With code "over_total_budget" or "over_seller_budget": what this safeFetch had paid. */
   spent?: SpentUsd;
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
@@ -90,7 +90,7 @@ export interface SafeFetchOptions {
   /** When not paying, tell the seller why if its 402 names a refusal url on its own site (draft x402-foundation/x402#4087). Default false. */
   tellSellers?: boolean;
   /** The same request (method, URL, body) was paid before and answered without delivering (an error, or another 402): "stop" (default) throws code "paid_no_delivery" without paying, "pay" pays again, a function decides. */
-  onPaidError?: "stop" | "pay" | ((earlier: { at: number; status: number; redirectedFrom?: string }, info: { url: string; method: string }) => boolean | Promise<boolean>);
+  onPaidError?: "stop" | "pay" | ((earlier: { at: number; status: number; redirectedFrom?: string; pollOf?: string }, info: { url: string; method: string }) => boolean | Promise<boolean>);
   /** How long such a request stays blocked, in ms. Default 30 minutes. A success clears it. */
   paidErrorMs?: number;
   /** Check every paid answer for instructions aimed at your agent (prompt injection) with presign-guard before you get it: "quick" (free, verdict only, 10 an hour), "paid" ($0.01 a check, with reasons) or false (default). */
@@ -155,10 +155,12 @@ export function refusalReason(preflight: { verdict?: string; reasons?: { level?:
 
 /** Remembers paid endpoints (method, origin and path) that took a payment without delivering, so they aren't paid again with any query or body (used by createSafeFetch; usable on its own). */
 export declare function createPaidGuard(options?: { windowMs?: number; now?: () => number }): {
-  blocked(url: string, init?: { method?: string; body?: unknown }): { at: number; status: number; redirectedFrom?: string } | null;
-  record(url: string, init: { method?: string; body?: unknown } | undefined, status: number, options?: { redirectedTo?: string | null }): void;
+  blocked(url: string, init?: { method?: string; body?: unknown }): { at: number; status: number; redirectedFrom?: string; pollOf?: string } | null;
+  record(url: string, init: { method?: string; body?: unknown } | undefined, status: number, options?: { redirectedTo?: string | null; pollAt?: string | null }): void;
+  /** A result handed over without payment (a 2xx other than 202): ends a 202 hold on this endpoint or the one it polls for. */
+  delivered(url: string, init?: { method?: string; body?: unknown }): void;
   clear(url: string, init?: { method?: string; body?: unknown }): void;
 };
 export declare function purchaseKey(url: string, init?: { method?: string; body?: unknown }): string;
-export declare function paidTwiceMessage(url: string, earlier: { at: number; status: number; redirectedFrom?: string }): string;
+export declare function paidTwiceMessage(url: string, earlier: { at: number; status: number; redirectedFrom?: string; pollOf?: string }): string;
 export declare const PAID_ERROR_MS: number;

@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.3";
+export const VERSION = "0.20.4";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -594,11 +594,26 @@ export function createSafeFetch({
       throw error;
     }
     if (limited && res.status === 402) addSpend(host, -counted);
-    // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2).
+    // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2); for a 202
+    // Accepted, the poll URL it names (0.20.4).
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     const landed = res.redirected && res.url && res.url !== url ? res.url : null;
-    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed });
+    const pollAt = res.status === 202 ? await pollUrlOf(res) : null;
+    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt });
     return res;
+  }
+  // The poll URL of a 202 Accepted: Location, Content-Location, or poll_url / status_url / location in a JSON body.
+  async function pollUrlOf(res) {
+    const header = res.headers.get("location") || res.headers.get("content-location");
+    if (header) return header;
+    if (!/json/i.test(res.headers.get("content-type") || "")) return null;
+    try {
+      const body = await res.clone().json();
+      const found = [body?.poll_url, body?.status_url, body?.location, body?.links?.status].find((v) => typeof v === "string" && v.length <= 2048);
+      return found ?? null;
+    } catch {
+      return null;
+    }
   }
   async function payAndDiagnose(url, init, method, cap) {
     if (!diagnoseOnFailure) return payEndpoint(url, init, cap);
@@ -672,6 +687,8 @@ export function createSafeFetch({
   async function safeFetch(input, init = {}) {
     const { url, method } = requestOf(input, init);
     const probe = await baseFetch(url, init);
+    // A result handed over without payment ends a 202 hold on this endpoint or the one it is the poll URL of.
+    if (probe.ok && probe.status !== 202) paidGuard.delivered(url, { method });
     if (probe.status !== 402) return probe;
 
     // Paid before and not delivered: not paid again (and no preflight bought) unless onPaidError says so.

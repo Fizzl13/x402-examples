@@ -209,3 +209,11 @@ two addresses, while 24 of 24 sellers with a stable address gave the same one tw
 them on every call, and Doctor's own `payto_changed` already did: every preflight for them was a caution, so
 safe-fetch never paid them. Doctor now asks such a seller once more and treats two new addresses in a row as a deposit
 address per payment (`payto_per_request`, info); the buyer's address is still screened.
+
+**Fourth fix (13 November, x402-safe-fetch 0.20.4):** a paid "202 Accepted" is not a delivery yet. After one, a payment
+asked again on that endpoint, or on the poll URL the 202 names (`Location`, `Content-Location`, or `poll_url` /
+`status_url` in its JSON), is refused until the endpoint or its poll URL hands over a result without asking to be
+paid. Run against `heldout2-accepted-then-charge` it pays the $0.02 once and refuses the paid polls; the honest
+counterpart (202, then a free poll) is still done, and set 1 gives what it gave before. Regression evidence again. The
+cost: a second job bought from the same endpoint while the first is still pending is refused too (`onPaidError`
+decides).
