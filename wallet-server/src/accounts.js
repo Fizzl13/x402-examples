@@ -949,7 +949,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const a = await account(id);
       const who = id === ADMIN ? "you (owner)" : a?.emailHint ?? (a?.address ? short(a.address) : id);
       const name = String(agent?.name ?? "agent").replace(/\s+/g, " ").slice(0, 40);
-      const head = `🤖 Agent feedback (${report.type}${report.endpoint ? `, ${report.endpoint}` : ""}) from "${name}" of ${who} (${planOf(a).name}):`;
+      const head = `🤖 Agent feedback (${report.type}${report.endpoint ? `, ${report.endpoint}` : ""}) from "${name}"${id === ADMIN ? ", your own agent" : ` of ${who} (${planOf(a).name})`}:`;
       const text = [head, "", report.message, ...(report.contact ? ["", `Contact: ${report.contact}`] : []), "", `Report ${report.id}`].join("\n");
       const sent = await tell(ADMIN, text, { type: "feedback" });
       if (!sent) console.log(`[feedback] agent "${name}" of ${who}: ${report.message.slice(0, 300)}`);

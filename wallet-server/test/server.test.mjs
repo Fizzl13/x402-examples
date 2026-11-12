@@ -115,7 +115,7 @@ test("feedback: anyone may POST /feedback; an agent's report (with its key) also
     assert.equal(keyed.body.received, true);
     const told = tg.calls.find((c) => c.method === "sendMessage" && /Agent feedback/.test(c.body.text));
     assert.equal(told.body.chat_id, "4242");
-    assert.match(told.body.text, /Agent feedback \(bug, find_services\) from "research-agent" of you \(owner\)/);
+    assert.match(told.body.text, /Agent feedback \(bug, find_services\) from "research-agent", your own agent:/);
     assert.match(told.body.text, /tide tables[\s\S]*Contact: bot@example\.com[\s\S]*Report [0-9a-f-]{36}/);
     const logged = records.filter((r) => r.route === "feedback");
     assert.equal(logged.length, 2);

@@ -113,7 +113,10 @@ export function baseOffer(challenge) {
   }
   return null;
 }
-const offered = (c) => [...new Set((c?.accepts ?? []).map((a) => a?.network).filter(Boolean))];
+// What an API offers, for the agent (and so for its feedback): "EURC on eip155:8453" when the offer names its token
+// (x402 carries the token's EIP-712 domain name in extra.name: "USD Coin", "EURC", "USD₮0"), else the network alone.
+const tokenOf = (a) => { const n = String(a?.extra?.name ?? "").replace(/[^\p{L}\p{N} ₮.-]/gu, "").trim(); return /^usd coin$/i.test(n) ? "USDC" : n.slice(0, 24); };
+const offered = (c) => [...new Set((c?.accepts ?? []).filter((a) => a?.network).map((a) => (tokenOf(a) ? `${tokenOf(a)} on ${a.network}` : String(a.network))))];
 
 // The USDC-on-Base "auth-capture" offer (Coinbase's escrow, x402 v2 only), when it has everything the escrow needs
 // and the plain EIP-3009 way of collecting (Permit2 would need an approval first).
