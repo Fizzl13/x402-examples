@@ -130,6 +130,61 @@ test("feedback: anyone may POST /feedback; an agent's report (with its key) also
   } finally { server.close(); }
 });
 
+test("feedback about a payment: the agent's own receipt for it goes to the owner, found by transaction or receipt id; never another agent's", async () => {
+  const records = [];
+  const usage = { enabled: true, record: (route, f = {}) => records.push({ route, ...f }), flush: async () => {}, code: (x) => (x ? "acct" : undefined) };
+  const { base, server, owner, agent, agentCall, key, tg } = await boot({ usage });
+  const TX = `0x${"ab".repeat(32)}`;
+  try {
+    const stub = { chain: { id: 8453 }, account: { address: "0x2222222222222222222222222222222222222222" }, sendTransaction: async () => "0xabc123" };
+    const pay = async (_u, init) => Response.json(await signedVerdict(JSON.parse(init.body)));
+    const wallet = guardWallet(stub, { pay, signers: [presignKey.address], server: { url: base, key } });
+    await wallet.withPurchase({ url: "https://ichimoku-signal.fizzl.eu/signal/BTC-USDT", description: "BTC signal" }, async (report) => {
+      await wallet.sendTransaction(transfer(2));
+      report({ httpStatus: 502, settlement: { transaction: TX, network: "eip155:8453" } });
+    });
+    await new Promise((ok) => setTimeout(ok, 50)); // spent and the outcome are reported in the background
+    const told = () => tg.calls.filter((c) => c.method === "sendMessage" && /Agent feedback/.test(c.body.text)).at(-1).body.text;
+
+    // By its transaction (in other letter case, as an agent may copy it): found, and the owner sees the receipt.
+    const byTx = await agent("POST", "/v1/feedback", { type: "bug", message: "Paid for the BTC signal but got a 502", endpoint: "pay_x402", payment: { tx: TX.toUpperCase().replace("0X", "0x"), network: "eip155:8453" } });
+    assert.equal(byTx.status, 202);
+    assert.equal(byTx.body.payment.found, true);
+    assert.match(byTx.body.payment.receipt, /^pu_/);
+    assert.match(told(), /About this purchase \(receipt pu_[\w-]+\): 2 USDC to ichimoku-signal\.fizzl\.eu on \d{4}-\d\d-\d\d \d\d:\d\d UTC; paid, answer HTTP 502\./);
+    assert.match(told(), new RegExp(`Transaction: https://basescan\\.org/tx/${TX}`));
+
+    // By the receipt id the pay answer gave.
+    const byReceipt = await agent("POST", "/v1/feedback", { message: "Same purchase, by its receipt", payment: { receipt: byTx.body.payment.receipt } });
+    assert.equal(byReceipt.body.payment.found, true);
+    assert.equal(byReceipt.body.payment.receipt, byTx.body.payment.receipt);
+
+    // Another agent of the same owner can't attach this receipt: not its own.
+    const { body: { key: otherKey } } = await owner("POST", "/api/agents", { name: "other" });
+    const other = await agentCall(otherKey)("POST", "/v1/feedback", { message: "Someone else's payment", payment: { tx: TX, network: "eip155:8453" } });
+    assert.equal(other.status, 202);
+    assert.equal(other.body.payment.found, false);
+    assert.match(told(), /It names a payment that isn't on this agent's receipts \(transaction 0xabababab…ababab on eip155:8453\)\./);
+    assert.doesNotMatch(told(), /About this purchase/);
+    const otherByReceipt = await agentCall(otherKey)("POST", "/v1/feedback", { message: "By receipt id", payment: { receipt: byTx.body.payment.receipt } });
+    assert.equal(otherByReceipt.body.payment.found, false);
+
+    // Without a payment: no payment field in the answer. A malformed one is refused before anything is sent.
+    assert.equal((await agent("POST", "/v1/feedback", { message: "No payment here" })).body.payment, undefined);
+    const bad = await agent("POST", "/v1/feedback", { message: "Bad payment", payment: { tx: "<script>" } });
+    assert.equal(bad.status, 400);
+    assert.match(bad.body.message, /payment\.tx/);
+    assert.equal((await agent("POST", "/v1/feedback", { message: "Network only", payment: { network: "eip155:8453" } })).status, 400);
+
+    // The usage log keeps the payment's network only: never the transaction or the receipt id.
+    const logged = records.filter((r) => r.route === "feedback");
+    assert.equal(logged[0].input.payment, "eip155:8453");
+    assert.equal(logged[1].input.payment, "given");
+    assert.ok(!JSON.stringify(logged).toLowerCase().includes("abababab"), "no transaction hash in the usage log");
+    assert.ok(!JSON.stringify(logged).includes(byTx.body.payment.receipt), "no receipt id in the usage log");
+  } finally { server.close(); }
+});
+
 test("agents need their key; a key works only as a hash and stops working when removed", async () => {
   const { owner, agent, base, server, store } = await boot();
   try {

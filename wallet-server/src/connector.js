@@ -112,7 +112,7 @@ export function fizzlBuyOption({ query, cap, sellers }) {
 }
 
 // The feedback tool's description (the same words as the npm MCP server's tool, wallet-mcp/lib.js).
-const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it.";
+const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it. If it is about a payment that went wrong (paid but no answer, a wrong answer), add payment with its tx (the settlement transaction from the pay answer) and network, or receipt (the receipt_id): the wallet adds your own receipt for it to the report.";
 
 export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals, cardBuy = false, feedback = null }) {
   const router = express.Router();

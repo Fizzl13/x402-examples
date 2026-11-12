@@ -1087,7 +1087,7 @@ function result(fn) {
 // owner of that server hears of it); without one, to wallet.fizzl.eu's public POST /feedback. Free; a person reads
 // every report and nothing in it is run or changed automatically.
 export const FEEDBACK_URL = "https://wallet.fizzl.eu/feedback";
-export const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it.";
+export const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it. If it is about a payment that went wrong (paid but no answer, a wrong answer), add payment with its tx (the settlement transaction from the pay answer) and network, and the wallet server, when this wallet is linked to one, adds your own receipt for it to the report.";
 export async function sendFeedback(report, { server = null, fetch: fetchImpl = globalThis.fetch } = {}) {
   const keyed = !!(server?.url && server?.key);
   const res = await fetchImpl(keyed ? `${server.url.replace(/\/$/, "")}/v1/feedback` : FEEDBACK_URL, {
@@ -1298,9 +1298,14 @@ export function createServer(wallet) {
       message: z.string().min(3).max(2000).describe("What happened or what you need"),
       endpoint: z.string().max(200).optional().describe("Optional: the tool, API or route it is about, e.g. pay_x402"),
       contact: z.string().max(200).optional().describe("Optional: how to reach you about it"),
+      payment: z.object({
+        tx: z.string().max(140).optional().describe("The transaction hash or signature, e.g. payment.transaction from pay_x402's answer"),
+        network: z.string().max(64).optional().describe("Its network, e.g. eip155:8453"),
+        receipt: z.string().max(64).optional().describe("A receipt id you were given for it"),
+      }).optional().describe("Optional: the payment it is about, when a paid call went wrong"),
     },
     annotations: { openWorldHint: true },
-  }, result(({ type, message, endpoint, contact }) => wallet.feedback({ type, message, endpoint, contact })));
+  }, result(({ type, message, endpoint, contact, payment }) => wallet.feedback({ type, message, endpoint, contact, ...(payment ? { payment } : {}) })));
 
   server.registerTool("pause_spending", {
     title: "Pause spending",

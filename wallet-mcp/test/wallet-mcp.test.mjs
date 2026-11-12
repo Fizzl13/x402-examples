@@ -266,6 +266,19 @@ test("feedback: to the wallet server as this agent (its key), or to wallet.fizzl
   assert.equal(typeof setupWallet().feedback, "function");
 });
 
+test("feedback tool: a payment it names (its transaction, from pay_x402's answer) goes along to the wallet server", async () => {
+  const { call, wallet } = await setup();
+  const got = [];
+  wallet.feedback = async (r) => { got.push(r); return { received: true, id: "r2", service: "wallet", payment: { found: true, receipt: "pu_x" } }; };
+  const out = await call("feedback", { type: "bug", message: "Paid but got a 502", endpoint: "pay_x402", payment: { tx: "0xabc123", network: "eip155:8453" } });
+  assert.equal(out.error, false);
+  assert.deepEqual(JSON.parse(out.text).payment, { found: true, receipt: "pu_x" });
+  assert.deepEqual(got[0].payment, { tx: "0xabc123", network: "eip155:8453" });
+  assert.equal(got[0].message, "Paid but got a 502");
+  await call("feedback", { message: "no payment here" });
+  assert.equal("payment" in got[1], false, "no payment field when none is named");
+});
+
 test("buy_usdc: a Coinbase checkout link from the wallet server, with this agent's key; refused without a wallet server", async () => {
   const fake = fakeWallet();
   const net = network({ onramp: (u, h) => Response.json({ url: `https://pay.coinbase.com/buy/select-asset?sessionToken=t&presetFiatAmount=${u.searchParams.get("amount")}`, address: "0xabc", network: "base", asset: "USDC", amount_usd: Number(u.searchParams.get("amount")), expires_in_s: 300, key: h.get("authorization") }) });
