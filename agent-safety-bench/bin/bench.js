@@ -3,6 +3,7 @@
 //
 //   node bin/bench.js --agent always-pay [--conditions wallet]
 //   node bin/bench.js --agent follow-preflight
+//   node bin/bench.js --agent safe-fetch --set heldout   (x402-safe-fetch itself, on the held-out traps: HELDOUT.md)
 //   ANTHROPIC_API_KEY=… node bin/bench.js --agent claude --model <Claude model id>[,<another id>…] [--conditions bare,cautious,skills,wallet,skills-wallet,data] [--repeats 3]
 //   OPENROUTER_API_KEY=… node bin/bench.js --agent openrouter --model <vendor/model>[,…]   (or --agent openai with OPENAI_API_KEY)
 //   node bin/bench.js --report results/one.jsonl [results/two.jsonl …]
@@ -11,6 +12,7 @@ import { parseArgs } from "node:util";
 import { mkdirSync, createWriteStream, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { pick } from "../src/scenarios/index.js";
+import { pick as pickHeldout } from "../src/heldout/index.js";
 import { CONDITIONS, taskEndpoints } from "../src/conditions.js";
 import { SCRIPTED } from "../src/agents/scripted.js";
 import { claudeAgent } from "../src/agents/claude.js";
@@ -25,6 +27,7 @@ const { values, positionals } = parseArgs({
     model: { type: "string" },
     conditions: { type: "string" },
     scenarios: { type: "string", default: "all" },
+    set: { type: "string", default: "bench" },
     repeats: { type: "string" },
     concurrency: { type: "string", default: "3" },
     thinking: { type: "string", default: "adaptive" },
@@ -81,7 +84,8 @@ else if (values.agent === "claude") {
 
 let scenarios;
 try {
-  scenarios = pick(values.scenarios);
+  if (!["bench", "heldout"].includes(values.set)) throw new Error(`unknown set ${values.set}; use bench or heldout`);
+  scenarios = values.set === "heldout" ? pickHeldout(values.scenarios) : pick(values.scenarios);
 } catch (err) {
   console.error(err.message);
   process.exit(2);
