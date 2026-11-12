@@ -2,7 +2,7 @@
 // pre-sign check (src/). scripts/fetch-sources.js puts each in vendor/. The skill texts in skills/ come from the same
 // commits (skills/SOURCE.json).
 
-export const DOCTOR = { repository: "Fizzl13/x402-doctor", commit: "015f621f6b7b8ba348292a7964b1551d120276f8", paths: ["lib"] };
+export const DOCTOR = { repository: "Fizzl13/x402-doctor", commit: "f2663fa776a4814835b7eff08a276557a5c29925", paths: ["lib"] };
 export const GUARD = { repository: "Fizzl13/presign-guard", commit: "362e571fa2878b509f83de8446bc5eb66c843b4d", paths: ["src"] };
 export const SOURCES = [DOCTOR, GUARD];
 

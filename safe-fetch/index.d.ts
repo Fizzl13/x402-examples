@@ -135,7 +135,8 @@ export declare const LIGHTNING_UNSUPPORTED: string;
 /** What an option costs in USD on `network` (Lightning: null). */
 export declare function usdOfOption(option: { amount?: unknown; maxAmountRequired?: unknown }, network: string): number | null;
 export declare function usdCap(maxUsd: number | string): string;
-export declare function preflightUrl(target: string, options?: { method?: string; maxUsd?: number | string; network?: string; doctorUrl?: string }): string;
+/** payTo: the payout address the agent is about to pay (sent as pay_to; anything that isn't one address is left out). */
+export declare function preflightUrl(target: string, options?: { method?: string; maxUsd?: number | string; network?: string; doctorUrl?: string; payTo?: string }): string;
 export declare function diagnoseUrl(target: string, options?: { method?: string; doctorUrl?: string }): string;
 /** The Doctor diagnosis attached to a response whose payment failed (diagnoseOnFailure), or null. */
 export declare function diagnosisOf(response: Response): Diagnosis | null;

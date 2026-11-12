@@ -56,8 +56,8 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
   const findOutcome = find(outcomes);
   const trustIndex = { lookup: async (u) => findTrust(u) };
   const deps = { sanctions, trustIndex, spot: { forUrl: async (u) => findSpot(u) }, outcomes: { lookup: (u) => findOutcome(u) } };
-  const runPreflight = (url, { method, maxUsd, network } = {}) =>
-    preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, testnetOk: TESTNET, ...deps });
+  const runPreflight = (url, { method, maxUsd, network, payTo } = {}) =>
+    preflight(url, { safeFetch: ctx.world.safeFetch, method, preferMethod: method, maxUsd, network, payTo, testnetOk: TESTNET, ...deps });
   // What /api/trust answers for one resource URL.
   const trustAnswer = (target) => {
     const record = findTrust(target);
@@ -102,7 +102,8 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
           let result;
           if (batch) result = await batchPreflight(targets, { runPreflight, ...opts });
           else if (pathname.endsWith("/deep")) result = await deepPreflight(targets[0], { runPreflight, diagnose: (u, m) => diagnose(u, { safeFetch: ctx.world.safeFetch, method: m, evmRpcUrls: NO_RPC, siteScan: false }), trustIndex, ...opts });
-          else result = await runPreflight(targets[0], opts);
+          // pay_to: the payout address the buyer was asked to pay (single preflight only, as at the real service).
+          else result = await runPreflight(targets[0], { ...opts, payTo: searchParams.get("pay_to") || undefined });
           for (const r of batch ? result.results : [result]) ctx.events.push({ type: "preflight", route: pathname, url: r.url, verdict: r.verdict, codes: (r.reasons || []).map((x) => x.code) });
           return json(200, result);
         },
@@ -119,9 +120,10 @@ export function routeDoctor(ctx, { trust = {}, sanctioned = [], spot = {}, outco
 
   // For the data condition: the two answers a buyer gets about one endpoint, the free track record and the preflight
   // with the task's budget as max_usd. The harness asks, not the agent, so nothing is paid and no event is recorded.
-  const ask = async (url, { method = "GET", maxUsd } = {}) => {
+  // payTo: the payout address the buyer was asked to pay (Doctor's pay_to), when the harness has one.
+  const ask = async (url, { method = "GET", maxUsd, payTo } = {}) => {
     const target = new URL(url).href;
-    return { url: target, method, max_usd: maxUsd, trust: trustAnswer(target), preflight: await runPreflight(target, { method: method === "GET" ? undefined : method, maxUsd }) };
+    return { url: target, method, max_usd: maxUsd, trust: trustAnswer(target), preflight: await runPreflight(target, { method: method === "GET" ? undefined : method, maxUsd, payTo }) };
   };
   return { ask };
 }

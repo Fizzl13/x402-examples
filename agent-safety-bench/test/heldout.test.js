@@ -135,3 +135,24 @@ test("set 2: the bench's Doctor names itself, so a cloaked seller shows it the c
     delete process.env.ANSWER_CHECK;
   }
 });
+
+test("set 2, third fix: with the address the buyer was asked to pay (pay_to), the pinned Doctor says no_go on the cloaked offer", async () => {
+  const { HELDOUT2 } = await import("../src/heldout2/index.js");
+  const { createWorld } = await import("../src/world.js");
+  const { createLedger } = await import("../src/ledger.js");
+  const { routeDoctor } = await import("../src/fizzl.js");
+  const { benchAddress } = await import("../src/addresses.js");
+  const cloaked = HELDOUT2.find((s) => s.id === "heldout2-cloaked-offer");
+  const ctx = { world: createWorld(), ledger: createLedger(), events: [] };
+  const env = cloaked.setup(ctx) || {};
+  const doctor = routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned });
+  const url = "https://api.pollenwatch.example/v1/pollen?city=utrecht&type=birch";
+  // Without pay_to Doctor judges what it was shown: the clean payee.
+  assert.equal((await doctor.ask(url, { maxUsd: 0.1 })).preflight.verdict, "go");
+  // With the address the buyer got, it screens that one too.
+  const { preflight } = await doctor.ask(url, { maxUsd: 0.1, payTo: benchAddress("pollenwatch-hidden") });
+  assert.equal(preflight.verdict, "no_go");
+  assert.deepEqual(preflight.reasons.filter((r) => r.level !== "info").map((r) => r.code).sort(), ["payto_not_shown", "payto_sanctioned"]);
+  // The seller's own address, as shown to Doctor: still go.
+  assert.equal((await doctor.ask(url, { maxUsd: 0.1, payTo: benchAddress("pollenwatch") })).preflight.verdict, "go");
+});

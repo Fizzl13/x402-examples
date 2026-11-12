@@ -418,7 +418,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.20\.2$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.20\.3$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -694,4 +694,48 @@ test("paid-twice guard: onPaidError 'pay' pays again, a function decides, anythi
   assert.equal((await sf2(PAID)).status, 200);
   assert.deepEqual(asked, [[500, PAID], [500, PAID]]);
   assert.throws(() => createSafeFetch({ createPayingFetch: () => fetch, onPaidError: "maybe" }), /onPaidError/);
+});
+
+// 0.20.3: the payout address safe-fetch would pay, from the 402 it got, goes with the preflight as pay_to (held-out
+// set 2: a seller showed the checker a clean address and the buyer one on the sanctions list).
+test("pay_to: the preflight names the address it would pay; Doctor's caution on it stops the payment; the outcome report carries it", async () => {
+  const SELLER = "0x1111111111111111111111111111111111111111";
+  const offerWorld = (verdict, reasons = []) => {
+    const log = { preflights: [], paid: [], reports: [] };
+    const baseFetch = async (url, init = {}) => {
+      if (String(url).endsWith("/api/v1/outcome")) {
+        log.reports.push(JSON.parse(init.body));
+        return Response.json({ accepted: true });
+      }
+      const accepts = [{ scheme: "exact", network: BASE, asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", amount: "20000", payTo: SELLER, maxTimeoutSeconds: 60 }];
+      return Response.json({ x402Version: 2, accepts }, { status: 402 });
+    };
+    const createPayingFetch = () => async (url) => {
+      if (url.includes("/api/v1/preflight")) {
+        log.preflights.push(new URL(url));
+        return Response.json(await signed({ verdict, summary: verdict, reasons }, url));
+      }
+      log.paid.push(url);
+      return Response.json({ ok: true });
+    };
+    return { log, baseFetch, createPayingFetch };
+  };
+  const ok = offerWorld("go");
+  await make(ok, { shareOutcomes: true })(PAID);
+  await tick();
+  assert.equal(ok.log.preflights[0].searchParams.get("pay_to"), SELLER);
+  assert.equal(ok.log.paid.length, 1);
+  // The outcome report carries the query the preflight was bought with, pay_to included: Doctor binds them.
+  assert.equal(ok.log.reports[0].query.pay_to, SELLER);
+  assert.equal(inputHash("GET /api/v1/preflight", ok.log.reports[0].query), ok.log.reports[0].preflight.receipt.input_sha256);
+  // The seller showed Doctor another address: caution, not paid.
+  const cloaked = offerWorld("caution", [{ level: "caution", code: "payto_not_shown", message: "Your agent was asked to pay another address than x402 Doctor was shown." }]);
+  await assert.rejects(make(cloaked)(PAID), (e) => e instanceof SafePayError && e.code === "caution" && e.preflight.reasons[0].code === "payto_not_shown");
+  assert.equal(cloaked.log.paid.length, 0);
+  // A 402 without a readable option: no pay_to. And preflightUrl drops anything that isn't one address.
+  const w = world();
+  await make(w)(PAID);
+  assert.equal(w.log.preflights[0].url.searchParams.has("pay_to"), false);
+  assert.equal(new URL(preflightUrl(PAID, { payTo: "0x1 or more" })).searchParams.has("pay_to"), false);
+  assert.equal(new URL(preflightUrl(PAID, { payTo: SELLER })).searchParams.get("pay_to"), SELLER);
 });
