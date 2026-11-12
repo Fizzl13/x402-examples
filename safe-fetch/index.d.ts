@@ -41,7 +41,7 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" | "answer_injection";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site";
   preflight: Preflight | null;
   url: string | null;
   /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
@@ -72,6 +72,8 @@ export interface SafeFetchOptions {
   onIncomplete?: "pay" | "stop" | ((preflight: Preflight) => boolean | Promise<boolean>);
   /** Hosts you already trust: paid without a preflight. */
   trusted?: string[];
+  /** The sites this safeFetch may pay (hosts or URLs, e.g. the ones the user named); elsewhere: code "other_site". Default: any site. */
+  sites?: string[];
   onPreflight?: (preflight: Preflight, info: { url: string; method: string; cached: boolean }) => void;
   /** How long a verdict is reused while the endpoint's 402 offers the same thing, in ms. Default 1 hour; a changed price, payout address, token or network is checked again at once; at most 10 minutes when the offer can't be read. */
   cacheMs?: number;
@@ -164,3 +166,6 @@ export declare function createPaidGuard(options?: { windowMs?: number; now?: () 
 export declare function purchaseKey(url: string, init?: { method?: string; body?: unknown }): string;
 export declare function paidTwiceMessage(url: string, earlier: { at: number; status: number; redirectedFrom?: string; pollOf?: string }): string;
 export declare const PAID_ERROR_MS: number;
+
+/** The site behind a host or URL, as x402 Doctor groups sellers: the domain without subdomains; on shared hosting the full host. */
+export declare function siteOf(value: string): string | null;
