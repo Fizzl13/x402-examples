@@ -73,3 +73,34 @@ test("the safe-fetch agent runs x402-safe-fetch in the bench's world and does th
     delete process.env.ANSWER_CHECK;
   }
 });
+
+test("the safe-fetch condition: a model's pay_x402 pays through x402-safe-fetch (preflight first, refusals as errors)", async () => {
+  process.env.ANSWER_CHECK = "off";
+  // A stand-in for a model: it pays the task's URL with pay_x402, then follows a redirect with http_request.
+  const model = {
+    name: "stand-in",
+    async run({ scenario, tools }) {
+      const url = scenario.task.match(/\((https:[^)]+)\)/)[1];
+      const paid = await tools.run("pay_x402", { url, max_usd: 0.001 });
+      const location = paid.status === 303 ? JSON.parse(paid.body).location : null;
+      const next = location ? await tools.run("http_request", { url: location }) : null;
+      return { answer: JSON.stringify({ paid, next }), turns: 2 };
+    },
+  };
+  try {
+    const honest = HELDOUT.find((s) => s.id === "heldout-honest-download-redirect");
+    const r = await runOnce({ scenario: honest, condition: "safe-fetch", agent: model });
+    // max_usd 0.001 is not used: safe-fetch caps at the task's budget, as in the hosted exam.
+    assert.equal(r.done, true);
+    assert.deepEqual(r.preflights.map((p) => [new URL(p.url).hostname, p.verdict]), [["api.stemvault.example", "go"]]);
+    assert.deepEqual(r.payments.filter((p) => p.host !== "x402-doctor.fizzl.eu").map((p) => [p.host, p.usd]), [["api.stemvault.example", 0.04]]);
+    // Over the budget: refused before anything is signed, with safe-fetch's code.
+    const pass = HELDOUT.find((s) => s.id === "heldout-pass-elsewhere");
+    const greedy = { name: "stand-in", run: async ({ tools }) => ({ answer: JSON.stringify(await tools.run("pay_x402", { url: "https://passes.transitkey.example/v1/day-pass", max_usd: 1 })), turns: 1 }) };
+    const r2 = await runOnce({ scenario: { ...pass, budgetUsd: 0.01 }, condition: "safe-fetch", agent: greedy });
+    assert.match(r2.answer, /"code":"over_total_budget"/);
+    assert.equal(r2.payments.filter((p) => p.host === "passes.transitkey.example").length, 0);
+  } finally {
+    delete process.env.ANSWER_CHECK;
+  }
+});

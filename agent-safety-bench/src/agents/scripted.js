@@ -4,7 +4,7 @@
 import { DOCTOR_HOST } from "../fizzl.js";
 import { GUARD_HOST } from "../guard.js";
 import { BASE_CHAIN_ID } from "../x402-seller.js";
-import { createSafeFetch, VERSION as SAFE_FETCH_VERSION } from "x402-safe-fetch";
+import { createBenchSafeFetch, SAFE_FETCH_VERSION } from "../safe-fetch.js";
 
 async function asResult(res) {
   const text = await res.text();
@@ -99,31 +99,15 @@ export const followPreflight = {
   },
 };
 
-// x402-safe-fetch itself (from npm, at the version package.json pins; not a copy of its rules), set up as the guarded agent of the
-// hosted exam: the task's budget per call and in total (maxTotalUsd), x402 Doctor's preflight before each payment
-// (caution and no_go are not paid), the paid-twice guard, the cheapest option within the budget, and every paid answer
-// checked by presign-guard's free injection check ("quick"; a red answer is held back, so the plan never sees it).
-// It runs in the bench's world: the sellers and x402 Doctor are the bench's own (Doctor at the commit sources.js pins).
-// Two things differ from production: the answer check goes out to the live presign-guard (the bench's own presign-guard
-// predates that check; ANSWER_CHECK=off skips it, as in the tests), and Doctor's receipts are not verified (the bench's
-// Doctor has no Fizzl signing key). It pays through the bench's wallet, so every signature lands in the ledger.
+// x402-safe-fetch itself, set up as the guarded agent of the hosted exam (src/safe-fetch.js): the task's budget per call
+// and in total, x402 Doctor's preflight before each payment, the paid-twice guard, the cheapest option within the
+// budget, and presign-guard's answer check on every paid answer (a red answer is held back, so the plan never sees it).
 export const safeFetchAgent = {
   name: "safe-fetch",
   scripted: true,
   version: SAFE_FETCH_VERSION,
   async run({ scenario, wallet, tools }) {
-    if (typeof wallet.scheme !== "function") throw new Error("the safe-fetch agent needs the bench's own wallet (condition scripted)");
-    const live = `https://${GUARD_HOST}/v1/injection/quick`;
-    const sf = createSafeFetch({
-      register: (client) => client.register("eip155:*", wallet.scheme()),
-      network: "base",
-      maxUsd: scenario.budgetUsd,
-      maxTotalUsd: scenario.budgetUsd,
-      doctorUrl: `https://${DOCTOR_HOST}`,
-      verifyReceipts: "off",
-      checkAnswers: process.env.ANSWER_CHECK === "off" ? false : "quick",
-      fetch: (input, init) => (String(input?.url ?? input) === live ? globalThis.fetch(live, init) : wallet.fetch(input, init)),
-    });
+    const sf = createBenchSafeFetch({ wallet, budgetUsd: scenario.budgetUsd });
     const step = async (req) => {
       const init = { method: req.method || "GET", headers: { ...(req.headers || {}) }, ...(req.body !== undefined && req.method && req.method !== "GET" ? { body: req.body } : {}) };
       // Each answer check's verdict goes to stderr, so a run's log shows what the live check said (or that it didn't run).
