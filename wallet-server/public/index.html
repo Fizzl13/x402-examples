@@ -441,6 +441,18 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .how-it-works .intro-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--soft); font-size: 15px; line-height: 1.5; }
 .how-it-works .intro-steps b { color: var(--text); }
 .login { gap: 22px; align-content: center; padding-block: 32px; }
+/* The film: a still from this server with a play button; YouTube (youtube-nocookie.com) loads only on press. */
+.film { width: min(760px, 100%); display: grid; gap: 12px; scroll-margin-top: 80px; }
+.film h3 { margin: 0; font: 700 clamp(22px, 3vw, 30px)/1.1 var(--display); letter-spacing: -1px; }
+.film h3 span { color: var(--mint); }
+.film .frame { position: relative; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #020708; }
+.film .yt-play, .film iframe { display: block; width: 100%; height: 100%; border: 0; padding: 0; margin: 0; background: none; cursor: pointer; position: relative; }
+.film img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .94; transition: opacity .2s; }
+.film .yt-play:hover img, .film .yt-play:focus-visible img { opacity: 1; }
+.film .yt-btn { position: absolute; right: 14px; bottom: 14px; width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--mint); background: rgba(2,7,8,.82); box-shadow: 0 0 40px rgba(97,245,195,.3); }
+.film .yt-btn::after { content: ""; position: absolute; left: 22px; top: 17px; border-style: solid; border-width: 11px 0 11px 17px; border-color: transparent transparent transparent var(--mint); }
+.film .yt-play:focus-visible { outline: 2px solid var(--mint); outline-offset: -4px; }
+.film .note { margin: 0; }
 /* Why keys stay with you: shown under the sign-in, and in "How it works" */
 .yourkeys { width: min(760px, 100%); display: grid; gap: 14px; }
 .yourkeys h3 { margin: 0; font: 700 clamp(22px, 3vw, 30px)/1.1 var(--display); letter-spacing: -1px; }
@@ -667,7 +679,33 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
         <button class="button" type="submit">Log in</button>
         <div class="err" id="loginErr"></div>
       </form>
-      <p class="note signin-foot">New here? <a href="#how">How it works</a> · <a href="/demo">Try the demo</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
+      <p class="note signin-foot">New here? <a href="#film">Watch the film</a> · <a href="#how">How it works</a> · <a href="/demo">Try the demo</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
+    </div>
+    <div class="film" id="film">
+      <h3>See it work <span>in 87 seconds.</span></h3>
+      <div class="frame" data-yt="g4V3qvDjCL4">
+        <button type="button" class="yt-play" aria-label="Play the film: Fizzl Agent Wallet, your AI agent pays and you decide">
+          <img src="/media/wallet-film.jpg" alt="" width="960" height="540" loading="lazy">
+          <span class="yt-btn" aria-hidden="true"></span>
+        </button>
+      </div>
+      <p class="note">Plays from YouTube (youtube-nocookie.com) only when you press play; nothing is sent to YouTube before. <a href="https://youtu.be/g4V3qvDjCL4" target="_blank" rel="noopener noreferrer">Open on YouTube ↗</a> · <a href="/privacy">Privacy</a></p>
+      <script>
+        // The film: swap the still for the YouTube player only when someone presses play.
+        document.querySelectorAll('.film .frame[data-yt]').forEach((box) => {
+          const button = box.querySelector('.yt-play');
+          if (!button) return;
+          button.addEventListener('click', () => {
+            const frame = document.createElement('iframe');
+            frame.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(box.dataset.yt)}?autoplay=1&rel=0&playsinline=1`;
+            frame.title = button.getAttribute('aria-label') || 'Video';
+            frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+            frame.allowFullscreen = true;
+            frame.referrerPolicy = 'strict-origin-when-cross-origin';
+            button.replaceWith(frame);
+          }, { once: true });
+        });
+      </script>
     </div>
     <div class="how-it-works" id="how">
       <h3>How it works <span>in three steps.</span></h3>

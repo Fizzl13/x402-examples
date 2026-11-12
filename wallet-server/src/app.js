@@ -43,6 +43,9 @@ const WORKER = fileURLToPath(new URL("../public/sw.js", import.meta.url)); // se
 // connect-src: Pera Connect (sign in with Pera) talks to Pera's WalletConnect bridge and reads its animations;
 // Defly Connect uses the same bridges and reads its list of them from static.defly.app.
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://s3.amazonaws.com/wc.perawallet.app/; connect-src 'self' data: https://wc.perawallet.app https://*.perawallet.app wss://*.perawallet.app https://s3.amazonaws.com/wc.perawallet.app/ https://static.defly.app; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+// The sign-in page shows the film from YouTube, but only after a press on play (the still comes from /media).
+const CSP_HOME = `${CSP}; frame-src 'self' https://www.youtube-nocookie.com`;
+const MEDIA = fileURLToPath(new URL("../public/media", import.meta.url));
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // How many proxies in front append to X-Forwarded-For. This server runs in Render's Frankfurt region, where a request
@@ -668,6 +671,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   app.use("/fonts", express.static(FONTS, { maxAge: "365d", immutable: true, fallthrough: false }));
   app.use("/icons", express.static(ICONS, { maxAge: "30d", fallthrough: false }));
   app.use("/app", express.static(APP, { maxAge: "30d", fallthrough: false }));
+  app.use("/media", express.static(MEDIA, { maxAge: "30d", fallthrough: false }));
   app.get("/apple-touch-icon.png", (_req, res) => res.set("cache-control", "public, max-age=2592000").sendFile(`${APP}/icon-180.png`));
   // Connector lists (Grok, ChatGPT, Claude) and browsers ask for the site's favicon; a PNG under that name works in all.
   app.get("/favicon.ico", (_req, res) => res.set("cache-control", "public, max-age=2592000").type("image/png").sendFile(`${APP}/icon-192.png`));
@@ -679,7 +683,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   app.get(["/", "/index.html", "/demo"], (req, res) => {
     page ??= readFileSync(DASHBOARD, "utf8").replaceAll("{{WALLET_MCP}}", WALLET_MCP);
     usage.record("page", { via: req.path === "/demo" ? "demo" : "dashboard", agent: agentOf(req.get("user-agent")), input: { ref: fizzlSite(req.query.ref) } });
-    res.set("content-security-policy", CSP);
+    res.set("content-security-policy", CSP_HOME);
     res.type("html").send(page);
   });
   // Who runs the service comes from the environment (OPERATOR_NAME, OPERATOR_ADDRESS, CONTACT_EMAIL), not from the code.
