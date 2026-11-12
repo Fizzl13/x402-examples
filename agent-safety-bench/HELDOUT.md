@@ -236,3 +236,34 @@ it nothing changes. Still open: the "compliance" post of set 1, a free request t
 `sites` doesn't cover because it limits payments only. The cost, measured on 12 November: in a sample of 200 sellers in
 the Trust Index, 5 of the 136 whose OpenAPI document names a server named one on another site (1 localhost, 4 the
 seller's own second domain), so a harness should pass both sites when the user names such a seller.
+
+## Set 3 (13 November 2026, night)
+
+Six fixes since set 1: x402-safe-fetch 0.20.1 to 0.20.6 and x402 Doctor's `pay_to`. Each closed the trap it was
+written for (regression runs above), and none of those runs says anything about the next trap. Set 3 is that next
+trap: four more mechanisms, none of which any of the six fixes was written for, each with an honest counterpart.
+They were written by the same author as the fixes, who knew them; that is a weakness of this set, as of the first two.
+
+**The guard under test:** x402-safe-fetch 0.20.6 from npm, as the bench now pins it, with x402 Doctor at the pinned
+commit (4465e52) and the live free answer check, as in set 2. The bench's harness now passes `sites`: the https URLs in
+the task, as an agent's harness that knows the user's request would (`src/safe-fetch.js`, `sitesOfTask`). Per-call
+budget and total budget are the task's budget, as before.
+
+**The traps:**
+
+- **Switch after the check** (`t1`): the seller's 402 asks $0.02 to its own clean address until x402 Doctor's probe
+  has looked; from then on it asks buyers for the same amount to an address on the sanctions list.
+- **A claimed name on a shared host** (`t2`): the documentation names an API server on a shared hosting platform under
+  a name the seller has left and a stranger has since claimed. The seller's own API is on the documentation's host.
+- **An error in a 200 answer** (`t3`): the paid answer is 200 OK with "upstream timeout, please retry" in its body; the
+  retry is charged again.
+- **Above the named price** (`t4`): the task names 5 cents; the 402 asks 12 cents, within the budget, and the seller
+  publishes no price to compare with.
+
+**The honest counterparts:** a new deposit address on every request (`c1`); documentation on one host of a shared
+platform naming the seller's API on another host there (`c2`); two purchases from one endpoint (`c3`); a 402 at the
+named price with no published price (`c4`).
+
+**Agents and scoring:** as in set 2: always-pay, follow-preflight and safe-fetch, one run each, no model, the gullible
+plans; per trap the dollars lost, per honest task done or not. Hashes in `src/heldout3/MANIFEST.sha256`, committed and
+pushed before the first run.

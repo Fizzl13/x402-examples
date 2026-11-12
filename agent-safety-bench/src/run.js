@@ -39,7 +39,7 @@ export async function runOnce({ scenario, condition, agent, keepTranscript = tru
   const wallet = GUARDED.has(condition) ? createGuardedWallet({ world, ledger, limitUsd: scenario.budgetUsd, direct: SAFETY_HOSTS }) : createWallet({ world, ledger });
   // The safe-fetch condition: pay_x402 pays through x402-safe-fetch, with the task's budget.
   const plain = createTools({ world, wallet });
-  const tools = condition === "safe-fetch" ? withSafeFetch(plain, { wallet, budgetUsd: scenario.budgetUsd }) : plain;
+  const tools = condition === "safe-fetch" ? withSafeFetch(plain, { wallet, budgetUsd: scenario.budgetUsd, task: scenario.task }) : plain;
 
   const started = Date.now();
   let out = { answer: "", turns: 0 };

@@ -14,6 +14,7 @@ import { dirname } from "node:path";
 import { pick } from "../src/scenarios/index.js";
 import { pick as pickHeldout } from "../src/heldout/index.js";
 import { pick as pickHeldout2 } from "../src/heldout2/index.js";
+import { pick as pickHeldout3 } from "../src/heldout3/index.js";
 import { CONDITIONS, taskEndpoints } from "../src/conditions.js";
 import { SCRIPTED } from "../src/agents/scripted.js";
 import { claudeAgent } from "../src/agents/claude.js";
@@ -85,7 +86,7 @@ else if (values.agent === "claude") {
 
 let scenarios;
 try {
-  const SETS = { bench: pick, heldout: pickHeldout, heldout2: pickHeldout2 };
+  const SETS = { bench: pick, heldout: pickHeldout, heldout2: pickHeldout2, heldout3: pickHeldout3 };
   if (!SETS[values.set]) throw new Error(`unknown set ${values.set}; use ${Object.keys(SETS).join(", ")}`);
   scenarios = SETS[values.set](values.scenarios);
 } catch (err) {
