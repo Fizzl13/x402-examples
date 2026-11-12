@@ -91,6 +91,11 @@ What it doesn't show: how models do here. The plans are gullible on purpose; a m
 Fixing safe-fetch against these four would turn this set into regression evidence too. Any such fix gets measured on
 a new held-out set, committed the same way before it runs.
 
+**First fix (12 November, x402-safe-fetch 0.20.1):** the cheapest-option rule now compares only options that pay the
+same address in the same token as the first one. Run against `heldout-stranger-cheaper-option` it pays the seller's
+own $0.02 option, and both honest tasks are still done. That is regression evidence, as above: the trap is no longer
+held out for this rule. The bench keeps 0.20.0 pinned, so the results on this page stay as recorded.
+
 ## Model sittings (12 November 2026, 21:19 to 21:27 UTC)
 
 The three open models that x402-safe-fetch got admitted in the hosted exam (94 each), through Hugging Face Inference

@@ -418,7 +418,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.20\.0$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.20\.1$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -458,6 +458,16 @@ test("Algorand and the XRP Ledger: only USDC / Ripple's RLUSD are paid, RLUSD wi
   assert.equal(payableOption([evm("500000"), evm("10000")], "eip155:8453", 1).amount, "10000");
   assert.equal(payableOption([evm("500000"), evm("10000")], "eip155:8453", 0.05).amount, "10000");
   assert.equal(payableOption([evm("500000"), evm("200000")], "eip155:8453", 0.05).amount, "500000");
+  // 0.20.1: only options to the first option's payee, in its token, are compared. A cheaper option to another address
+  // (the held-out test's stranger-cheaper-option) or in another token is not picked; the first option is.
+  const other = (amount, payTo, asset = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") => ({ ...evm(amount), payTo, asset });
+  assert.equal(payableOption([evm("20000"), other("15000", "0x2222222222222222222222222222222222222222")], "eip155:8453", 0.1).payTo, "0x1111111111111111111111111111111111111111");
+  assert.equal(payableOption([evm("20000"), other("15000", "0x1111111111111111111111111111111111111111", "0x4200000000000000000000000000000000000006")], "eip155:8453", 0.1).amount, "20000", "not another token");
+  const mixed = { ...evm("20000"), payTo: "0xAbCdEf0000000000000000000000000000000001" };
+  assert.equal(payableOption([mixed, other("15000", "0xabcdef0000000000000000000000000000000001")], "eip155:8453", 0.1).amount, "15000", "the same payee in another letter case");
+  // The first option over the budget and a cheaper one to someone else: nothing within the budget to that payee, so
+  // the first one is returned and x402's cap refuses it (never the stranger's).
+  assert.equal(payableOption([evm("500000"), other("10000", "0x2222222222222222222222222222222222222222")], "eip155:8453", 0.05).amount, "500000");
   // Stellar: only Circle's USDC contract, within the budget (7 decimals: 100000 is $0.01).
   const { STELLAR } = await import("../index.js");
   const USDC_SAC = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
