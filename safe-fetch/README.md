@@ -177,6 +177,8 @@ const safeFetch = createSafeFetch({
 });
 ```
 
+A paid answer that redirects hands the purchase on. Since 0.20.2, when a paid answer is a redirect (or a fetch followed one) and not a success, the URL it sent you to is blocked the same way: a "download host" that asks for the same price again is refused with `paid_no_delivery` (`error.earlier.redirectedFrom` names the paid endpoint). A redirect to a free download still works; only a payment there is refused. In our held-out test of 12 November 2026 safe-fetch paid such a second paywall, because it was another host ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)).
+
 The guard is also exported on its own (`createPaidGuard`, no dependencies) for agents that pay through another client.
 
 ## Instructions inside a paid answer

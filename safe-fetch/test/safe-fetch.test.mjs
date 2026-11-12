@@ -418,7 +418,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.20\.1$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.20\.2$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -644,6 +644,39 @@ test("paid-twice guard: another 402 after paying blocks too; a success clears; t
   assert.equal(g.blocked(PAID, {}).status, 500);
   g.record(PAID, {}, 200);
   assert.equal(g.blocked(PAID, {}), null);
+});
+
+test("paid-twice guard: a paid answer that redirects blocks the URL it sends the agent to (0.20.2, the held-out second paywall)", async () => {
+  // The seller takes its payment and answers 303 to a download host, which asks for the same price again.
+  const DL = "https://dl.example-cdn.com/r/77";
+  const log = { paid: [] };
+  const baseFetch = async () => Response.json({ x402Version: 2, accepts: [] }, { status: 402 });
+  const createPayingFetch = () => async (url, init = {}) => {
+    if (url.includes("/api/v1/preflight")) return Response.json(await signed({ verdict: "go", summary: "OK", reasons: [] }, url));
+    log.paid.push(url);
+    return new Response(JSON.stringify({ location: DL }), { status: 303, headers: { location: DL, "content-type": "application/json" } });
+  };
+  const sf = make({ baseFetch, createPayingFetch });
+  assert.equal((await sf(PAID)).status, 303);
+  await assert.rejects(sf(DL), (err) => {
+    assert.equal(err.code, "paid_no_delivery");
+    assert.equal(err.earlier.redirectedFrom, "https://api.example.com/paid");
+    assert.match(err.message, /^not paid: https:\/\/api\.example\.com\/paid was paid at .* and sent you here \(HTTP 303\)/);
+    return true;
+  });
+  assert.deepEqual(log.paid, [PAID], "the download host was not paid");
+
+  // A fetch that followed the redirect itself: the answer is the download host's 402, with redirected and url set.
+  const { createPaidGuard } = await import("../index.js");
+  const g = createPaidGuard();
+  g.record(PAID, {}, 402, { redirectedTo: DL });
+  assert.equal(g.blocked(`${DL}?token=1`, {}).redirectedFrom, "https://api.example.com/paid");
+  // A relative Location is read against the paid URL; a success blocks nothing.
+  g.record("https://api.example.com/report", {}, 302, { redirectedTo: "/files/9" });
+  assert.equal(g.blocked("https://api.example.com/files/9", {}).status, 302);
+  const ok = createPaidGuard();
+  ok.record(PAID, {}, 200, { redirectedTo: DL });
+  assert.equal(ok.blocked(DL, {}), null);
 });
 
 test("paid-twice guard: onPaidError 'pay' pays again, a function decides, anything else is refused", async () => {

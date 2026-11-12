@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.1";
+export const VERSION = "0.20.2";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -586,7 +586,10 @@ export function createSafeFetch({
       throw error;
     }
     if (limited && res.status === 402) addSpend(host, -counted);
-    paidGuard.record(url, { method, body: init.body }, res.status);
+    // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2).
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    const landed = res.redirected && res.url && res.url !== url ? res.url : null;
+    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed });
     return res;
   }
   async function payAndDiagnose(url, init, method, cap) {
