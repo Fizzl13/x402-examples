@@ -905,6 +905,25 @@ test("right of withdrawal: within 14 days, one click plus a confirmation; Pro en
   } finally { server.close(); }
 });
 
+test("sign-in page: the film is a still from this server; only YouTube's privacy-enhanced player may be framed", async () => {
+  const { server, base } = await boot();
+  try {
+    const res = await fetch(`${base}/`);
+    const page = await res.text();
+    assert.match(page, /data-yt="g4V3qvDjCL4"/);
+    assert.match(page, /src="\/media\/wallet-film\.jpg"/);
+    assert.doesNotMatch(page, /<iframe/); // nothing from YouTube until someone presses play
+    const csp = res.headers.get("content-security-policy");
+    assert.match(csp, /frame-src 'self' https:\/\/www\.youtube-nocookie\.com(;|$)/);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.doesNotMatch((await fetch(`${base}/privacy`)).headers.get("content-security-policy"), /youtube/); // only the sign-in page
+    const still = await fetch(`${base}/media/wallet-film.jpg`);
+    assert.equal(still.status, 200);
+    assert.equal(still.headers.get("content-type"), "image/jpeg");
+    assert.equal((await fetch(`${base}/media/nope.jpg`)).status, 404);
+  } finally { server.close(); }
+});
+
 test("privacy statement, served with the operator from the environment; fonts from this server", async () => {
   const off = await boot();
   try {
