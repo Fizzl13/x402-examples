@@ -183,6 +183,19 @@ A paid "202 Accepted" is not a delivery yet. Since 0.20.4, after a paid 202 a pa
 
 The guard is also exported on its own (`createPaidGuard`, no dependencies) for agents that pay through another client.
 
+### Only the sites the user named
+
+safe-fetch doesn't know which seller the user meant. Your agent's harness does, and since 0.20.6 it can say so: with `sites`, a payment asked on any other site is refused before anything is spent (code `other_site`). A site is the domain without subdomains, as x402 Doctor groups sellers: `api.metroquote.example` and `www.metroquote.example` are one site; on shared hosting (`vercel.app`, `onrender.com`, `workers.dev`, …) each host is its own.
+
+```js
+const safeFetch = createSafeFetch({
+  register,
+  sites: ["https://www.metroquote.example/openapi.json"], // the sites in the user's task
+});
+```
+
+In our held-out set 2 of 12 November 2026 the documentation the task named listed an unrelated host as the API server, and safe-fetch paid that host. In a sample of 200 sellers in x402 Doctor's Trust Index, 5 of the 136 whose OpenAPI document names a server named one on another site, and 4 of those were the seller's own second domain: add both when the user names a seller like that. Without `sites`, nothing changes.
+
 ### The address it pays is the address Doctor checks
 
 Since 0.20.3 the preflight names the payout address safe-fetch would pay, from the endpoint's own 402 (`pay_to`). A seller can tell x402 Doctor's requests apart and show it a clean address while buyers get another: in our held-out test of 12 November 2026 the checker saw a clean address, the buyer one on the sanctions list, and the preflight said go ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)). Now Doctor screens the buyer's address too (`payto_sanctioned`, no_go) and says caution (`payto_not_shown`) when the seller asked Doctor for one address and the buyer for another. A seller that hands out a new deposit address on every request is expected to differ (`payto_per_request`, info); then only the screen applies.

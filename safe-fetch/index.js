@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.5";
+export const VERSION = "0.20.6";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -195,7 +195,7 @@ export function refusalReason(preflight) {
 }
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" | "answer_injection" */
+  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" */
   constructor(message, { code, preflight = null, url = null, earlier, spent, check, response } = {}) {
     super(message);
     this.name = "SafePayError";
@@ -283,13 +283,32 @@ function requestOf(input, init) {
 
 // Same site: the same host, or the same last two host labels except on shared hosting and two-label country
 // suffixes, where only the exact host counts (as x402 Doctor's lib/refusal.js).
-const SHARED_HOSTING = new Set(["onrender.com", "vercel.app", "netlify.app", "herokuapp.com", "workers.dev", "pages.dev", "github.io", "fly.dev", "railway.app", "replit.app", "repl.co", "web.app", "firebaseapp.com", "appspot.com", "deno.dev", "azurewebsites.net", "cloudfront.net", "amazonaws.com", "ngrok-free.app", "ngrok.io", "trycloudflare.com", "glitch.me", "koyeb.app", "co.uk", "org.uk", "com.au", "co.jp", "com.br", "co.nz", "co.za", "com.cn", "co.in"]);
+const SHARED_HOSTING = new Set(["run.app", "onrender.com", "vercel.app", "netlify.app", "herokuapp.com", "workers.dev", "pages.dev", "github.io", "fly.dev", "railway.app", "replit.app", "repl.co", "web.app", "firebaseapp.com", "appspot.com", "deno.dev", "azurewebsites.net", "cloudfront.net", "amazonaws.com", "ngrok-free.app", "ngrok.io", "trycloudflare.com", "glitch.me", "koyeb.app", "co.uk", "org.uk", "com.au", "co.jp", "com.br", "co.nz", "co.za", "com.cn", "co.in"]);
 function sameSite(a, b) {
   const x = a.toLowerCase();
   const y = b.toLowerCase();
   if (x === y) return true;
   const base = (h) => h.split(".").slice(-2).join(".");
   return base(x) === base(y) && !SHARED_HOSTING.has(base(x));
+}
+
+// The site behind a host or URL (0.20.6, for sites): the domain without subdomains (api.metroquote.example ->
+// metroquote.example), the last three labels under a two-label country suffix (shop.example.co.uk -> example.co.uk), and
+// on shared hosting (vercel.app, onrender.com, workers.dev, ...) the full host name, because each subdomain there is
+// another owner. The same grouping as sameSite above and as x402 Doctor's sellers (lib/site.js there).
+const COUNTRY_SUFFIX = /^(co|com|org|net|gov|ac|edu|ne|or)\.[a-z]{2}$/;
+export function siteOf(value) {
+  let host;
+  try {
+    host = new URL(String(value).includes("://") ? String(value) : `https://${value}`).hostname.toLowerCase().replace(/\.$/, "");
+  } catch {
+    return null;
+  }
+  if (!host || /^[\d.]+$/.test(host) || host.includes(":") || !host.includes(".")) return host || null;
+  const labels = host.split(".");
+  const base = labels.slice(-2).join(".");
+  if (COUNTRY_SUFFIX.test(base)) return labels.slice(-3).join(".");
+  return SHARED_HOSTING.has(base) ? host : base;
 }
 
 /**
@@ -304,6 +323,8 @@ function sameSite(a, b) {
  * @param {"pay"|"stop"|((preflight: object) => boolean|Promise<boolean>)} [options.onIncomplete]  a "go" whose checks_complete
  *   is false (a check that applies couldn't run): "pay" (default), "stop" throws code "incomplete", a function decides
  * @param {string[]} [options.trusted]  hosts you already trust: paid without a preflight
+ * @param {string[]} [options.sites]  the sites this safeFetch may pay (hosts or URLs, e.g. the ones the user named in the
+ *   task); a payment asked anywhere else is refused before the preflight with code "other_site" (default: any site)
  * @param {(preflight: object, info: {url: string, method: string, cached: boolean}) => void} [options.onPreflight]
  * @param {number} [options.cacheMs]  how long a verdict is reused while the 402 offers the same thing (default 1 hour; at most 10 minutes when the offer can't be read)
  * @param {string} [options.doctorUrl]
@@ -339,6 +360,7 @@ export function createSafeFetch({
   onCaution = "stop",
   onIncomplete = "pay",
   trusted = [],
+  sites,
   onPreflight,
   cacheMs = 60 * 60 * 1000,
   doctorUrl = DOCTOR_URL,
@@ -385,6 +407,13 @@ export function createSafeFetch({
   const paidGuard = createPaidGuard({ windowMs: paidErrorMs, now });
   if (!["require", "off"].includes(verifyReceipts)) throw new TypeError('verifyReceipts must be "require" or "off"');
   const trustedHosts = new Set(trusted.map(hostOf).filter(Boolean));
+  // sites (0.20.6): only these sites are paid. In held-out set 2 (12 Nov 2026) the documentation the task named listed
+  // an unrelated host as the API server, and safe-fetch paid that host: nothing tied it to the seller the user meant.
+  // safe-fetch can't know what the user named; the agent's harness can, and passes it here.
+  if (sites !== undefined && (!Array.isArray(sites) || !sites.length || sites.some((s) => typeof s !== "string" || !siteOf(s)))) {
+    throw new TypeError("sites must be a non-empty list of hosts or URLs, e.g. [\"api.example.com\"], or left out");
+  }
+  const allowedSites = sites ? new Set(sites.map(siteOf)) : null;
 
   const makePayingFetch = createPayingFetch ?? ((cap) => {
     const client = new x402Client((_version, accepts) => {
@@ -713,6 +742,12 @@ export function createSafeFetch({
     // A result handed over without payment ends a 202 hold on this endpoint or the one it is the poll URL of.
     if (probe.ok && probe.status !== 202) paidGuard.delivered(url, { method });
     if (probe.status !== 402) return probe;
+
+    // Only the sites the owner named are paid (sites): checked before anything is spent, the preflight included.
+    if (allowedSites && !allowedSites.has(siteOf(url))) {
+      try { await probe.body?.cancel(); } catch { /* already consumed */ }
+      throw new SafePayError(`not paid: ${hostOf(url)} is not on a site this agent may pay (${[...allowedSites].join(", ")}). If the user meant this seller, add it to sites.`, { code: "other_site", url });
+    }
 
     // Paid before and not delivered: not paid again (and no preflight bought) unless onPaidError says so.
     const earlier = paidGuard.blocked(url, { method, body: init.body });

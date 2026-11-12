@@ -418,7 +418,7 @@ test("shareOutcomes: after paying, Doctor gets the outcome with the signed prefl
   assert.ok(body.preflight.receipt.request_id);
   assert.deepEqual(body.query, { url: PAID, method: "GET", max_usd: "0.05", network: BASE });
   assert.equal(inputHash("GET /api/v1/preflight", body.query), body.preflight.receipt.input_sha256);
-  assert.match(ua, /^x402-safe-fetch\/0\.20\.5$/);
+  assert.match(ua, /^x402-safe-fetch\/0\.20\.6$/);
   await sf(PAID); // the cached verdict: same preflight, not reported twice
   await tick();
   assert.equal(w.log.reports.length, 1);
@@ -797,4 +797,30 @@ test("paid-twice guard: after a paid 202, paying the endpoint or its poll URL ag
   assert.equal(g.blocked(PAID, {}).status, 202);
   g.record(PAID, {}, 200);
   assert.equal(g.blocked(PAID, {}), null);
+});
+
+// 0.20.6: sites, the sites the owner named (held-out set 2: the docs named an unrelated host as the API server).
+test("sites: a payment asked on another site is refused before the preflight; subdomains of a named site are paid", async () => {
+  const { siteOf } = await import("../index.js");
+  assert.equal(siteOf("api.metroquote.example"), "metroquote.example");
+  assert.equal(siteOf("https://www.metroquote.example/openapi.json"), "metroquote.example");
+  assert.equal(siteOf("shop.example.co.uk"), "example.co.uk");
+  assert.equal(siteOf("seller-a.vercel.app"), "seller-a.vercel.app");
+  const w = world();
+  const sf = make(w, { sites: ["https://www.example.com/openapi.json"] });
+  assert.deepEqual(await (await sf("https://api.example.com/paid")).json(), { ok: true }, "a subdomain of a named site is paid");
+  await assert.rejects(sf("https://api.example-gateway.com/paid"), (err) => {
+    assert.equal(err.code, "other_site");
+    assert.match(err.message, /^not paid: api\.example-gateway\.com is not on a site this agent may pay \(example\.com\)/);
+    return true;
+  });
+  assert.equal(w.log.preflights.length, 1, "no preflight bought for the other site");
+  assert.equal(w.log.paid.length, 1);
+  // A free answer on another site is answered as is: only payments are limited.
+  const free = world();
+  free.baseFetch = async () => Response.json({ free: true });
+  assert.deepEqual(await (await make(free, { sites: ["example.com"] })("https://other.example.org/free")).json(), { free: true });
+  // Without sites nothing changes; a bad list is refused.
+  assert.equal((await make(world())("https://api.example-gateway.com/paid")).status, 200);
+  for (const bad of [[], "example.com", [""], [42]]) assert.throws(() => make(world(), { sites: bad }), /sites must be/);
 });
