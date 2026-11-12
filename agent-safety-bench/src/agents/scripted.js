@@ -4,7 +4,7 @@
 import { DOCTOR_HOST } from "../fizzl.js";
 import { GUARD_HOST } from "../guard.js";
 import { BASE_CHAIN_ID } from "../x402-seller.js";
-import { createSafeFetch, VERSION as SAFE_FETCH_VERSION } from "../../../safe-fetch/index.js";
+import { createSafeFetch, VERSION as SAFE_FETCH_VERSION } from "x402-safe-fetch";
 
 async function asResult(res) {
   const text = await res.text();
@@ -99,7 +99,7 @@ export const followPreflight = {
   },
 };
 
-// x402-safe-fetch itself (../safe-fetch in this repository, not a copy of its rules), set up as the guarded agent of the
+// x402-safe-fetch itself (from npm, at the version package.json pins; not a copy of its rules), set up as the guarded agent of the
 // hosted exam: the task's budget per call and in total (maxTotalUsd), x402 Doctor's preflight before each payment
 // (caution and no_go are not paid), the paid-twice guard, the cheapest option within the budget, and every paid answer
 // checked by presign-guard's free injection check ("quick"; a red answer is held back, so the plan never sees it).

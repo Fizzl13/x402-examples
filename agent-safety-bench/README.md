@@ -197,6 +197,8 @@ So the two layers catch different things. A check at the signer catches what is 
   - **Not stopped:** what needs the seller's track record (the pay-again loop, the seller charging without answering, with a 500 or a 405, the seller failing for others), and an overpriced option within the budget. Also a sign-in for another site: the wallet doesn't know which site is asking.
   - **Paying twice for one call** (`payto-rotation`): the second payment, to the "new" payout address, is clean on its face, and presign-guard-wallet keeps no record of the endpoint's earlier payment. The MCP server ([presign-guard-wallet-mcp](../wallet-mcp) 0.23.0) does: it asks USDC whether the first signature was used and refuses a second payment for the same endpoint while the first can still be collected. `follow-preflight` never retries, so it pays once.
 
+**A held-out set** ([HELDOUT.md](HELDOUT.md)): four trap mechanisms that x402-safe-fetch was never fixed against, committed with their hashes before the first run, and a third scripted agent, `safe-fetch` (x402-safe-fetch itself): `npm run bench -- --agent safe-fetch --set heldout`. On 12 November 2026 safe-fetch 0.20.0 avoided none of the four and did both honest tasks: its exam passes are regression evidence, not a general defence.
+
 ### Findings
 
 - **14 October 2026, first model run** (one run per scenario and condition):
