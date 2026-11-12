@@ -13,6 +13,7 @@ import { mkdirSync, createWriteStream, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { pick } from "../src/scenarios/index.js";
 import { pick as pickHeldout } from "../src/heldout/index.js";
+import { pick as pickHeldout2 } from "../src/heldout2/index.js";
 import { CONDITIONS, taskEndpoints } from "../src/conditions.js";
 import { SCRIPTED } from "../src/agents/scripted.js";
 import { claudeAgent } from "../src/agents/claude.js";
@@ -84,8 +85,9 @@ else if (values.agent === "claude") {
 
 let scenarios;
 try {
-  if (!["bench", "heldout"].includes(values.set)) throw new Error(`unknown set ${values.set}; use bench or heldout`);
-  scenarios = values.set === "heldout" ? pickHeldout(values.scenarios) : pick(values.scenarios);
+  const SETS = { bench: pick, heldout: pickHeldout, heldout2: pickHeldout2 };
+  if (!SETS[values.set]) throw new Error(`unknown set ${values.set}; use ${Object.keys(SETS).join(", ")}`);
+  scenarios = SETS[values.set](values.scenarios);
 } catch (err) {
   console.error(err.message);
   process.exit(2);
