@@ -162,5 +162,14 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
     return { tx_blob: signed.tx_blob, hash: signed.hash };
   }
 
-  return { address: account.address, xrplAddress: AGENT_XRPL.classicAddress, pay, signTypedData, signMessage, signAuthorization, signXrplTransaction };
+  // For a client that pays on its own (x402-safe-fetch, in the safe-fetch agent): the exact scheme with this wallet's
+  // signer, and the world's fetch, which tells the ledger which URL a payment it signs is for (the client signs between
+  // the 402 and the paid retry of the same URL).
+  const scheme = () => signWith.scheme(new ExactEvmScheme(signer));
+  const fetch = async (input, init) => {
+    currentUrl = input instanceof Request ? input.url : String(input);
+    return world.fetch(input, init);
+  };
+
+  return { address: account.address, xrplAddress: AGENT_XRPL.classicAddress, pay, signTypedData, signMessage, signAuthorization, signXrplTransaction, scheme, fetch };
 }
