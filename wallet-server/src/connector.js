@@ -111,7 +111,10 @@ export function fizzlBuyOption({ query, cap, sellers }) {
   };
 }
 
-export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals, cardBuy = false }) {
+// The feedback tool's description (the same words as the npm MCP server's tool, wallet-mcp/lib.js).
+const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it.";
+
+export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals, cardBuy = false, feedback = null }) {
   const router = express.Router();
   const payments = createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl, baseRpc, xaman, xrplRpc, solanaRpc, fetch: fetchImpl, sellerFetch, lookup, allowPrivate, statusWaitMs, paidTimeoutMs, retryPauseMs, version, now, refusals, cardBuy });
   router.use(payments.router);
@@ -321,10 +324,10 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
           services: buy ? [buy, ...sellers] : sellers,
           ...(sellers.length && !close ? { close_match: false } : {}),
           note: sellers.length && !close
-            ? `None of these clearly does what was asked: they only share some words with it. Read each description before paying, or tell your user nobody in the x402 catalog seems to sell exactly this. ${PAYING}`
+            ? `None of these clearly does what was asked: they only share some words with it. Read each description before paying, or tell your user nobody in the x402 catalog seems to sell exactly this. If nobody seems to sell it, tell Fizzl with the feedback tool (free). ${PAYING}`
             : sellers.length
             ? `${buy ? `The first entry is Fizzl Buy, Fizzl's own service: for $${FIZZL_BUY.price} it picks one of these sellers, pays it and checks the answer. ` : ""}From the public x402 catalog: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. ${PAYING}`
-            : `Nothing in the x402 catalog matched within $${cap} on Base or Solana. Try other words, or a higher max_price_usd.`,
+            : `Nothing in the x402 catalog matched within $${cap} on Base or Solana. Try other words, or a higher max_price_usd. If nobody seems to sell it, tell Fizzl with the feedback tool (free).`,
         });
       } catch (err) { console.warn(`[connector] search: ${err.message}`); return failure("The x402 catalog can't be reached right now. Try again in a minute."); }
     });
@@ -382,6 +385,20 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
         return out.error && !out.status ? failure(out.error) : result(out);
       } catch (err) { console.error("[connector] status", err); return failure("The payment's status can't be read right now. Try again in a minute."); }
     });
+    if (feedback) {
+      server.registerTool("feedback", {
+        title: "Send feedback to Fizzl (free)",
+        description: FEEDBACK_DESCRIPTION,
+        inputSchema: feedback.shape(z),
+        annotations: { openWorldHint: false },
+      }, async (args) => {
+        try {
+          const out = await feedback.submit({ account, agent }, args, { userAgent: "fizzl-connector", via: "mcp" });
+          track("feedback", { result: { ok: out.ok } });
+          return out.ok ? result(out.body) : failure(out.body.message);
+        } catch (err) { console.error("[connector] feedback", err); return failure("The report couldn't be sent right now. Try again in a minute."); }
+      });
+    }
     return server;
   }
 

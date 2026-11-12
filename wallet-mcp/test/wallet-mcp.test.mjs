@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { decodeFunctionData, erc20Abi } from "viem";
 import { Wallet } from "xrpl";
-import { configFromEnv, createServer, createWallet, withSecretFiles, words } from "../lib.js";
+import { configFromEnv, createServer, createWallet, withSecretFiles, words, sendFeedback, FEEDBACK_URL, setupWallet } from "../lib.js";
 
 const KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // a well-known test key (anvil #1), no funds
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -245,10 +245,25 @@ test("the wallet server pins this version: a new version also changes wallet-ser
   for (const f of ["../manifest.json", "../server.json"]) assert.equal(JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8")).version, version, f);
 });
 
-test("the MCP client sees eight tools", async () => {
+test("the MCP client sees nine tools", async () => {
   const { client } = await setup();
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name).sort(), ["buy_usdc", "check_text", "find_services", "pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
+  assert.deepEqual(tools.map((t) => t.name).sort(), ["buy_usdc", "check_text", "feedback", "find_services", "pause_spending", "pay_x402", "send_native", "send_usdc", "wallet_status"]);
+});
+
+test("feedback: to the wallet server as this agent (its key), or to wallet.fizzl.eu's public /feedback without one", async () => {
+  const sent = [];
+  const fetchStub = async (url, init) => { sent.push({ url: String(url), auth: init.headers.authorization, body: JSON.parse(init.body) }); return Response.json({ received: true, id: "r1", service: "wallet" }, { status: 202 }); };
+  const out = await sendFeedback({ type: "feature", message: "EURC please" }, { server: { url: "https://wallet.test/", key: "awk_test" }, fetch: fetchStub });
+  assert.equal(out.received, true);
+  assert.deepEqual(sent[0], { url: "https://wallet.test/v1/feedback", auth: "Bearer awk_test", body: { type: "feature", message: "EURC please" } });
+  await sendFeedback({ message: "no server here" }, { fetch: fetchStub });
+  assert.deepEqual([sent[1].url, sent[1].auth], [FEEDBACK_URL, undefined]);
+  // The server's refusal comes through as the error.
+  const refused = async () => Response.json({ error: "rate_limited", message: "At most 10 reports per hour." }, { status: 429 });
+  await assert.rejects(sendFeedback({ message: "again" }, { fetch: refused }), /At most 10 reports per hour/);
+  // The stand-in wallet (no AGENT_KEY yet) still sends feedback.
+  assert.equal(typeof setupWallet().feedback, "function");
 });
 
 test("buy_usdc: a Coinbase checkout link from the wallet server, with this agent's key; refused without a wallet server", async () => {
@@ -903,7 +918,7 @@ test("with LINKING=off and without AGENT_KEY the server starts in setup mode: to
   await client.connect(transport);
   try {
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "buy_usdc", "send_usdc", "send_native", "check_text", "pause_spending"]);
+    assert.deepEqual(tools.map((t) => t.name), ["wallet_status", "find_services", "pay_x402", "buy_usdc", "send_usdc", "send_native", "check_text", "feedback", "pause_spending"]);
     const out = await client.callTool({ name: "send_usdc", arguments: { to: "0x6B0F4651eD42893ab58139938175E4a69f175F25", amount: "1" } });
     assert.equal(out.isError, true);
     assert.match(out.content[0].text, /No wallet yet: set AGENT_KEY/);

@@ -332,7 +332,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const sol = solanaOffer(challenge);
     const xrpl = xm ? xrplOffer(challenge) : null;
     if (!base && !sol && !xrpl) tellSeller(account, challenge, url, "network_unsupported", "Fizzl Agent Wallet pays USDC on Base or Solana, or RLUSD on the XRP Ledger").catch(() => {});
-    if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
+    if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}. Need it? Tell Fizzl with the feedback tool (free).` };
     // An escrowed offer may cost up to MAX_ESCROW_USD; everything else up to MAX_PRICE_USD.
     const within = (price, escrowed = false) => price <= Math.min(cap, escrowed ? MAX_ESCROW_USD : MAX_PRICE_USD);
     let offer = base && within(usd(base.amount), !!base.escrow) ? base : null;

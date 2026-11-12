@@ -14,6 +14,7 @@ import { getHeapStatistics } from "node:v8";
 import indexNow from "./indexnow.cjs";
 import { WALLET_MCP, WALLET_MCPB, WALLET_MCP_VERSION } from "./mcp-package.js";
 import { createConnector } from "./connector.js";
+import feedbackModule from "./feedback.cjs";
 import { receiptsCsv } from "./receipts.js";
 
 const DASHBOARD = fileURLToPath(new URL("../public/index.html", import.meta.url));
@@ -96,6 +97,27 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   // What the sign-in page offers.
   app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, algorand: signInWithWallet && !!accounts.algorandEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username, onramp: !!onramp?.enabled }));
 
+  // ---------- feedback ----------
+  // POST /feedback (anyone) and POST /v1/feedback (an agent, with its key; the connector's MCP tool feedback uses the
+  // same): what is missing or broken, for a person to read (src/feedback.cjs, the file Fizzl's other services share).
+  // Free; nothing in a report is run or changed automatically, and its text is untrusted data. A keyed agent's report
+  // also reaches this server's owner (Telegram or the app), since it comes from a real account; an anonymous one only
+  // reaches the usage log and the server log. At most 10 reports an hour per IP, or per account for a keyed agent.
+  let feedbackFrom = null; // who sent the report being recorded: set around the synchronous submit() below
+  const feedback = feedbackModule.createFeedback({
+    service: "wallet",
+    agentOf,
+    record: (e) => usage.record("feedback", { account: feedbackFrom?.account ?? null, via: e.via, agent: e.agent, input: { type: e.feedback.type, endpoint: e.feedback.endpoint, agent_name: feedbackFrom?.agentName, message: e.feedback.message, id: e.feedback.id } }),
+  });
+  async function agentFeedback({ account, agent }, input, { userAgent, via }) {
+    feedbackFrom = { account, agentName: String(agent?.name ?? "").slice(0, 40) || undefined };
+    let out;
+    try { out = feedback.submit(input, { ip: `account:${account}`, userAgent, via }); } finally { feedbackFrom = null; }
+    if (out.ok) await accounts.agentFeedback?.(account, agent, { ...feedbackModule.parseFeedback(input).value, id: out.body.id }).catch((err) => console.error(`[feedback] not passed on: ${err.message}`));
+    return out;
+  }
+  app.use(feedback.router(express));
+
   // ---------- agents ----------
   const agentOnly = async (req, res, next) => {
     try {
@@ -111,6 +133,10 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   };
   const v1 = express.Router();
   v1.use(agentOnly);
+  v1.post("/feedback", wrap(async (req, res) => {
+    const out = await agentFeedback({ account: req.account, agent: req.agent }, req.body, { userAgent: req.get("user-agent"), via: "http" });
+    res.status(out.status).json(out.body);
+  }));
   v1.get("/policy", wrap(async (req, res) => res.json({ policy: await req.wallet.getPolicy() })));
   // The owner's Fizzl Pass proof, for the agent to send as X-Fizzl-Pass to Fizzl's services (higher free limits).
   v1.get("/pass", wrap(async (req, res) => res.set("cache-control", "no-store").json({ token: (await accounts.passToken?.(req.account)) ?? null })));
@@ -734,7 +760,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   // The wallet as a connector for ChatGPT, Grok and other remote MCP apps: OAuth and /mcp (src/connector.js).
-  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", cardBuy: !!onramp?.enabled, ...connector }));
+  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, feedback: { submit: agentFeedback, shape: feedback.mcpShape }, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", cardBuy: !!onramp?.enabled, ...connector }));
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
   // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.

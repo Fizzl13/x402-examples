@@ -96,6 +96,40 @@ test("login: wrong password refused and slowed down; the dashboard needs the coo
   } finally { server.close(); }
 });
 
+test("feedback: anyone may POST /feedback; an agent's report (with its key) also reaches the owner, with its account and name", async () => {
+  const records = [];
+  const usage = { enabled: true, record: (route, f = {}) => records.push({ route, ...f }), flush: async () => {}, code: (x) => (x ? "acct" : undefined) };
+  const { base, server, agent, tg } = await boot({ usage });
+  const post = (path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  try {
+    const how = await (await fetch(`${base}/feedback`)).json();
+    assert.equal(how.service, "wallet");
+    const anon = await post("/feedback", { type: "feature", message: "Please support EURC on Base" });
+    assert.equal(anon.status, 202);
+    assert.equal((await anon.json()).received, true);
+    assert.ok(!tg.calls.some((c) => /Agent feedback/.test(c.body?.text ?? "")), "an anonymous report doesn't reach the owner's Telegram");
+    assert.equal((await post("/feedback", { message: "x" })).status, 400);
+    assert.equal((await post("/v1/feedback", { message: "no key" })).status, 401);
+    const keyed = await agent("POST", "/v1/feedback", { type: "bug", message: "find_services found nothing for tide tables", endpoint: "find_services", contact: "bot@example.com" });
+    assert.equal(keyed.status, 202);
+    assert.equal(keyed.body.received, true);
+    const told = tg.calls.find((c) => c.method === "sendMessage" && /Agent feedback/.test(c.body.text));
+    assert.equal(told.body.chat_id, "4242");
+    assert.match(told.body.text, /Agent feedback \(bug, find_services\) from "research-agent" of you \(owner\)/);
+    assert.match(told.body.text, /tide tables[\s\S]*Contact: bot@example\.com[\s\S]*Report [0-9a-f-]{36}/);
+    const logged = records.filter((r) => r.route === "feedback");
+    assert.equal(logged.length, 2);
+    assert.equal(logged[0].account, null, "the anonymous one has no account");
+    assert.ok(logged[1].account, "the agent's one has its account");
+    assert.equal(logged[1].input.agent_name, "research-agent");
+    assert.match(logged[1].input.message, /tide tables/);
+    assert.ok(!JSON.stringify(logged).includes("bot@example.com"), "the contact stays out of the usage log");
+    // At most 10 an hour per account (the anonymous one counted for its IP, not here).
+    for (let i = 0; i < 9; i++) assert.equal((await agent("POST", "/v1/feedback", { message: `more feedback ${i}` })).status, 202);
+    assert.equal((await agent("POST", "/v1/feedback", { message: "one too many" })).status, 429);
+  } finally { server.close(); }
+});
+
 test("agents need their key; a key works only as a hash and stops working when removed", async () => {
   const { owner, agent, base, server, store } = await boot();
   try {
@@ -1351,7 +1385,7 @@ test("skill.md: instructions an agent can follow, with this server's address", a
     const page = await (await fetch(`${base}/`)).text();
     assert.ok(page.includes(`const WALLET_MCP = "presign-guard-wallet-mcp@${version}";`) && !page.includes("{{WALLET_MCP}}"));
     assert.match(md, /Never ask your owner to paste a private key/);
-    for (const tool of ["wallet_status", "find_services", "pay_x402", "send_usdc", "pause_spending"]) assert.ok(md.includes(`\`${tool}\``), tool);
+    for (const tool of ["wallet_status", "find_services", "pay_x402", "send_usdc", "pause_spending", "feedback"]) assert.ok(md.includes(`\`${tool}\``), tool);
     // Behind a proxy on a real domain the address is https.
     const viaProxy = await (await fetch(`${base}/skill.md`, { headers: { "x-forwarded-proto": "https", "x-forwarded-host": "wallet.example" } })).text();
     assert.ok(viaProxy.includes('"WALLET_SERVER_URL": "https://wallet.example"'));
