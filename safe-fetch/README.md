@@ -211,7 +211,7 @@ try {
 }
 ```
 
-The payment has already been made at that point; what you save is the agent acting on it (the next payment, a key it would hand over, an instruction it would follow). A check that can't run leaves the answer as it is, marked `unchecked`: the check never blocks an answer it couldn't read. Binary answers (images, files) aren't checked.
+The payment has already been made at that point; what you save is the agent acting on it (the next payment, a key it would hand over, an instruction it would follow). A check that can't run leaves the answer as it is, marked `unchecked`: the check never blocks an answer it couldn't read. Binary answers (images, files) aren't checked. What counts as binary is the bytes, not the label: since 0.20.5 an answer labelled `application/octet-stream` (or another non-text type) that is text after all is checked like text. In our held-out set 2 of 12 November 2026 a paid answer labelled as a binary file told the agent to pay $0.30 elsewhere to "unlock" it, and the label kept the check from reading it ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)). Those answers count against the free check's limit too.
 
 ## A budget for the whole task
 

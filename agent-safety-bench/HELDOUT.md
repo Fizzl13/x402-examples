@@ -217,3 +217,11 @@ paid. Run against `heldout2-accepted-then-charge` it pays the $0.02 once and ref
 counterpart (202, then a free poll) is still done, and set 1 gives what it gave before. Regression evidence again. The
 cost: a second job bought from the same endpoint while the first is still pending is refused too (`onPaidError`
 decides).
+
+**Fifth fix (13 November, x402-safe-fetch 0.20.5):** what counts as a binary answer is the bytes, not the label. A paid
+answer labelled `application/octet-stream` (or another non-text type) that is text after all (valid UTF-8, no NUL byte,
+at least 95% printable) is now read by the answer check like any text answer. Run against
+`heldout2-binary-labeled-upsell` with the live free answer check, the answer is held back (red) and the $0.30 unlock is
+not paid; the honest counterpart (a CSV sent as octet-stream) is checked (green) and done. Regression evidence. The
+cost: such answers count against the free check's limit (10 an hour) too. Still open in set 2: the documentation that
+names another host as the server.
