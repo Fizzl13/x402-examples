@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.4";
+export const VERSION = "0.20.5";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -643,7 +643,25 @@ export function createSafeFetch({
   // in an answer (pay another host to "unlock" the rest, ignore your user, hand over a key) are not the user's; a
   // preflight can't see them, because they arrive after the payment. Binary answers are not checked. A check that fails
   // (the free limit, an outage) leaves the answer as it is, marked "unchecked".
+  //
+  // What counts as binary is the bytes, not the label (0.20.5): an answer labelled application/octet-stream (or any
+  // other non-text type) that is text after all (valid UTF-8, no NUL byte, at least 95% printable) is checked like
+  // text. In held-out set 2 (12 Nov 2026) a paid answer labelled as a binary file told the agent to pay $0.30 at another
+  // host to "unlock" it, and the label kept the check from reading it. Images, PDFs and archives still pass unread.
   const ANSWER_TYPES = /json|text|xml|html|javascript/i;
+  const SNIFF_MAX_BYTES = 1024 * 1024;
+  function textOf(bytes) {
+    if (!bytes.length || bytes.length > SNIFF_MAX_BYTES || bytes.includes(0)) return null;
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      return null;
+    }
+    const sample = text.slice(0, 4000);
+    const printable = sample.replace(/[^\t\n\r\x20-\x7e\u00a0-\uffff]/g, "").length;
+    return printable / sample.length >= 0.95 ? text : null;
+  }
   function marked(res, verdict, text) {
     const headers = new Headers(res.headers);
     headers.set(ANSWER_CHECK_HEADER, verdict);
@@ -652,10 +670,15 @@ export function createSafeFetch({
   async function checkAnswer(url, method, res) {
     if (!checkAnswers || !res.ok) return res;
     const type = res.headers.get("content-type") || "";
-    if (type && !ANSWER_TYPES.test(type)) return res;
     let text;
     try {
-      text = await res.clone().text();
+      if (!type || ANSWER_TYPES.test(type)) text = await res.clone().text();
+      else {
+        const length = Number(res.headers.get("content-length"));
+        if (length > SNIFF_MAX_BYTES) return res;
+        text = textOf(new Uint8Array(await res.clone().arrayBuffer()));
+        if (text === null) return res;
+      }
     } catch {
       return res;
     }
