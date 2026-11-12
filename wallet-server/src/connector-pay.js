@@ -410,7 +410,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       ...(out.httpStatus ? { http_status: out.httpStatus, content_type: out.contentType ?? null, body: out.body ?? "" } : {}),
       ...(out.settlement ? { settlement: out.settlement } : {}),
       ...(warnings.length ? { warnings } : {}),
-      ...(out.purchaseId ? { receipt: `${origin}/#/purchases` } : {}),
+      ...(out.purchaseId ? { receipt: `${origin}/#/purchases`, receipt_id: out.purchaseId } : {}),
     };
   }
 

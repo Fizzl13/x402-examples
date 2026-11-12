@@ -50,6 +50,21 @@ function cleanOutcome(o) {
   }
   return Object.keys(out).length ? out : null;
 }
+// A receipt's payment transaction (the x402 settlement the agent reported), for finding it by its hash.
+const txOf = (p) => p.outcome?.settlement?.transaction ?? null;
+// Two hashes are the same payment: EVM hex in any letter case, anything else (base58 signatures) exactly.
+const sameTx = (a, b) => typeof a === "string" && typeof b === "string" && (a === b || (/^0x[0-9a-f]+$/i.test(a) && a.toLowerCase() === b.toLowerCase()));
+// How many of the newest receipts a feedback report's transaction hash is looked for in.
+const PAYMENT_LOOKUP = 1000;
+// What the owner sees of the receipt an agent's feedback is about (src/accounts.js agentFeedback).
+function paymentView(p) {
+  return {
+    receipt: p.id, at: new Date(p.createdAt).toISOString(), url: p.what?.url ?? null, amounts: p.amounts ?? [],
+    chainId: p.chainId ?? null, network: p.outcome?.settlement?.network ?? null, tx: txOf(p), status: p.status,
+    httpStatus: p.outcome?.httpStatus ?? null, error: p.outcome?.error ?? null, delivered: p.outcome?.check?.delivered?.verdict ?? null,
+  };
+}
+
 // The parts of a verified presign-guard verdict a receipt shows.
 const verdictView = (v) => (v ? {
   verdict: v.verdict,
@@ -550,6 +565,18 @@ export function createWallet({ store, now = () => Date.now(), notify = async () 
       const p = typeof purchaseId === "string" ? await store.getPurchase(purchaseId) : null;
       if (!p) throw Object.assign(new Error("no such receipt (receipts are kept 90 days)"), { status: 404 });
       return p;
+    },
+
+    // The receipt a feedback report names (POST /v1/feedback, the connector's feedback tool): by its receipt id or its
+    // transaction hash, and only one of this agent's own; null when it has none. Read only: nothing is changed.
+    async paymentFor(agent, { receipt = null, tx = null } = {}) {
+      if (receipt) {
+        const p = await store.getPurchase(String(receipt));
+        if (p && p.agent === agent.id) return paymentView(p);
+      }
+      if (!tx) return null;
+      const p = (await kept(PAYMENT_LOOKUP)).find((x) => x.agent === agent.id && sameTx(txOf(x), tx));
+      return p ? paymentView(p) : null;
     },
 
     // What the agents bought: the newest receipts, for the Purchases screen. Receipts made before the list

@@ -55,6 +55,31 @@ const cleanEmail = (e) => String(e ?? "").trim().toLowerCase();
 const emailId = (e) => `em:${createHash("sha256").update(`aw-email:${cleanEmail(e)}`).digest("hex").slice(0, 40)}`;
 const emailHint = (e) => { const [u, d] = cleanEmail(e).split("@"); return `${u[0]}…@${d}`; };
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// A payment on its chain's explorer, for the owner's message about an agent's feedback; the bare hash otherwise.
+export function txLink(network, chainId, tx) {
+  const evm = /^eip155:(\d+)$/.exec(network ?? "")?.[1] ?? (Number.isInteger(chainId) ? String(chainId) : null);
+  if (evm && PAY_CHAINS[evm]?.explorer && /^0x[0-9a-fA-F]{64}$/.test(tx)) return `${PAY_CHAINS[evm].explorer}/tx/${tx}`;
+  if (/^solana(:|$)/.test(network ?? "") && /^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(tx)) return `https://solscan.io/tx/${tx}`;
+  if (network === "xrpl:0" && /^[0-9A-Fa-f]{64}$/.test(tx)) return `https://livenet.xrpl.org/transactions/${tx}`;
+  return tx;
+}
+const STATUS_WORD = { signed: "paid", signing: "not finished", failed: "failed" };
+// The payment an agent's feedback names: its own receipt for it (src/wallet.js paymentFor), or a note that it has none.
+export function paymentLines(found, named) {
+  if (!named) return [];
+  if (!found) {
+    const ref = named.tx ? `transaction ${named.tx.length > 20 ? `${named.tx.slice(0, 10)}…${named.tx.slice(-6)}` : named.tx}` : `receipt ${named.receipt}`;
+    return ["", `It names a payment that isn't on this agent's receipts (${ref}${named.network ? ` on ${named.network}` : ""}).`];
+  }
+  let host = null;
+  try { host = found.url ? new URL(found.url).host : null; } catch { host = null; }
+  const how = [STATUS_WORD[found.status] ?? found.status, found.httpStatus ? `answer HTTP ${found.httpStatus}` : null, found.delivered ? `delivered: ${found.delivered}` : null, found.error ? `error: ${String(found.error).slice(0, 120)}` : null].filter(Boolean).join(", ");
+  return [
+    "", `About this purchase (receipt ${found.receipt}): ${found.amounts.join(" + ") || "a payment"} to ${host ?? "an API"} on ${found.at.slice(0, 16).replace("T", " ")} UTC; ${how}.`,
+    ...(found.tx ? [`Transaction: ${txLink(found.network, found.chainId, found.tx)}`] : []),
+  ];
+}
+
 // The networks Pro can be paid on from an Ethereum wallet: USDC (native, 6 decimals) to the same payout
 // address on each. Base is the default; each RPC can be replaced (billing.chains[id].rpcUrl).
 export const PAY_CHAINS = {
@@ -950,7 +975,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       const who = id === ADMIN ? "you (owner)" : a?.emailHint ?? (a?.address ? short(a.address) : id);
       const name = String(agent?.name ?? "agent").replace(/\s+/g, " ").slice(0, 40);
       const head = `🤖 Agent feedback (${report.type}${report.endpoint ? `, ${report.endpoint}` : ""}) from "${name}"${id === ADMIN ? ", your own agent" : ` of ${who} (${planOf(a).name})`}:`;
-      const text = [head, "", report.message, ...(report.contact ? ["", `Contact: ${report.contact}`] : []), "", `Report ${report.id}`].join("\n");
+      const text = [head, "", report.message, ...(report.contact ? ["", `Contact: ${report.contact}`] : []), ...paymentLines(report.purchase, report.payment), "", `Report ${report.id}`].join("\n");
       const sent = await tell(ADMIN, text, { type: "feedback" });
       if (!sent) console.log(`[feedback] agent "${name}" of ${who}: ${report.message.slice(0, 300)}`);
       return { ok: true };

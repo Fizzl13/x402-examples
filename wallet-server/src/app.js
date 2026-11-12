@@ -107,14 +107,22 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   const feedback = feedbackModule.createFeedback({
     service: "wallet",
     agentOf,
-    record: (e) => usage.record("feedback", { account: feedbackFrom?.account ?? null, via: e.via, agent: e.agent, input: { type: e.feedback.type, endpoint: e.feedback.endpoint, agent_name: feedbackFrom?.agentName, message: e.feedback.message, id: e.feedback.id } }),
+    // A payment the report names is kept as its network only (never the hash or receipt id: usage.js keeps no receipts).
+    record: (e) => usage.record("feedback", { account: feedbackFrom?.account ?? null, via: e.via, agent: e.agent, input: { type: e.feedback.type, endpoint: e.feedback.endpoint, agent_name: feedbackFrom?.agentName, message: e.feedback.message, id: e.feedback.id, ...(e.feedback.payment ? { payment: e.feedback.payment.network ?? "given" } : {}) } }),
   });
+  // A keyed agent's report. When it names a payment (payment.tx or payment.receipt), the wallet looks for this agent's
+  // own receipt for it and puts that in the owner's message, so the report comes with what was paid, to whom and what
+  // came back; the agent hears whether it was found. Nothing is refunded or changed because of a report.
   async function agentFeedback({ account, agent }, input, { userAgent, via }) {
     feedbackFrom = { account, agentName: String(agent?.name ?? "").slice(0, 40) || undefined };
     let out;
     try { out = feedback.submit(input, { ip: `account:${account}`, userAgent, via }); } finally { feedbackFrom = null; }
-    if (out.ok) await accounts.agentFeedback?.(account, agent, { ...feedbackModule.parseFeedback(input).value, id: out.body.id }).catch((err) => console.error(`[feedback] not passed on: ${err.message}`));
-    return out;
+    if (!out.ok) return out;
+    const report = { ...feedbackModule.parseFeedback(input).value, id: out.body.id };
+    const purchase = report.payment ? await accounts.walletFor(account).paymentFor(agent, report.payment).catch((err) => { console.error(`[feedback] receipt lookup: ${err.message}`); return null; }) : null;
+    await accounts.agentFeedback?.(account, agent, { ...report, purchase }).catch((err) => console.error(`[feedback] not passed on: ${err.message}`));
+    if (!report.payment) return out;
+    return { ...out, body: { ...out.body, payment: purchase ? { found: true, receipt: purchase.receipt, note: "Your receipt for this payment goes with the report." } : { found: false, note: "None of your receipts has this payment, so the report went without one." } } };
   }
   app.use(feedback.router(express));
 

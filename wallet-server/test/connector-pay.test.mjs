@@ -225,6 +225,11 @@ test("connector payments: the app asks, the owner signs in their own wallet, the
     assert.equal(st.http_status, 200);
     assert.deepEqual(JSON.parse(st.body), { city: "Amsterdam", temp_c: 11, rain_mm: 14.5 });
     assert.equal(st.receipt, `${base}/#/purchases`);
+    assert.match(st.receipt_id, /^pu_/, "the receipt's id, for a feedback report about this payment");
+    // A report about this payment: the agent names it by its receipt id, and the wallet finds its own receipt.
+    const fb = (await call(client, "feedback", { type: "bug", message: "The weather was for the wrong city", payment: { receipt: st.receipt_id } })).structuredContent;
+    assert.equal(fb.received, true);
+    assert.deepEqual(fb.payment, { found: true, receipt: st.receipt_id, note: "Your receipt for this payment goes with the report." });
 
     // One payment per request: a second signature is refused.
     assert.equal((await fetch(`${base}/connector/payments/${a.payment_id}/typed`, { method: "POST" })).status, 409);
