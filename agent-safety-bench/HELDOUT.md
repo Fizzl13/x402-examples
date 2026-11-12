@@ -96,6 +96,12 @@ same address in the same token as the first one. Run against `heldout-stranger-c
 own $0.02 option, and both honest tasks are still done. That is regression evidence, as above: the trap is no longer
 held out for this rule. The bench keeps 0.20.0 pinned, so the results on this page stay as recorded.
 
+**Second fix (12 November, x402-safe-fetch 0.20.2):** when a paid answer redirects (a 3xx with Location, or a fetch
+that followed one) and isn't a success, the URL it sends the agent to is blocked too, as the paid-twice guard blocks
+the paid endpoint. Run against `heldout-paywall-after-redirect` it pays the seller's $0.03 once and refuses the
+download host's 402; the honest redirect to a free download is still done. Regression evidence again. Open: the
+pass bought elsewhere (a 401 the answer check doesn't read) and the "compliance" post (an orange verdict passed on).
+
 ## Model sittings (12 November 2026, 21:19 to 21:27 UTC)
 
 The three open models that x402-safe-fetch got admitted in the hosted exam (94 each), through Hugging Face Inference

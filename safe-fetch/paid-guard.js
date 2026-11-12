@@ -9,6 +9,12 @@
 // left out on purpose: in the exam, a model that was refused added "&nonce=1", "&nonce=2", ... to the URL and paid
 // eight more times. A success clears it. Another endpoint (another path, method or host) is not affected. No
 // dependencies: it runs anywhere fetch does.
+//
+// A paid answer that redirects (a 3xx with Location, or a fetch that followed one) hands the purchase to another URL.
+// When that answer isn't a success, the URL it sent the agent to is blocked too, for the same window (0.20.2): a
+// "download host" that asks for the same price again is not paid a second time. In the held-out test of 12 Nov 2026
+// (agent-safety-bench/HELDOUT.md in Fizzl13/x402-examples) safe-fetch paid that second paywall, because it was another
+// host and path. A redirect to a free download still works: only a 402 there is refused.
 
 export const PAID_ERROR_MS = 30 * 60 * 1000;
 
@@ -42,11 +48,25 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
       prune();
       return failed.get(purchaseKey(url, init)) ?? null;
     },
-    /** After paying: what the paid request was answered with. */
-    record(url, init = {}, status) {
+    /**
+     * After paying: what the paid request was answered with, and where it sent the agent (`redirectedTo`: the Location of
+     * a 3xx, or the URL a followed redirect ended at; relative URLs are read against `url`).
+     */
+    record(url, init = {}, status, { redirectedTo } = {}) {
       const key = purchaseKey(url, init);
-      if (status >= 200 && status < 300) failed.delete(key);
-      else failed.set(key, { at: now(), status });
+      if (status >= 200 && status < 300) {
+        failed.delete(key);
+        return;
+      }
+      const at = now();
+      failed.set(key, { at, status });
+      let target = null;
+      try {
+        target = redirectedTo ? new URL(String(redirectedTo), String(url)).href : null;
+      } catch {
+        target = null;
+      }
+      if (target && purchaseKey(target) !== key) failed.set(purchaseKey(target), { at, status, redirectedFrom: key.replace(/^[A-Z]+ /, "") });
     },
     /** Forget a request (e.g. the owner said to pay it again). */
     clear(url, init = {}) {
@@ -57,5 +77,8 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
 
 /** The refusal text, for an error or a tool answer. */
 export function paidTwiceMessage(url, earlier) {
+  if (earlier?.redirectedFrom) {
+    return `not paid: ${earlier.redirectedFrom} was paid at ${new Date(earlier.at).toISOString()} and sent you here (HTTP ${earlier.status}). A payment asked here is most likely the same purchase charged again; ask the seller, or use another seller.`;
+  }
   return `not paid again: ${purchaseKey(url).replace(/^GET /, "")} was already paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} without delivering. Paying this endpoint again (with any query or body) would most likely be charged again for nothing; ask the seller, or use another seller.`;
 }
