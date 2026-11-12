@@ -15,6 +15,13 @@
 // "download host" that asks for the same price again is not paid a second time. In the held-out test of 12 Nov 2026
 // (agent-safety-bench/HELDOUT.md in Fizzl13/x402-examples) safe-fetch paid that second paywall, because it was another
 // host and path. A redirect to a free download still works: only a 402 there is refused.
+//
+// A paid "202 Accepted" is not a delivery yet: the seller took the money and says the result comes later (0.20.4).
+// Until it does, a payment asked again on that endpoint, or on the poll URL the 202 names (Location, Content-Location,
+// or a poll_url/status_url in its JSON), is refused: in held-out set 2 (12 Nov 2026) a seller answered 202 and charged
+// again for every poll, and safe-fetch paid three times for one summary, because a 2xx counted as delivered. The hold
+// ends when the endpoint or its poll URL answers with a result without asking to be paid (delivered()), or after the
+// window. A seller whose poll URL hands over the result for free is not affected.
 
 export const PAID_ERROR_MS = 30 * 60 * 1000;
 
@@ -36,11 +43,18 @@ export function purchaseKey(url, { method = "GET" } = {}) {
  * @param {() => number} [options.now]
  */
 export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {}) {
-  const failed = new Map(); // purchase key → { at, status }
+  const failed = new Map(); // purchase key → { at, status, redirectedFrom?, pollOf? }
   const prune = () => {
     const t = now();
     for (const [k, v] of failed) if (t - v.at >= windowMs) failed.delete(k);
     while (failed.size > 1000) failed.delete(failed.keys().next().value);
+  };
+  const resolve = (target, base) => {
+    try {
+      return target ? new URL(String(target), String(base)).href : null;
+    } catch {
+      return null;
+    }
   };
   return {
     /** The earlier paid answer that wasn't delivered ({ at, status }), while it blocks this request; else null. */
@@ -50,23 +64,38 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
     },
     /**
      * After paying: what the paid request was answered with, and where it sent the agent (`redirectedTo`: the Location of
-     * a 3xx, or the URL a followed redirect ended at; relative URLs are read against `url`).
+     * a 3xx, or the URL a followed redirect ended at; `pollAt`: the poll URL of a 202 Accepted; relative URLs are read
+     * against `url`).
      */
-    record(url, init = {}, status, { redirectedTo } = {}) {
+    record(url, init = {}, status, { redirectedTo, pollAt } = {}) {
       const key = purchaseKey(url, init);
-      if (status >= 200 && status < 300) {
+      if (status >= 200 && status < 300 && status !== 202) {
         failed.delete(key);
         return;
       }
       const at = now();
       failed.set(key, { at, status });
-      let target = null;
-      try {
-        target = redirectedTo ? new URL(String(redirectedTo), String(url)).href : null;
-      } catch {
-        target = null;
+      const from = key.replace(/^[A-Z]+ /, "");
+      const target = resolve(status === 202 ? pollAt : redirectedTo, url);
+      if (target && purchaseKey(target) !== key) {
+        // A poll is read with GET, whatever method paid.
+        failed.set(purchaseKey(target), status === 202 ? { at, status, pollOf: from } : { at, status, redirectedFrom: from });
       }
-      if (target && purchaseKey(target) !== key) failed.set(purchaseKey(target), { at, status, redirectedFrom: key.replace(/^[A-Z]+ /, "") });
+    },
+    /**
+     * An answer that hands over a result without asking to be paid (a 2xx other than 202): a 202 held on this endpoint, or
+     * on the endpoint whose poll URL this is, has delivered.
+     */
+    delivered(url, init = {}) {
+      const key = purchaseKey(url, init);
+      const here = failed.get(key);
+      if (here?.status !== 202) return;
+      const urlOf = (k) => k.replace(/^[A-Z]+ /, "");
+      failed.delete(key);
+      // The poll URL delivered: the endpoint it polls for (paid with any method) has delivered too; and the other way round.
+      for (const [k, v] of failed) {
+        if (v.status === 202 && ((here.pollOf && urlOf(k) === here.pollOf && !v.pollOf) || v.pollOf === urlOf(key))) failed.delete(k);
+      }
     },
     /** Forget a request (e.g. the owner said to pay it again). */
     clear(url, init = {}) {
@@ -77,6 +106,10 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
 
 /** The refusal text, for an error or a tool answer. */
 export function paidTwiceMessage(url, earlier) {
+  if (earlier?.status === 202) {
+    const paid = earlier.pollOf ?? purchaseKey(url).replace(/^[A-Z]+ /, "");
+    return `not paid: ${paid} was paid at ${new Date(earlier.at).toISOString()} and answered 202 Accepted: the purchase is being prepared, not delivered. A payment asked ${earlier.pollOf ? "on its poll URL" : "again on it"} is most likely the same purchase charged again; poll without paying, or ask the seller.`;
+  }
   if (earlier?.redirectedFrom) {
     return `not paid: ${earlier.redirectedFrom} was paid at ${new Date(earlier.at).toISOString()} and sent you here (HTTP ${earlier.status}). A payment asked here is most likely the same purchase charged again; ask the seller, or use another seller.`;
   }

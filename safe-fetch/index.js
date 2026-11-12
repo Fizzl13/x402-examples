@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.2";
+export const VERSION = "0.20.4";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -234,10 +234,15 @@ export function diagnosisOf(response) {
   return (response && diagnoses.get(response)) || null;
 }
 
-export function preflightUrl(target, { method = "GET", maxUsd, network, doctorUrl = DOCTOR_URL } = {}) {
+// payTo: the payout address the agent is about to pay, from the endpoint's own 402 (0.20.3). Doctor screens that address
+// too and says caution (payto_not_shown) when the seller showed Doctor another one: in the held-out test of 12 Nov 2026
+// (agent-safety-bench/HELDOUT.md in Fizzl13/x402-examples) a seller showed the checker a clean address and the buyer one
+// on the sanctions list, and the preflight said go.
+export function preflightUrl(target, { method = "GET", maxUsd, network, doctorUrl = DOCTOR_URL, payTo } = {}) {
   const q = new URLSearchParams({ url: target, method });
   if (maxUsd !== undefined) q.set("max_usd", String(maxUsd).replace(/^\$/, ""));
   if (network) q.set("network", network);
+  if (typeof payTo === "string" && /^[A-Za-z0-9:._-]{20,128}$/.test(payTo)) q.set("pay_to", payTo);
   return `${doctorUrl.replace(/\/$/, "")}/api/v1/preflight?${q}`;
 }
 
@@ -453,14 +458,16 @@ export function createSafeFetch({
   }
 
   const verdicts = new Map();
-  async function preflightFor(url, method, offer) {
+  // The query each preflight was bought with, for its outcome report (Doctor binds the report to that query).
+  const queries = new WeakMap();
+  async function preflightFor(url, method, offer, payTo) {
     const key = `${method} ${url}`;
     const hit = verdicts.get(key);
     // An unreadable offer, or a verdict on less than usual (checks_complete false), is reused for at most 10 minutes.
     const short = offer === null || hit?.preflight?.checks_complete === false;
     const ttl = short ? Math.min(cacheMs, UNREAD_OFFER_MS) : cacheMs;
-    if (hit && hit.offer === offer && hit.at + ttl > now()) return { preflight: hit.preflight, cached: true };
-    const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl });
+    if (hit && hit.offer === offer && hit.payTo === payTo && hit.at + ttl > now()) return { preflight: hit.preflight, cached: true };
+    const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl, payTo });
     const res = await payPreflight(pfUrl, { headers: DOCTOR_HEADERS });
     const preflight = await res.json().catch(() => null);
     if (!res.ok || !preflight?.verdict) {
@@ -472,7 +479,8 @@ export function createSafeFetch({
       const check = verifyReceipt(preflight, { signers: doctorSigners, route: "GET /api/v1/preflight", input, authority, service: "x402-doctor" });
       if (!check.valid) throw new SafePayError(`preflight not trusted (${check.reason}); the endpoint was not paid`, { code: "bad_receipt", preflight, url });
     }
-    verdicts.set(key, { preflight, offer, at: now() });
+    queries.set(preflight, Object.fromEntries(new URL(pfUrl).searchParams));
+    verdicts.set(key, { preflight, offer, payTo, at: now() });
     if (verdicts.size > 1000) verdicts.delete(verdicts.keys().next().value);
     return { preflight, cached: false };
   }
@@ -508,7 +516,7 @@ export function createSafeFetch({
     if (!shareOutcomes || !preflight?.receipt?.request_id || reported.has(preflight.receipt.request_id)) return;
     reported.add(preflight.receipt.request_id);
     if (reported.size > 1000) reported.delete(reported.values().next().value);
-    const query = Object.fromEntries(new URL(preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl })).searchParams);
+    const query = queries.get(preflight) ?? Object.fromEntries(new URL(preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl })).searchParams);
     // Fire and forget: the report never delays or changes the answer.
     Promise.resolve()
       .then(() => baseFetch(`${doctorUrl.replace(/\/$/, "")}/api/v1/outcome`, {
@@ -586,11 +594,26 @@ export function createSafeFetch({
       throw error;
     }
     if (limited && res.status === 402) addSpend(host, -counted);
-    // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2).
+    // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2); for a 202
+    // Accepted, the poll URL it names (0.20.4).
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     const landed = res.redirected && res.url && res.url !== url ? res.url : null;
-    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed });
+    const pollAt = res.status === 202 ? await pollUrlOf(res) : null;
+    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt });
     return res;
+  }
+  // The poll URL of a 202 Accepted: Location, Content-Location, or poll_url / status_url / location in a JSON body.
+  async function pollUrlOf(res) {
+    const header = res.headers.get("location") || res.headers.get("content-location");
+    if (header) return header;
+    if (!/json/i.test(res.headers.get("content-type") || "")) return null;
+    try {
+      const body = await res.clone().json();
+      const found = [body?.poll_url, body?.status_url, body?.location, body?.links?.status].find((v) => typeof v === "string" && v.length <= 2048);
+      return found ?? null;
+    } catch {
+      return null;
+    }
   }
   async function payAndDiagnose(url, init, method, cap) {
     if (!diagnoseOnFailure) return payEndpoint(url, init, cap);
@@ -664,6 +687,8 @@ export function createSafeFetch({
   async function safeFetch(input, init = {}) {
     const { url, method } = requestOf(input, init);
     const probe = await baseFetch(url, init);
+    // A result handed over without payment ends a 202 hold on this endpoint or the one it is the poll URL of.
+    if (probe.ok && probe.status !== 202) paidGuard.delivered(url, { method });
     if (probe.status !== 402) return probe;
 
     // Paid before and not delivered: not paid again (and no preflight bought) unless onPaidError says so.
@@ -685,7 +710,9 @@ export function createSafeFetch({
 
     if (trustedHosts.has(hostOf(url))) return checkAnswer(url, method, await payAndCheck(url, init, method, offer));
 
-    const { preflight, cached } = await preflightFor(url, method, offer.fingerprint);
+    // The address it would pay, from this 402, goes with the preflight (pay_to): Doctor screens that one too.
+    const paying = offer.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
+    const { preflight, cached } = await preflightFor(url, method, offer.fingerprint, typeof paying?.payTo === "string" ? paying.payTo : undefined);
     const payAfterPreflight = async () => {
       const res = await payAndCheck(url, init, method, offer);
       reportOutcome(url, method, preflight, res);

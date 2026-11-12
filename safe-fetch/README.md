@@ -179,7 +179,15 @@ const safeFetch = createSafeFetch({
 
 A paid answer that redirects hands the purchase on. Since 0.20.2, when a paid answer is a redirect (or a fetch followed one) and not a success, the URL it sent you to is blocked the same way: a "download host" that asks for the same price again is refused with `paid_no_delivery` (`error.earlier.redirectedFrom` names the paid endpoint). A redirect to a free download still works; only a payment there is refused. In our held-out test of 12 November 2026 safe-fetch paid such a second paywall, because it was another host ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)).
 
+A paid "202 Accepted" is not a delivery yet. Since 0.20.4, after a paid 202 a payment asked again on that endpoint, or on the poll URL the 202 names (`Location`, `Content-Location`, or `poll_url` / `status_url` in its JSON), is refused with `paid_no_delivery` (`error.earlier.status` is 202) until the endpoint or its poll URL hands over the result without asking to be paid, or the window ends. In our held-out set 2 of 12 November 2026 a seller answered 202 and charged again for every poll, and safe-fetch paid three times for one summary. A seller whose poll URL is free is not affected. Buying a second job from the same endpoint while the first is still pending is refused too; `onPaidError` decides if you want that.
+
 The guard is also exported on its own (`createPaidGuard`, no dependencies) for agents that pay through another client.
+
+### The address it pays is the address Doctor checks
+
+Since 0.20.3 the preflight names the payout address safe-fetch would pay, from the endpoint's own 402 (`pay_to`). A seller can tell x402 Doctor's requests apart and show it a clean address while buyers get another: in our held-out test of 12 November 2026 the checker saw a clean address, the buyer one on the sanctions list, and the preflight said go ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)). Now Doctor screens the buyer's address too (`payto_sanctioned`, no_go) and says caution (`payto_not_shown`) when the seller asked Doctor for one address and the buyer for another. A seller that hands out a new deposit address on every request is expected to differ (`payto_per_request`, info); then only the screen applies.
+
+What it doesn't cover yet: x402 asks the endpoint for its 402 once more when it pays, and the address in that second 402 is the one paid. A seller that switches between the two requests isn't caught by this.
 
 ## Instructions inside a paid answer
 

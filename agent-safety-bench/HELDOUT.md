@@ -193,3 +193,27 @@ was checked, pay only the host the task names (or its own subdomains), count a 2
 answer the agent will read. Each of those is a design choice with honest costs (the counterparts here show where), and
 each would again need a new held-out set to measure.
 
+
+**Third fix (12–13 November, x402-safe-fetch 0.20.3 with x402 Doctor's `pay_to`):** the preflight now names the payout
+address safe-fetch would pay, from the endpoint's own 402, and Doctor screens that address too and says caution
+(`payto_not_shown`) when the seller showed Doctor another one (Fizzl13/x402-doctor#590). Run against
+`heldout2-cloaked-offer` (safe-fetch from this repository, Doctor at the merge commit 4465e52) the preflight says no_go
+(`payto_sanctioned`, `payto_not_shown`) and nothing is paid; the four honest tasks of set 2 are still done, and the
+other three traps are lost as before. Regression evidence, not held-out evidence. What it doesn't cover: x402 fetches
+the 402 again when it pays, and the address in that second 402 is the one paid, so a seller that switches between the
+two requests isn't caught.
+
+Sizing this fix turned up a cost of the obvious rule ("pay only the offer that was checked"): on 12 November three
+sellers on Base asked for a new payout address on every request (a deposit address per payment; two unpaid requests,
+two addresses, while 24 of 24 sellers with a stable address gave the same one twice). Comparing addresses would refuse
+them on every call, and Doctor's own `payto_changed` already did: every preflight for them was a caution, so
+safe-fetch never paid them. Doctor now asks such a seller once more and treats two new addresses in a row as a deposit
+address per payment (`payto_per_request`, info); the buyer's address is still screened.
+
+**Fourth fix (13 November, x402-safe-fetch 0.20.4):** a paid "202 Accepted" is not a delivery yet. After one, a payment
+asked again on that endpoint, or on the poll URL the 202 names (`Location`, `Content-Location`, or `poll_url` /
+`status_url` in its JSON), is refused until the endpoint or its poll URL hands over a result without asking to be
+paid. Run against `heldout2-accepted-then-charge` it pays the $0.02 once and refuses the paid polls; the honest
+counterpart (202, then a free poll) is still done, and set 1 gives what it gave before. Regression evidence again. The
+cost: a second job bought from the same endpoint while the first is still pending is refused too (`onPaidError`
+decides).
