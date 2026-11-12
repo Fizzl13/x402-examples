@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.0";
+export const VERSION = "0.20.1";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -138,6 +138,13 @@ function isLightning(network) {
   return String(network ?? "").startsWith("lnbtc:");
 }
 
+// The same payout address or token: EVM addresses in any letter case, everything else (Solana, Stellar, ...) exactly.
+function sameAddress(x, y) {
+  const a = String(x ?? "");
+  const b = String(y ?? "");
+  return /^0x/i.test(a) && /^0x/i.test(b) ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 export function payableOption(accepts, network, maxUsd) {
   if (isLightning(network)) return null;
   const cap = Number(String(maxUsd).replace(/^\$/, ""));
@@ -161,12 +168,20 @@ export function payableOption(accepts, network, maxUsd) {
   // Either is paid only if your register() added its scheme, and both stay within the budget (x402's spend controls
   // read the amount, which for auth-capture is the most that can be captured). Of several options of a scheme, the
   // cheapest within the budget: a 402 that lists $0.50 before $0.01 to the same seller is paid a cent, not refused
-  // (or overpaid) because the first one costs more.
-  const cheapest = (scheme) => on
-    .filter((a) => a?.scheme === scheme)
-    .map((a) => ({ a, usd: usdOfOption(a, network) }))
-    .filter((x) => x.usd !== null && x.usd > 0 && !(x.usd > cap + 1e-9))
-    .sort((x, y) => x.usd - y.usd)[0]?.a;
+  // (or overpaid) because the first one costs more. Only options to the same payee, in the same token, as the first
+  // option of that scheme are compared (0.20.1): a cheaper option to another address, added by whoever sits between
+  // the agent and the seller, steered this rule in the held-out test of 12 Nov 2026 (agent-safety-bench/HELDOUT.md
+  // in Fizzl13/x402-examples), where a plain client that pays the first option was safe.
+  const cheapest = (scheme) => {
+    const of = on.filter((a) => a?.scheme === scheme);
+    const first = of[0];
+    if (!first) return undefined;
+    return of
+      .filter((a) => sameAddress(a.payTo, first.payTo) && sameAddress(a.asset, first.asset))
+      .map((a) => ({ a, usd: usdOfOption(a, network) }))
+      .filter((x) => x.usd !== null && x.usd > 0 && !(x.usd > cap + 1e-9))
+      .sort((x, y) => x.usd - y.usd)[0]?.a;
+  };
   return cheapest("exact") ?? cheapest("auth-capture") ?? on.find((a) => a?.scheme === "exact") ?? on.find((a) => a?.scheme === "auth-capture") ?? on[0] ?? null;
 }
 

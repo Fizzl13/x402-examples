@@ -103,6 +103,10 @@ const safeFetch = createSafeFetch({
 
 When a seller offers both, the exact option is paid. The preflight and the budget apply the same way.
 
+## Which option is paid
+
+Of the options on your network, safe-fetch pays the cheapest within the budget, so a 402 that lists $0.50 before $0.01 for the same thing is paid a cent. Since 0.20.1 it only compares options that pay the same address in the same token as the first one. A cheaper option to another address, which whoever sits between your agent and the seller can add, is never picked: in our held-out test of 12 November 2026 that rule paid such an address, where a plain client that pays the first option was safe ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)).
+
 ## Already have an x402 client? One line
 
 If your agent already pays with the official x402 client (`x402Client` from `@x402/core`, used by `@x402/fetch`, `@x402/axios` and the other transports), you don't have to switch to `safeFetch`. Add the preflight as a hook, and every payment that client makes is checked first:
