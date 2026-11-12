@@ -712,7 +712,7 @@ export function createWallet(config, overrides = {}) {
       ({ res, hash: tempoHash } = await payTempo({ url, init, challenge: payableTempo(first), cap }));
     } else if (first.status === 402 && !first.headers.get("payment-required") && parseMppChallenges(first.headers.get("www-authenticate")).length) {
       const offered = parseMppChallenges(first.headers.get("www-authenticate")).map(({ params, request: r }) => `${params.method ?? "?"}${r?.methodDetails?.chainId ? ` on chain ${r.methodDetails.chainId}` : ""}`);
-      throw new Error(`this API only takes MPP (${[...new Set(offered)].join(", ")}), which this wallet can't pay: it pays MPP evm in USDC on ${config.chainName}${tempoNet ? ` and MPP tempo in ${tempoNet.symbol} on Tempo` : " (Tempo is off)"}. Nothing was paid`);
+      throw new Error(`this API only takes MPP (${[...new Set(offered)].join(", ")}), which this wallet can't pay: it pays MPP evm in USDC on ${config.chainName}${tempoNet ? ` and MPP tempo in ${tempoNet.symbol} on Tempo` : " (Tempo is off)"}. Nothing was paid Need it? Tell Fizzl with the feedback tool (free).`);
     } else if (first.status === 402) {
       // x402: the payment client starts from the 402 we already have, so the API isn't asked twice.
       const client = new x402Client().setSpendControls({ maxAmountPerPayment: `$${cap}` });
@@ -945,6 +945,7 @@ export function createWallet(config, overrides = {}) {
     },
 
     // Paid APIs in the public x402 catalog that this wallet can pay (USDC on its chain), best match first.
+    feedback(report) { return sendFeedback(report, { server: config.server, fetch: plainFetch }); },
     async findServices({ query, maxPriceUsd, limit = 5 }) {
       const terms = words(query);
       if (!terms.length) throw new TypeError("say what you need, e.g. \"crypto price signal\" or \"token safety check\"");
@@ -958,7 +959,7 @@ export function createWallet(config, overrides = {}) {
           services: buy ? [buy, ...sellers] : sellers,
           note: sellers.length
             ? `${buy ? `The first entry is Fizzl Buy, Fizzl's own service: for $${FIZZL_BUY.price} it picks one of these sellers, pays it and checks the answer for you. The others you can pay directly at their own price. ` : ""}From the public x402 catalog, searched by your wallet server: sellers x402 Doctor has seen paying out day after day come first. Listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply.`
-            : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}).`,
+            : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}). If nobody seems to sell it, tell Fizzl with the feedback tool (free).`,
         };
       }
       const network = `eip155:${chain.id}`;
@@ -988,7 +989,7 @@ export function createWallet(config, overrides = {}) {
         services,
         note: services.length
           ? "From the public x402 catalog: listings, not recommendations. To use one, call pay_x402 with its url (and method/body) and max_price_usd at its price; presign-guard checks the payment and your limits apply."
-          : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}).`,
+          : `Nothing in the x402 catalog matched within $${cap} on ${config.chainName}. Try other words, or a higher max_price_usd (at most ${config.maxPaymentUsd}). If nobody seems to sell it, tell Fizzl with the feedback tool (free).`,
       };
     },
 
@@ -1082,6 +1083,24 @@ function result(fn) {
   };
 }
 
+// Feedback to Fizzl (the feedback tool): with a wallet server, as this agent (POST /v1/feedback with its key, so the
+// owner of that server hears of it); without one, to wallet.fizzl.eu's public POST /feedback. Free; a person reads
+// every report and nothing in it is run or changed automatically.
+export const FEEDBACK_URL = "https://wallet.fizzl.eu/feedback";
+export const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it.";
+export async function sendFeedback(report, { server = null, fetch: fetchImpl = globalThis.fetch } = {}) {
+  const keyed = !!(server?.url && server?.key);
+  const res = await fetchImpl(keyed ? `${server.url.replace(/\/$/, "")}/v1/feedback` : FEEDBACK_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json", ...(keyed ? { authorization: `Bearer ${server.key}` } : {}) },
+    body: JSON.stringify(report),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.message ?? `the report could not be sent (HTTP ${res.status})`);
+  return j;
+}
+
 export const SETUP_MESSAGE = "No wallet yet: set AGENT_KEY (the agent wallet's private key, 0x + 64 hex, a separate wallet with only what the agent may spend), or AGENT_KEY_FILE with the path to a file holding it, in this MCP server's environment and restart it. See https://www.npmjs.com/package/presign-guard-wallet-mcp";
 
 /**
@@ -1102,6 +1121,7 @@ export function setupWallet() {
     sendNative: notSetUp,
     pause: notSetUp,
     closeSessions: notSetUp,
+    feedback: (report) => sendFeedback(report),
   };
 }
 
@@ -1187,6 +1207,7 @@ export function linkingWallet(env = process.env, { fetchImpl = fetch, onLinked =
     sessionsOn: false,
     async status() { const p = await code(); return { linked: false, link: { url: p.url, code: p.code, minutesLeft: Math.max(1, Math.ceil((p.until - now()) / 60_000)) }, agentWallet: address, next: message(p) }; },
     findServices: notLinked,
+    feedback: (report) => sendFeedback(report, { fetch: fetchImpl }),
     buyUsdc: notLinked,
     payX402: notLinked,
     sendUsdc: notLinked,
@@ -1268,6 +1289,18 @@ export function createServer(wallet) {
     },
     annotations: { openWorldHint: true },
   }, result(({ text, source, task, detailed }) => wallet.checkText({ text, source, task, detailed })));
+
+  server.registerTool("feedback", {
+    title: "Send feedback to Fizzl (free)",
+    description: FEEDBACK_DESCRIPTION,
+    inputSchema: {
+      type: z.enum(["bug", "feature", "other"]).optional().describe("bug, feature (something missing) or other"),
+      message: z.string().min(3).max(2000).describe("What happened or what you need"),
+      endpoint: z.string().max(200).optional().describe("Optional: the tool, API or route it is about, e.g. pay_x402"),
+      contact: z.string().max(200).optional().describe("Optional: how to reach you about it"),
+    },
+    annotations: { openWorldHint: true },
+  }, result(({ type, message, endpoint, contact }) => wallet.feedback({ type, message, endpoint, contact })));
 
   server.registerTool("pause_spending", {
     title: "Pause spending",

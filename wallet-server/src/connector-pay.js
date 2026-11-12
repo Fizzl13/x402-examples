@@ -113,7 +113,10 @@ export function baseOffer(challenge) {
   }
   return null;
 }
-const offered = (c) => [...new Set((c?.accepts ?? []).map((a) => a?.network).filter(Boolean))];
+// What an API offers, for the agent (and so for its feedback): "EURC on eip155:8453" when the offer names its token
+// (x402 carries the token's EIP-712 domain name in extra.name: "USD Coin", "EURC", "USD₮0"), else the network alone.
+const tokenOf = (a) => { const n = String(a?.extra?.name ?? "").replace(/[^\p{L}\p{N} ₮.-]/gu, "").trim(); return /^usd coin$/i.test(n) ? "USDC" : n.slice(0, 24); };
+const offered = (c) => [...new Set((c?.accepts ?? []).filter((a) => a?.network).map((a) => (tokenOf(a) ? `${tokenOf(a)} on ${a.network}` : String(a.network))))];
 
 // The USDC-on-Base "auth-capture" offer (Coinbase's escrow, x402 v2 only), when it has everything the escrow needs
 // and the plain EIP-3009 way of collecting (Permit2 would need an approval first).
@@ -332,7 +335,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const sol = solanaOffer(challenge);
     const xrpl = xm ? xrplOffer(challenge) : null;
     if (!base && !sol && !xrpl) tellSeller(account, challenge, url, "network_unsupported", "Fizzl Agent Wallet pays USDC on Base or Solana, or RLUSD on the XRP Ledger").catch(() => {});
-    if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}.` };
+    if (!base && !sol && !xrpl) return { error: `This API doesn't take USDC on Base or Solana${xm ? " or RLUSD on the XRP Ledger" : ""}, which is what the connector pays with for now. It offers: ${offered(challenge).join(", ") || "nothing readable"}. Need it? Tell Fizzl with the feedback tool (free).` };
     // An escrowed offer may cost up to MAX_ESCROW_USD; everything else up to MAX_PRICE_USD.
     const within = (price, escrowed = false) => price <= Math.min(cap, escrowed ? MAX_ESCROW_USD : MAX_PRICE_USD);
     let offer = base && within(usd(base.amount), !!base.escrow) ? base : null;

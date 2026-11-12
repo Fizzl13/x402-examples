@@ -943,6 +943,18 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       if (!sent) console.log(`[feedback] ${who}: ${msg}`);
       return { ok: true };
     },
+    // An agent's report (POST /v1/feedback or the connector's feedback tool, src/app.js): to this server's owner, with
+    // the account it came from. The text is the agent's, untrusted: shown as it is, never acted on.
+    async agentFeedback(id, agent, report) {
+      const a = await account(id);
+      const who = id === ADMIN ? "you (owner)" : a?.emailHint ?? (a?.address ? short(a.address) : id);
+      const name = String(agent?.name ?? "agent").replace(/\s+/g, " ").slice(0, 40);
+      const head = `🤖 Agent feedback (${report.type}${report.endpoint ? `, ${report.endpoint}` : ""}) from "${name}"${id === ADMIN ? ", your own agent" : ` of ${who} (${planOf(a).name})`}:`;
+      const text = [head, "", report.message, ...(report.contact ? ["", `Contact: ${report.contact}`] : []), "", `Report ${report.id}`].join("\n");
+      const sent = await tell(ADMIN, text, { type: "feedback" });
+      if (!sent) console.log(`[feedback] agent "${name}" of ${who}: ${report.message.slice(0, 300)}`);
+      return { ok: true };
+    },
 
     // ---------- passkeys: sign in with Face ID, Touch ID or a fingerprint ----------
     // The passkey's user handle is the account id, so signing in needs no name typed first.

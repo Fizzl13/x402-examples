@@ -265,7 +265,7 @@ test("connector payments: no, a wrong signer, the sanctions list, the cap, other
     const err = async (args) => { const r = await call(client, "pay_x402", args); assert.equal(r.isError, true); return r.content[0].text; };
     assert.match(await err({ url: `${s.url}/bad` }), /OFAC sanctions list/);
     assert.match(await err({ url: `${s.url}/dear` }), /asks \$2, above max_price_usd \(\$1\)/);
-    assert.match(await err({ url: `${s.url}/solana` }), /doesn't take USDC on Base.*solana:5eykt/);
+    assert.match(await err({ url: `${s.url}/solana` }), /doesn't take USDC on Base.*solana:5eykt.*Tell Fizzl with the feedback tool/);
     assert.match(await err({ url: "ftp://example.com/x" }), /Only https URLs/);
     const free = (await call(client, "pay_x402", { url: `${s.url}/free` })).structuredContent;
     assert.deepEqual([free.status, free.http_status, JSON.parse(free.body)], ["no_payment_needed", 200, { free: true }]);

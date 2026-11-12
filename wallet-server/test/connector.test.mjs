@@ -174,7 +174,7 @@ test("connector: sign in, allow, a code for the token, the tools, and disconnect
     // The MCP server: its tools.
     const client = await mcp(base, t.access_token);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["check_text", "find_services", "pay_x402", "payment_status", "wallet_status"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["check_text", "feedback", "find_services", "pay_x402", "payment_status", "wallet_status"]);
     const status = (await client.callTool({ name: "wallet_status", arguments: {} })).structuredContent;
     assert.equal(status.connector, "ChatGPT connector");
     assert.equal(status.plan, "free");
@@ -285,7 +285,16 @@ test("connector: lenient for apps like Grok (client_id as Basic auth, JSON token
     assert.equal((await init.json()).result.serverInfo.name, "fizzl-agent-wallet");
     const list = await call({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { "mcp-protocol-version": "2099-01-01" });
     assert.equal(list.status, 200);
-    assert.ok((await list.json()).result.tools.some((x) => x.name === "wallet_status"));
+    const tools = (await list.json()).result.tools;
+    assert.ok(tools.some((x) => x.name === "wallet_status"));
+    assert.ok(tools.some((x) => x.name === "feedback"), "agents can tell Fizzl what is missing");
+    const fb = await (await call({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "feedback", arguments: { type: "feature", message: "Pay in EURC on Base too", endpoint: "pay_x402" } } })).json();
+    assert.equal(fb.result.structuredContent.received, true);
+    assert.equal(fb.result.structuredContent.service, "wallet");
+    const sent = records.find((r) => r.route === "feedback" || r.input?.message === "Pay in EURC on Base too");
+    assert.ok(sent, "the report is in the usage log");
+    assert.equal(sent.input.endpoint, "pay_x402");
+    assert.ok(sent.account, "with the account it came from");
     // A token we don't take is logged by its shape only.
     assert.equal((await fetch(`${base}/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer xyz-not-ours" }, body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list" }) })).status, 401);
     const un = records.find((r) => r.input?.step === "mcp_unauthorized");
