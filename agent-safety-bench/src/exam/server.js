@@ -73,6 +73,11 @@ export function agentKey(r) {
   return createHash("sha256").update(`${r.reference ? "reference" : String(r.operator || "").toLowerCase()}|${String(r.agent?.name || "").toLowerCase()}`).digest("hex").slice(0, 16);
 }
 
+// The message an operator signs to set the website the register shows for its agent (POST /v1/agents/<key>/website).
+export function websiteMessage({ name, operator, url, date }) {
+  return `x402 Agent Safety register\nAgent: ${name}\nOperator: ${operator}\nWebsite: ${url || "(none)"}\nDate: ${date}`;
+}
+
 export function examMessage({ name, version, operator, date }) {
   return `x402 Agent Safety exam\nAgent: ${name} ${version}\nOperator: ${operator}\nDate: ${date}`;
 }
@@ -522,8 +527,14 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     }
   }
   // The website shown for an agent: the one listed in src/exam/websites.js, else the one it named at the exam.
+  // The website shown for an agent: the one its operator set with a signature (POST /v1/agents/<key>/website), else
+  // one listed by hand in src/exam/websites.js, else the one it named at the exam. ownWebsites is read from the store at
+  // the start of each registerOf.
+  let ownWebsites = new Map();
   const websiteFor = (r) => {
-    const given = r.reference ? null : websiteOf(agentKey(r));
+    if (r.reference) return null;
+    const key = agentKey(r);
+    const given = ownWebsites.get(key)?.url || websiteOf(key);
     const url = given || r.agent?.url || null;
     return url && siteHost(url) ? { url, host: siteHost(url), source: given ? "operator" : "exam" } : null;
   };
@@ -540,6 +551,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   }
 
   async function registerOf() {
+    ownWebsites = new Map((await store.list("website:")).filter((w) => w?.key).map((w) => [w.key, w]));
     const latest = new Map();
     for (const r of await store.list("result:")) {
       if (r.reference || withdrawnReason(r.id)) continue;
@@ -587,6 +599,39 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       lapsed: entries.filter((e) => !e.current).sort((a, b) => (a.valid_until < b.valid_until ? 1 : -1)),
     };
   }
+
+  // An operator sets the website the register shows for its agent: sign websiteMessage (GET .../website/message?url=)
+  // with the operator wallet of the agent's latest exam and POST it with the url; an empty url takes it away again. The
+  // site may be the operator's own page about the agent: it is shown as named by the operator, and as vouched for once
+  // its agent-safety.json lists the operator wallet. Limited like the lookups.
+  const agentFor = async (key) => {
+    const r = await latestOf(key);
+    return r && !r.reference && r.operator ? r : null;
+  };
+  app.get("/v1/agents/:key/website/message", async (req, res) => {
+    res.set("access-control-allow-origin", "*");
+    const r = await agentFor(req.params.key);
+    if (!r) return res.status(404).json({ error: "no agent with that key (agent_key in the register or the index)" });
+    const { url, error } = agentUrlOf(req.query.url);
+    if (error) return res.status(400).json({ error: error.replace("agent.url", "url") });
+    res.json({ message: websiteMessage({ name: r.agent.name, operator: getAddress(r.operator), url, date: today(now()) }), sign_with: `personal_sign (EIP-191) by the operator wallet ${getAddress(r.operator)}`, then: `POST ${origin}/v1/agents/${req.params.key}/website with {"url", "signature"}` });
+  });
+  app.post("/v1/agents/:key/website", async (req, res) => {
+    res.set("access-control-allow-origin", "*");
+    if (await lookupLimited(req)) return res.status(429).json({ error: `at most ${LIMITS.lookupsPerIpPerHour} requests per hour` });
+    const r = await agentFor(req.params.key);
+    if (!r) return res.status(404).json({ error: "no agent with that key (agent_key in the register or the index)" });
+    const b = req.body || {};
+    const { url, error } = agentUrlOf(b.url);
+    if (error) return res.status(400).json({ error: error.replace("agent.url", "url") });
+    const operator = getAddress(r.operator);
+    const message = websiteMessage({ name: r.agent.name, operator, url, date: today(now()) });
+    const ok = typeof b.signature === "string" && (await verifyMessage({ address: operator, message, signature: b.signature }).catch(() => false));
+    usage.record("website", { req, operator, status: ok ? 200 : 401, input: { set: Boolean(url) } });
+    if (!ok) return res.status(401).json({ error: "sign this message with the agent's operator wallet and send it as signature", message });
+    await store.set(`website:${req.params.key}`, { key: req.params.key, url, at: new Date(now()).toISOString() });
+    res.json({ agent_key: req.params.key, website: url, register: `${origin}/register`, note: url ? "shown as named by the operator; vouched for once the site's /.well-known/agent-safety.json lists the operator wallet" : "taken away" });
+  });
 
   app.get("/v1/register", async (req, res) => {
     const out = await registerOf();
