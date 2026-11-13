@@ -39,9 +39,9 @@
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
-import { createPaidGuard, paidTwiceMessage, PAID_ERROR_MS } from "./paid-guard.js";
+import { createPaidGuard, paidTwiceMessage, errorInAnswer, PAID_ERROR_MS } from "./paid-guard.js";
 
-export { createPaidGuard, purchaseKey, paidTwiceMessage, PAID_ERROR_MS } from "./paid-guard.js";
+export { createPaidGuard, purchaseKey, paidTwiceMessage, errorInAnswer, PAID_ERROR_MS } from "./paid-guard.js";
 export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.7";
+export const VERSION = "0.20.8";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -140,6 +140,9 @@ function replayKey(url, method) {
   try { href = new URL(href).href; } catch { /* kept as given */ }
   return `${String(method ?? "GET").toUpperCase()} ${href}`;
 }
+
+// A paid JSON answer is read for an error report up to this size; a larger one is data.
+const ERROR_SNIFF_BYTES = 64 * 1024;
 
 // What an option paid on `network` costs in US dollars, or null when it can't be read: RLUSD amounts are decimal
 // dollars, Circle's USDC on Stellar has 7 decimals, and every other token safe-fetch pays (USDC, USD₮0) has 6.
@@ -607,7 +610,7 @@ export function createSafeFetch({
       .catch(() => {});
   }
   function reportOutcome(url, method, preflight, res) {
-    const outcome = res.ok ? "paid_ok" : res.status === 402 ? "paid_failed" : res.status >= 400 ? "paid_error" : null;
+    const outcome = errorAnswers.has(res) ? "paid_error" : res.ok ? "paid_ok" : res.status === 402 ? "paid_failed" : res.status >= 400 ? "paid_error" : null;
     if (outcome) sendOutcome(url, method, preflight, { outcome, status: res.status });
   }
   // The seller's own refusal url (tellSellers): only on the endpoint's own site, only a report about this endpoint,
@@ -682,8 +685,24 @@ export function createSafeFetch({
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     const landed = res.redirected && res.url && res.url !== url ? res.url : null;
     const pollAt = res.status === 202 ? await pollUrlOf(res) : null;
-    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt });
+    // A paid 2xx whose body is an error report is not a delivery (0.20.8).
+    const failure = res.ok && res.status !== 202 ? await errorReportOf(res) : null;
+    if (failure) errorAnswers.add(res);
+    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt, failure });
     return res;
+  }
+  // Paid answers whose body reports an error (for the outcome report).
+  const errorAnswers = new WeakSet();
+  // The error a paid JSON answer reports instead of a result (errorInAnswer), read from a copy; null for anything else.
+  async function errorReportOf(res) {
+    if (!/json/i.test(res.headers.get("content-type") || "")) return null;
+    if (Number(res.headers.get("content-length")) > ERROR_SNIFF_BYTES) return null;
+    try {
+      const text = await res.clone().text();
+      return text.length > ERROR_SNIFF_BYTES ? null : errorInAnswer(JSON.parse(text));
+    } catch {
+      return null;
+    }
   }
   // The poll URL of a 202 Accepted: Location, Content-Location, or poll_url / status_url / location in a JSON body.
   async function pollUrlOf(res) {
