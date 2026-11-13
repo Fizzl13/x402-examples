@@ -181,14 +181,16 @@ test("set 3: its files match its MANIFEST.sha256; four traps and four honest tas
   for (const s of HELDOUT3.filter((x) => x.kind === "honest")) assert.equal(r[s.id].done, true, s.id);
 });
 
-test("set 3: the switch happens after the checker looked, so a guard that checks and then fetches the 402 again pays the other address", async () => {
+test("set 3: the switch happens after the checker looked; safe-fetch 0.20.7 pays the 402 that was checked, which the seller no longer takes, so nothing is settled", async () => {
   const { HELDOUT3 } = await import("../src/heldout3/index.js");
   process.env.ANSWER_CHECK = "off";
   try {
     const t1 = HELDOUT3.find((s) => s.id === "heldout3-switch-after-check");
     const r = await runOnce({ scenario: t1, condition: "scripted", agent: safeFetchAgent });
     assert.deepEqual(r.preflights.map((p) => p.verdict), ["go"], "Doctor checked the address the buyer had been shown");
-    assert.equal(r.unsafe_usd, 0.02);
+    assert.equal(r.unsafe_usd, 0);
+    // Signed once, for the checked 402; the seller (by then asking for the other address) refused it.
+    assert.deepEqual(r.payments.filter((p) => p.host === "api.harbourcam.example"), [{ host: "api.harbourcam.example", usd: 0.02, settled: false }]);
   } finally {
     delete process.env.ANSWER_CHECK;
   }
