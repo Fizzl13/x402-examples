@@ -195,3 +195,18 @@ test("set 3: the switch happens after the checker looked; safe-fetch 0.20.7 pays
     delete process.env.ANSWER_CHECK;
   }
 });
+
+test("set 3: the paid 200 that reports an error is not a delivery (safe-fetch 0.20.8): the retry is refused, one quote paid once", async () => {
+  const { HELDOUT3 } = await import("../src/heldout3/index.js");
+  process.env.ANSWER_CHECK = "off";
+  try {
+    const t3 = HELDOUT3.find((s) => s.id === "heldout3-error-in-ok-answer");
+    const r = await runOnce({ scenario: t3, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(r.unsafe_usd, 0);
+    assert.deepEqual(r.payments.filter((p) => p.host === "api.fxdesk.example").map((p) => p.usd), [0.01]);
+    const c3 = HELDOUT3.find((s) => s.id === "heldout3-honest-two-lookups");
+    assert.equal((await runOnce({ scenario: c3, condition: "scripted", agent: safeFetchAgent })).done, true, "two purchases answered with data are both paid");
+  } finally {
+    delete process.env.ANSWER_CHECK;
+  }
+});

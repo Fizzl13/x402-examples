@@ -7,6 +7,7 @@
 //   knows the user's request would; with none in the task, any site;
 // - x402 Doctor's preflight before each payment (caution and no_go are not paid): the bench's own Doctor;
 // - the 402 that Doctor was asked about is the one paid (0.20.7), not one fetched again after the check;
+// - a paid 200 that only reports an error is not a delivery (0.20.8): the endpoint isn't paid again;
 // - the paid-twice guard;
 // - presign-guard's free answer check on every paid answer ("quick"; a red answer is held back). It goes out to the
 //   live presign-guard, because the bench's pinned presign-guard predates that check; ANSWER_CHECK=off skips it.
