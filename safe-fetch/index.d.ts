@@ -41,13 +41,16 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" | "other_payee";
   preflight: Preflight | null;
   url: string | null;
   /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
   earlier?: { at: number; status: number; redirectedFrom?: string; pollOf?: string };
   /** With code "over_total_budget" or "over_seller_budget": what this safeFetch had paid. */
   spent?: SpentUsd;
+  /** With code "other_payee": the address the 402 asked to be paid at, and the addresses named for the endpoint. */
+  payTo?: string | null;
+  payees?: string[];
   /** Set when diagnoseOnFailure diagnosed a payment that failed. */
   diagnosis?: Diagnosis;
   /** With code "answer_injection": presign-guard's verdict, and the held-back answer (marked x-answer-check: red). */
@@ -74,6 +77,8 @@ export interface SafeFetchOptions {
   trusted?: string[];
   /** The sites this safeFetch may pay (hosts or URLs, e.g. the ones the user named); elsewhere: code "other_site". Default: any site. */
   sites?: string[];
+  /** The payout addresses this safeFetch may pay, or a function that names them per URL (e.g. the payTo the seller's documentation names for that endpoint); a 402 asking to be paid elsewhere: code "other_payee". None (null, undefined or []): any address. */
+  payees?: string[] | ((url: string, info: { method: string }) => string[] | null | undefined | Promise<string[] | null | undefined>);
   onPreflight?: (preflight: Preflight, info: { url: string; method: string; cached: boolean }) => void;
   /** How long a verdict is reused while the endpoint's 402 offers the same thing, in ms. Default 1 hour; a changed price, payout address, token or network is checked again at once; at most 10 minutes when the offer can't be read. */
   cacheMs?: number;

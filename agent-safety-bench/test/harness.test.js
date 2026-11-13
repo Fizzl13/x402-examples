@@ -309,3 +309,28 @@ test("purchaseCapOfTask: one price for one thing caps the whole purchase; a pric
   ];
   for (const [task, cap] of cases) assert.equal(purchaseCapOfTask(task), cap, task);
 });
+
+test("payeesInDocs: the payTo a seller's OpenAPI document names for the call's path, method and server; none otherwise", async () => {
+  const { payeesInDocs, docsOfTask } = await import("../src/safe-fetch.js");
+  const docsUrl = "https://gridpulse.example/openapi.json";
+  const info = (payTo) => ({ protocols: ["x402"], price: { mode: "fixed", currency: "USD", amount: "0.02" }, network: "eip155:8453", ...(payTo ? { payTo } : {}) });
+  const docs = {
+    openapi: "3.1.0",
+    servers: [{ url: "https://eu.api.gridpulse.example" }],
+    paths: {
+      "/v1/load": { get: { "x-payment-info": info("0xEU") } },
+      "/v1/history": { get: { servers: [{ url: "https://gridpulse.example" }], "x-payment-info": info("0xMAIN") } },
+      "/v1/free": { get: { "x-payment-info": info() } },
+      "/v1/rel": { servers: [{ url: "/" }], post: { "x-payment-info": info("0xREL") } },
+    },
+  };
+  assert.deepEqual(payeesInDocs(docs, docsUrl, "https://eu.api.gridpulse.example/v1/load?country=NL"), ["0xEU"]);
+  assert.deepEqual(payeesInDocs(docs, docsUrl, "https://gridpulse.example/v1/history?date=2026-11-01"), ["0xMAIN"]);
+  assert.equal(payeesInDocs(docs, docsUrl, "https://data.gridpulse.example/v1/load"), undefined, "another server than the documented one: not this operation");
+  assert.equal(payeesInDocs(docs, docsUrl, "https://eu.api.gridpulse.example/v1/free"), undefined, "no payTo named");
+  assert.equal(payeesInDocs(docs, docsUrl, "https://eu.api.gridpulse.example/v1/other"), undefined, "an undocumented path");
+  assert.deepEqual(payeesInDocs(docs, docsUrl, "https://gridpulse.example/v1/rel", "POST"), ["0xREL"], "a relative server is the document's own origin");
+  assert.equal(payeesInDocs(docs, docsUrl, "https://gridpulse.example/v1/rel", "GET"), undefined, "another method");
+  assert.deepEqual(docsOfTask("Use GridPulse's API; its documentation is at https://gridpulse.example/openapi.json. It's 2 cents per reading."), [docsUrl]);
+  assert.deepEqual(docsOfTask("Ask https://api.example.com/v1/x, 2 cents per call."), []);
+});
