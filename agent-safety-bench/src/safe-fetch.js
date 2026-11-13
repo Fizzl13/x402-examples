@@ -8,7 +8,8 @@
 // - the sites the task names (sites, 0.20.6): the harness passes the https URLs in the task, as an agent's harness that
 //   knows the user's request would; with none in the task, any site;
 // - the payout address the seller's documentation names for a call (payees, 0.20.12), when the task points to an
-//   OpenAPI document that names one (x-payment-info.payTo); otherwise any address;
+//   OpenAPI document that names one (x-payment-info.payTo); when it names none for a call it describes on another host,
+//   the address the documentation's own host asks for at the same path, if it asks for one; otherwise any address;
 // - data only to the sites the task names (0.20.13): safe-fetch's own requests, and the agent's plain HTTP tool through
 //   the same check (createRequestGuard; withRequestGuard below);
 // - x402 Doctor's preflight before each payment (caution and no_go are not paid): the bench's own Doctor;
@@ -92,11 +93,17 @@ const METHODS = new Set(["get", "post", "put", "patch", "delete"]);
 // pass them (safe-fetch's payees, 0.20.12): held-out set 4 (13 Nov 2026) had a subdomain named in the documentation
 // that someone else had taken over, answering with a 402 to its own address while the documentation named the seller's.
 export function payeesInDocs(docs, docsUrl, url, method = "GET") {
+  const named = callsInDocs(docs, docsUrl, url, method).map((op) => op["x-payment-info"]?.payTo).filter((p) => typeof p === "string" && p);
+  return named.length ? named : undefined;
+}
+
+// The operations of an OpenAPI document that describe a call: its path and method, on one of the operation's servers.
+function callsInDocs(docs, docsUrl, url, method = "GET") {
   let target;
   try {
     target = new URL(url);
   } catch {
-    return undefined;
+    return [];
   }
   const originOf = (s) => {
     try {
@@ -105,22 +112,53 @@ export function payeesInDocs(docs, docsUrl, url, method = "GET") {
       return null;
     }
   };
-  const named = [];
+  const ops = [];
   for (const [path, item] of Object.entries(docs?.paths || {})) {
     if (path !== target.pathname || !item || typeof item !== "object") continue;
     for (const [verb, op] of Object.entries(item)) {
       if (!METHODS.has(verb) || verb !== String(method).toLowerCase() || !op || typeof op !== "object") continue;
-      const payTo = op["x-payment-info"]?.payTo;
-      if (typeof payTo !== "string" || !payTo) continue;
       const servers = op.servers || item.servers || docs.servers || [{ url: "/" }];
-      if (servers.map(originOf).includes(target.origin)) named.push(payTo);
+      if (servers.map(originOf).includes(target.origin)) ops.push(op);
     }
   }
-  return named.length ? named : undefined;
+  return ops;
+}
+
+// The payout addresses the documentation's own host asks for at the same path, for a call that the documentation
+// describes on another host without naming a payTo: that host is asked once, with a GET and without paying (a 402 is
+// free), and the addresses of its 402 are the ones the call may be paid at. None when the call is on the
+// documentation's host, isn't a GET, or that host answers anything but a 402 with an address. As an agent's harness
+// that read the documentation the user pointed to could pass them (safe-fetch's payees, 0.20.12): held-out set 3
+// (12 Nov 2026) had documentation on a shared hosting platform naming a server there under a name the seller had left
+// and a stranger had claimed; the seller's API answered on the documentation's own host, paid to the seller.
+export async function payeesOfDocsHost(docsUrl, url, method, fetchImpl, readOffer = SF.readOffer) {
+  let docsOrigin, target;
+  try {
+    docsOrigin = new URL(docsUrl).origin;
+    target = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (target.origin === docsOrigin || String(method || "GET").toUpperCase() !== "GET" || typeof readOffer !== "function") return undefined;
+  let res;
+  try {
+    res = await fetchImpl(new URL(target.pathname + target.search, docsOrigin).href, { method: "GET" });
+  } catch {
+    return undefined;
+  }
+  if (res.status !== 402) {
+    try { await res.body?.cancel(); } catch { /* already consumed */ }
+    return undefined;
+  }
+  const { accepts } = await readOffer(res);
+  const payTos = [...new Set((accepts || []).map((a) => a?.payTo).filter((p) => typeof p === "string" && p))];
+  return payTos.length ? payTos : undefined;
 }
 
 // payees for createSafeFetch: the documentation the task points to is read once (free, through the bench's world).
-function payeesFromDocs(task, fetchImpl) {
+// Its payTo for the call when it names one (payeesInDocs); else, for a call it describes on another host, the address
+// its own host asks for at the same path, asked once per URL (payeesOfDocsHost).
+export function payeesFromDocs(task, fetchImpl, { readOffer = SF.readOffer } = {}) {
   const urls = docsOfTask(task);
   if (!urls.length) return undefined;
   let loaded;
@@ -132,10 +170,19 @@ function payeesFromDocs(task, fetchImpl) {
       return null;
     }
   })));
-  return async (url, { method }) => {
-    for (const doc of await load()) {
-      const named = doc && payeesInDocs(doc.docs, doc.docsUrl, url, method);
+  const asked = new Map();
+  return async (url, { method } = {}) => {
+    const docs = (await load()).filter(Boolean);
+    for (const doc of docs) {
+      const named = payeesInDocs(doc.docs, doc.docsUrl, url, method);
       if (named) return named;
+    }
+    for (const doc of docs) {
+      if (!callsInDocs(doc.docs, doc.docsUrl, url, method).length) continue;
+      const key = `${doc.docsUrl} ${String(method || "GET").toUpperCase()} ${url}`;
+      if (!asked.has(key)) asked.set(key, payeesOfDocsHost(doc.docsUrl, url, method, fetchImpl, readOffer));
+      const own = await asked.get(key);
+      if (own) return own;
     }
     return undefined;
   };
