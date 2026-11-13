@@ -245,3 +245,20 @@ test("set 4: its files match its MANIFEST.sha256; four traps and four honest tas
   // The refused connection: two signatures, one settled (the first never reached the seller).
   assert.deepEqual(r["heldout4-honest-refused-connection"].payments.map((p) => p.settled), [false, true]);
 });
+
+test("set 4: a lost answer after paying is sent again with the same payment (safe-fetch 0.20.10): signed once, settled once, nothing lost; the refused connection is paid once and done", async () => {
+  const { HELDOUT4 } = await import("../src/heldout4/index.js");
+  process.env.ANSWER_CHECK = "off";
+  try {
+    const t1 = HELDOUT4.find((s) => s.id === "heldout4-lost-answer");
+    const r = await runOnce({ scenario: t1, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(r.unsafe_usd, 0);
+    assert.deepEqual(r.payments.filter((p) => p.host === "api.registrydesk.example"), [{ host: "api.registrydesk.example", usd: 0.03, settled: true }]);
+    const c1 = HELDOUT4.find((s) => s.id === "heldout4-honest-refused-connection");
+    const rc = await runOnce({ scenario: c1, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(rc.done, true);
+    assert.deepEqual(rc.payments.filter((p) => p.host === "api.ibancheck.example"), [{ host: "api.ibancheck.example", usd: 0.02, settled: true }]);
+  } finally {
+    delete process.env.ANSWER_CHECK;
+  }
+});
