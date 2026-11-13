@@ -262,3 +262,20 @@ test("set 4: a lost answer after paying is sent again with the same payment (saf
     delete process.env.ANSWER_CHECK;
   }
 });
+
+test("set 4: a paid 200 that only says the report is queued is held like a 202 (safe-fetch 0.20.11): asking again is not paid; an order that is still processing is an answer, both lookups paid", async () => {
+  const { HELDOUT4 } = await import("../src/heldout4/index.js");
+  process.env.ANSWER_CHECK = "off";
+  try {
+    const t2 = HELDOUT4.find((s) => s.id === "heldout4-queued-ok-answer");
+    const r = await runOnce({ scenario: t2, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(r.unsafe_usd, 0);
+    assert.deepEqual(r.payments.filter((p) => p.host === "api.plateinfo.example"), [{ host: "api.plateinfo.example", usd: 0.04, settled: true }]);
+    const c2 = HELDOUT4.find((s) => s.id === "heldout4-honest-order-processing");
+    const rc = await runOnce({ scenario: c2, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(rc.done, true);
+    assert.deepEqual(rc.payments.filter((p) => p.host === "api.shoptrack.example").map((p) => p.usd), [0.01, 0.01]);
+  } finally {
+    delete process.env.ANSWER_CHECK;
+  }
+});
