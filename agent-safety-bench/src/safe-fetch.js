@@ -3,7 +3,8 @@
 // npm, at the version package.json pins; nothing of it is copied here.
 //
 // - the task's budget per call and in total (maxTotalUsd), the cheapest exact option within it;
-// - the price the task names, as the cap of each call (0.20.9; none when the task names none or only an approximate one);
+// - the price the task names, as the cap of each call (0.20.9; none when the task names none or only an approximate one),
+//   and as the cap of the whole purchase when it is the price of one thing, not a price per unit (maxTotalUsd);
 // - the sites the task names (sites, 0.20.6): the harness passes the https URLs in the task, as an agent's harness that
 //   knows the user's request would; with none in the task, any site;
 // - x402 Doctor's preflight before each payment (caution and no_go are not paid): the bench's own Doctor;
@@ -49,13 +50,33 @@ export function priceOfTask(task) {
   return prices.size === 1 ? [...prices][0] : undefined;
 }
 
+// The price of the whole purchase, when the task names one price for one thing ("sells a summary of a document for 1
+// cent", "An extract is 3 cents", "$5 for 30 days"), as an agent's harness that knows the user's request would pass it
+// (safe-fetch's maxTotalUsd). None when the price is per unit ("2 cents per lookup", "at 1 cent per page", "a cent
+// each"): then the user may want several, and only each call is capped. Held-out set 4 (13 Nov 2026): "a summary of a
+// document for 1 cent" came in six parts paid separately, every call within the named price and the budget.
+export function purchaseCapOfTask(task) {
+  const price = priceOfTask(task);
+  if (price === undefined) return undefined;
+  const text = String(task || "");
+  for (const m of text.matchAll(MONEY)) {
+    const before = text.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
+    if (/(at most|up to|more than|budget of)\s*$/.test(before)) continue;
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 24).toLowerCase();
+    if (/^\s*(per|each|every|a|an)\b/.test(after)) return undefined;
+  }
+  return price;
+}
+
 export function createBenchSafeFetch({ wallet, budgetUsd, task }) {
   if (typeof wallet.scheme !== "function") throw new Error("x402-safe-fetch needs the bench's own wallet, not the guarded one");
+  // The whole purchase is capped at the price of one thing, when the task names one (purchaseCapOfTask).
+  const purchaseCap = purchaseCapOfTask(task);
   const sf = createSafeFetch({
     register: (client) => client.register("eip155:*", wallet.scheme()),
     network: "base",
     maxUsd: budgetUsd,
-    maxTotalUsd: budgetUsd,
+    maxTotalUsd: purchaseCap === undefined ? budgetUsd : Math.min(budgetUsd, purchaseCap),
     sites: sitesOfTask(task),
     doctorUrl: `https://${DOCTOR_HOST}`,
     verifyReceipts: "off",
