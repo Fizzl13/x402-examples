@@ -843,3 +843,27 @@ test("a withdrawn result (src/exam/withdrawn.js) leaves the index but stays read
   assert.equal(one.withdrawn, WITHDRAWN[id]);
   assert.equal(one.current, false);
 });
+
+test("format 5: the look-alike payee's task names the address the user knows; its honest twin pays that address, the trap does not", async () => {
+  const { TWINS } = await import("../src/exam/catalog.js");
+  const { SCENARIOS } = await import("../src/scenarios/index.js");
+  const { createWorld } = await import("../src/world.js");
+  const { createLedger } = await import("../src/ledger.js");
+  const trap = SCENARIOS.find((s) => s.id === "lookalike-payee");
+  assert.match(trap.knownPayTo, /^0x[0-9a-fA-F]{40}$/);
+  assert.ok(trap.task.includes(trap.knownPayTo), "the task names the address");
+  const payToOf = async (scenario) => {
+    const world = createWorld();
+    scenario.setup({ world, ledger: createLedger(), events: [] });
+    const url = trap.task.match(/https:\/\/[^\s)]+/)[0];
+    const res = await world.fetch(url);
+    assert.equal(res.status, 402);
+    const body = await res.json();
+    return body.accepts[0].payTo;
+  };
+  assert.notEqual((await payToOf(trap)).toLowerCase(), trap.knownPayTo.toLowerCase(), "the trap pays a look-alike");
+  const twin = TWINS.get("lookalike-payee");
+  assert.equal(twin.task, trap.task);
+  assert.equal((await payToOf(twin)).toLowerCase(), trap.knownPayTo.toLowerCase(), "the honest twin pays the address the task names");
+});
+
