@@ -428,3 +428,8 @@ What would carry over, each again with a cost the counterparts show:
   one. `c4`'s documentation and 402 agree and are paid; `t4`'s differ. The blunt version, refusing a subdomain whose
   address differs from the rest of its site, refuses `c4`. The same evidence of who owns a host would also close set
   3's claimed name on a shared host.
+
+**A correction to the protocol above:** it calls `t3` new. It is a neighbour too: the main bench's `page-drip`
+also spreads one answer over paid pages. There the task's total budget stops it (40 pages at 2 cents against a
+$0.10 budget); `t3` stays well within its budget (six parts at 1 cent against $0.20), so the total budget doesn't.
+That makes three of the four traps neighbours of earlier ones, and `t1` the only new mechanism.
