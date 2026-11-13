@@ -1007,6 +1007,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       <div class="account">
         <article class="card" id="planCard"></article>
         <article class="card" id="tgCard"></article>
+        <article class="card" id="waCard" hidden></article>
         <article class="card" id="appCard" hidden></article>
         <article class="card" id="mailCard" hidden></article>
         <article class="card" id="keyCard" hidden></article>
@@ -1638,6 +1639,28 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       ${paste}
     </div>`;
   }
+  // Connecting WhatsApp: a wa.me link with the code as the message; the owner sends it from their own WhatsApp.
+  let waPending = null;
+  async function waLink() {
+    if (DEMO) { $("#waMsg").textContent = "Demo: on your own account this opens WhatsApp."; return; }
+    try {
+      const { url, code } = await post("/api/whatsapp/link");
+      const number = new URL(url).pathname.slice(1);
+      waPending = { url, message: `Connect my Fizzl wallet: ${code}`, number, until: Date.now() + 14 * 60_000 };
+      renderAccount();
+      pollWa();
+    } catch (err) { $("#waMsg").textContent = err.message; }
+  }
+  function waPendingHtml() {
+    if (!waPending || waPending.until < Date.now()) return "";
+    return `<div style="display:grid;gap:8px;border-top:1px dashed var(--line);padding-top:12px">
+      <div class="btns"><a class="button primary small" href="${esc(waPending.url)}" target="_blank" rel="noopener noreferrer">Open WhatsApp</a></div>
+      <p class="note" style="margin:0">Send the message WhatsApp opens with. This page updates by itself.</p>
+      <p class="note" style="margin:0">Nothing happens? Send this message to <b>+${esc(waPending.number)}</b> in WhatsApp (valid 15 minutes):</p>
+      <div class="paste"><input id="waCommand" readonly value="${esc(waPending.message)}" aria-label="Message to send"><button class="button ghost small" type="button" id="waCopy">Copy</button></div>
+    </div>`;
+  }
+  async function pollWa() { for (let i = 0; i < 100; i++) { await sleep(3000); try { me = await api("GET", "/api/me"); if (me.whatsapp?.linked) waPending = null; renderAccount(); if (me.whatsapp?.linked) return; } catch { return; } } }
   async function pollMe() { for (let i = 0; i < 100; i++) { await sleep(3000); try { me = await api("GET", "/api/me"); if (me.telegram.linked) tgPending = null; renderAccount(); if (me.telegram.linked) return; } catch { return; } } }
 
   let me = null;
@@ -1745,6 +1768,11 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     $("#tgCard").innerHTML = me.telegram.linked
       ? `<span class="tag">TELEGRAM</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests and plan reminders go to ${me.telegram.username ? `@${esc(me.telegram.username)}` : "your Telegram"}.</p><div class="btns"><button class="button ghost small" type="button" id="tgUnlink">Disconnect</button></div>`
       : `<span class="tag">TELEGRAM</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests on your phone with Approve / Deny buttons. One tap: no bot to make, no ids to look up.</p><div class="btns"><button class="button ${tgPending ? "ghost" : "primary"} small" type="button" id="tgLink">${tgPending ? "New link" : "Connect Telegram"}</button></div><div class="msg" id="tgMsg" role="status"></div>${tgPendingHtml()}`;
+    const wa = me.whatsapp ?? { linked: false };
+    $("#waCard").hidden = !wa.linked && !wa.available;
+    $("#waCard").innerHTML = wa.linked
+      ? `<span class="tag">WHATSAPP</span><div class="big">Connected</div><p class="note" style="margin:0">Approval requests go to ${esc(wa.number ?? "your WhatsApp")}, with Approve and Deny buttons.</p><div class="btns"><button class="button ghost small" type="button" id="waUnlink">Disconnect</button></div>`
+      : `<span class="tag">WHATSAPP</span><div class="big">Not connected</div><p class="note" style="margin:0">Get approval requests in WhatsApp with Approve / Deny buttons: send one message from your own WhatsApp to connect.</p><div class="btns"><button class="button ${waPending ? "ghost" : "primary"} small" type="button" id="waLink">${waPending ? "New code" : "Connect WhatsApp"}</button></div><div class="msg" id="waMsg" role="status"></div>${waPendingHtml()}`;
   }
   // ---------- Pro paid in RLUSD on the XRP Ledger (Xaman or any XRPL wallet): to our account with your own destination tag ----------
   // USDC on Algorand from the account this account signed in with (Pera or Defly): a payment link opens Pera with the transfer filled
@@ -1924,6 +1952,9 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     const p = e.target.closest("[data-pay]");
     if (p) { p.disabled = true; try { await pay(Number(p.dataset.pay), p.dataset.tier); } finally { p.disabled = false; } return; }
     if (e.target.closest("#tgLink")) return tgLink();
+    if (e.target.closest("#waLink")) return waLink();
+    if (e.target.closest("#waUnlink")) { if (DEMO) return; await post("/api/whatsapp/unlink"); me = await api("GET", "/api/me"); renderAccount(); return; }
+    if (e.target.closest("#waCopy")) { const i = $("#waCommand"); i.select(); const done = () => { $("#waCopy").textContent = "Copied"; }; const legacy = () => { try { if (document.execCommand("copy")) done(); } catch {} }; navigator.clipboard ? navigator.clipboard.writeText(i.value).then(done, legacy) : legacy(); return; }
     if (e.target.closest("[data-goadd]")) { goAdd("key"); return; }
     const cp = e.target.closest("button[data-copy]");
     if (cp) { const was = cp.textContent; const done = () => { cp.textContent = "Copied"; setTimeout(() => { cp.textContent = was; }, 2000); }; const legacy = () => { const t = Object.assign(document.createElement("textarea"), { value: cp.dataset.copy }); document.body.append(t); t.select(); try { if (document.execCommand("copy")) done(); } catch {} t.remove(); }; navigator.clipboard ? navigator.clipboard.writeText(cp.dataset.copy).then(done, legacy) : legacy(); return; }

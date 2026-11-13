@@ -100,6 +100,8 @@ const CODE_ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const newCode = () => [...randomBytes(8)].map((b) => CODE_ABC[b % CODE_ABC.length]).join("").replace(/^(.{4})/, "$1-");
 const cleanCode = (c) => { const s = String(c ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(.{4})/, "$1-"); return s.length === 9 ? s : null; };
 const short =(a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+// A WhatsApp number as the dashboard shows it: only its first two and last two digits.
+const maskNumber = (waId) => { const d = String(waId ?? "").replace(/\D/g, ""); return d.length > 6 ? `+${d.slice(0, 2)} ••• ${d.slice(-2)}` : "your WhatsApp"; };
 const date = (t) => new Date(t).toISOString().slice(0, 10);
 
 /**
@@ -138,7 +140,7 @@ export function welcomeMail(origin) {
   };
 }
 
-export function createAccounts({ store, telegram = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null, passKey = null }) {
+export function createAccounts({ store, telegram = null, whatsapp = null, adminChatId = null, billing, publicUrl, now = () => Date.now(), walletOptions = {}, usage = noUsage, endpointMonitor = createEndpointMonitor(), alertHook = createAlertHook(), push = null, mailer = null, xaman = null, passKey = null }) {
   const g = store.global;
   const wallets = new Map();
   const queues = new Map(); // account -> promise: account changes run one at a time
@@ -252,6 +254,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       notify: async (approval, spending) => {
         const a = await account(id);
         if (telegram && a?.telegram?.chatId) await telegram.notify(a.telegram.chatId, approval, spending);
+        if (whatsapp?.enabled && a?.whatsapp?.waId) await whatsapp.notify(a.whatsapp.waId, approval, spending).catch((err) => console.warn(`[approval] whatsapp: ${err.message}`));
         // On the phone: tapping opens the dashboard on the approval; Android also shows Approve / Deny buttons.
         const host = (() => { try { return new URL(approval.purchase?.url).host; } catch { return null; } })();
         const forWhat = [approval.purchase?.description, host].filter(Boolean).join(" · ");
@@ -307,7 +310,7 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
     if (await pushAll(id, pushText(text, event))) got++;
     return got;
   }
-  const reachable = (a) => !!(a?.telegram?.chatId || a?.alertHook || (push && a?.push?.length));
+  const reachable = (a) => !!(a?.telegram?.chatId || (whatsapp?.enabled && a?.whatsapp?.waId) || a?.alertHook || (push && a?.push?.length));
 
   // A signed sign-in message: checks the signature and gives { address, chain }, once.
   async function verifySigned(nonce, signature) {
@@ -548,6 +551,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
         payments: (a.payments ?? []).slice(-24).reverse(),
         withdrawal: withdrawalOf(a),
         telegram: a.telegram ? { linked: true, username: a.telegram.username ?? null } : { linked: false },
+        // The number is shown masked: the dashboard only needs to say which phone it is.
+        whatsapp: a.whatsapp ? { linked: true, number: maskNumber(a.whatsapp.waId) } : { linked: false, available: !!whatsapp?.enabled && !a.admin },
         pushDevices: push ? (a.push ?? []).length : 0,
         follow: a.follow ?? [],
         // Whether the connector tells sellers why it didn't pay (refusal extension): off until the owner turns it on.
@@ -698,6 +703,40 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       return walletFor(owner).decide(approvalId, decision, who);
     },
 
+    // ---------- WhatsApp (src/whatsapp.js): approvals as a template with Approve / Deny buttons ----------
+    async whatsappLink(id) {
+      if (!whatsapp?.enabled) throw Object.assign(new Error("WhatsApp is not set up on this server"), { status: 503 });
+      if (id === ADMIN) throw Object.assign(new Error("the owner gets approvals on Telegram (TELEGRAM_CHAT_ID)"), { status: 400 });
+      const code = rand(16);
+      await g.putOnce("wa", code, { account: id }, LINK_TTL_S);
+      return { url: whatsapp.linkUrl(code), code, expiresInS: LINK_TTL_S };
+    },
+    async whatsappUnlink(id) {
+      const a = await account(id);
+      if (!a || a.admin) return { ok: true };
+      await serial(id, async () => touch((await g.getAccount(id)) ?? a, { whatsapp: null }));
+      usage.record("whatsapp_unlinked", { account: id });
+      return { ok: true };
+    },
+    // A message to our number: with a link code, link the sender's number. Returns the reply text.
+    async whatsappStart(code, from) {
+      if (!code) return "Hi! Open your Fizzl wallet dashboard and click “Connect WhatsApp” to get approvals here.";
+      const pending = await g.takeOnce("wa", code);
+      if (!pending) return "That code has expired. Click “Connect WhatsApp” on the dashboard again.";
+      const a = await account(pending.account);
+      if (!a) return "That account no longer exists.";
+      await serial(a.id, async () => touch((await g.getAccount(a.id)) ?? a, { whatsapp: { waId: String(from.waId), name: from.name ?? null, linkedAt: now() } }));
+      usage.record("whatsapp_linked", { account: a.id });
+      return `Connected ✓ Approval requests for ${a.address ? short(a.address) : a.emailHint ?? "your account"} come here now, with Approve and Deny buttons. You can disconnect on the dashboard.`;
+    },
+    // A button tap: only the number linked to the account the approval belongs to may decide.
+    async whatsappDecide(approvalId, decision, from) {
+      const owner = (await g.getApprovalOwner(approvalId)) ?? ADMIN;
+      const a = await account(owner);
+      if (!a?.whatsapp || String(from?.waId) !== String(a.whatsapp.waId)) return { refused: true };
+      return walletFor(owner).decide(approvalId, decision, "WhatsApp");
+    },
+
     // ---------- "Test my setup": everything an agent needs, checked without paying anything ----------
     // Returns { checks: [{ id, status: "ok" | "warn" | "fail", title, detail, fix? }] } in the order a
     // newcomer sets things up. Sends one Telegram test message when `telegram` is true (once a minute).
@@ -740,7 +779,8 @@ export function createAccounts({ store, telegram = null, adminChatId = null, bil
       } else if (agent) add("balance", "warn", "Money to pay with", `The wallet doesn't know ${agent.name}'s address yet, so it can't see its balance.`, "Paste your agent's wallet address (0x…, public, not the private key) below, or it's filled in after its first purchase.");
 
       const devices = push ? (a.push ?? []).map((d) => d.label) : [];
-      if (devices.length && !a.telegram?.chatId) add("telegram", "ok", "Approvals on your phone", `Notifications are on for ${devices.join(", ")}.`);
+      if (whatsapp?.enabled && a.whatsapp?.waId && !a.telegram?.chatId) add("telegram", "ok", "Approvals on your phone", `WhatsApp is connected${devices.length ? `, and notifications are on for ${devices.join(", ")}` : ""}.`);
+      else if (devices.length && !a.telegram?.chatId) add("telegram", "ok", "Approvals on your phone", `Notifications are on for ${devices.join(", ")}.`);
       else if (!telegram && !devices.length) add("telegram", "warn", "Approvals on your phone", "Notifications aren't on: purchases over your rule wait for you on this dashboard only.", "Install the wallet on your phone and tap Turn on (Account tab, On your phone).");
       else if (!telegram) add("telegram", "ok", "Approvals on your phone", `Notifications are on for ${devices.join(", ")}.`);
       else if (!a.telegram?.chatId) add("telegram", "warn", "Approvals on your phone", "Neither the phone app nor Telegram is on: purchases over your rule wait for you on this dashboard only.", "Install the wallet on your phone and tap Turn on (Account tab, On your phone), or click Connect Telegram.");

@@ -61,7 +61,7 @@ export function trustProxyHops(value = process.env.TRUST_PROXY_HOPS) {
   return Number.isInteger(n) && n >= 0 && n <= 10 && String(value ?? "").trim() !== "" ? n : 2;
 }
 
-export function createApp({ errorReporter = null, accounts, auth, telegram = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault", onramp = null, proxyHops = trustProxyHops() }) {
+export function createApp({ errorReporter = null, accounts, auth, telegram = null, whatsapp = null, signInWithWallet = true, operator = {}, catalog = null, usage = noUsage, stats = null, outreach = null, outreachKey = null, draftKey = null, ownerChatId = null, likes = null, allowance = null, oauthStore = null, publicUrl = null, connector = {}, passJwks = null, passSaleKey = null, vaultFetch = globalThis.fetch, vaultUrl = "https://x402-doctor.fizzl.eu/api/v1/vault", onramp = null, proxyHops = trustProxyHops() }) {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", proxyHops);
@@ -73,7 +73,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     if (!hopsLogged && xff) { hopsLogged = true; console.log(`[proxy] x-forwarded-for has ${xff.split(",").length} entries; trusting ${proxyHops} proxy hops`); }
     next();
   });
-  app.use(express.json({ limit: "64kb" }));
+  app.use(express.json({ limit: "64kb", verify: (req, _res, buf) => { if (req.originalUrl?.startsWith("/whatsapp/webhook")) req.rawBody = buf; } }));
   app.use((req, res, next) => {
     res.set("x-content-type-options", "nosniff");
     res.set("referrer-policy", "no-referrer");
@@ -95,7 +95,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
     res.json({ ok: true, memory: { rss_mb: mb(rss), heap_mb: mb(heapUsed), heap_total_mb: mb(heapTotal), heap_limit_mb: mb(getHeapStatistics().heap_size_limit), external_mb: mb(external) }, uptime_s: Math.round(process.uptime()) });
   });
   // What the sign-in page offers.
-  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, algorand: signInWithWallet && !!accounts.algorandEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username, onramp: !!onramp?.enabled }));
+  app.get("/api/config", (_req, res) => res.json({ wallet: signInWithWallet, solana: signInWithWallet && !!accounts.solanaEnabled, xaman: signInWithWallet && !!accounts.xamanEnabled, algorand: signInWithWallet && !!accounts.algorandEnabled, xrpl: !!accounts.xrplEnabled, email: signInWithWallet && !!accounts.emailEnabled, password: auth.hasPassword, telegram: !!telegram?.username, whatsapp: !!whatsapp?.enabled, onramp: !!onramp?.enabled }));
 
   // ---------- feedback ----------
   // POST /feedback (anyone) and POST /v1/feedback (an agent, with its key; the connector's MCP tool feedback uses the
@@ -554,6 +554,8 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   owner.post("/push/test", wrap(async (req, res) => res.json(await accounts.pushTest(req.account))));
   owner.post("/telegram/link", wrap(async (req, res) => res.json(await accounts.telegramLink(req.account))));
   owner.post("/telegram/unlink", wrap(async (req, res) => res.json(await accounts.telegramUnlink(req.account))));
+  owner.post("/whatsapp/link", wrap(async (req, res) => res.json(await accounts.whatsappLink(req.account))));
+  owner.post("/whatsapp/unlink", wrap(async (req, res) => res.json(await accounts.whatsappUnlink(req.account))));
   owner.post("/billing/solana", wrap(async (req, res) => res.json(await accounts.solanaPayment(req.account, req.body?.months, req.body?.tier))));
   owner.post("/billing/claim", wrap(async (req, res) => res.json(await accounts.claimPayment(req.account, req.body?.txHash, req.body?.chainId, req.body?.tier))));
   owner.post("/account/delete", wrap(async (req, res) => {
@@ -691,6 +693,23 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
       decide: (id, d, from) => accounts.telegramDecide(id, d, from),
       outreach: outreach ? (id, action, from) => outreach.fromTelegram(id, action, from) : null,
       start: (code, chat, from) => accounts.telegramStart(code, chat, from),
+    });
+    res.status(ok ? 200 : 401).end();
+  }));
+
+  // ---------- WhatsApp (src/whatsapp.js) ----------
+  // Meta checks the URL once with a GET; every delivery is a POST signed with the app secret (X-Hub-Signature-256).
+  app.get("/whatsapp/webhook", (req, res) => {
+    if (!whatsapp?.enabled) return res.status(404).end();
+    const challenge = whatsapp.verify(req.query);
+    if (challenge === null) return res.status(403).end();
+    res.type("text/plain").send(challenge);
+  });
+  app.post("/whatsapp/webhook", wrap(async (req, res) => {
+    if (!whatsapp?.enabled) return res.status(404).end();
+    const ok = await whatsapp.handleWebhook(req.rawBody, req.get("x-hub-signature-256"), {
+      decide: (id, d, from) => accounts.whatsappDecide(id, d, from),
+      start: (code, from) => accounts.whatsappStart(code, from),
     });
     res.status(ok ? 200 : 401).end();
   }));
