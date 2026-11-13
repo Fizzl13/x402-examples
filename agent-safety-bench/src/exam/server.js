@@ -23,7 +23,7 @@ import { TWINS } from "./catalog.js";
 import { memoryStore } from "./store.js";
 import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
-import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage } from "./pages.js";
+import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage, registerPage } from "./pages.js";
 import { agentPrompt } from "./prompt.js";
 import { siteHost, createSiteVerifier, WELL_KNOWN } from "./site.js";
 import { createHash } from "node:crypto";
@@ -491,6 +491,76 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     return { site: host, file: check.file, file_status: check.status, agents };
   }
 
+  // The register: every agent (agentKey: operator wallet and name) whose latest exam admitted it, the same latest exam
+  // its badge shows. "admitted" while the admission is valid, "lapsed" once valid_until has passed; an agent whose latest
+  // exam did not pass is not in it, even if an earlier one did. Reference rows (our scripted agents) and withdrawn
+  // results are left out. An agent that names a website is marked verified when the site's agent-safety.json lists its
+  // operator wallet (the cached check of /find); a site that doesn't answer within REGISTER_SITE_WAIT_MS shows as not
+  // checked, and at most REGISTER_SITE_CHECKS sites are checked per request.
+  const REGISTER_SITE_CHECKS = 25;
+  const REGISTER_SITE_WAIT_MS = 2500;
+  async function siteChecksOf(rows) {
+    const hosts = [...new Set(rows.map((r) => siteHost(r.agent?.url)).filter(Boolean))].slice(0, REGISTER_SITE_CHECKS);
+    const checks = new Map();
+    await Promise.all(hosts.map(async (host) => {
+      let timer;
+      const late = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), REGISTER_SITE_WAIT_MS);
+        timer.unref?.();
+      });
+      const check = Promise.resolve().then(() => siteCheck(host)).catch(() => null);
+      checks.set(host, await Promise.race([check, late]));
+      clearTimeout(timer);
+    }));
+    return checks;
+  }
+
+  const registerEntry = (r, checks) => {
+    const key = agentKey(r);
+    const host = siteHost(r.agent?.url);
+    const check = host ? checks.get(host) : null;
+    const left = Math.ceil((Date.parse(r.valid_until) - now()) / 864e5);
+    return {
+      entry: `ASI-${key.slice(0, 8).toUpperCase()}`,
+      ...publicRow(r),
+      operator: r.operator,
+      site: host ? { host, url: r.agent.url, verified: check ? check.operators.includes(String(r.operator || "").toLowerCase()) : null, file_status: check?.status ?? "not_checked" } : null,
+      days_left: r.current ? Math.max(0, left) : 0,
+    };
+  };
+
+  async function registerOf() {
+    const latest = new Map();
+    for (const r of await store.list("result:")) {
+      if (r.reference || withdrawnReason(r.id)) continue;
+      const key = agentKey(r);
+      if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
+    }
+    const rows = [...latest.values()].filter((r) => r.admitted).map(withCurrent);
+    const checks = await siteChecksOf(rows);
+    const entries = rows.map((r) => registerEntry(r, checks));
+    return {
+      updated: new Date(now()).toISOString(),
+      pass: PASS,
+      valid_days: VALID_DAYS,
+      signer: signer?.address ?? null,
+      admitted: entries.filter((e) => e.current).sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)),
+      lapsed: entries.filter((e) => !e.current).sort((a, b) => (a.valid_until < b.valid_until ? 1 : -1)),
+    };
+  }
+
+  app.get("/v1/register", async (req, res) => {
+    const out = await registerOf();
+    usage.record("register", { req, via: "api", result: { admitted: out.admitted.length, lapsed: out.lapsed.length } });
+    res.set("access-control-allow-origin", "*").set("cache-control", "public, max-age=60").json(out);
+  });
+
+  app.get("/register", async (req, res) => {
+    const out = await registerOf();
+    usage.record("page", { req, via: "web", input: { page: "register" } });
+    res.type("html").set("cache-control", "public, max-age=60").send(registerPage({ origin, register: out }));
+  });
+
   async function lookupLimited(req) {
     const hour = new Date(now()).toISOString().slice(0, 13);
     return (await store.incr(`lookup:${req.ip}:${hour}`, 3600)) > LIMITS.lookupsPerIpPerHour;
@@ -727,7 +797,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   app.get("/robots.txt", (_req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /e/\nDisallow: /live/\nDisallow: /v1/exams\n\nSitemap: ${origin}/sitemap.xml\n`));
   app.get("/sitemap.xml", async (_req, res) => {
     const rows = await indexRows();
-    const urls = [`${origin}/`, `${origin}/find`, `${origin}/llms.txt`, ...rows.map((r) => `${origin}/r/${r.id}`)];
+    const urls = [`${origin}/`, `${origin}/register`, `${origin}/find`, `${origin}/llms.txt`, ...rows.map((r) => `${origin}/r/${r.id}`)];
     res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>\n`);
   });
   app.get("/og.png", (_req, res) => res.type("image/png").set("cache-control", "public, max-age=86400").sendFile(OG_IMAGE));
