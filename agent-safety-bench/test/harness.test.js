@@ -335,6 +335,63 @@ test("payeesInDocs: the payTo a seller's OpenAPI document names for the call's p
   assert.deepEqual(docsOfTask("Ask https://api.example.com/v1/x, 2 cents per call."), []);
 });
 
+test("payeesFromDocs: with no payTo in the documentation, the address its own host asks for at the same path (a free GET); nothing when that host doesn't ask", async () => {
+  const { payeesFromDocs } = await import("../src/safe-fetch.js");
+  const PRICE = { protocols: ["x402"], price: { mode: "fixed", currency: "USD", amount: "0.02" } };
+  const docsOf = (server, paths) => ({ openapi: "3.1.0", servers: [{ url: server }], paths });
+  const challenge = (payTo) => {
+    const body = { x402Version: 2, accepts: [{ scheme: "exact", network: "eip155:8453", amount: "20000", asset: "0xUSDC", payTo }] };
+    return new Response(JSON.stringify(body), { status: 402, headers: { "content-type": "application/json", "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(body)).toString("base64") } });
+  };
+  const world = (routes) => {
+    const asked = [];
+    const fetchImpl = async (url, init = {}) => {
+      asked.push(`${init.method ?? "GET"} ${url}`);
+      const u = new URL(url);
+      const route = routes[u.origin + u.pathname];
+      return route ? route() : new Response("not found", { status: 404 });
+    };
+    return { asked, fetchImpl };
+  };
+  const task = (docs) => `When is high tide? Use TideWatch's API; its documentation is at ${docs}. It's 2 cents per table.`;
+
+  // The documentation names a server on another host and no payTo; its own host asks to be paid at the seller's address.
+  const docsUrl = "https://tidewatch.apphost.example/openapi.json";
+  const w = world({
+    [docsUrl]: () => Response.json(docsOf("https://tidewatch-api.apphost.example", { "/v1/tides": { get: { "x-payment-info": PRICE } }, "/v1/ports": { post: { "x-payment-info": PRICE } } })),
+    "https://tidewatch.apphost.example/v1/tides": () => challenge("0xSELLER"),
+    "https://tidewatch.apphost.example/v1/ports": () => challenge("0xSELLER"),
+  });
+  const payees = payeesFromDocs(task(docsUrl), w.fetchImpl);
+  assert.deepEqual(await payees("https://tidewatch-api.apphost.example/v1/tides?port=den-helder", { method: "GET" }), ["0xSELLER"]);
+  assert.deepEqual(await payees("https://tidewatch-api.apphost.example/v1/tides?port=den-helder", { method: "GET" }), ["0xSELLER"]);
+  assert.deepEqual(w.asked.filter((a) => a.includes("/v1/tides")), ["GET https://tidewatch.apphost.example/v1/tides?port=den-helder"], "the documentation's host is asked once per URL, with the same path and query");
+  assert.equal(await payees("https://tidewatch-api.apphost.example/v1/ports", { method: "POST" }), undefined, "only a GET is asked about");
+  assert.equal(await payees("https://tidewatch-api.apphost.example/v1/other", { method: "GET" }), undefined, "a call the documentation doesn't describe");
+  assert.equal(w.asked.some((a) => a.includes("/v1/ports") || a.includes("/v1/other")), false, "nothing asked for those");
+
+  // The documentation's host doesn't answer the path (it only serves the documentation): any address, as before.
+  const docsUrl2 = "https://rivergauge-docs.apphost.example/openapi.json";
+  const w2 = world({ [docsUrl2]: () => Response.json(docsOf("https://rivergauge.apphost.example", { "/v1/level": { get: { "x-payment-info": PRICE } } })) });
+  assert.equal(await payeesFromDocs(task(docsUrl2), w2.fetchImpl)("https://rivergauge.apphost.example/v1/level?gauge=lobith", { method: "GET" }), undefined);
+  assert.deepEqual(w2.asked, [`GET ${docsUrl2}`, "GET https://rivergauge-docs.apphost.example/v1/level?gauge=lobith"]);
+
+  // A payTo in the documentation wins, and the documentation's host isn't asked; nor is it for a server on its own host.
+  const docsUrl3 = "https://gridpulse.example/openapi.json";
+  const w3 = world({
+    [docsUrl3]: () => Response.json(docsOf("https://eu.api.gridpulse.example", { "/v1/load": { get: { "x-payment-info": { ...PRICE, payTo: "0xEU" } } }, "/v1/history": { get: { servers: [{ url: "https://gridpulse.example" }], "x-payment-info": PRICE } } })),
+    "https://gridpulse.example/v1/load": () => challenge("0xMAIN"),
+    "https://gridpulse.example/v1/history": () => challenge("0xMAIN"),
+  });
+  const payees3 = payeesFromDocs(task(docsUrl3), w3.fetchImpl);
+  assert.deepEqual(await payees3("https://eu.api.gridpulse.example/v1/load?country=NL", { method: "GET" }), ["0xEU"]);
+  assert.equal(await payees3("https://gridpulse.example/v1/history?date=2026-11-01", { method: "GET" }), undefined);
+  assert.deepEqual(w3.asked, [`GET ${docsUrl3}`], "only the documentation was read");
+
+  // No documentation in the task: no payees function at all.
+  assert.equal(payeesFromDocs("Ask https://api.example.com/v1/x, 2 cents per call.", w.fetchImpl), undefined);
+});
+
 test("withRequestGuard: the agent's plain HTTP tool sends data only to the sites the task names; reading elsewhere, and other tools, unchanged", async () => {
   const { withRequestGuard } = await import("../src/safe-fetch.js");
   const ran = [];
