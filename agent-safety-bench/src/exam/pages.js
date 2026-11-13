@@ -101,23 +101,26 @@ ${found.agents
 ${FOOT}</body></html>`;
 }
 
-// The register (GET /register): every agent whose latest exam admitted it and whose website vouches for it, while the
-// admission is valid, marked when the website also sells in the x402 Bazaar; below it the ones whose admission lapsed. register is
+// The register (GET /register): every agent whose latest exam admitted it and was paid, or whose website vouches for it,
+// while the admission is valid; with its website as a link, its badge, and labels (vouched for, in the x402 Bazaar);
+// below it the ones whose admission lapsed. register is
 // what GET /v1/register answers (src/exam/server.js, registerOf).
 export function registerPage({ origin, register }) {
   const { admitted = [], lapsed = [], pass = {}, valid_days: validDays = 30, updated, unchecked = 0 } = register || {};
   const pct = (x) => `${Math.round(Number(x) * 100)}%`;
   const site = (e) => {
-    if (!e.site) return "";
+    const paid = e.paid ? `<span class="vf pd">Exam paid</span>` : "";
+    if (!e.site) return paid ? `<div class="e-site">${paid}</div>` : "";
     const routes = Number(e.bazaar?.routes) || 0;
+    const vouched = e.site.verified === true ? `<span class="vf yes">✓ vouched for by the site</span>` : e.site.verified === false ? `<span class="vf un">not vouched for by the site</span>` : `<span class="vf un">site not checked yet</span>`;
     const bazaar = e.bazaar ? `<span class="vf bz">In the x402 Bazaar · ${routes} ${routes === 1 ? "route" : "routes"}</span>` : "";
-    return `<div class="e-site"><a href="${esc(e.site.url)}" rel="nofollow ugc noopener" target="_blank">${esc(e.site.host)}</a><span class="vf yes">✓ vouched for by the site</span>${bazaar}</div>`;
+    return `<div class="e-site"><a href="${esc(e.site.url)}" rel="nofollow ugc noopener" target="_blank">${esc(e.site.host)}</a>${vouched}${paid}${bazaar}</div>`;
   };
   const entry = (e) => {
     const share = Math.max(0, Math.min(1, e.days_left / Math.max(1, validDays)));
     const q = [e.agent.name, e.agent.version, e.site?.host, e.entry, e.operator].filter(Boolean).join(" ").toLowerCase();
     return `<article class="card entry" data-q="${esc(q)}">
-<div class="e-top"><span class="eno">${esc(e.entry)}</span><span class="st ok">Admitted</span></div>
+<div class="e-top"><span class="eno">${esc(e.entry)}</span><a class="e-badge" href="/a/${esc(e.agent_key)}" title="The agent's badge: always its latest exam"><img src="/badge/agent/${esc(e.agent_key)}.svg?style=fizzl" alt="Agent Safety badge: admitted · ${Number(e.score)}" height="24"></a></div>
 <div class="e-head"><span class="score ok">${Number(e.score)}</span><div class="e-name"><h3>${esc(e.agent.name)}</h3><span class="v">version ${esc(e.agent.version)}</span></div></div>
 ${site(e)}
 <dl class="e-stats"><div><dt>Traps avoided</dt><dd>${esc(e.traps_avoided)}</dd></div><div><dt>Honest tasks</dt><dd>${esc(e.honest_done)}</dd></div><div><dt>Lost</dt><dd>$${Number(e.lost_usd).toFixed(2)}</dd></div></dl>
@@ -127,7 +130,7 @@ ${site(e)}
   };
   const list = admitted.length
     ? `<div class="entries" id="entries">${admitted.map(entry).join("")}</div><p class="muted" id="rnone" hidden>No agent in the register matches that.</p>`
-    : `<div class="card empty-reg"><p>No agent is in the register right now. It takes two things: pass the exam, and let the agent's own website vouch for it.</p><a class="btn" href="/#take">Take the exam</a></div>`;
+    : `<div class="card empty-reg"><p>No agent is in the register right now. It takes passing the exam, with a paid sitting or with the agent's own website vouching for it.</p><a class="btn" href="/#take">Take the exam</a></div>`;
   const lapsedRows = lapsed.length
     ? `<section class="lapsed"><div class="kicker">Lapsed</div><h2>Admissions that ran out</h2><p class="muted">These agents passed, but their ${validDays} days are over and they haven't passed again since. They are not admitted now.</p>
 <div class="card tbl"><table><thead><tr><th>Entry</th><th>Agent</th><th>Score</th><th>Lapsed on</th><th></th></tr></thead><tbody>${lapsed
@@ -144,7 +147,7 @@ ${site(e)}
   };
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Register of admitted agents · Agent Safety Index</title>
-<meta name="description" content="AI agents admitted after the x402 Agent Safety exam whose own website vouches for them: score, dates, Bazaar listing, and the signed result anyone can check.">
+<meta name="description" content="AI agents admitted after a paid x402 Agent Safety exam, or vouched for by their own website: score, dates, website, badge, and the signed result anyone can check.">
 <link rel="canonical" href="${esc(origin)}/register"><link rel="alternate" type="application/json" href="${esc(origin)}/v1/register">
 <meta property="og:type" content="website"><meta property="og:url" content="${esc(origin)}/register"><meta property="og:title" content="Register of admitted agents"><meta property="og:description" content="AI agents that passed the x402 Agent Safety exam, with signed results."><meta property="og:image" content="${esc(origin)}/og.png?v=96">
 <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>
@@ -156,12 +159,12 @@ ${FONTS}<style>${BASE_CSS}
 .rtools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:16px}.rtools input{flex:1 1 260px;max-width:420px;min-height:46px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.35);color:var(--ink);font:15px var(--body);padding:0 20px}.rtools input:focus{outline:none;border-color:var(--mint)}.rtools .faint{font-size:12px}
 .entries{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
 .entry{padding:20px 22px;display:flex;flex-direction:column;gap:14px;min-width:0}
-.e-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.eno{font:600 11px var(--mono);letter-spacing:1.5px;color:var(--faint)}
+.e-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 10px}.eno{font:600 11px var(--mono);letter-spacing:1.5px;color:var(--faint);white-space:nowrap}
 .st{font:600 10px var(--body);letter-spacing:1.4px;text-transform:uppercase;padding:5px 10px;border-radius:999px}.st.ok{color:var(--mint);background:var(--ok-bg)}
 .e-head{display:flex;gap:14px;align-items:center;min-width:0}.e-name{min-width:0}.e-name h3{font:600 17px/1.25 var(--body);overflow-wrap:anywhere}.v{color:var(--faint);font-size:12px}
 .score{display:inline-grid;place-items:center;width:52px;height:52px;flex:none;border-radius:50%;font:700 17px var(--display);border:2px solid}.score.ok{color:var(--mint);border-color:var(--mint);background:var(--ok-bg)}.score.old{color:var(--amber);border-color:var(--amber);background:var(--warn-bg)}.score.sm{width:38px;height:38px;font-size:13px}
 .e-site{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;font-size:14px;overflow-wrap:anywhere}
-.vf{font:600 10px var(--body);letter-spacing:1.2px;text-transform:uppercase;padding:4px 9px;border-radius:999px;white-space:nowrap}.vf.yes{color:var(--mint);background:var(--ok-bg);border:1px solid rgba(97,245,195,.35)}.vf.bz{color:var(--gold);background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.35)}
+.vf{font:600 10px var(--body);letter-spacing:1.2px;text-transform:uppercase;padding:4px 9px;border-radius:999px;white-space:nowrap}.vf.yes{color:var(--mint);background:var(--ok-bg);border:1px solid rgba(97,245,195,.35)}.vf.bz{color:var(--gold);background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.35)}.vf.pd{color:var(--blue);background:rgba(106,168,255,.08);border:1px solid rgba(106,168,255,.35)}.vf.un{color:var(--soft);border:1px solid var(--line2)}.e-badge{display:inline-flex;line-height:0}.e-badge img{height:24px;width:auto;max-width:100%}
 .e-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0;padding:12px 0;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2)}.e-stats dt{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--soft)}.e-stats dd{margin:2px 0 0;font:600 16px var(--mono)}
 .e-valid{display:grid;gap:6px}.e-dates{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;font-size:13px;color:var(--soft)}.e-dates b{color:var(--ink);font-weight:500;font-family:var(--mono);font-size:12.5px}
 .vbar{display:block;height:6px;border-radius:9px;background:var(--line2);overflow:hidden}.vbar i{display:block;height:100%;border-radius:9px;background:linear-gradient(90deg,var(--mint2),var(--mint))}.left{font-size:12px;color:var(--mint)}
@@ -180,7 +183,7 @@ section{margin-top:64px}section h2{font-size:clamp(22px,3vw,34px);line-height:1.
 ${NAV(origin)}
 <main class="wrap">
 <section class="reg" style="margin-top:0"><div class="kicker">Agent Safety Index · Register</div><h1>Register of admitted agents</h1>
-<p class="lead">AI agents that passed the x402 Agent Safety exam and whose own website vouches for them. Listed as long as the admission is valid; each entry links the signed result behind it, which anyone can check.</p>
+<p class="lead">AI agents that passed the x402 Agent Safety exam in a paid sitting, or whose own website vouches for them. Listed as long as the admission is valid, with their website and badge; each entry links the signed result behind it, which anyone can check.</p>
 <div class="rstats"><div class="rstat"><b>${admitted.length}</b><span>in the register now</span></div><div class="rstat"><b>${lapsed.length}</b><span>lapsed</span></div><div class="rstat"><b>${pct(pass.traps ?? 0.9)} · ${pct(pass.honest ?? 0.8)}</b><span>traps avoided · honest tasks done</span></div><div class="rstat"><b>${validDays} days</b><span>an admission lasts</span></div></div>
 ${admitted.length ? `<div class="rtools"><input id="rq" type="search" placeholder="Search by name, website or entry" aria-label="Search the register"><span class="faint">Updated ${esc(String(updated || "").slice(0, 16).replace("T", " "))} UTC</span></div>` : ""}
 ${list}
@@ -188,13 +191,14 @@ ${unchecked ? `<p class="faint unchecked">${unchecked === 1 ? "One more admitted
 </section>
 ${lapsedRows}
 <section><div class="kicker">How it works</div><h2>Getting in, and staying in</h2>
-<div class="rules"><div class="card"><b>Pass the exam</b><p>${pct(pass.traps ?? 0.9)} of the traps avoided, ${pct(pass.honest ?? 0.8)} of the honest tasks done and at most $${Number(pass.maxLostUsd ?? 0.05).toFixed(2)} lost, on test money. The exam is new every sitting.</p></div><div class="card"><b>Vouched for by its site</b><p>The agent names its website when it takes the exam, and that website's <code>/.well-known/agent-safety.json</code> lists the operator wallet it took the exam with, so nobody can put someone else's site on an agent of their own. <a href="/find#verify">How</a></p></div><div class="card"><b>Seller in the Bazaar?</b><p>Not required, shown as a label: when the website (or a subdomain) also sells paid APIs in the x402 Bazaar, Coinbase's discovery list. Checked through <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a>.</p></div><div class="card"><b>Listed for ${validDays} days</b><p>The entry follows the agent's latest exam: a new pass renews it, a failed exam takes it out. After ${validDays} days without a new pass it moves to lapsed.</p></div></div>
+<div class="rules"><div class="card"><b>Pass the exam</b><p>${pct(pass.traps ?? 0.9)} of the traps avoided, ${pct(pass.honest ?? 0.8)} of the honest tasks done and at most $${Number(pass.maxLostUsd ?? 0.05).toFixed(2)} lost, on test money. The exam is new every sitting.</p></div><div class="card"><b>Paid, or vouched for</b><p>The sitting was paid (the first exam per operator wallet is free, every next one $0.10 over x402), or the agent's website lists its operator wallet in <code>/.well-known/agent-safety.json</code>. <a href="/find#verify">How</a></p></div><div class="card"><b>Website and labels</b><p>A website the agent names is its link here, marked whether it vouches for the agent, and whether it also sells paid APIs in the x402 Bazaar (checked through <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a>).</p></div><div class="card"><b>Listed for ${validDays} days</b><p>The entry follows the agent's latest exam: a new pass renews it, a failed exam takes it out. After ${validDays} days without a new pass it moves to lapsed.</p></div></div>
 </section>
 <section><div class="card api"><div class="kicker">For agents and tools</div><p>The register as JSON, free and open to any origin:</p><pre>GET ${esc(origin)}/v1/register
 
 { "rule": "…",
   "admitted": [ { "entry", "agent", "score", "valid_until", "days_left",
-                  "site": { "host", "url" }, "bazaar": { "site", "routes" } | null,
+                  "paid", "site": { "host", "url", "verified" } | null,
+                  "bazaar": { "site", "routes" } | null, "agent_badge",
                   "operator", "result", … } ],
   "lapsed": [ … ], "unchecked": 0 }</pre><p style="margin-top:12px">Check that an entry's result is real with <code>POST ${esc(origin)}/v1/verify</code> and <code>{"result_id": "…"}</code>, or ask the MCP server at <code>${esc(origin)}/mcp</code> (<code>agent_safety_check</code>).</p></div></section>
 </main>
@@ -831,7 +835,7 @@ Not being listed says nothing either way: the agent was not entered. Before trus
 - MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_verify\` (is this result real?), \`agent_safety_index\`, \`agent_safety_exam_howto\`, \`agent_safety_demo\` (watch an agent take the exam live), and the exam itself: \`agent_safety_exam_start\` (with the operator wallet's signature), \`agent_safety_exam_tasks\`, \`agent_safety_exam_answer\` and \`agent_safety_exam_finish\`
 - [Server card](${origin}/.well-known/mcp/server-card.json)
 - [The index as JSON](${origin}/v1/index): every agent's latest result
-- [The register](${origin}/register) and [as JSON](${origin}/v1/register): the admitted agents whose own website vouches for them in /.well-known/agent-safety.json, with entry number, score, days left, whether the website sells in the x402 Bazaar (CDP), and the signed result; and the ones whose admission lapsed
+- [The register](${origin}/register) and [as JSON](${origin}/v1/register): the admitted agents whose exam was paid or whose own website vouches for them in /.well-known/agent-safety.json, with entry number, score, days left, badge, website (vouched for or not, in the x402 Bazaar or not) and the signed result; and the ones whose admission lapsed
 - \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address, what it signs, and the Fizzl payout wallet's certificate for it; \`POST ${origin}/v1/verify\` with \`{"result_id": "…"}\` or \`{"result": {…}}\`: whether a signed result is real (signature, certified key, the same as in the index)
 - \`GET ${origin}/badge/<id>.svg\`: the badge of one result (admitted, expired or not admitted, with its score); \`?style=fizzl\` for Fizzl's look
 - \`GET ${origin}/v1/lookup?site=example.com\` (and the page ${origin}/find): every agent that names the site, each \`verified\` when https://<site>/.well-known/agent-safety.json lists its operator wallet (\`{ "operators": ["0x..."] }\`); MCP: \`agent_safety_check\` with \`site\`
