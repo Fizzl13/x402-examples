@@ -118,7 +118,9 @@ export function operatorsOf(text) {
 }
 
 // verify(host) → { file, status: "found" | "missing" | "invalid" | "unreachable", operators: [...] }, cached 10 min.
-export function createSiteVerifier({ fetchFile = fetchWellKnown, now = () => Date.now(), ttlMs = 10 * 60 * 1000, lookup } = {}) {
+// A site that couldn't be reached is asked again after retryMs, not after the full ttlMs: a blip right after a restart
+// shouldn't hide its agents for ten minutes.
+export function createSiteVerifier({ fetchFile = fetchWellKnown, now = () => Date.now(), ttlMs = 10 * 60 * 1000, retryMs = 60 * 1000, lookup } = {}) {
   const cache = new Map();
   return async function verify(host) {
     const hit = cache.get(host);
@@ -127,7 +129,7 @@ export function createSiteVerifier({ fetchFile = fetchWellKnown, now = () => Dat
     const ops = got.status === "ok" ? operatorsOf(got.text) : null;
     const value = { file: `https://${host}${WELL_KNOWN}`, status: got.status === "ok" ? (ops ? "found" : "invalid") : got.status, operators: ops || [] };
     if (cache.size > 2000) cache.clear();
-    cache.set(host, { until: now() + ttlMs, value });
+    cache.set(host, { until: now() + (value.status === "unreachable" ? retryMs : ttlMs), value });
     return value;
   };
 }

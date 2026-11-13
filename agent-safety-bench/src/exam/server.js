@@ -567,9 +567,10 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       const host = website?.host ?? null;
       const file = host ? files.get(host) : null;
       const listing = host ? listings.get(host) : null;
-      const verified = file ? file.operators.includes(String(r.operator || "").toLowerCase()) : null;
+      const verified = file && file.status !== "unreachable" ? file.operators.includes(String(r.operator || "").toLowerCase()) : null;
       if (!r.paid) {
-        if (!file) {
+        // No answer in time, or the site couldn't be reached: not checked, so neither in nor counted as not vouched.
+        if (!file || file.status === "unreachable") {
           unchecked++;
           continue;
         }

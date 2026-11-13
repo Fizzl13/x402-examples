@@ -246,6 +246,17 @@ test("site.js: a website as a public host name; private addresses refused; the o
   const verify = createSiteVerifier({ lookup: toLoopback });
   assert.equal((await verify("agent-shop.dev")).status, "unreachable");
 
+  // A site that couldn't be reached is asked again after a minute, not after ten.
+  let clock = 0;
+  let tries = 0;
+  const flaky = createSiteVerifier({ now: () => clock, fetchFile: async () => (++tries === 1 ? { status: "unreachable" } : { status: "ok", text: JSON.stringify({ operators: [op] }) }) });
+  assert.equal((await flaky("agent-shop.dev")).status, "unreachable");
+  clock = 30_000;
+  assert.equal((await flaky("agent-shop.dev")).status, "unreachable", "within the minute: the kept answer");
+  clock = 61_000;
+  assert.equal((await flaky("agent-shop.dev")).status, "found", "after a minute: asked again");
+  assert.equal(tries, 2);
+
   // The answer is kept: one fetch for two lookups.
   let fetched = 0;
   const cached = createSiteVerifier({ fetchFile: async () => (fetched++, { status: "ok", text: JSON.stringify({ operators: [op] }) }) });
@@ -874,7 +885,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   const at = (days) => new Date(T + days * 864e5).toISOString();
   const op = () => privateKeyToAccount(generatePrivateKey()).address;
   const [opA, opB, opD, opE] = [op(), op(), op(), op()];
-  const files = { "agent-shop.dev": [opA], "other-site.dev": [opB], "down.dev": [opD] };
+  const files = { "agent-shop.dev": [opA], "other-site.dev": [opB], "down.dev": [opD], "gone.dev": [opE] };
   const listings = { "agent-shop.dev": 3, "other-site.dev": 0, "slow.dev": 2 };
   const askedFile = [];
   const askedBazaar = [];
@@ -882,6 +893,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   const siteCheck = (host) => {
     askedFile.push(host);
     if (host === "slow.dev") return new Promise(() => {});
+    if (host === "gone.dev") return Promise.resolve({ file: `https://${host}/.well-known/agent-safety.json`, status: "unreachable", operators: [] });
     return Promise.resolve({ file: `https://${host}/.well-known/agent-safety.json`, status: "found", operators: (files[host] || []).map((a) => a.toLowerCase()) });
   };
   const bazaarCheck = async (host) => {
@@ -903,6 +915,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   await put({ agent: { name: "Paid claimer", version: "1", url: "https://agent-shop.dev/x" }, admitted: true, paid: true, days: -0.8 });
   await put({ agent: { name: "Paid but failed", version: "1" }, admitted: false, paid: true, days: -0.6, score: 70 });
   await put({ agent: { name: "Unlisted agent", version: "1", url: "https://other-site.dev" }, operator: opB, admitted: true, days: -1 });
+  await put({ agent: { name: "Gone-site agent", version: "1", url: "https://gone.dev" }, operator: opE, admitted: true, days: -1 });
   await put({ agent: { name: "Slow-site agent", version: "1", url: "https://slow.dev" }, admitted: true, days: -1 });
   await put({ agent: { name: "Doctor-down agent", version: "1", url: "https://down.dev" }, operator: opD, admitted: true, days: -1.2 });
   await put({ agent: { name: "Failed agent", version: "1", url: "https://agent-shop.dev" }, operator: opA, admitted: false, days: -1, score: 60 });
@@ -922,7 +935,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.deepEqual(claimer.site, { host: "agent-shop.dev", url: "https://agent-shop.dev/x", verified: false, source: "exam" }, "a paid agent naming a site that doesn't vouch for it: in, as named by the operator");
   assert.equal(reg.admitted.find((e) => e.agent.name === "Shop agent").paid, false);
   assert.deepEqual(reg.lapsed.map((e) => e.agent.name), ["Old agent"]);
-  assert.equal(reg.unchecked, 1, "the slow site");
+  assert.equal(reg.unchecked, 2, "the slow site, and the site that couldn't be reached (not counted as not vouched)");
   assert.match(reg.rule, /agent-safety\.json/);
   assert.equal(reg.admitted.find((e) => e.agent.name === "Unlisted agent").bazaar, null, "not in the Bazaar: still in, without the label");
   assert.equal(reg.admitted.find((e) => e.agent.name === "Doctor-down agent").bazaar, null, "no Bazaar answer: still in, without the label");
@@ -936,13 +949,13 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.equal(shop.entry, `ASI-${shop.agent_key.slice(0, 8).toUpperCase()}`);
   assert.equal(reg.lapsed[0].current, false);
   assert.equal(reg.lapsed[0].days_left, 0);
-  assert.deepEqual([...new Set(askedBazaar)].sort(), ["agent-shop.dev", "down.dev", "other-site.dev", "slow.dev"], "only the websites admitted agents name");
-  assert.deepEqual([...new Set(askedFile)].sort(), ["agent-shop.dev", "down.dev", "other-site.dev", "slow.dev"]);
+  assert.deepEqual([...new Set(askedBazaar)].sort(), ["agent-shop.dev", "down.dev", "gone.dev", "other-site.dev", "slow.dev"], "only the websites admitted agents name");
+  assert.deepEqual([...new Set(askedFile)].sort(), ["agent-shop.dev", "down.dev", "gone.dev", "other-site.dev", "slow.dev"]);
 
   const page = await (await fetch(`${origin}/register`)).text();
   assert.ok(page.includes("Register of admitted agents"));
   for (const name of ["Shop agent", "Old agent", "Unlisted agent", "Doctor-down agent", "Paid agent", "Paid claimer"]) assert.ok(page.includes(name), name);
-  for (const name of ["Copycat", "No-site agent", "Slow-site agent", "Failed agent", "Fell out", "Reference agent", "Withdrawn agent", "Paid but failed"]) assert.ok(!page.includes(name), name);
+  for (const name of ["Copycat", "No-site agent", "Slow-site agent", "Gone-site agent", "Failed agent", "Fell out", "Reference agent", "Withdrawn agent", "Paid but failed"]) assert.ok(!page.includes(name), name);
   assert.equal(page.split("In the x402 Bazaar ·").length - 1, 2, "the label only where the site vouches for the agent (Shop agent, the escaped one), not on the paid claimer that only names it");
   assert.equal(claimer.bazaar, null);
   assert.equal(page.split('class="vf pd">Exam paid<').length - 1, 2, "the two paid agents are marked");
@@ -950,7 +963,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.ok(page.includes(`/badge/agent/${paidOne.agent_key}.svg?style=fizzl`), "every entry shows its badge");
   assert.ok(page.includes("✓ vouched for by the site"));
   assert.ok(page.includes("In the x402 Bazaar · 3 routes"));
-  assert.ok(page.includes("One more admitted agent could not be checked just now"));
+  assert.ok(page.includes("2 more admitted agents could not be checked just now"));
   assert.ok(page.includes("28 days left"));
   assert.ok(page.includes("&lt;img src=x onerror=alert(1)&gt;") && !page.includes("<img src=x"), "names are escaped");
   assert.ok(page.includes(shop.entry));
