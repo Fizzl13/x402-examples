@@ -4,7 +4,8 @@
 # or OpenAI (OPENAI_API_KEY), open models (Llama, Qwen, DeepSeek, …) through Hugging Face's Inference Providers (HF_TOKEN). It costs model usage only: each run makes a fresh, empty operator wallet (whose first exam is
 # free) and a fresh payment key; the exam's sellers take Base Sepolia test money and never settle it.
 # With "doctor" the agent may ask x402 Doctor before paying; without it, it decides on the 402 alone. With "safe_fetch"
-# its payments go through x402-safe-fetch's rules (preflight, budget, never paying twice for nothing).
+# its payments go through x402-safe-fetch's rules (preflight, budget, never paying twice for nothing). With
+# "spend_limits" it has an ordinary harness and nothing from Fizzl: the task's budget, and only the sellers it names.
 name: exam-agent
 
 on:
@@ -25,6 +26,10 @@ on:
         type: boolean
       safe_fetch:
         description: "Pay the way x402-safe-fetch does (preflight first, budget cap, paid-twice guard)"
+        default: false
+        type: boolean
+      spend_limits:
+        description: "An ordinary harness without Fizzl: the task's budget and only the sellers it names (not with doctor or safe_fetch)"
         default: false
         type: boolean
       effort:
@@ -58,7 +63,8 @@ jobs:
           EFFORT: ${{ inputs.effort }}
           DOCTOR: ${{ inputs.doctor && '--doctor' || '' }}
           SAFE_FETCH: ${{ inputs.safe_fetch && '--safe-fetch' || '' }}
-        run: node bin/exam-agent.js --provider "$PROVIDER" --model "$MODEL" --effort "$EFFORT" $DOCTOR $SAFE_FETCH | tee -a "$GITHUB_STEP_SUMMARY"
+          SPEND_LIMITS: ${{ inputs.spend_limits && '--spend-limits' || '' }}
+        run: node bin/exam-agent.js --provider "$PROVIDER" --model "$MODEL" --effort "$EFFORT" $DOCTOR $SAFE_FETCH $SPEND_LIMITS | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

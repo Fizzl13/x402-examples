@@ -10,6 +10,10 @@
 // (safe-fetch's paid-twice guard, ../safe-fetch/paid-guard.js), and every paid answer checked for instructions aimed at
 // the agent before the model sees it (x402-safe-fetch 0.16 checkAnswers "quick"; a red answer is held back). As
 // safe-fetch, it picks the payment option itself: the cheapest exact option within the budget (0.16.1).
+// With --spend-limits, pay_and_request has what an ordinary agent harness gives a wallet, and nothing from Fizzl (no
+// x402 Doctor, no x402-safe-fetch, no answer check): the task's budget as a limit on all of the task's payments together,
+// and an allowlist of the sellers the task names (an exam seller is a path, /e/<exam>/<task>/s-<alias>, the way a
+// harness would list hosts). Asked on 13 Nov 2026: can an agent pass without a Fizzl service?
 // The system prompt is a plain purchasing-agent prompt: no hints about traps.
 //
 // Wallets: a fresh, empty operator key and a fresh, empty payment key per run, neither kept: a new operator wallet gets
@@ -19,6 +23,7 @@
 //   OPENROUTER_API_KEY=… node bin/exam-agent.js --provider openrouter --model x-ai/grok-4.7 [--doctor]
 //   HF_TOKEN=… node bin/exam-agent.js --provider huggingface --model Qwen/Qwen3-235B-A22B-Instruct-2507 [--doctor]
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --safe-fetch
+//   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --spend-limits
 // (GitHub: Actions → exam-agent → Run workflow. --dry starts nothing and prints the plan.)
 import { mkdirSync, appendFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -33,6 +38,7 @@ const { values: opt } = parseArgs({
   options: {
     doctor: { type: "boolean", default: false },
     "safe-fetch": { type: "boolean", default: false },
+    "spend-limits": { type: "boolean", default: false },
     model: { type: "string" },
     provider: { type: "string", default: "claude" },
     effort: { type: "string", default: "high" },
@@ -69,8 +75,13 @@ const MODEL_NAMES = {
 };
 const modelName = MODEL_NAMES[opt.model] || opt.model;
 const safeFetch = opt["safe-fetch"];
-const agent = { name: safeFetch ? `${modelName} + x402-safe-fetch` : opt.doctor ? `${modelName} + x402 Doctor` : modelName, version: "1" };
-const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${safeFetch ? "-safe-fetch" : opt.doctor ? "-doctor" : ""}`;
+const spendLimits = opt["spend-limits"];
+if (spendLimits && (safeFetch || opt.doctor)) {
+  console.error("--spend-limits is the harness without Fizzl: leave out --safe-fetch and --doctor");
+  process.exit(2);
+}
+const agent = { name: safeFetch ? `${modelName} + x402-safe-fetch` : opt.doctor ? `${modelName} + x402 Doctor` : spendLimits ? `${modelName} + spend limits` : modelName, version: "1" };
+const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${safeFetch ? "-safe-fetch" : opt.doctor ? "-doctor" : spendLimits ? "-spend-limits" : ""}`;
 const operator = privateKeyToAccount(generatePrivateKey());
 mkdirSync(new URL("../results/", import.meta.url), { recursive: true });
 const log = new URL(`../results/exam-${slug}.jsonl`, import.meta.url);
@@ -126,6 +137,11 @@ async function preflight(url, method, maxUsd) {
   return r.json().catch(() => ({}));
 }
 
+// --spend-limits: an exam seller, as a harness's allowlist would name a host: <origin>/e/<exam>/<task>/s-<alias>.
+const SELLER = /https?:\/\/[^/\s"'<>]+\/e\/[^/\s"'<>]+\/[^/\s"'<>]+\/s-[0-9a-f]+/gi;
+const sellerOf = (url) => (String(url).match(SELLER) || [null])[0]?.toLowerCase() ?? null;
+const sellersIn = (text) => new Set((String(text || "").match(SELLER) || []).map((s) => s.toLowerCase()));
+
 // Tools.
 function toolsFor(task) {
   const spent = { usd: 0 };
@@ -178,6 +194,14 @@ function toolsFor(task) {
           picked = cheapest.i;
           pick = cheapest.o;
         }
+      }
+      if (spendLimits) {
+        // An ordinary harness: only the sellers the task names, and the task's budget over all its payments.
+        const seller = sellerOf(url);
+        const allowed = sellersIn(task.task);
+        if (!seller || !allowed.has(seller)) return { not_paid: "not_allowed", message: `not paid: ${url} is not one of the sellers this task names; this wallet pays only those` };
+        const left = Number((Number(task.budget_usd) - spent.usd).toFixed(6));
+        if (usdOf(pick) > left + 1e-9) return { not_paid: "over_budget", message: `not paid: option ${input.option} costs $${usdOf(pick)}; this task's budget of $${task.budget_usd} has $${Math.max(0, left)} left (already paid $${Number(spent.usd.toFixed(6))})` };
       }
       if (safeFetch) {
         // x402-safe-fetch with maxTotalUsd = the task budget: the paid-twice guard, what is left of the budget (all of
@@ -281,7 +305,7 @@ const cost = (u) => (u.input_tokens * PRICE[0] + u.output_tokens * PRICE[1] + u.
 if (opt.dry) {
   const keyEnv = opt.provider === "claude" ? "ANTHROPIC_API_KEY" : ENDPOINTS[opt.provider].keyEnv;
   if (!process.env[keyEnv]) console.log(`note: ${keyEnv} is not set`);
-  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "safe-fetch", safeFetch, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
+  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "safe-fetch", safeFetch, "spend-limits", spendLimits, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
   process.exit(0);
 }
 
