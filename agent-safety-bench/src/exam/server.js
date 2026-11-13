@@ -492,17 +492,19 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     return { site: host, file: check.file, file_status: check.status, agents };
   }
 
-  // The register (Frits, 13 Nov 2026: only existing agents that are in the Bazaar). An agent is in it when all hold:
+  // The register (Frits, 13 Nov 2026: the exam plus a website). An agent is in it when both hold:
   //  - its latest exam (agentKey: operator wallet and name, the exam its badge shows) admitted it: "admitted" while the
   //    admission is valid, "lapsed" once valid_until has passed. A later failed exam takes it out;
-  //  - it names a website (agent.url) that the CDP Bazaar lists as a seller (src/exam/bazaar.js, asked of x402 Doctor);
-  //  - that website vouches for it: its /.well-known/agent-safety.json lists the agent's operator wallet (as on /find),
-  //    so nobody can put a Bazaar seller's name on an agent of their own.
-  // Reference rows and withdrawn results are left out. At most REGISTER_SITE_CHECKS websites are checked per request;
-  // a website whose file or Bazaar answer doesn't come within REGISTER_SITE_WAIT_MS counts as not checked (unchecked).
+  //  - it names a website (agent.url) that vouches for it: the site's /.well-known/agent-safety.json lists the agent's
+  //    operator wallet (as on /find). So a real operator with its own domain stands behind it, and nobody can put
+  //    someone else's site on an agent of their own.
+  // Whether the website also sells in the CDP Bazaar (src/exam/bazaar.js, asked of x402 Doctor) is shown as a label, not
+  // required: the exam is for agents that pay, and most of those sell nothing. Reference rows and withdrawn results are
+  // left out. At most REGISTER_SITE_CHECKS websites are checked per request; a website whose file doesn't come within
+  // REGISTER_SITE_WAIT_MS counts as not checked (unchecked); a Bazaar answer that doesn't come just leaves the label off.
   const REGISTER_SITE_CHECKS = 25;
   const REGISTER_SITE_WAIT_MS = 2500;
-  const REGISTER_RULE = "admitted by its latest exam; its website (agent.url) is a seller in the CDP x402 Bazaar; that website's /.well-known/agent-safety.json lists its operator wallet";
+  const REGISTER_RULE = "admitted by its latest exam, and its website (agent.url) vouches for it: the site's /.well-known/agent-safety.json lists its operator wallet. bazaar: whether the website also sells in the CDP x402 Bazaar (a label, not a condition)";
   async function withinWait(ask) {
     let timer;
     const late = new Promise((resolve) => {
@@ -543,12 +545,11 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       const host = siteHost(r.agent.url);
       const file = files.get(host);
       const listing = listings.get(host);
-      if (listing && !listing.listed) continue;
-      if (file && !file.operators.includes(String(r.operator || "").toLowerCase())) continue;
-      if (!file || !listing) {
+      if (!file) {
         unchecked++;
         continue;
       }
+      if (!file.operators.includes(String(r.operator || "").toLowerCase())) continue;
       const key = agentKey(r);
       const left = Math.ceil((Date.parse(r.valid_until) - now()) / 864e5);
       entries.push({
@@ -556,7 +557,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         ...publicRow(r),
         operator: r.operator,
         site: { host, url: r.agent.url, verified: true },
-        bazaar: { site: listing.site, routes: listing.routes, read_at: listing.read_at },
+        bazaar: listing?.listed ? { site: listing.site, routes: listing.routes, read_at: listing.read_at } : null,
         days_left: r.current ? Math.max(0, left) : 0,
       });
     }

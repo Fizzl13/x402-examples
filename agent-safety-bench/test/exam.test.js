@@ -868,7 +868,7 @@ test("format 5: the look-alike payee's task names the address the user knows; it
 });
 
 
-test("register: admitted agents whose website sells in the Bazaar and vouches for them; newest first; lapsed apart; the rest left out", async () => {
+test("register: admitted agents whose own website vouches for them, the Bazaar as a label; newest first; lapsed apart; the rest left out", async () => {
   const { WITHDRAWN } = await import("../src/exam/withdrawn.js");
   const T = Date.parse("2026-11-13T12:00:00Z");
   const at = (days) => new Date(T + days * 864e5).toISOString();
@@ -901,7 +901,7 @@ test("register: admitted agents whose website sells in the Bazaar and vouches fo
   await put({ agent: { name: "No-site agent", version: "1" }, admitted: true, days: -1 });
   await put({ agent: { name: "Unlisted agent", version: "1", url: "https://other-site.dev" }, operator: opB, admitted: true, days: -1 });
   await put({ agent: { name: "Slow-site agent", version: "1", url: "https://slow.dev" }, admitted: true, days: -1 });
-  await put({ agent: { name: "Doctor-down agent", version: "1", url: "https://down.dev" }, operator: opD, admitted: true, days: -1 });
+  await put({ agent: { name: "Doctor-down agent", version: "1", url: "https://down.dev" }, operator: opD, admitted: true, days: -1.2 });
   await put({ agent: { name: "Failed agent", version: "1", url: "https://agent-shop.dev" }, operator: opA, admitted: false, days: -1, score: 60 });
   await put({ agent: { name: "Fell out", version: "1", url: "https://agent-shop.dev" }, operator: opE, admitted: true, days: -5 });
   await put({ agent: { name: "Fell out", version: "2", url: "https://agent-shop.dev" }, operator: opE, admitted: false, days: -1, score: 70 });
@@ -911,10 +911,12 @@ test("register: admitted agents whose website sells in the Bazaar and vouches fo
   const res = await fetch(`${origin}/v1/register`);
   assert.equal(res.headers.get("access-control-allow-origin"), "*");
   const reg = await res.json();
-  assert.deepEqual(reg.admitted.map((e) => e.agent.name), ["<img src=x onerror=alert(1)>", "Shop agent"], "only Bazaar sellers' own agents, newest admission first");
+  assert.deepEqual(reg.admitted.map((e) => e.agent.name), ["Unlisted agent", "Doctor-down agent", "<img src=x onerror=alert(1)>", "Shop agent"], "every agent its own site vouches for, newest admission first");
   assert.deepEqual(reg.lapsed.map((e) => e.agent.name), ["Old agent"]);
-  assert.equal(reg.unchecked, 2, "the slow site and the site Doctor had no answer for");
-  assert.match(reg.rule, /Bazaar/);
+  assert.equal(reg.unchecked, 1, "the slow site");
+  assert.match(reg.rule, /agent-safety\.json/);
+  assert.equal(reg.admitted.find((e) => e.agent.name === "Unlisted agent").bazaar, null, "not in the Bazaar: still in, without the label");
+  assert.equal(reg.admitted.find((e) => e.agent.name === "Doctor-down agent").bazaar, null, "no Bazaar answer: still in, without the label");
   for (const e of [...reg.admitted, ...reg.lapsed]) assert.match(e.entry, /^ASI-[0-9A-F]{8}$/);
   const shop = reg.admitted.find((e) => e.agent.name === "Shop agent");
   assert.deepEqual(shop.site, { host: "agent-shop.dev", url: "https://www.agent-shop.dev/bot", verified: true });
@@ -929,11 +931,12 @@ test("register: admitted agents whose website sells in the Bazaar and vouches fo
 
   const page = await (await fetch(`${origin}/register`)).text();
   assert.ok(page.includes("Register of admitted agents"));
-  for (const name of ["Shop agent", "Old agent"]) assert.ok(page.includes(name), name);
-  for (const name of ["Copycat", "No-site agent", "Unlisted agent", "Slow-site agent", "Doctor-down agent", "Failed agent", "Fell out", "Reference agent", "Withdrawn agent"]) assert.ok(!page.includes(name), name);
+  for (const name of ["Shop agent", "Old agent", "Unlisted agent", "Doctor-down agent"]) assert.ok(page.includes(name), name);
+  for (const name of ["Copycat", "No-site agent", "Slow-site agent", "Failed agent", "Fell out", "Reference agent", "Withdrawn agent"]) assert.ok(!page.includes(name), name);
+  assert.equal(page.split("In the x402 Bazaar ·").length - 1, 2, "the label only on the agents whose site sells in the Bazaar (Shop agent and the escaped one)");
   assert.ok(page.includes("✓ vouched for by the site"));
   assert.ok(page.includes("In the x402 Bazaar · 3 routes"));
-  assert.ok(page.includes("2 more admitted agents could not be checked just now"));
+  assert.ok(page.includes("One more admitted agent could not be checked just now"));
   assert.ok(page.includes("28 days left"));
   assert.ok(page.includes("&lt;img src=x onerror=alert(1)&gt;") && !page.includes("<img src=x"), "names are escaped");
   assert.ok(page.includes(shop.entry));
