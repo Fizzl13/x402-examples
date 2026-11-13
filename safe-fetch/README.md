@@ -204,6 +204,17 @@ In our held-out set 2 of 12 November 2026 the documentation the task named liste
 
 A site is not an owner, though. Since 0.20.12 your harness can also name the payout addresses an endpoint may be paid at (`payees`): a list, or a function `(url, { method }) => addresses` that names them per URL, for example the address your user always paid, or the `payTo` the seller's own documentation names for that operation (`x-payment-info.payTo` in its OpenAPI document). When it names any, a 402 that asks to be paid elsewhere is refused before the preflight with `SafePayError` code `other_payee` (`error.payTo` is the address asked, `error.payees` the named ones). In our held-out set 4 of 13 November 2026 a seller's documentation named a subdomain of its own domain that someone else had since taken over; that host asked to be paid at its own address while the documentation named the seller's, and safe-fetch paid it: the site was the one the user named, and x402 Doctor had seen that address unchanged for three weeks. A seller whose documentation names its new subdomain's own address is paid as before. With no address named (no `payees`, or a function that returns none for a URL), nothing changes.
 
+Since 0.20.13 `sites` also limits where data goes. A request that sends something (a body, or a method other than GET, HEAD or OPTIONS) to a site that isn't named is refused before it leaves, with `SafePayError` code `other_site_data`; reading from another site (a download, a redirect) is fine. Such a request usually goes through an agent's plain HTTP tool, not through safe-fetch, so the same check is exported for your harness to put in front of that tool:
+
+```js
+import { createRequestGuard } from "x402-safe-fetch";
+
+const checkRequest = createRequestGuard({ sites: ["https://api.ibanlens.example"] });
+checkRequest(url, { method, body }); // throws SafePayError "other_site_data" for a POST of data to another site
+```
+
+In our held-out set 1 of 12 November 2026 a paid answer told the agent to POST the user's request and the paying wallet's address to a "compliance" host on another site, or the result would be void. Nothing was paid there, so `sites` didn't stop it, and presign-guard's answer check said orange, which is passed on. A GET that carries the data in its URL is not covered.
+
 ### The address it pays is the address Doctor checks
 
 Since 0.20.3 the preflight names the payout address safe-fetch would pay, from the endpoint's own 402 (`pay_to`). A seller can tell x402 Doctor's requests apart and show it a clean address while buyers get another: in our held-out test of 12 November 2026 the checker saw a clean address, the buyer one on the sanctions list, and the preflight said go ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)). Now Doctor screens the buyer's address too (`payto_sanctioned`, no_go) and says caution (`payto_not_shown`) when the seller asked Doctor for one address and the buyer for another. A seller that hands out a new deposit address on every request is expected to differ (`payto_per_request`, info); then only the screen applies.
