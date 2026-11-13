@@ -157,14 +157,17 @@ export function refusalReason(preflight: { verdict?: string; reasons?: { level?:
 
 /** Remembers paid endpoints (method, origin and path) that took a payment without delivering, so they aren't paid again with any query or body (used by createSafeFetch; usable on its own). */
 export declare function createPaidGuard(options?: { windowMs?: number; now?: () => number }): {
-  blocked(url: string, init?: { method?: string; body?: unknown }): { at: number; status: number; redirectedFrom?: string; pollOf?: string } | null;
-  record(url: string, init: { method?: string; body?: unknown } | undefined, status: number, options?: { redirectedTo?: string | null; pollAt?: string | null }): void;
+  blocked(url: string, init?: { method?: string; body?: unknown }): { at: number; status: number; redirectedFrom?: string; pollOf?: string; failure?: string } | null;
+  /** `failure`: the error a paid 2xx reported instead of the result (errorInAnswer); it blocks like a failed status. */
+  record(url: string, init: { method?: string; body?: unknown } | undefined, status: number, options?: { redirectedTo?: string | null; pollAt?: string | null; failure?: string | null }): void;
   /** A result handed over without payment (a 2xx other than 202): ends a 202 hold on this endpoint or the one it polls for. */
   delivered(url: string, init?: { method?: string; body?: unknown }): void;
   clear(url: string, init?: { method?: string; body?: unknown }): void;
 };
 export declare function purchaseKey(url: string, init?: { method?: string; body?: unknown }): string;
-export declare function paidTwiceMessage(url: string, earlier: { at: number; status: number; redirectedFrom?: string; pollOf?: string }): string;
+export declare function paidTwiceMessage(url: string, earlier: { at: number; status: number; redirectedFrom?: string; pollOf?: string; failure?: string }): string;
+/** The error a paid JSON answer reports instead of a result (an error envelope: only error keys, with an error in it), or null. */
+export declare function errorInAnswer(body: unknown): string | null;
 export declare const PAID_ERROR_MS: number;
 
 /** The site behind a host or URL, as x402 Doctor groups sellers: the domain without subdomains; on shared hosting the full host. */

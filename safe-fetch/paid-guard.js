@@ -22,6 +22,11 @@
 // again for every poll, and safe-fetch paid three times for one summary, because a 2xx counted as delivered. The hold
 // ends when the endpoint or its poll URL answers with a result without asking to be paid (delivered()), or after the
 // window. A seller whose poll URL hands over the result for free is not affected.
+//
+// A paid 200 whose body is an error report ({"status": "error", "error": "... please retry"}) is not a delivery either
+// (0.20.8): in held-out set 3 (12 Nov 2026) a seller answered the first payment that way and charged the retry again,
+// and safe-fetch paid both, because a 2xx counted as delivered. errorInAnswer decides; the caller passes what it found
+// as `failure`, and the endpoint stays blocked like one that answered 500.
 
 export const PAID_ERROR_MS = 30 * 60 * 1000;
 
@@ -67,14 +72,14 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
      * a 3xx, or the URL a followed redirect ended at; `pollAt`: the poll URL of a 202 Accepted; relative URLs are read
      * against `url`).
      */
-    record(url, init = {}, status, { redirectedTo, pollAt } = {}) {
+    record(url, init = {}, status, { redirectedTo, pollAt, failure } = {}) {
       const key = purchaseKey(url, init);
-      if (status >= 200 && status < 300 && status !== 202) {
+      if (status >= 200 && status < 300 && status !== 202 && !failure) {
         failed.delete(key);
         return;
       }
       const at = now();
-      failed.set(key, { at, status });
+      failed.set(key, failure ? { at, status, failure } : { at, status });
       const from = key.replace(/^[A-Z]+ /, "");
       const target = resolve(status === 202 ? pollAt : redirectedTo, url);
       if (target && purchaseKey(target) !== key) {
@@ -104,8 +109,32 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
   };
 }
 
+// The keys of an error envelope: a JSON answer made of these only, with an error in it, reports a failure instead of
+// handing over a result. An answer with any other key ({"tx": ..., "status": "failed"}) is data, and is left alone.
+const ENVELOPE = new Set(["error", "errors", "message", "detail", "details", "status", "state", "code", "status_code", "statusCode", "success", "ok", "type", "hint", "retry", "retryable", "retry_after", "retryAfter", "request_id", "requestId", "trace_id", "traceId", "timestamp", "error_description"]);
+const FAILED = new Set(["error", "failed", "failure", "fail"]);
+
+/**
+ * The error a paid JSON answer reports instead of a result, or null: an object with only error-envelope keys and either
+ * an `error`/`errors` value, or a failed status (`status`/`state` error or failed, `success`/`ok` false) with a
+ * `message` or `detail`. Returns the error text (at most 200 characters).
+ */
+export function errorInAnswer(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const keys = Object.keys(body);
+  if (!keys.length || !keys.every((k) => ENVELOPE.has(k))) return null;
+  const failedState = [body.status, body.state].some((v) => typeof v === "string" && FAILED.has(v.toLowerCase())) || body.success === false || body.ok === false;
+  const said = body.error || body.errors || (failedState ? body.message || body.detail : null);
+  if (!said) return null;
+  const text = typeof said === "string" ? said : typeof said?.message === "string" ? said.message : JSON.stringify(said);
+  return String(text).slice(0, 200);
+}
+
 /** The refusal text, for an error or a tool answer. */
 export function paidTwiceMessage(url, earlier) {
+  if (earlier?.failure) {
+    return `not paid again: ${purchaseKey(url).replace(/^GET /, "")} was already paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} with an error instead of the result ("${earlier.failure}"). Paying this endpoint again (with any query or body) would most likely be charged again; ask the seller, or use another seller.`;
+  }
   if (earlier?.status === 202) {
     const paid = earlier.pollOf ?? purchaseKey(url).replace(/^[A-Z]+ /, "");
     return `not paid: ${paid} was paid at ${new Date(earlier.at).toISOString()} and answered 202 Accepted: the purchase is being prepared, not delivered. A payment asked ${earlier.pollOf ? "on its poll URL" : "again on it"} is most likely the same purchase charged again; poll without paying, or ask the seller.`;

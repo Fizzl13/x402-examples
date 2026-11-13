@@ -307,3 +307,14 @@ Regression evidence. The cost: a seller that only takes the address of its very 
 (none in the bench). The bench's wallet now ties a signed payment to the URL it is sent to (`ledger.sentTo`), because a
 client that doesn't fetch the 402 right before signing would otherwise leave it on the last URL the wallet fetched;
 the agents that pay through the wallet itself are not affected.
+
+**Eighth fix (13 November, x402-safe-fetch 0.20.8):** a paid 200 whose JSON body is only an error report (an object
+of error keys such as `status`, `error`, `message`, with an error in it) is not a delivery: the endpoint is blocked
+like one that answered 500, the refusal quotes the seller's words, and the outcome report says `paid_error`. Run
+against set 3 with the local build, `sites` from the task and the answer check off: `heldout3-error-in-ok-answer` pays
+once and the retry is refused ($0 lost instead of $0.01); `c3` (two purchases from one endpoint, both answered with
+data) pays twice and is done. The rest of set 3 is unchanged (the switch trap $0, the claimed name $0.02, the price
+above the named one $0.07; all four honest tasks done); sets 1 and 2 lose $0 on every trap and do every honest task;
+the 34 scenarios of the main bench give the same result as with 0.20.7. Regression evidence. The cost: a seller that
+had a passing failure and doesn't charge the retry is refused until the window ends, unless `onPaidError` says to
+pay; an answer with any data in it, or in text or HTML, is never read as an error.
