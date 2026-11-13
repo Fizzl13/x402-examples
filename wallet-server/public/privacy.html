@@ -40,7 +40,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
 <header><div class="wrap"><a class="brand" href="/">FIZZL<span>.WALLET</span></a><a href="/">Back to the dashboard</a></div></header>
 <main class="wrap">
   <h1>Privacy statement</h1>
-  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 12 November 2026 (the payment an agent's feedback names, with that agent's receipt for it; and the film on the sign-in page of wallet.fizzl.eu, which, like the videos on projects.fizzl.eu, loads from YouTube only when you press play)</p>
+  <p class="note">Fizzl Agent Wallet (wallet.fizzl.eu) · last updated 13 November 2026 (approval requests on WhatsApp, if you connect it)</p>
 
   <p>This statement explains what personal data the Fizzl Agent Wallet processes, why, for how long, and what your rights are. We keep it short because we collect little: no passwords, no names, no e-mail addresses (only a fingerprint if you sign in with e-mail), no tracking across sites, only anonymous usage counts.</p>
 
@@ -57,6 +57,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
       <tr><td><b>What your agents ask to sign</b>: method, network, recipient address, amounts, the safety verdict from presign-guard, what the agent says it is buying (a URL and a description, if your agent sends them), and what it got back (the paid service's answer, up to 16,000 characters, if your agent sends it); your approvals and denials</td><td>To check requests against your rules, ask you for approval, and show you receipts (including what was bought) and an activity log</td><td>Contract</td></tr>
       <tr><td><b>Payments an app asks for through the connector</b> (ChatGPT, Grok and other apps connected at wallet.fizzl.eu/mcp): the API request the app asks to pay for (URL, method, headers and body), the price, the seller's payout address, the result of the sanctions screen and of x402 Doctor's lookup of the seller, your wallet's USDC balance on Base, and, once you sign, your signature and the API's answer. For a payment in USDC on Solana: the Solana address you sign with, its USDC balance, and the transaction you sign. For a payment in RLUSD on the XRP Ledger: the transaction you sign in Xaman, the XRPL account that signed it and its RLUSD balance, and a token from Xaman so your next payment request goes straight to your Xaman app (Xaman ends it after 30 days without use). The request is kept one hour; the receipt like other receipts; the Xaman token until it is replaced. When the connector's own checks stop a payment before you are asked (the payout address on the sanctions list, a price above the limit, a network it doesn't pay on) and the seller's 402 asks to be told, the seller gets the reason and which of its offers it was, for the API's address without the query: nothing about you or your request. Your own "no" is never passed on.</td><td>To show you what you are asked to sign, send the payment you signed, and give the answer to the app you connected</td><td>Contract</td></tr>
       <tr><td><b>Telegram</b> (only if you connect it): your chat id, user id and username</td><td>To send you approval requests, plan reminders, a test message when you ask for one, and alerts about new providers in the categories you follow (if you pick any); and to accept your taps</td><td>Contract</td></tr>
+      <tr><td><b>WhatsApp</b> (only if you connect it): your phone number and WhatsApp profile name. The dashboard shows only the country code and the last two digits</td><td>To send you approval requests with Approve and Deny buttons, and to accept your taps</td><td>Contract</td></tr>
       <tr><td><b>Fizzl Pass</b> (comes with Pro): for each wallet the pass covers (yours and your agents') the pass tier and its end date, kept until the pass ends</td><td>So partners and Fizzl's services can check a wallet's pass: anyone can ask whether a wallet has a pass and until when, never whose it is. The credit back is kept by Fizzl's services (x402 Doctor, presign-guard, Ichimoku Signal, Fizzl Buy) per wallet: only the balance, for 12 months after the last credit; the dashboard asks x402 Doctor for it with your pass proof</td><td>Contract</td></tr>
       <tr><td><b>Payments for Pro</b>: transaction hashes, amounts, dates, until when you paid; for automatic payment, what the subscription contract and USDC show for your address (next payment date, paid-through date, the approval you gave, your USDC balance)</td><td>To give you Pro, remind you before a payment, and keep the records the law requires</td><td>Contract; legal obligation for bookkeeping (art. 6(1)(c))</td></tr>
       <tr><td><b>Anonymous usage statistics</b>: that something happened (a sign-up, an agent added, a purchase allowed or asked, an approval and how fast, a search and how many results, which button on a search result was used, the result of Test my setup, a Pro payment), with the time, the seller's host name and amount for a purchase, a short code instead of your account, and, if you came through a link on a Fizzl website, that site's name (e.g. fizzl.eu). Never your address, keys, Telegram details, what was bought or the receipts. The code is made with a secret and can't be turned back into your address.</td><td>To see how the wallet is used and where people get stuck, so we can improve it</td><td>Legitimate interest: improving the service (art. 6(1)(f))</td></tr>
@@ -99,6 +100,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
     <li><b>Sentry</b> (error reports from the wallet and Fizzl's services: the error, the program lines where it happened, and the address of the page or API route, without its query; never your data, your requests' contents, headers or IP address).</li>
     <li><b>GitHub</b> (a private repository that holds the anonymous usage statistics).</li>
     <li><b>Telegram</b>, only if you connect it. Messages go through Telegram, under <a href="https://telegram.org/privacy" rel="noopener noreferrer">Telegram's privacy policy</a>.</li>
+    <li><b>WhatsApp</b> (Meta Platforms Ireland, WhatsApp Business Platform), only if you connect it. Approval requests and your taps go through Meta's servers, under <a href="https://www.whatsapp.com/legal/business-data-processing-terms" rel="noopener noreferrer">WhatsApp's business data processing terms</a>.</li>
     <li><b>Xaman</b> (XRPL Labs), only if you sign in or sign a payment with Xaman: it shows you the sign-in or the transaction in the Xaman app and gives back your signature.</li>
     <li><b>Resend</b>, only if you sign in with e-mail: it delivers the sign-in code to your address.</li>
     <li><b>Apple, Google or Mozilla</b>, only if you turn on notifications on a device: they deliver the notification to that device. The message is encrypted end to end; they can't read it.</li>
@@ -114,13 +116,13 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
   <div class="table"><table>
     <thead><tr><th>Data</th><th>Kept</th></tr></thead>
     <tbody>
-      <tr><td>Account, agents, rules, Telegram link</td><td>Until you delete your account (or disconnect Telegram)</td></tr>
+      <tr><td>Account, agents, rules, Telegram and WhatsApp link</td><td>Until you delete your account (or disconnect Telegram or WhatsApp)</td></tr>
       <tr><td>Receipts (what each payment was for and what came back)</td><td>7 days on Free, 90 days on Pro</td></tr>
       <tr><td>Spending records for your limits</td><td>31 days</td></tr>
       <tr><td>Approval requests</td><td>Shown for 24 hours after they are decided, deleted after 7 days</td></tr>
       <tr><td>Activity log</td><td>The latest 500 events</td></tr>
       <tr><td>Payment records for Pro (and withdrawals with their refund)</td><td>7 years (Dutch bookkeeping law), also after you delete your account</td></tr>
-      <tr><td>Sign-in codes and Telegram link codes</td><td>10 to 15 minutes, used once</td></tr>
+      <tr><td>Sign-in codes and Telegram and WhatsApp link codes</td><td>10 to 15 minutes, used once</td></tr>
       <tr><td>Anonymous usage statistics</td><td>At most 2 years. They can't be linked back to you, so they stay when you delete your account.</td></tr>
     </tbody>
   </table></div>
@@ -139,6 +141,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 36px; color: var(--d
     <li>Sessions are signed and HTTP-only, and everything runs over HTTPS.</li>
     <li>Every account can see and change only its own data.</li>
     <li>Approvals on Telegram are accepted only from the Telegram user linked to that account.</li>
+    <li>Approvals on WhatsApp are accepted only from the number linked to that account, in messages signed by Meta.</li>
   </ul>
 
   <h2>10. Age</h2>

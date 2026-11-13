@@ -11,6 +11,10 @@
 //   TELEGRAM_BOT_TOKEN  optional: a bot only this server uses
 //   TELEGRAM_CHAT_ID    your Telegram user id
 //   TELEGRAM_WEBHOOK_SECRET  optional; random letters/digits, checked on every webhook call
+//   WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN, WHATSAPP_NUMBER
+//                       optional, all five: approvals on WhatsApp next to Telegram (src/whatsapp.js; Meta's Cloud
+//                       API, webhook at /whatsapp/webhook). WHATSAPP_TEMPLATE (default fizzl_payment_approval) and
+//                       WHATSAPP_TEMPLATE_LANG (default en) name the approved Utility template.
 //   SESSION_SECRET      optional: signs dashboard sessions (else ADMIN_PASSWORD)
 //   PRO_PAY_TO          the address Pro payments go to (default: Fizzl's payout address)
 //   PRO_PRICE_USDC      Pro per 30 days (default 5)
@@ -73,6 +77,7 @@ import { createAllowance } from "./src/allowance.js";
 import { createAccounts } from "./src/accounts.js";
 import { memoryStore, redisStore } from "./src/store.js";
 import { createTelegram } from "./src/telegram.js";
+import { createWhatsApp } from "./src/whatsapp.js";
 import { createOutreach, doctorRecheck } from "./src/outreach.js";
 import { createPush } from "./src/push.js";
 import { createMailer } from "./src/mail.js";
@@ -134,7 +139,12 @@ const usage = createUsage({ token: env.USAGE_LOG_TOKEN?.trim() || null, repo: en
 if (!usage.enabled) console.warn("[usage] USAGE_LOG_TOKEN not set: usage statistics are off");
 // Fizzl Pass proofs (src/pass.js): signed with PASS_SIGNING_KEY (a 32-byte Ed25519 seed); without it the pass works, unsigned.
 const passKey = passKeyFrom(env.PASS_SIGNING_KEY);
+const whatsapp = env.WHATSAPP_TOKEN?.trim()
+  ? createWhatsApp({ token: env.WHATSAPP_TOKEN.trim(), phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID?.trim(), appSecret: env.WHATSAPP_APP_SECRET?.trim(), verifyToken: env.WHATSAPP_VERIFY_TOKEN?.trim(), number: env.WHATSAPP_NUMBER?.trim(), template: env.WHATSAPP_TEMPLATE?.trim() || undefined, language: env.WHATSAPP_TEMPLATE_LANG?.trim() || undefined })
+  : null;
+if (whatsapp && !whatsapp.enabled) console.warn("[whatsapp] off: set WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN and WHATSAPP_NUMBER");
 const accounts = createAccounts({
+  whatsapp,
   passKey,
   usage,
   xaman: env.XAMAN_API_KEY?.trim() ? { apiKey: env.XAMAN_API_KEY.trim() } : null,
@@ -167,7 +177,7 @@ catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
 // Errors (5xx, crashes) to Sentry when SENTRY_DSN is set: never request data (src/error-report.js).
 const errorReporter = createErrorReporter({ dsn: env.SENTRY_DSN, service: "fizzl-wallet-server", release: JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version });
 errorReporter.installProcessHooks();
-const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, onramp: env.ONRAMP_KEY?.trim() ? createOnramp({ key: env.ONRAMP_KEY.trim() }) : null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, whatsapp, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, onramp: env.ONRAMP_KEY?.trim() ? createOnramp({ key: env.ONRAMP_KEY.trim() }) : null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);

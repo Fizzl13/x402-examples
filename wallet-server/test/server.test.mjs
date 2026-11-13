@@ -14,6 +14,8 @@ import { createAuth } from "../src/auth.js";
 import { createAccounts } from "../src/accounts.js";
 import { memoryStore } from "../src/store.js";
 import { createTelegram } from "../src/telegram.js";
+import { createWhatsApp, validSignature } from "../src/whatsapp.js";
+import { createHmac } from "node:crypto";
 import { createPush, encrypt, cleanSubscription } from "../src/push.js";
 import { createECDH, createPublicKey, verify } from "node:crypto";
 
@@ -42,10 +44,21 @@ function fakeTelegramApi() {
   return { calls, fetchImpl };
 }
 
-async function boot({ approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined, allowance = null, onramp = null } = {}) {
+// A fake Cloud API: records every message the server sends.
+function fakeWhatsAppApi() {
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push({ url, auth: init.headers.authorization, body: JSON.parse(init.body) }); return Response.json({ messages: [{ id: `wamid.${calls.length}` }] }); };
+  return { calls, fetchImpl };
+}
+const WA_SECRET = "meta-app-secret";
+const waSign = (raw) => `sha256=${createHmac("sha256", WA_SECRET).update(raw).digest("hex")}`;
+
+async function boot({ whatsapp: waOn = false, approvalTtlMs, rpc = async () => null, now, operator, solana = null, xrpl = null, algorand = null, indexer = null, xaman = null, catalog = null, usage = undefined, stats = undefined, endpointMonitor = undefined, alertHook = undefined, push = undefined, mailer = undefined, allowance = null, onramp = null } = {}) {
   const store = memoryStore();
   const tg = fakeTelegramApi();
   const telegram = createTelegram({ token: "1:abc", publicUrl: "https://wallet.test", webhookSecret: "s3cret-hook", username: "FizzlTestBot", fetch: tg.fetchImpl });
+  const wa = fakeWhatsAppApi();
+  const whatsapp = waOn ? createWhatsApp({ token: "EAAtest", phoneNumberId: "1055", appSecret: WA_SECRET, verifyToken: "wa-verify", number: "+31 6 1234 5678", fetch: wa.fetchImpl, api: "https://graph.test" }) : null;
   const rpcFetch = async (url, init) => {
     // The Algorand indexer (GET, REST): indexer(url) gives the JSON, or null for a 404.
     if (indexer && String(url).startsWith("https://idx.test")) { const j = await indexer(String(url)); return j === null ? new Response("{}", { status: 404 }) : Response.json(j); }
@@ -54,7 +67,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     const { method, params } = JSON.parse(init.body); return Response.json({ jsonrpc: "2.0", id: 1, result: await rpc(method, params) });
   };
   const accounts = createAccounts({
-    store, telegram, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
+    store, telegram, whatsapp, adminChatId: "4242", publicUrl: "https://wallet.test", ...(now ? { now } : {}),
     billing: { payTo: PAY_TO, priceUsdc: 5, rpcUrl: "https://rpc.test", fetch: rpcFetch, ...(solana ? { solana } : {}), ...(xrpl ? { xrpl } : {}), ...(algorand ? { algorand } : {}) },
     walletOptions: { signers: [presignKey.address], authority: null, approvalTtlMs },
     ...(usage ? { usage } : {}),
@@ -64,7 +77,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     ...(mailer ? { mailer } : {}),
     ...(xaman ? { xaman } : {}),
   });
-  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, operator, catalog, allowance, onramp, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
+  const app = createApp({ accounts, auth: createAuth({ password: PASSWORD, secure: false }), telegram, whatsapp, operator, catalog, allowance, onramp, ...(usage ? { usage } : {}), ...(stats ? { stats } : {}) });
   const server = app.listen(0);
   const base = `http://127.0.0.1:${server.address().port}`;
   const loginRes = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: PASSWORD }) });
@@ -78,7 +91,7 @@ async function boot({ approvalTtlMs, rpc = async () => null, now, operator, sola
     return { status: r.status, body: await r.json().catch(() => null) };
   };
   const { body: { key } } = await owner("POST", "/api/agents", { name: "research-agent" });
-  return { base, server, owner, agent: agentCall(key), agentCall, key, tg, accounts, store, cookie };
+  return { base, server, owner, agent: agentCall(key), agentCall, key, tg, wa, accounts, store, cookie };
 }
 
 test("login: wrong password refused and slowed down; the dashboard needs the cookie", async () => {
@@ -885,6 +898,107 @@ test("Telegram: one bot, a one-time link per account; approvals go to that chat 
 
     await a.call("POST", "/api/telegram/unlink", {});
     assert.equal((await a.call("GET", "/api/me")).body.telegram.linked, false);
+  } finally { server.close(); }
+});
+
+test("WhatsApp: the template's shape, Meta's signature, the webhook check", async () => {
+  assert.equal(validSignature(WA_SECRET, Buffer.from("{}"), waSign("{}")), true);
+  assert.equal(validSignature(WA_SECRET, Buffer.from("{} "), waSign("{}")), false);
+  assert.equal(validSignature(WA_SECRET, Buffer.from("{}"), "sha256=00"), false);
+  assert.equal(validSignature(WA_SECRET, Buffer.from("{}"), undefined), false);
+  assert.equal(createWhatsApp({ token: "t", phoneNumberId: "1" }).enabled, false, "all five settings, or off");
+
+  const wa = fakeWhatsAppApi();
+  const w = createWhatsApp({ token: "EAAtest", phoneNumberId: "1055", appSecret: WA_SECRET, verifyToken: "wa-verify", number: "+31 6 1234 5678", fetch: wa.fetchImpl, api: "https://graph.test" });
+  assert.equal(w.linkUrl("abcdEFGH1234"), "https://wa.me/31612345678?text=Connect%20my%20Fizzl%20wallet%3A%20abcdEFGH1234");
+  assert.equal(w.verify({ "hub.mode": "subscribe", "hub.verify_token": "wa-verify", "hub.challenge": "1158201444" }), "1158201444");
+  assert.equal(w.verify({ "hub.mode": "subscribe", "hub.verify_token": "nope", "hub.challenge": "1" }), null);
+
+  await w.notify("31600000001", { id: "ap_abc123", agentName: "bot\nwith\tbreaks", summary: "Pay 9 USDC", method: "sendTransaction", chainId: 8453, to: "0xshop", verdict: { verdict: "green", reasons: [] } }, [{ token: "USDC", used: "9", perDay: "100" }]);
+  const { url, auth, body } = wa.calls.at(-1);
+  assert.equal(url, "https://graph.test/v24.0/1055/messages");
+  assert.equal(auth, "Bearer EAAtest");
+  assert.equal(body.messaging_product, "whatsapp");
+  assert.equal(body.type, "template");
+  assert.equal(body.template.name, "fizzl_payment_approval");
+  assert.deepEqual(body.template.language, { code: "en" });
+  const [vars, yes, no] = body.template.components;
+  assert.equal(vars.parameters.length, 3);
+  assert.equal(vars.parameters[0].text, "bot · with · breaks", "no newlines or tabs in a template variable");
+  assert.ok(vars.parameters.every((x) => x.text && !/[\n\t]| {5}/.test(x.text)));
+  assert.match(vars.parameters[2].text, /sendTransaction on chain 8453 to 0xshop · presign-guard: green · spent this window: USDC 9 \/ 100/);
+  assert.deepEqual([yes.sub_type, yes.index, yes.parameters[0].payload], ["quick_reply", "0", "aw:ap_abc123:y"]);
+  assert.deepEqual([no.index, no.parameters[0].payload], ["1", "aw:ap_abc123:n"]);
+});
+
+test("WhatsApp: one number, a one-time code per account; approvals go to that number and only it can tap", async () => {
+  const { base, server, wa, tg, agentCall, owner } = await boot({ whatsapp: true });
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).whatsapp, true);
+    assert.equal((await fetch(`${base}/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wa-verify&hub.challenge=42`)).status, 200);
+    assert.equal(await (await fetch(`${base}/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wa-verify&hub.challenge=42`)).text(), "42");
+    assert.equal((await fetch(`${base}/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=42`)).status, 403);
+
+    const a = await signInAs(base, customer());
+    assert.deepEqual((await a.call("GET", "/api/me")).body.whatsapp, { linked: false, available: true });
+    const { body: link } = await a.call("POST", "/api/whatsapp/link", {});
+    assert.match(link.url, /^https:\/\/wa\.me\/31612345678\?text=Connect%20my%20Fizzl%20wallet%3A%20[A-Za-z0-9]+$/);
+    assert.equal((await owner("POST", "/api/whatsapp/link", {})).status, 400, "the server owner keeps Telegram");
+
+    const hook = (value, sign = true) => { const raw = JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "waba", changes: [{ field: "messages", value: { messaging_product: "whatsapp", ...value } }] }] }); return fetch(`${base}/whatsapp/webhook`, { method: "POST", headers: { "content-type": "application/json", ...(sign ? { "x-hub-signature-256": waSign(raw) } : {}) }, body: raw }); };
+    const say = (text, from = "31611112222") => hook({ contacts: [{ wa_id: from, profile: { name: "Alice" } }], messages: [{ from, id: "wamid.in", type: "text", text: { body: text } }] });
+    const replies = () => wa.calls.filter((c) => c.body.type === "text");
+
+    // Not Meta's signature: refused, and nothing is linked.
+    const raw = JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ from: "31611112222", type: "text", text: { body: `Connect my Fizzl wallet: ${link.code}` } }] } }] }] });
+    assert.equal((await fetch(`${base}/whatsapp/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=0000" }, body: raw })).status, 401);
+    assert.equal((await fetch(`${base}/whatsapp/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": waSign(raw.replace("31611112222", "31699999999")) }, body: raw })).status, 401);
+    assert.equal((await a.call("GET", "/api/me")).body.whatsapp.linked, false);
+
+    assert.equal((await say("hello")).status, 200);
+    assert.match(replies().at(-1).body.text.body, /Connect WhatsApp/);
+    await say("Connect my Fizzl wallet: nonsensecode123");
+    assert.match(replies().at(-1).body.text.body, /expired/);
+    await say(`Connect my Fizzl wallet: ${link.code}`);
+    assert.match(replies().at(-1).body.text.body, /^Connected ✓/);
+    assert.equal(replies().at(-1).body.to, "31611112222");
+    assert.deepEqual((await a.call("GET", "/api/me")).body.whatsapp, { linked: true, number: "+31 ••• 22" });
+    await say(`Connect my Fizzl wallet: ${link.code}`); // a code works once
+    assert.match(replies().at(-1).body.text.body, /expired/);
+
+    const { body: { key } } = await a.call("POST", "/api/agents", { name: "alice-bot" });
+    const r = await agentCall(key)("POST", "/v1/reserve", { method: "sendTransaction", request: txRequest(9) });
+    await new Promise((ok) => setTimeout(ok, 30));
+    const asked = wa.calls.filter((c) => c.body.type === "template").at(-1);
+    assert.equal(asked.body.to, "31611112222");
+    assert.equal(asked.body.template.components[0].parameters[0].text, "alice-bot");
+    assert.equal(asked.body.template.components[1].parameters[0].payload, `aw:${r.body.approvalId}:y`);
+    assert.ok(!tg.calls.some((c) => c.method === "sendMessage" && /alice-bot/.test(c.body.text ?? "")), "no Telegram linked: nothing there");
+
+    const tap = (from, yes = true) => hook({ messages: [{ from, id: "wamid.tap", type: "button", button: { text: yes ? "Approve" : "Deny", payload: `aw:${r.body.approvalId}:${yes ? "y" : "n"}` } }] });
+    await tap("31699999999"); // another number
+    assert.match(replies().at(-1).body.text.body, /not allowed/);
+    assert.equal((await a.call("GET", "/api/state")).body.approvals[0].status, "pending");
+    await tap("31611112222");
+    assert.equal((await a.call("GET", "/api/state")).body.approvals[0].status, "approved");
+    assert.match(replies().at(-1).body.text.body, /^Approved: signing/);
+    await tap("31611112222", false); // decided already
+    assert.equal((await a.call("GET", "/api/state")).body.approvals[0].status, "approved");
+
+    await a.call("POST", "/api/whatsapp/unlink", {});
+    assert.deepEqual((await a.call("GET", "/api/me")).body.whatsapp, { linked: false, available: true });
+  } finally { server.close(); }
+});
+
+test("WhatsApp off: no card, the webhook answers 404, linking refused", async () => {
+  const { base, server } = await boot();
+  try {
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).whatsapp, false);
+    assert.equal((await fetch(`${base}/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=x&hub.challenge=1`)).status, 404);
+    assert.equal((await fetch(`${base}/whatsapp/webhook`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status, 404);
+    const a = await signInAs(base, customer());
+    assert.deepEqual((await a.call("GET", "/api/me")).body.whatsapp, { linked: false, available: false });
+    assert.equal((await a.call("POST", "/api/whatsapp/link", {})).status, 503);
   } finally { server.close(); }
 });
 
