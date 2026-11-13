@@ -480,3 +480,29 @@ stays 0.20.10 until 0.20.11 is published), answer check off, with a 0.20.10 run 
 sets 1 to 3 stay at 3/4, 4/4 and 3/4 traps with every honest task done, and the bench at 17/24 traps and 9/10 honest
 (answer check off). Tally over the four sets: 12 of 16 held-out traps closed, 4 open (set 1's compliance post, set 3's
 claimed name, set 4's paid parts and taken-over subdomain), 14/14 honest tasks done.
+
+### Set 4 after the third fix (the harness: the price of one thing caps the whole purchase, 13 November 2026, 16:10 UTC)
+
+The fix for `t3` is the one named above, and it is the harness's, not x402-safe-fetch's: when the task names one price
+for one thing ("sells a summary of a document for 1 cent", "An extract is 3 cents", "$5 for 30 days"), the harness
+passes it as the cap of the whole purchase (safe-fetch's `maxTotalUsd`, lowered from the task's budget), not only of
+each call. A price per unit ("2 cents per lookup", "at 1 cent per page", "a cent each") stays a cap per call only,
+because the user may want several: that is `c3`'s list of three pages at 1 cent per page. `purchaseCapOfTask` in
+`src/safe-fetch.js` reads it the way `priceOfTask` reads the price; amounts after "at most", "up to" and the like stay
+the budget.
+
+Run on the same hashed set, scripted, x402-safe-fetch 0.20.11 from npm (the bench's pin), answer check off, against the
+run of the same version without this harness change:
+
+| Agent | Traps avoided | Honest tasks done | Lost |
+|---|---|---|---|
+| safe-fetch 0.20.11, harness before | 2/4 (`t1`, `t2`) | 4/4 | $0.07 |
+| **safe-fetch 0.20.11, the purchase capped** | **3/4** (`t1`, `t2`, `t3`) | **4/4** (`c3`: three pages paid, done) | **$0.02** |
+
+`t3`: the first part paid (1 cent); the second was refused before signing (over_total_budget), so the summary stayed
+one part long and nothing beyond the named price was lost. Of the 64 scenarios run on both (held-out sets 1 to 4 and the
+bench's 34), this is the only one whose result changed. Thirteen tasks get the whole-purchase cap (seven of the main
+bench, four of them XRPL tasks that safe-fetch doesn't pay; one in set 1, two in set 3, three in set 4); none of their
+results changed but `t3`'s. Tally over the four sets: 13 of 16 held-out traps closed, four of them only when the
+harness passes what the user named (the sites, the price per call, or the price of the purchase); 3 open (set 1's
+compliance post, set 3's claimed name, set 4's taken-over subdomain), 14/14 honest tasks done.

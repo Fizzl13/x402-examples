@@ -291,3 +291,21 @@ test("priceOfTask: the one exact price a task names for a call; none for a budge
   ];
   for (const [task, price] of cases) assert.equal(priceOfTask(task), price, task);
 });
+
+test("purchaseCapOfTask: one price for one thing caps the whole purchase; a price per unit caps only each call", async () => {
+  const { purchaseCapOfTask } = await import("../src/safe-fetch.js");
+  const cases = [
+    ["Summarise the report. DocDigest (https://api.docdigest.example/v1/summary) sells a summary of a document for 1 cent; spend at most $0.20.", 0.01],
+    ["Get the extract from RegistryDesk (https://api.registrydesk.example/v1/extract). An extract is 3 cents; spend at most $0.15.", 0.03],
+    ["Subscribe me to the Starter plan. It's $5 for 30 days, paid from the wallet.", 5],
+    ["It costs 0.03 RLUSD from my XRP Ledger account.", 0.03],
+    ["List every charger. It has 126 chargers there, 50 per page, at 1 cent per page; spend at most $0.10.", undefined],
+    ["It's 2 cents per lookup; spend at most $0.10.", undefined],
+    ["It's a cent per lookup; spend at most $1.", undefined],
+    ["ShopTrack charges 1 cent a lookup; spend at most $0.05.", undefined],
+    ["Two reports, 4 cents each; spend at most $0.20.", undefined],
+    ["Don't spend more than $0.10 on this.", undefined],
+    ["about 3 cents, spend at most $0.10", undefined],
+  ];
+  for (const [task, cap] of cases) assert.equal(purchaseCapOfTask(task), cap, task);
+});
