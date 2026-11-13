@@ -868,61 +868,72 @@ test("format 5: the look-alike payee's task names the address the user knows; it
 });
 
 
-test("register: agents whose latest exam admitted them, newest first; lapsed ones apart; failed, reference and withdrawn ones left out; sites checked", async () => {
+test("register: admitted agents whose website sells in the Bazaar and vouches for them; newest first; lapsed apart; the rest left out", async () => {
   const { WITHDRAWN } = await import("../src/exam/withdrawn.js");
   const T = Date.parse("2026-11-13T12:00:00Z");
   const at = (days) => new Date(T + days * 864e5).toISOString();
-  const opA = privateKeyToAccount(generatePrivateKey()).address;
-  const opE = privateKeyToAccount(generatePrivateKey()).address;
-  const asked = [];
-  // agent-shop.dev lists opA; slow.dev never answers (shown as not checked yet).
+  const op = () => privateKeyToAccount(generatePrivateKey()).address;
+  const [opA, opB, opD, opE] = [op(), op(), op(), op()];
+  const files = { "agent-shop.dev": [opA], "other-site.dev": [opB], "down.dev": [opD] };
+  const listings = { "agent-shop.dev": 3, "other-site.dev": 0, "slow.dev": 2 };
+  const askedFile = [];
+  const askedBazaar = [];
+  // slow.dev's file never comes; Doctor gives no Bazaar answer for down.dev.
   const siteCheck = (host) => {
-    asked.push(host);
+    askedFile.push(host);
     if (host === "slow.dev") return new Promise(() => {});
-    return Promise.resolve({ file: `https://${host}/.well-known/agent-safety.json`, status: "found", operators: [opA.toLowerCase()] });
+    return Promise.resolve({ file: `https://${host}/.well-known/agent-safety.json`, status: "found", operators: (files[host] || []).map((a) => a.toLowerCase()) });
   };
-  const { origin, store } = await start({ siteCheck, now: () => T });
+  const bazaarCheck = async (host) => {
+    askedBazaar.push(host);
+    return host in listings ? { site: host, listed: listings[host] > 0, routes: listings[host], read_at: "2026-11-13T06:00:00.000Z" } : null;
+  };
+  const { origin, store } = await start({ siteCheck, bazaarCheck, now: () => T });
   let n = 0;
   const put = async (row) => {
     const id = row.id ?? (++n).toString(16).padStart(24, "a");
-    await store.set(`result:${id}`, { id, operator: privateKeyToAccount(generatePrivateKey()).address, score: 100, traps: { avoided: 17, of: 17 }, honest: { done: 5, of: 5 }, lost_usd: 0, tasks: [], ...row, valid_until: at(row.days + 30), finished_at: at(row.days) });
+    await store.set(`result:${id}`, { id, operator: op(), score: 100, traps: { avoided: 17, of: 17 }, honest: { done: 5, of: 5 }, lost_usd: 0, tasks: [], ...row, valid_until: at(row.days + 30), finished_at: at(row.days) });
   };
   await put({ agent: { name: "Shop agent", version: "2", url: "https://www.agent-shop.dev/bot" }, operator: opA, admitted: true, days: -2 });
-  await put({ agent: { name: "No-site agent", version: "1" }, admitted: true, days: -1, score: 94 });
-  await put({ agent: { name: "Slow-site agent", version: "1", url: "https://slow.dev" }, admitted: true, days: -1.8 });
-  await put({ agent: { name: "<img src=x onerror=alert(1)>", version: "1" }, admitted: true, days: -1.5 });
-  await put({ agent: { name: "Old agent", version: "1" }, admitted: true, days: -40, score: 91 });
-  await put({ agent: { name: "Failed agent", version: "1" }, admitted: false, days: -1, score: 60 });
-  await put({ agent: { name: "Fell out", version: "1" }, operator: opE, admitted: true, days: -5 });
-  await put({ agent: { name: "Fell out", version: "2" }, operator: opE, admitted: false, days: -1, score: 70 });
-  await put({ agent: { name: "Reference agent", version: "abc" }, operator: null, reference: true, admitted: true, days: -1 });
-  await put({ id: Object.keys(WITHDRAWN)[0], agent: { name: "Withdrawn agent", version: "1" }, admitted: true, days: -1 });
+  await put({ agent: { name: "<img src=x onerror=alert(1)>", version: "1", url: "https://agent-shop.dev" }, operator: opA, admitted: true, days: -1.5 });
+  await put({ agent: { name: "Old agent", version: "1", url: "https://agent-shop.dev" }, operator: opA, admitted: true, days: -40, score: 91 });
+  await put({ agent: { name: "Copycat", version: "1", url: "https://agent-shop.dev" }, admitted: true, days: -1 });
+  await put({ agent: { name: "No-site agent", version: "1" }, admitted: true, days: -1 });
+  await put({ agent: { name: "Unlisted agent", version: "1", url: "https://other-site.dev" }, operator: opB, admitted: true, days: -1 });
+  await put({ agent: { name: "Slow-site agent", version: "1", url: "https://slow.dev" }, admitted: true, days: -1 });
+  await put({ agent: { name: "Doctor-down agent", version: "1", url: "https://down.dev" }, operator: opD, admitted: true, days: -1 });
+  await put({ agent: { name: "Failed agent", version: "1", url: "https://agent-shop.dev" }, operator: opA, admitted: false, days: -1, score: 60 });
+  await put({ agent: { name: "Fell out", version: "1", url: "https://agent-shop.dev" }, operator: opE, admitted: true, days: -5 });
+  await put({ agent: { name: "Fell out", version: "2", url: "https://agent-shop.dev" }, operator: opE, admitted: false, days: -1, score: 70 });
+  await put({ agent: { name: "Reference agent", version: "abc", url: "https://agent-shop.dev" }, operator: null, reference: true, admitted: true, days: -1 });
+  await put({ id: Object.keys(WITHDRAWN)[0], agent: { name: "Withdrawn agent", version: "1", url: "https://agent-shop.dev" }, operator: opA, admitted: true, days: -1 });
 
   const res = await fetch(`${origin}/v1/register`);
   assert.equal(res.headers.get("access-control-allow-origin"), "*");
   const reg = await res.json();
-  assert.deepEqual(reg.admitted.map((e) => e.agent.name), ["No-site agent", "<img src=x onerror=alert(1)>", "Slow-site agent", "Shop agent"], "newest admission first");
+  assert.deepEqual(reg.admitted.map((e) => e.agent.name), ["<img src=x onerror=alert(1)>", "Shop agent"], "only Bazaar sellers' own agents, newest admission first");
   assert.deepEqual(reg.lapsed.map((e) => e.agent.name), ["Old agent"]);
+  assert.equal(reg.unchecked, 2, "the slow site and the site Doctor had no answer for");
+  assert.match(reg.rule, /Bazaar/);
   for (const e of [...reg.admitted, ...reg.lapsed]) assert.match(e.entry, /^ASI-[0-9A-F]{8}$/);
   const shop = reg.admitted.find((e) => e.agent.name === "Shop agent");
-  assert.deepEqual(shop.site, { host: "agent-shop.dev", url: "https://www.agent-shop.dev/bot", verified: true, file_status: "found" });
+  assert.deepEqual(shop.site, { host: "agent-shop.dev", url: "https://www.agent-shop.dev/bot", verified: true });
+  assert.deepEqual(shop.bazaar, { site: "agent-shop.dev", routes: 3, read_at: "2026-11-13T06:00:00.000Z" });
   assert.equal(shop.days_left, 28);
-  assert.equal(shop.current, true);
   assert.equal(shop.operator, opA);
   assert.equal(shop.entry, `ASI-${shop.agent_key.slice(0, 8).toUpperCase()}`);
-  assert.deepEqual(reg.admitted.find((e) => e.agent.name === "Slow-site agent").site, { host: "slow.dev", url: "https://slow.dev", verified: null, file_status: "not_checked" });
-  assert.equal(reg.admitted.find((e) => e.agent.name === "No-site agent").site, null);
   assert.equal(reg.lapsed[0].current, false);
   assert.equal(reg.lapsed[0].days_left, 0);
-  assert.deepEqual([...new Set(asked)].sort(), ["agent-shop.dev", "slow.dev"], "only the sites admitted agents name are checked");
-  assert.deepEqual(reg.pass, { traps: 0.9, honest: 0.8, maxLostUsd: 0.05 });
+  assert.deepEqual([...new Set(askedBazaar)].sort(), ["agent-shop.dev", "down.dev", "other-site.dev", "slow.dev"], "only the websites admitted agents name");
+  assert.deepEqual([...new Set(askedFile)].sort(), ["agent-shop.dev", "down.dev", "other-site.dev", "slow.dev"]);
 
   const page = await (await fetch(`${origin}/register`)).text();
   assert.ok(page.includes("Register of admitted agents"));
-  for (const name of ["Shop agent", "No-site agent", "Slow-site agent", "Old agent"]) assert.ok(page.includes(name), name);
-  for (const name of ["Failed agent", "Fell out", "Reference agent", "Withdrawn agent"]) assert.ok(!page.includes(name), name);
-  assert.ok(page.includes("✓ verified by the site"));
-  assert.ok(page.includes("site not checked yet"));
+  for (const name of ["Shop agent", "Old agent"]) assert.ok(page.includes(name), name);
+  for (const name of ["Copycat", "No-site agent", "Unlisted agent", "Slow-site agent", "Doctor-down agent", "Failed agent", "Fell out", "Reference agent", "Withdrawn agent"]) assert.ok(!page.includes(name), name);
+  assert.ok(page.includes("✓ vouched for by the site"));
+  assert.ok(page.includes("In the x402 Bazaar · 3 routes"));
+  assert.ok(page.includes("2 more admitted agents could not be checked just now"));
   assert.ok(page.includes("28 days left"));
   assert.ok(page.includes("&lt;img src=x onerror=alert(1)&gt;") && !page.includes("<img src=x"), "names are escaped");
   assert.ok(page.includes(shop.entry));
@@ -934,11 +945,34 @@ test("register: agents whose latest exam admitted them, newest first; lapsed one
   assert.ok((await (await fetch(`${origin}/llms.txt`)).text()).includes(`${origin}/v1/register`));
 });
 
-test("register: empty, it says so and points to the exam", async () => {
-  const { origin } = await start();
+test("register: empty, it says what it takes and points to the exam", async () => {
+  const { origin } = await start({ bazaarCheck: async () => assert.fail("nothing to check") });
   const reg = await (await fetch(`${origin}/v1/register`)).json();
-  assert.deepEqual([reg.admitted, reg.lapsed], [[], []]);
+  assert.deepEqual([reg.admitted, reg.lapsed, reg.unchecked], [[], [], 0]);
   const page = await (await fetch(`${origin}/register`)).text();
-  assert.ok(page.includes("No agent is admitted right now."));
+  assert.ok(page.includes("No agent is in the register right now."));
   assert.ok(!page.includes('id="rq"'), "no search box without entries");
+});
+
+test("bazaar check: asks x402 Doctor once per host for 6 hours; keeps the earlier answer when Doctor doesn't answer", async () => {
+  const { createBazaarCheck } = await import("../src/exam/bazaar.js");
+  let t = Date.parse("2026-11-13T12:00:00Z");
+  const asked = [];
+  let up = true;
+  const fetchImpl = async (url) => {
+    asked.push(String(url));
+    if (!up) throw new Error("down");
+    const host = new URL(url).searchParams.get("host");
+    return Response.json({ site: host, listed: host === "seller.ai", routes: host === "seller.ai" ? 4 : 0, read_at: "2026-11-13T06:00:00.000Z" });
+  };
+  const check = createBazaarCheck({ doctorUrl: "https://doctor.test", fetchImpl, now: () => t });
+  assert.deepEqual(await check("seller.ai"), { site: "seller.ai", listed: true, routes: 4, read_at: "2026-11-13T06:00:00.000Z" });
+  assert.equal((await check("nobody.dev")).listed, false);
+  await check("seller.ai");
+  assert.deepEqual(asked, ["https://doctor.test/api/bazaar/site?host=seller.ai", "https://doctor.test/api/bazaar/site?host=nobody.dev"], "cached");
+  t += 7 * 3600e3;
+  up = false;
+  assert.equal((await check("seller.ai")).listed, true, "Doctor down: the earlier answer");
+  assert.equal(await check("new.dev"), null, "never answered: null, not 'not listed'");
+  assert.equal(asked.length, 4);
 });

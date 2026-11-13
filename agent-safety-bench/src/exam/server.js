@@ -26,6 +26,7 @@ import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.j
 import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage, registerPage } from "./pages.js";
 import { agentPrompt } from "./prompt.js";
 import { siteHost, createSiteVerifier, WELL_KNOWN } from "./site.js";
+import { createBazaarCheck } from "./bazaar.js";
 import { createHash } from "node:crypto";
 import { createMcpHandler, serverCard } from "./mcp.js";
 import { fileURLToPath } from "node:url";
@@ -121,7 +122,7 @@ export const SECURITY_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), bazaarCheck = createBazaarCheck({ now }), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   // The payout wallet's certificate for this signer (src/exam/cert.js), or null.
@@ -491,43 +492,41 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     return { site: host, file: check.file, file_status: check.status, agents };
   }
 
-  // The register: every agent (agentKey: operator wallet and name) whose latest exam admitted it, the same latest exam
-  // its badge shows. "admitted" while the admission is valid, "lapsed" once valid_until has passed; an agent whose latest
-  // exam did not pass is not in it, even if an earlier one did. Reference rows (our scripted agents) and withdrawn
-  // results are left out. An agent that names a website is marked verified when the site's agent-safety.json lists its
-  // operator wallet (the cached check of /find); a site that doesn't answer within REGISTER_SITE_WAIT_MS shows as not
-  // checked, and at most REGISTER_SITE_CHECKS sites are checked per request.
+  // The register (Frits, 13 Nov 2026: only existing agents that are in the Bazaar). An agent is in it when all hold:
+  //  - its latest exam (agentKey: operator wallet and name, the exam its badge shows) admitted it: "admitted" while the
+  //    admission is valid, "lapsed" once valid_until has passed. A later failed exam takes it out;
+  //  - it names a website (agent.url) that the CDP Bazaar lists as a seller (src/exam/bazaar.js, asked of x402 Doctor);
+  //  - that website vouches for it: its /.well-known/agent-safety.json lists the agent's operator wallet (as on /find),
+  //    so nobody can put a Bazaar seller's name on an agent of their own.
+  // Reference rows and withdrawn results are left out. At most REGISTER_SITE_CHECKS websites are checked per request;
+  // a website whose file or Bazaar answer doesn't come within REGISTER_SITE_WAIT_MS counts as not checked (unchecked).
   const REGISTER_SITE_CHECKS = 25;
   const REGISTER_SITE_WAIT_MS = 2500;
-  async function siteChecksOf(rows) {
-    const hosts = [...new Set(rows.map((r) => siteHost(r.agent?.url)).filter(Boolean))].slice(0, REGISTER_SITE_CHECKS);
-    const checks = new Map();
-    await Promise.all(hosts.map(async (host) => {
-      let timer;
-      const late = new Promise((resolve) => {
-        timer = setTimeout(() => resolve(null), REGISTER_SITE_WAIT_MS);
-        timer.unref?.();
-      });
-      const check = Promise.resolve().then(() => siteCheck(host)).catch(() => null);
-      checks.set(host, await Promise.race([check, late]));
+  const REGISTER_RULE = "admitted by its latest exam; its website (agent.url) is a seller in the CDP x402 Bazaar; that website's /.well-known/agent-safety.json lists its operator wallet";
+  async function withinWait(ask) {
+    let timer;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), REGISTER_SITE_WAIT_MS);
+      timer.unref?.();
+    });
+    const answer = Promise.resolve().then(ask).catch(() => null);
+    try {
+      return await Promise.race([answer, late]);
+    } finally {
       clearTimeout(timer);
-    }));
-    return checks;
+    }
   }
-
-  const registerEntry = (r, checks) => {
-    const key = agentKey(r);
-    const host = siteHost(r.agent?.url);
-    const check = host ? checks.get(host) : null;
-    const left = Math.ceil((Date.parse(r.valid_until) - now()) / 864e5);
-    return {
-      entry: `ASI-${key.slice(0, 8).toUpperCase()}`,
-      ...publicRow(r),
-      operator: r.operator,
-      site: host ? { host, url: r.agent.url, verified: check ? check.operators.includes(String(r.operator || "").toLowerCase()) : null, file_status: check?.status ?? "not_checked" } : null,
-      days_left: r.current ? Math.max(0, left) : 0,
-    };
-  };
+  async function websiteChecks(rows) {
+    const hosts = [...new Set(rows.map((r) => siteHost(r.agent?.url)).filter(Boolean))].slice(0, REGISTER_SITE_CHECKS);
+    const files = new Map();
+    const listings = new Map();
+    await Promise.all(hosts.map(async (host) => {
+      const [file, listing] = await Promise.all([withinWait(() => siteCheck(host)), withinWait(() => bazaarCheck(host))]);
+      files.set(host, file);
+      listings.set(host, listing);
+    }));
+    return { files, listings };
+  }
 
   async function registerOf() {
     const latest = new Map();
@@ -536,14 +535,38 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       const key = agentKey(r);
       if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
     }
-    const rows = [...latest.values()].filter((r) => r.admitted).map(withCurrent);
-    const checks = await siteChecksOf(rows);
-    const entries = rows.map((r) => registerEntry(r, checks));
+    const rows = [...latest.values()].filter((r) => r.admitted && siteHost(r.agent?.url)).map(withCurrent);
+    const { files, listings } = await websiteChecks(rows);
+    const entries = [];
+    let unchecked = 0;
+    for (const r of rows) {
+      const host = siteHost(r.agent.url);
+      const file = files.get(host);
+      const listing = listings.get(host);
+      if (listing && !listing.listed) continue;
+      if (file && !file.operators.includes(String(r.operator || "").toLowerCase())) continue;
+      if (!file || !listing) {
+        unchecked++;
+        continue;
+      }
+      const key = agentKey(r);
+      const left = Math.ceil((Date.parse(r.valid_until) - now()) / 864e5);
+      entries.push({
+        entry: `ASI-${key.slice(0, 8).toUpperCase()}`,
+        ...publicRow(r),
+        operator: r.operator,
+        site: { host, url: r.agent.url, verified: true },
+        bazaar: { site: listing.site, routes: listing.routes, read_at: listing.read_at },
+        days_left: r.current ? Math.max(0, left) : 0,
+      });
+    }
     return {
       updated: new Date(now()).toISOString(),
+      rule: REGISTER_RULE,
       pass: PASS,
       valid_days: VALID_DAYS,
       signer: signer?.address ?? null,
+      unchecked,
       admitted: entries.filter((e) => e.current).sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)),
       lapsed: entries.filter((e) => !e.current).sort((a, b) => (a.valid_until < b.valid_until ? 1 : -1)),
     };
