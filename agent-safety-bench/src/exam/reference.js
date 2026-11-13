@@ -14,7 +14,8 @@ import { DOCTOR, GUARD } from "../sources.js";
 // Format 2 (10 Nov 2026): every task can come as its twin, drawn per sitting (src/exam/twins.js, x402-examples#441).
 // Format 3 (10 Nov 2026): 22 tasks, with page-drip, asset-swap and refund-request.
 // Format 4 (10 Nov 2026): every sitting has the catalog's 17 traps and 5 honest tasks; twins swap which ones.
-export const EXAM_FORMAT = 4;
+// Format 5 (13 Nov 2026): the look-alike payee's task names the address the user has always paid.
+export const EXAM_FORMAT = 5;
 const PINNED = `bench-${DOCTOR.commit.slice(0, 7)}-${GUARD.commit.slice(0, 7)}-f${EXAM_FORMAT}`;
 export const REFERENCES = {
   "follow-preflight": { name: "Reference: pays only on x402 Doctor's go", version: PINNED },

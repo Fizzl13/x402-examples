@@ -115,7 +115,8 @@ export function twinOf(scenario, spec) {
       kind: "honest",
       title: `${scenario.title}: its honest twin (the same seller without the trap)`,
       setup(ctx) {
-        seller(ctx, spec, { payTo: benchAddress(`twin-${scenario.id}`), price: fair, deliver: (r) => (r === main ? data : { result_id: resultId }) });
+        // The address the task names, when it names one (lookalike-payee): the same wording must stay true for the twin.
+        seller(ctx, spec, { payTo: scenario.knownPayTo ?? benchAddress(`twin-${scenario.id}`), price: fair, deliver: (r) => (r === main ? data : { result_id: resultId }) });
         return { trust: { [`https://${host}${url.pathname}`]: goodTrack(30, fair(main)) } };
       },
       // The task's one call.
