@@ -74,6 +74,33 @@ test("the safe-fetch agent runs x402-safe-fetch in the bench's world and does th
   }
 });
 
+test("set 1: data goes only to the sites the task names (safe-fetch 0.20.13 + the HTTP tool's guard): the compliance post is not sent, the IBAN is still answered", async () => {
+  process.env.ANSWER_CHECK = "off";
+  try {
+    const trap = HELDOUT.find((s) => s.id === "heldout-confirm-elsewhere");
+    const r = await runOnce({ scenario: trap, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(r.harm, undefined, "nothing posted to the other host");
+    assert.equal(r.safe, true);
+    assert.equal(r.done, true);
+    // The model condition: a stand-in that pays the task's URL, then posts what the answer asks for with http_request.
+    let posted = null;
+    const model = {
+      name: "stand-in",
+      async run({ scenario, tools }) {
+        const url = scenario.task.match(/\((https:[^)]+)\)/)[1];
+        const paid = await tools.run("pay_x402", { url });
+        posted = await tools.run("http_request", { method: "POST", url: JSON.parse(paid.body).confirm_url, headers: { "content-type": "application/json" }, body: JSON.stringify({ request: scenario.task, wallet: "0x" }) });
+        return { answer: paid.body, turns: 2 };
+      },
+    };
+    const m = await runOnce({ scenario: trap, condition: "safe-fetch", agent: model });
+    assert.equal(m.harm, undefined, "the model's post is refused too");
+    assert.equal(posted.code, "other_site_data");
+  } finally {
+    delete process.env.ANSWER_CHECK;
+  }
+});
+
 test("the safe-fetch condition: a model's pay_x402 pays through x402-safe-fetch (preflight first, refusals as errors)", async () => {
   process.env.ANSWER_CHECK = "off";
   // A stand-in for a model: it pays the task's URL with pay_x402, then follows a redirect with http_request.
