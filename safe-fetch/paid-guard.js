@@ -30,6 +30,13 @@
 //
 // A paid request with no answer at all (0.20.10), also when the same payment was sent again, is recorded with status 0:
 // the seller may have settled it, so the endpoint is blocked like a paid error (held-out set 4, 13 Nov 2026).
+//
+// A paid 200 that only says the purchase is not ready yet, and asks to be requested again ({"status": "queued",
+// "report_id": ..., "message": "... Request it again in a few seconds to receive it."}), is held like a 202 (0.20.11): in
+// held-out set 4 (13 Nov 2026) a seller answered the first payment that way and charged the request it asked for again,
+// and safe-fetch paid both, because it was a 200 with no error in it. pendingInAnswer decides; the caller passes what it
+// found as `queued` (and the status URL the answer names as `pollAt`). A status that is the answer ({"order_id": ...,
+// "status": "processing", "message": "The order is being packed."}) asks for nothing and is a delivery.
 
 export const PAID_ERROR_MS = 30 * 60 * 1000;
 
@@ -75,34 +82,36 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
      * a 3xx, or the URL a followed redirect ended at; `pollAt`: the poll URL of a 202 Accepted; relative URLs are read
      * against `url`).
      */
-    record(url, init = {}, status, { redirectedTo, pollAt, failure } = {}) {
+    record(url, init = {}, status, { redirectedTo, pollAt, failure, queued } = {}) {
       const key = purchaseKey(url, init);
-      if (status >= 200 && status < 300 && status !== 202 && !failure) {
+      const held = status === 202 || Boolean(queued);
+      if (status >= 200 && status < 300 && !held && !failure) {
         failed.delete(key);
         return;
       }
       const at = now();
-      failed.set(key, failure ? { at, status, failure } : { at, status });
+      const note = failure ? { failure } : queued ? { queued: String(queued) } : {};
+      failed.set(key, { at, status, ...note });
       const from = key.replace(/^[A-Z]+ /, "");
-      const target = resolve(status === 202 ? pollAt : redirectedTo, url);
+      const target = resolve(held ? pollAt : redirectedTo, url);
       if (target && purchaseKey(target) !== key) {
         // A poll is read with GET, whatever method paid.
-        failed.set(purchaseKey(target), status === 202 ? { at, status, pollOf: from } : { at, status, redirectedFrom: from });
+        failed.set(purchaseKey(target), held ? { at, status, ...note, pollOf: from } : { at, status, redirectedFrom: from });
       }
     },
     /**
-     * An answer that hands over a result without asking to be paid (a 2xx other than 202): a 202 held on this endpoint, or
-     * on the endpoint whose poll URL this is, has delivered.
+     * An answer that hands over a result without asking to be paid (a 2xx other than 202, not itself "not ready yet"): a
+     * 202 or a queued 200 held on this endpoint, or on the endpoint whose poll URL this is, has delivered.
      */
     delivered(url, init = {}) {
       const key = purchaseKey(url, init);
       const here = failed.get(key);
-      if (here?.status !== 202) return;
+      if (!isHeld(here)) return;
       const urlOf = (k) => k.replace(/^[A-Z]+ /, "");
       failed.delete(key);
       // The poll URL delivered: the endpoint it polls for (paid with any method) has delivered too; and the other way round.
       for (const [k, v] of failed) {
-        if (v.status === 202 && ((here.pollOf && urlOf(k) === here.pollOf && !v.pollOf) || v.pollOf === urlOf(key))) failed.delete(k);
+        if (isHeld(v) && ((here.pollOf && urlOf(k) === here.pollOf && !v.pollOf) || v.pollOf === urlOf(key))) failed.delete(k);
       }
     },
     /** Forget a request (e.g. the owner said to pay it again). */
@@ -111,6 +120,9 @@ export function createPaidGuard({ windowMs = PAID_ERROR_MS, now = Date.now } = {
     },
   };
 }
+
+// A paid answer held until the result comes: a 202 Accepted (0.20.4) or a 200 that said it isn't ready yet (0.20.11).
+const isHeld = (v) => v?.status === 202 || Boolean(v?.queued);
 
 // The keys of an error envelope: a JSON answer made of these only, with an error in it, reports a failure instead of
 // handing over a result. An answer with any other key ({"tx": ..., "status": "failed"}) is data, and is left alone.
@@ -133,6 +145,29 @@ export function errorInAnswer(body) {
   return String(text).slice(0, 200);
 }
 
+// The keys of a "not ready yet" answer: a status, a message, ids, where to ask again and when. Any other key is data.
+const PENDING_KEYS = new Set(["status", "state", "message", "detail", "details", "info", "note", "hint", "id", "status_url", "statusUrl", "poll_url", "pollUrl", "result_url", "resultUrl", "location", "retry_after", "retryAfter", "retry_in", "retryIn", "eta", "eta_seconds", "etaSeconds", "estimated_seconds", "queue_position", "queuePosition", "position", "progress", "created_at", "createdAt", "submitted_at", "submittedAt", "timestamp"]);
+const PENDING = new Set(["queued", "pending", "accepted", "processing", "in_progress", "in progress", "in-progress", "running", "waiting", "scheduled", "submitted", "started", "preparing", "generating", "compiling"]);
+// Words that ask the buyer to come back for the result: "request it again", "try again later", "check back", "poll".
+const ASKS_AGAIN = /\b(?:request|ask|call|fetch|query|check|poll|try|come|send)\b[^.!?]{0,40}?\b(?:again|back|later)\b|\bretry\b|\bpoll(?:ing)?\b/i;
+
+/**
+ * What a paid JSON answer says when it only promises the result for later, or null: an object of status, message, ids
+ * and where/when to ask again only, whose `status`/`state` is a pending one (queued, pending, processing, ...), and that
+ * names a status URL or asks in words to be requested again. Returns the seller's words (at most 200 characters).
+ */
+export function pendingInAnswer(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const keys = Object.keys(body);
+  if (!keys.length || !keys.every((k) => PENDING_KEYS.has(k) || /^[A-Za-z][A-Za-z0-9_]*(?:_id|Id)$/.test(k))) return null;
+  const state = [body.status, body.state].find((v) => typeof v === "string" && PENDING.has(v.toLowerCase()));
+  if (!state) return null;
+  const said = [body.message, body.detail, body.info, body.note, body.hint].find((v) => typeof v === "string" && v.trim());
+  const statusUrl = [body.status_url, body.statusUrl, body.poll_url, body.pollUrl, body.result_url, body.resultUrl, body.location].some((v) => typeof v === "string" && v);
+  if (!statusUrl && !(said && ASKS_AGAIN.test(said))) return null;
+  return String(said ?? `status: ${state}`).slice(0, 200);
+}
+
 /** The refusal text, for an error or a tool answer. */
 export function paidTwiceMessage(url, earlier) {
   if (earlier?.status === 0) {
@@ -140,6 +175,10 @@ export function paidTwiceMessage(url, earlier) {
   }
   if (earlier?.failure) {
     return `not paid again: ${purchaseKey(url).replace(/^GET /, "")} was already paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} with an error instead of the result ("${earlier.failure}"). Paying this endpoint again (with any query or body) would most likely be charged again; ask the seller, or use another seller.`;
+  }
+  if (earlier?.queued) {
+    const paid = earlier.pollOf ?? purchaseKey(url).replace(/^[A-Z]+ /, "");
+    return `not paid: ${paid} was paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} saying the purchase is not ready yet ("${earlier.queued}"). A payment asked ${earlier.pollOf ? "on the status URL it named" : "again on it"} is most likely the same purchase charged again; ask again later without paying, or ask the seller.`;
   }
   if (earlier?.status === 202) {
     const paid = earlier.pollOf ?? purchaseKey(url).replace(/^[A-Z]+ /, "");
