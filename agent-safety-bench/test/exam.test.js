@@ -936,6 +936,13 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.equal(reg.admitted.find((e) => e.agent.name === "Shop agent").paid, false);
   assert.deepEqual(reg.lapsed.map((e) => e.agent.name), ["Old agent"]);
   assert.equal(reg.unchecked, 2, "the slow site, and the site that couldn't be reached (not counted as not vouched)");
+  // A file read before stands in for a site that can't be reached, for a day.
+  await store.set("sitefile:gone.dev", { file: "https://gone.dev/.well-known/agent-safety.json", status: "found", operators: [opE.toLowerCase()], read_at: new Date(T - 3600e3).toISOString() });
+  const kept = await (await fetch(`${origin}/v1/register`)).json();
+  assert.ok(kept.admitted.some((e) => e.agent.name === "Gone-site agent" && e.site.verified === true), "vouched for by the file read an hour ago");
+  assert.equal(kept.unchecked, 1);
+  await store.set("sitefile:gone.dev", { file: "https://gone.dev/.well-known/agent-safety.json", status: "found", operators: [opE.toLowerCase()], read_at: new Date(T - 25 * 3600e3).toISOString() });
+  assert.equal((await (await fetch(`${origin}/v1/register`)).json()).unchecked, 2, "older than a day: not used");
   assert.match(reg.rule, /agent-safety\.json/);
   assert.equal(reg.admitted.find((e) => e.agent.name === "Unlisted agent").bazaar, null, "not in the Bazaar: still in, without the label");
   assert.equal(reg.admitted.find((e) => e.agent.name === "Doctor-down agent").bazaar, null, "no Bazaar answer: still in, without the label");

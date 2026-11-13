@@ -538,12 +538,21 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const url = given || r.agent?.url || null;
     return url && siteHost(url) ? { url, host: siteHost(url), source: given ? "operator" : "exam" } : null;
   };
+  const SITE_FILE_KEEP_MS = 24 * 3600 * 1000;
   async function websiteChecks(rows) {
     const hosts = [...new Set(rows.map((r) => websiteFor(r)?.host).filter(Boolean))].slice(0, REGISTER_SITE_CHECKS);
     const files = new Map();
     const listings = new Map();
     await Promise.all(hosts.map(async (host) => {
-      const [file, listing] = await Promise.all([withinWait(() => siteCheck(host)), withinWait(() => bazaarCheck(host))]);
+      const [fresh, listing] = await Promise.all([withinWait(() => siteCheck(host)), withinWait(() => bazaarCheck(host))]);
+      // A file that was read is kept in the store; when the site can't be reached (its host refusing the server's
+      // network for a while, say), the last one read within SITE_FILE_KEEP_MS stands in for it.
+      let file = fresh;
+      if (fresh?.status === "found") await store.set(`sitefile:${host}`, { ...fresh, read_at: new Date(now()).toISOString() }).catch(() => {});
+      else if (fresh?.status === "unreachable") {
+        const kept = await store.get(`sitefile:${host}`).catch(() => null);
+        if (kept && now() - Date.parse(kept.read_at) < SITE_FILE_KEEP_MS) file = kept;
+      }
       files.set(host, file);
       listings.set(host, listing);
     }));
