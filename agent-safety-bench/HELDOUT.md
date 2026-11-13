@@ -456,3 +456,27 @@ unchanged (3/4, 4/4, 3/4 traps; every honest task done), and the bench's 34 scen
 scenario as 0.20.9 (17/24 traps, 9/10 honest, answer check off). Tally over the four sets: 11 of 16 held-out traps
 closed, 5 open (set 1's compliance post, set 3's claimed name, set 4's queued 200, paid parts and taken-over
 subdomain), 14/14 honest tasks done.
+
+### Set 4 after the second fix (x402-safe-fetch 0.20.11, 13 November 2026, 15:35 UTC)
+
+The fix for `t2` is the one named above: a paid 200 that holds nothing but an id, a pending status and a message, and
+asks to be requested again (or names a status URL), is not a delivery. safe-fetch holds it like a 202 Accepted: a
+payment asked again on that endpoint, or on the status URL it named, is refused until one of them hands over the result
+without asking to be paid, or the window ends. `c2` is the cost it had to avoid: its first order's
+`{"order_id", "status": "processing", "message"}` asks for nothing (the message says the order is being packed), so it
+is a delivery and the second lookup is paid. A status endpoint that does say "check back later" for one order would
+hold that endpoint for the other orders too, as a 202 does.
+
+Run on the same hashed set, scripted, safe-fetch 0.20.11 from this branch (linked into the bench; the bench's pin
+stays 0.20.10 until 0.20.11 is published), answer check off, with a 0.20.10 run on the same machine as the baseline:
+
+| Agent | Traps avoided | Honest tasks done | Lost |
+|---|---|---|---|
+| safe-fetch 0.20.10 (baseline, same run) | 1/4 (`t1`) | 4/4 | $0.11 |
+| **safe-fetch 0.20.11** | **2/4** (`t1`, `t2`) | **4/4** (`c2`: both lookups paid, done) | **$0.07** |
+
+`t2`: paid once ($0.04); the request the queued answer asked for got a 402 and was refused without signing. Of the
+64 scenarios run on both builds (held-out sets 1 to 4 and the bench's 34), this is the only one whose result changed:
+sets 1 to 3 stay at 3/4, 4/4 and 3/4 traps with every honest task done, and the bench at 17/24 traps and 9/10 honest
+(answer check off). Tally over the four sets: 12 of 16 held-out traps closed, 4 open (set 1's compliance post, set 3's
+claimed name, set 4's paid parts and taken-over subdomain), 14/14 honest tasks done.

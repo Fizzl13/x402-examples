@@ -39,9 +39,9 @@
 
 import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
 import { verifyReceipt, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
-import { createPaidGuard, paidTwiceMessage, errorInAnswer, PAID_ERROR_MS } from "./paid-guard.js";
+import { createPaidGuard, paidTwiceMessage, errorInAnswer, pendingInAnswer, PAID_ERROR_MS } from "./paid-guard.js";
 
-export { createPaidGuard, purchaseKey, paidTwiceMessage, errorInAnswer, PAID_ERROR_MS } from "./paid-guard.js";
+export { createPaidGuard, purchaseKey, paidTwiceMessage, errorInAnswer, pendingInAnswer, PAID_ERROR_MS } from "./paid-guard.js";
 export { verifyReceipt, recoverSigner, canonicalJson, inputHash, certMessage, DOCTOR_SIGNERS, AUTHORITY } from "./receipt.js";
 
 export const DOCTOR_URL = "https://x402-doctor.fizzl.eu";
@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.10";
+export const VERSION = "0.20.11";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -716,34 +716,43 @@ export function createSafeFetch({
     // Accepted, the poll URL it names (0.20.4).
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     const landed = res.redirected && res.url && res.url !== url ? res.url : null;
-    const pollAt = res.status === 202 ? await pollUrlOf(res) : null;
     // A paid 2xx whose body is an error report is not a delivery (0.20.8).
     const failure = res.ok && res.status !== 202 ? await errorReportOf(res) : null;
     if (failure) errorAnswers.add(res);
-    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt, failure: failure ?? (refusedAgain ? "the answer to the payment was lost, and the same payment sent again was refused" : null) });
+    // A paid 2xx that only says the purchase isn't ready yet, and asks to be requested again, is held like a 202
+    // (0.20.11). In held-out set 4 (13 Nov 2026) a seller answered {"status": "queued", ..., "message": "Request it again
+    // in a few seconds"} and charged the request it asked for again; safe-fetch paid both.
+    const queued = res.ok && res.status !== 202 && !failure ? await pendingReportOf(res) : null;
+    const pollAt = res.status === 202 ? await pollUrlOf(res) : queued ? await pollUrlOf(res, { bodyOnly: true }) : null;
+    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt, queued, failure: failure ?? (refusedAgain ? "the answer to the payment was lost, and the same payment sent again was refused" : null) });
     return res;
   }
   // Paid answers whose body reports an error (for the outcome report).
   const errorAnswers = new WeakSet();
   // The error a paid JSON answer reports instead of a result (errorInAnswer), read from a copy; null for anything else.
-  async function errorReportOf(res) {
+  const errorReportOf = (res) => smallJsonVerdict(res, errorInAnswer);
+  // What a JSON answer says when it only promises the result for later (pendingInAnswer); null for anything else.
+  const pendingReportOf = (res) => smallJsonVerdict(res, pendingInAnswer);
+  async function smallJsonVerdict(res, judge) {
     if (!/json/i.test(res.headers.get("content-type") || "")) return null;
     if (Number(res.headers.get("content-length")) > ERROR_SNIFF_BYTES) return null;
     try {
       const text = await res.clone().text();
-      return text.length > ERROR_SNIFF_BYTES ? null : errorInAnswer(JSON.parse(text));
+      return text.length > ERROR_SNIFF_BYTES ? null : judge(JSON.parse(text));
     } catch {
       return null;
     }
   }
-  // The poll URL of a 202 Accepted: Location, Content-Location, or poll_url / status_url / location in a JSON body.
-  async function pollUrlOf(res) {
-    const header = res.headers.get("location") || res.headers.get("content-location");
+  // The poll URL of a 202 Accepted: Location, Content-Location, or poll_url / status_url / location in a JSON body. For a
+  // queued 200 (bodyOnly) only the status URL its JSON names: a 200's Content-Location names the answer itself.
+  async function pollUrlOf(res, { bodyOnly = false } = {}) {
+    const header = bodyOnly ? null : res.headers.get("location") || res.headers.get("content-location");
     if (header) return header;
     if (!/json/i.test(res.headers.get("content-type") || "")) return null;
     try {
       const body = await res.clone().json();
-      const found = [body?.poll_url, body?.status_url, body?.location, body?.links?.status].find((v) => typeof v === "string" && v.length <= 2048);
+      const named = bodyOnly ? [body?.status_url, body?.statusUrl, body?.poll_url, body?.pollUrl, body?.result_url, body?.resultUrl, body?.location] : [body?.poll_url, body?.status_url, body?.location, body?.links?.status];
+      const found = named.find((v) => typeof v === "string" && v.length <= 2048);
       return found ?? null;
     } catch {
       return null;
@@ -849,8 +858,9 @@ export function createSafeFetch({
     const callBudget = callMaxUsd === undefined || callMaxUsd === null ? budget : usdCap(Math.min(perCall, Number(usdCap(callMaxUsd).slice(1))));
     const callCap = Number(callBudget.slice(1));
     const probe = await baseFetch(url, init);
-    // A result handed over without payment ends a 202 hold on this endpoint or the one it is the poll URL of.
-    if (probe.ok && probe.status !== 202) paidGuard.delivered(url, { method });
+    // A result handed over without payment ends a 202 (or queued 200) hold on this endpoint or the one it is the poll URL
+    // of; a free answer that still says "not ready yet" doesn't.
+    if (probe.ok && probe.status !== 202 && paidGuard.blocked(url, { method }) && !(await pendingReportOf(probe))) paidGuard.delivered(url, { method });
     if (probe.status !== 402) return probe;
 
     // Only the sites the owner named are paid (sites): checked before anything is spent, the preflight included.
