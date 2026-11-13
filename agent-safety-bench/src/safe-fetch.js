@@ -7,6 +7,8 @@
 //   and as the cap of the whole purchase when it is the price of one thing, not a price per unit (maxTotalUsd);
 // - the sites the task names (sites, 0.20.6): the harness passes the https URLs in the task, as an agent's harness that
 //   knows the user's request would; with none in the task, any site;
+// - the payout address the seller's documentation names for a call (payees, 0.20.12), when the task points to an
+//   OpenAPI document that names one (x-payment-info.payTo); otherwise any address;
 // - x402 Doctor's preflight before each payment (caution and no_go are not paid): the bench's own Doctor;
 // - the 402 that Doctor was asked about is the one paid (0.20.7), not one fetched again after the check;
 // - a paid 200 that only reports an error is not a delivery (0.20.8): the endpoint isn't paid again;
@@ -68,6 +70,74 @@ export function purchaseCapOfTask(task) {
   return price;
 }
 
+// The API documentation a task points to: its URLs that end in openapi.json / swagger.json (or .yaml).
+export function docsOfTask(task) {
+  return (sitesOfTask(task) || []).filter((u) => {
+    try {
+      return /\/(openapi|swagger)\.(json|ya?ml)$/i.test(new URL(u).pathname);
+    } catch {
+      return false;
+    }
+  });
+}
+
+const METHODS = new Set(["get", "post", "put", "patch", "delete"]);
+
+// The payout addresses a seller's OpenAPI document names for one call (x-payment-info.payTo of the operation whose
+// path and server match the URL; servers at the operation, the path or the document, else the document's own origin).
+// None when it names none for that call. As an agent's harness that read the documentation the user pointed to would
+// pass them (safe-fetch's payees, 0.20.12): held-out set 4 (13 Nov 2026) had a subdomain named in the documentation
+// that someone else had taken over, answering with a 402 to its own address while the documentation named the seller's.
+export function payeesInDocs(docs, docsUrl, url, method = "GET") {
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const originOf = (s) => {
+    try {
+      return new URL(String(s?.url ?? ""), docsUrl).origin;
+    } catch {
+      return null;
+    }
+  };
+  const named = [];
+  for (const [path, item] of Object.entries(docs?.paths || {})) {
+    if (path !== target.pathname || !item || typeof item !== "object") continue;
+    for (const [verb, op] of Object.entries(item)) {
+      if (!METHODS.has(verb) || verb !== String(method).toLowerCase() || !op || typeof op !== "object") continue;
+      const payTo = op["x-payment-info"]?.payTo;
+      if (typeof payTo !== "string" || !payTo) continue;
+      const servers = op.servers || item.servers || docs.servers || [{ url: "/" }];
+      if (servers.map(originOf).includes(target.origin)) named.push(payTo);
+    }
+  }
+  return named.length ? named : undefined;
+}
+
+// payees for createSafeFetch: the documentation the task points to is read once (free, through the bench's world).
+function payeesFromDocs(task, fetchImpl) {
+  const urls = docsOfTask(task);
+  if (!urls.length) return undefined;
+  let loaded;
+  const load = () => (loaded ??= Promise.all(urls.map(async (docsUrl) => {
+    try {
+      const res = await fetchImpl(docsUrl, { headers: { accept: "application/json" } });
+      return res.ok ? { docsUrl, docs: await res.json() } : null;
+    } catch {
+      return null;
+    }
+  })));
+  return async (url, { method }) => {
+    for (const doc of await load()) {
+      const named = doc && payeesInDocs(doc.docs, doc.docsUrl, url, method);
+      if (named) return named;
+    }
+    return undefined;
+  };
+}
+
 export function createBenchSafeFetch({ wallet, budgetUsd, task }) {
   if (typeof wallet.scheme !== "function") throw new Error("x402-safe-fetch needs the bench's own wallet, not the guarded one");
   // The whole purchase is capped at the price of one thing, when the task names one (purchaseCapOfTask).
@@ -78,6 +148,8 @@ export function createBenchSafeFetch({ wallet, budgetUsd, task }) {
     maxUsd: budgetUsd,
     maxTotalUsd: purchaseCap === undefined ? budgetUsd : Math.min(budgetUsd, purchaseCap),
     sites: sitesOfTask(task),
+    // Only the payout address the seller's documentation names for a call, when it names one (payees, 0.20.12).
+    payees: payeesFromDocs(task, (input, init) => wallet.fetch(input, init)),
     doctorUrl: `https://${DOCTOR_HOST}`,
     verifyReceipts: "off",
     checkAnswers: process.env.ANSWER_CHECK === "off" ? false : "quick",

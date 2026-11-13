@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.11";
+export const VERSION = "0.20.12";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -220,8 +220,8 @@ export function refusalReason(preflight) {
 }
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" */
-  constructor(message, { code, preflight = null, url = null, earlier, spent, check, response } = {}) {
+  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" | "other_payee" */
+  constructor(message, { code, preflight = null, url = null, earlier, spent, check, response, payTo, payees } = {}) {
     super(message);
     this.name = "SafePayError";
     this.code = code;
@@ -231,6 +231,8 @@ export class SafePayError extends Error {
     if (spent) this.spent = spent;
     if (check) this.check = check;
     if (response) this.response = response;
+    if (payTo !== undefined) this.payTo = payTo;
+    if (payees) this.payees = payees;
   }
 }
 
@@ -350,6 +352,10 @@ export function siteOf(value) {
  * @param {string[]} [options.trusted]  hosts you already trust: paid without a preflight
  * @param {string[]} [options.sites]  the sites this safeFetch may pay (hosts or URLs, e.g. the ones the user named in the
  *   task); a payment asked anywhere else is refused before the preflight with code "other_site" (default: any site)
+ * @param {string[]|((url: string, info: {method: string}) => string[]|null|undefined|Promise<string[]|null|undefined>)} [options.payees]
+ *   the payout addresses this safeFetch may pay, or a function that gives them per URL (e.g. the address the user always
+ *   paid, or the payTo the seller's own documentation names for that endpoint); when it names any, a 402 that asks to be
+ *   paid elsewhere is refused before the preflight with code "other_payee". None (null, undefined or []): any address
  * @param {(preflight: object, info: {url: string, method: string, cached: boolean}) => void} [options.onPreflight]
  * @param {number} [options.cacheMs]  how long a verdict is reused while the 402 offers the same thing (default 1 hour; at most 10 minutes when the offer can't be read)
  * @param {string} [options.doctorUrl]
@@ -387,6 +393,7 @@ export function createSafeFetch({
   onIncomplete = "pay",
   trusted = [],
   sites,
+  payees,
   onPreflight,
   cacheMs = 60 * 60 * 1000,
   doctorUrl = DOCTOR_URL,
@@ -440,6 +447,18 @@ export function createSafeFetch({
     throw new TypeError("sites must be a non-empty list of hosts or URLs, e.g. [\"api.example.com\"], or left out");
   }
   const allowedSites = sites ? new Set(sites.map(siteOf)) : null;
+  // payees (0.20.12): only the payout addresses named for an endpoint are paid. In held-out set 4 (13 Nov 2026) the
+  // seller's documentation named a subdomain of its own domain that someone else had since taken over; that host asked
+  // to be paid at its own address while the documentation named the seller's, and safe-fetch paid it: the site was the
+  // one the user named, and Doctor had seen that address unchanged for three weeks. The harness that read the
+  // documentation knows the address; safe-fetch doesn't, unless it is told.
+  if (payees !== undefined && payees !== null && typeof payees !== "function" && (!Array.isArray(payees) || payees.some((a) => typeof a !== "string" || !a))) {
+    throw new TypeError("payees must be a list of payout addresses, a function (url, { method }) that returns them, or left out");
+  }
+  async function payeesFor(url, method) {
+    const named = typeof payees === "function" ? await payees(url, { method }) : payees;
+    return Array.isArray(named) && named.length ? named.filter((a) => typeof a === "string" && a) : null;
+  }
 
   // The 402 a payment is built from (0.20.7): the one safe-fetch read before the preflight, and whose address it sent
   // Doctor as pay_to, handed to x402 in place of a fresh one. In held-out set 3 (12 Nov 2026) a seller switched its
@@ -882,6 +901,14 @@ export function createSafeFetch({
     // The 402 as read: Doctor is asked about it, and it is the one x402 pays (0.20.7).
     const kept = await keep402(probe);
     const offer = await readOffer(replayOf(kept));
+    // Only an address named for this endpoint is paid (payees, 0.20.12): checked before anything is spent.
+    const named = payees === undefined || payees === null ? null : await payeesFor(url, method);
+    if (named) {
+      const option = offer.accepts ? payableOption(offer.accepts, payNetwork, callBudget) : null;
+      if (!option || !named.some((a) => sameAddress(a, option.payTo))) {
+        throw new SafePayError(`not paid: ${hostOf(url)} asks to be paid at ${option?.payTo ?? "an address it doesn't show"}, not at the address named for it (${named.join(", ")}). Whoever answers there may not be the seller you meant; check the seller's documentation, or ask the seller.`, { code: "other_payee", url, payTo: option?.payTo ?? null, payees: named });
+      }
+    }
     // Already over the total or the seller's budget: refused before the preflight, so nothing is spent on it.
     if (limited) {
       const option = offer.accepts ? payableOption(offer.accepts, payNetwork, callBudget) : null;
