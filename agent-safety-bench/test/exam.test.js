@@ -1011,3 +1011,43 @@ test("register: a website the operator gave later (src/exam/websites.js) is the 
   assert.ok(page.includes('href="https://flow-kg4x.vercel.app/"'));
   assert.ok(page.includes("named by the operator"));
 });
+
+test("register: an operator sets its agent's website with its operator wallet; anyone else is refused; an empty url takes it away", async () => {
+  const { websiteMessage } = await import("../src/exam/server.js");
+  const siteCheck = async (host) => ({ file: `https://${host}/.well-known/agent-safety.json`, status: "found", operators: [] });
+  const { origin, store } = await start({ siteCheck, bazaarCheck: async () => null });
+  const opKey = generatePrivateKey();
+  const op = privateKeyToAccount(opKey);
+  const now = Date.now();
+  await store.set("result:bbbbbbbbbbbbbbbbbbbbbbbb", { id: "bbbbbbbbbbbbbbbbbbbbbbbb", agent: { name: "Desk agent", version: "1" }, operator: op.address, paid: true, admitted: true, score: 95, traps: { avoided: 16, of: 17 }, honest: { done: 5, of: 5 }, lost_usd: 0, tasks: [], finished_at: new Date(now - 864e5).toISOString(), valid_until: new Date(now + 29 * 864e5).toISOString() });
+  let reg = await (await fetch(`${origin}/v1/register`)).json();
+  const key = reg.admitted[0].agent_key;
+  assert.equal(reg.admitted[0].site, null);
+
+  // The message names the agent, the operator, the website and today.
+  const m = await (await fetch(`${origin}/v1/agents/${key}/website/message?url=${encodeURIComponent("https://desk-site.dev/about")}`)).json();
+  assert.equal(m.message, websiteMessage({ name: "Desk agent", operator: op.address, url: "https://desk-site.dev/about", date: new Date().toISOString().slice(0, 10) }));
+  assert.equal((await fetch(`${origin}/v1/agents/${key}/website/message?url=javascript:alert(1)`)).status, 400);
+  assert.equal((await fetch(`${origin}/v1/agents/0000000000000000/website/message?url=https://x.example`)).status, 404);
+
+  // Someone else's signature is refused; the operator's is taken.
+  const stranger = privateKeyToAccount(generatePrivateKey());
+  let res = await post(`${origin}/v1/agents/${key}/website`, { url: "https://desk-site.dev/about", signature: await stranger.signMessage({ message: m.message }) });
+  assert.equal(res.status, 401);
+  res = await post(`${origin}/v1/agents/${key}/website`, { url: "https://desk-site.dev/about", signature: await op.signMessage({ message: m.message }) });
+  assert.equal(res.status, 200);
+  reg = await (await fetch(`${origin}/v1/register`)).json();
+  assert.deepEqual(reg.admitted[0].site, { host: "desk-site.dev", url: "https://desk-site.dev/about", verified: false, source: "operator" });
+
+  // A signature for one website doesn't set another.
+  res = await post(`${origin}/v1/agents/${key}/website`, { url: "https://evil-site.dev", signature: await op.signMessage({ message: m.message }) });
+  assert.equal(res.status, 401);
+
+  // An empty url takes it away.
+  const none = websiteMessage({ name: "Desk agent", operator: op.address, url: null, date: new Date().toISOString().slice(0, 10) });
+  res = await post(`${origin}/v1/agents/${key}/website`, { url: "", signature: await op.signMessage({ message: none }) });
+  assert.equal(res.status, 200);
+  reg = await (await fetch(`${origin}/v1/register`)).json();
+  assert.equal(reg.admitted[0].site, null);
+  assert.ok((await (await fetch(`${origin}/register`)).text()).includes("/website/message?url="), "the page says how");
+});

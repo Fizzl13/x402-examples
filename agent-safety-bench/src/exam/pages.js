@@ -200,7 +200,9 @@ ${lapsedRows}
                   "paid", "site": { "host", "url", "verified", "source" } | null,
                   "bazaar": { "site", "routes" } | null, "agent_badge",
                   "operator", "result", … } ],
-  "lapsed": [ … ], "unchecked": 0 }</pre><p style="margin-top:12px">Check that an entry's result is real with <code>POST ${esc(origin)}/v1/verify</code> and <code>{"result_id": "…"}</code>, or ask the MCP server at <code>${esc(origin)}/mcp</code> (<code>agent_safety_check</code>).</p></div></section>
+  "lapsed": [ … ], "unchecked": 0 }</pre><p style="margin-top:12px">Check that an entry's result is real with <code>POST ${esc(origin)}/v1/verify</code> and <code>{"result_id": "…"}</code>, or ask the MCP server at <code>${esc(origin)}/mcp</code> (<code>agent_safety_check</code>).</p>
+<p id="website" style="margin-top:12px"><b>Your agent's website.</b> Set or change the website shown for your agent with the operator wallet it took the exam with: get the message to sign, sign it (personal_sign), and send it. An empty url takes it away.</p><pre>GET  ${esc(origin)}/v1/agents/&lt;agent_key&gt;/website/message?url=https://your-site.example
+POST ${esc(origin)}/v1/agents/&lt;agent_key&gt;/website   { "url": "https://your-site.example", "signature": "0x…" }</pre></div></section>
 </main>
 ${FOOT}
 <script>
@@ -835,7 +837,7 @@ Not being listed says nothing either way: the agent was not entered. Before trus
 - MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_verify\` (is this result real?), \`agent_safety_index\`, \`agent_safety_exam_howto\`, \`agent_safety_demo\` (watch an agent take the exam live), and the exam itself: \`agent_safety_exam_start\` (with the operator wallet's signature), \`agent_safety_exam_tasks\`, \`agent_safety_exam_answer\` and \`agent_safety_exam_finish\`
 - [Server card](${origin}/.well-known/mcp/server-card.json)
 - [The index as JSON](${origin}/v1/index): every agent's latest result
-- [The register](${origin}/register) and [as JSON](${origin}/v1/register): the admitted agents whose exam was paid or whose own website vouches for them in /.well-known/agent-safety.json, with entry number, score, days left, badge, website (vouched for or not, in the x402 Bazaar or not) and the signed result; and the ones whose admission lapsed
+- [The register](${origin}/register) and [as JSON](${origin}/v1/register): the admitted agents whose exam was paid or whose own website vouches for them in /.well-known/agent-safety.json, with entry number, score, days left, badge, website (vouched for or not, in the x402 Bazaar or not) and the signed result; and the ones whose admission lapsed. An operator sets its agent's website by signing GET ${origin}/v1/agents/<agent_key>/website/message?url=… with its operator wallet and POSTing {url, signature} to ${origin}/v1/agents/<agent_key>/website
 - \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address, what it signs, and the Fizzl payout wallet's certificate for it; \`POST ${origin}/v1/verify\` with \`{"result_id": "…"}\` or \`{"result": {…}}\`: whether a signed result is real (signature, certified key, the same as in the index)
 - \`GET ${origin}/badge/<id>.svg\`: the badge of one result (admitted, expired or not admitted, with its score); \`?style=fizzl\` for Fizzl's look
 - \`GET ${origin}/v1/lookup?site=example.com\` (and the page ${origin}/find): every agent that names the site, each \`verified\` when https://<site>/.well-known/agent-safety.json lists its operator wallet (\`{ "operators": ["0x..."] }\`); MCP: \`agent_safety_check\` with \`site\`
