@@ -943,6 +943,13 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.equal(kept.unchecked, 1);
   await store.set("sitefile:gone.dev", { file: "https://gone.dev/.well-known/agent-safety.json", status: "found", operators: [opE.toLowerCase()], read_at: new Date(T - 25 * 3600e3).toISOString() });
   assert.equal((await (await fetch(`${origin}/v1/register`)).json()).unchecked, 2, "older than a day: not used");
+  // The same for a site whose file doesn't come in time (slow.dev hangs).
+  const opSlow = (await store.list("result:")).find((r) => r.agent?.name === "Slow-site agent").operator;
+  await store.set("sitefile:slow.dev", { file: "https://slow.dev/.well-known/agent-safety.json", status: "found", operators: [String(opSlow).toLowerCase()], read_at: new Date(T - 3600e3).toISOString() });
+  const slowKept = await (await fetch(`${origin}/v1/register`)).json();
+  assert.ok(slowKept.admitted.some((e) => e.agent.name === "Slow-site agent" && e.site.verified === true), "a hanging site: the file read an hour ago stands in");
+  await store.set("sitefile:slow.dev", null);
+  await store.set("sitefile:gone.dev", null);
   assert.match(reg.rule, /agent-safety\.json/);
   assert.equal(reg.admitted.find((e) => e.agent.name === "Unlisted agent").bazaar, null, "not in the Bazaar: still in, without the label");
   assert.equal(reg.admitted.find((e) => e.agent.name === "Doctor-down agent").bazaar, null, "no Bazaar answer: still in, without the label");
