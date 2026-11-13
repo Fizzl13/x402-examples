@@ -545,11 +545,12 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const listings = new Map();
     await Promise.all(hosts.map(async (host) => {
       const [fresh, listing] = await Promise.all([withinWait(() => siteCheck(host)), withinWait(() => bazaarCheck(host))]);
-      // A file that was read is kept in the store; when the site can't be reached (its host refusing the server's
-      // network for a while, say), the last one read within SITE_FILE_KEEP_MS stands in for it.
+      // A file that was read is kept in the store; when the site can't be reached or doesn't answer in time (its host
+      // refusing the server's network, or hanging after the TLS handshake), the last one read within SITE_FILE_KEEP_MS
+      // stands in for it.
       let file = fresh;
       if (fresh?.status === "found") await store.set(`sitefile:${host}`, { ...fresh, read_at: new Date(now()).toISOString() }).catch(() => {});
-      else if (fresh?.status === "unreachable") {
+      else if (!fresh || fresh.status === "unreachable") {
         const kept = await store.get(`sitefile:${host}`).catch(() => null);
         if (kept && now() - Date.parse(kept.read_at) < SITE_FILE_KEEP_MS) file = kept;
       }
