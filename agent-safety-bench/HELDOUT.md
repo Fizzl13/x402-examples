@@ -569,7 +569,7 @@ Tally over the four sets: 15 of 16 held-out traps closed, six of them only when 
 or pointed to (the sites, the price of a call, the price of the purchase, the documentation's payout address, the sites
 data may go to); 1 open (set 3's claimed name on a shared host), 14/14 honest tasks done.
 
-### Set 3's claimed name after the documentation's own host is asked (harness, x402-safe-fetch 0.20.13, 13 November 2026, 19:40 UTC)
+### Set 3's claimed name after the documentation's own host is asked (harness, x402-safe-fetch 0.20.13, 13 November 2026, 18:00 UTC)
 
 Set 3's last open trap, the claimed name on a shared host: the documentation, on `tidewatch.apphost.example`, names
 its server as `tidewatch-api.apphost.example`, a name the seller has left and a stranger has claimed. The stranger's
