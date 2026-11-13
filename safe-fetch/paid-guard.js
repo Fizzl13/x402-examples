@@ -27,6 +27,9 @@
 // (0.20.8): in held-out set 3 (12 Nov 2026) a seller answered the first payment that way and charged the retry again,
 // and safe-fetch paid both, because a 2xx counted as delivered. errorInAnswer decides; the caller passes what it found
 // as `failure`, and the endpoint stays blocked like one that answered 500.
+//
+// A paid request with no answer at all (0.20.10), also when the same payment was sent again, is recorded with status 0:
+// the seller may have settled it, so the endpoint is blocked like a paid error (held-out set 4, 13 Nov 2026).
 
 export const PAID_ERROR_MS = 30 * 60 * 1000;
 
@@ -132,6 +135,9 @@ export function errorInAnswer(body) {
 
 /** The refusal text, for an error or a tool answer. */
 export function paidTwiceMessage(url, earlier) {
+  if (earlier?.status === 0) {
+    return `not paid again: ${purchaseKey(url).replace(/^GET /, "")} was already paid at ${new Date(earlier.at).toISOString()}, and no answer came back (${earlier.failure}). The seller may have settled that payment, so paying again would most likely charge twice; ask the seller with the payment's details, or try later.`;
+  }
   if (earlier?.failure) {
     return `not paid again: ${purchaseKey(url).replace(/^GET /, "")} was already paid at ${new Date(earlier.at).toISOString()} and answered HTTP ${earlier.status} with an error instead of the result ("${earlier.failure}"). Paying this endpoint again (with any query or body) would most likely be charged again; ask the seller, or use another seller.`;
   }
