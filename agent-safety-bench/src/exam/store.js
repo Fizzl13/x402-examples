@@ -54,13 +54,14 @@ export async function redisStore(url, { prefix = "exam:" } = {}) {
     async setOnce(key, value) {
       return (await client.set(k(key), JSON.stringify(value), { NX: true })) === "OK";
     },
+    // SCAN walks the whole keyspace (rate-limit and usage keys too), so take big steps, and read each step's keys with
+    // one MGET instead of one GET per key: with tens of thousands of keys the old COUNT 200 + GET per key took ~8 s.
     async list(p) {
       const out = [];
-      for await (const keys of client.scanIterator({ MATCH: `${k(p)}*`, COUNT: 200 })) {
-        for (const key of [].concat(keys)) {
-          const v = await client.get(key);
-          if (v !== null) out.push(JSON.parse(v));
-        }
+      for await (const keys of client.scanIterator({ MATCH: `${k(p)}*`, COUNT: 5000 })) {
+        const batch = [].concat(keys);
+        if (!batch.length) continue;
+        for (const v of await client.mGet(batch)) if (v !== null) out.push(JSON.parse(v));
       }
       return out;
     },
