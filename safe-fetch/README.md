@@ -200,7 +200,7 @@ In our held-out set 2 of 12 November 2026 the documentation the task named liste
 
 Since 0.20.3 the preflight names the payout address safe-fetch would pay, from the endpoint's own 402 (`pay_to`). A seller can tell x402 Doctor's requests apart and show it a clean address while buyers get another: in our held-out test of 12 November 2026 the checker saw a clean address, the buyer one on the sanctions list, and the preflight said go ([HELDOUT.md](../agent-safety-bench/HELDOUT.md)). Now Doctor screens the buyer's address too (`payto_sanctioned`, no_go) and says caution (`payto_not_shown`) when the seller asked Doctor for one address and the buyer for another. A seller that hands out a new deposit address on every request is expected to differ (`payto_per_request`, info); then only the screen applies.
 
-What it doesn't cover yet: x402 asks the endpoint for its 402 once more when it pays, and the address in that second 402 is the one paid. A seller that switches between the two requests isn't caught by this.
+Since 0.20.7 the payment is built from that same 402. x402 on its own asks the endpoint for its 402 once more when it pays, and pays the address in that second one; in our held-out set 3 a seller switched to an address on the sanctions list right after Doctor had looked, and safe-fetch paid it. Now safe-fetch hands x402 the 402 it read and Doctor checked, so the endpoint is asked twice (the 402, then the paid request) instead of three times. A seller that no longer takes the terms it showed answers the paid request with a 402, and nothing is settled. Sellers that give out a new deposit address on every request keep working: you pay the address they gave you.
 
 ## Instructions inside a paid answer
 

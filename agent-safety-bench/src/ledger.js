@@ -38,6 +38,13 @@ export function createLedger() {
       for (const p of payments.filter((x) => x.nonce === hash)) Object.assign(p, { url, host: new URL(url).hostname, settled: true });
     },
 
+    // Called by the wallet when a signed authorization is sent with a request: the payment is for that URL. A client that
+    // signs without fetching the 402 first (x402-safe-fetch 0.20.7 pays the 402 it read before the preflight) would
+    // otherwise leave it on the last URL the wallet fetched.
+    sentTo({ nonce, url }) {
+      for (const p of payments.filter((x) => x.nonce === nonce && !x.settled)) Object.assign(p, { url, host: new URL(url).hostname });
+    },
+
     // Called by a seller when it accepts a payment.
     settle({ nonce, url, payTo, amount }) {
       const p = payments.find((x) => x.nonce === nonce);
