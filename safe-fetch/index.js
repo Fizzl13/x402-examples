@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.8";
+export const VERSION = "0.20.9";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -521,10 +521,10 @@ export function createSafeFetch({
   // What one more payment to `host` may cost: the per-call budget, or less when the total or the seller's budget is
   // nearly spent. Throws when nothing is left of either, or when the price (if it can be read) is over what is left.
   // A price over the per-call budget alone is left to Doctor's preflight (over_budget) and x402's cap, as before.
-  function allowance(url, host, price) {
+  function allowance(url, host, price, callCap = perCall) {
     const totalLeft = totalCap === null ? Infinity : round6(totalCap - spend.total);
     const sellerLeft = sellerCap === null ? Infinity : round6(sellerCap - spentAt(host));
-    const cap = Math.min(perCall, totalLeft, sellerLeft);
+    const cap = Math.min(callCap, totalLeft, sellerLeft);
     const short = Math.min(totalLeft, sellerLeft);
     const over = short <= 0 || (price !== null && price > short + 1e-9);
     if (over) {
@@ -542,14 +542,14 @@ export function createSafeFetch({
   const verdicts = new Map();
   // The query each preflight was bought with, for its outcome report (Doctor binds the report to that query).
   const queries = new WeakMap();
-  async function preflightFor(url, method, offer, payTo) {
+  async function preflightFor(url, method, offer, payTo, maxUsd = budget) {
     const key = `${method} ${url}`;
     const hit = verdicts.get(key);
     // An unreadable offer, or a verdict on less than usual (checks_complete false), is reused for at most 10 minutes.
     const short = offer === null || hit?.preflight?.checks_complete === false;
     const ttl = short ? Math.min(cacheMs, UNREAD_OFFER_MS) : cacheMs;
-    if (hit && hit.offer === offer && hit.payTo === payTo && hit.at + ttl > now()) return { preflight: hit.preflight, cached: true };
-    const pfUrl = preflightUrl(url, { method, maxUsd: budget, network: payNetwork, doctorUrl, payTo });
+    if (hit && hit.offer === offer && hit.payTo === payTo && hit.maxUsd === maxUsd && hit.at + ttl > now()) return { preflight: hit.preflight, cached: true };
+    const pfUrl = preflightUrl(url, { method, maxUsd, network: payNetwork, doctorUrl, payTo });
     const res = await payPreflight(pfUrl, { headers: DOCTOR_HEADERS });
     const preflight = await res.json().catch(() => null);
     if (!res.ok || !preflight?.verdict) {
@@ -562,7 +562,7 @@ export function createSafeFetch({
       if (!check.valid) throw new SafePayError(`preflight not trusted (${check.reason}); the endpoint was not paid`, { code: "bad_receipt", preflight, url });
     }
     queries.set(preflight, Object.fromEntries(new URL(pfUrl).searchParams));
-    verdicts.set(key, { preflight, offer, payTo, at: now() });
+    verdicts.set(key, { preflight, offer, payTo, maxUsd, at: now() });
     if (verdicts.size > 1000) verdicts.delete(verdicts.keys().next().value);
     return { preflight, cached: false };
   }
@@ -656,16 +656,17 @@ export function createSafeFetch({
   // Every endpoint payment goes through here: what it was answered with is remembered for the paid-twice guard.
   // With a total or per-seller budget, the payment is capped at what is left and counted as it starts (so parallel
   // calls can't both spend the rest), and taken back when nothing was paid (402 again, or paying threw).
-  async function payAndCheck(url, init, method, offer, kept) {
+  async function payAndCheck(url, init, method, offer, kept, callBudget = budget) {
     let host = null;
     let counted = 0;
-    let cap = budget;
+    let cap = callBudget;
     if (limited) {
       host = hostOf(url);
-      const option = offer?.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
-      const allowed = allowance(url, host, option ? usdOfOption(option, payNetwork) : null);
+      const callCap = Number(callBudget.slice(1));
+      const option = offer?.accepts ? payableOption(offer.accepts, payNetwork, callBudget) : null;
+      const allowed = allowance(url, host, option ? usdOfOption(option, payNetwork) : null, callCap);
       counted = allowed.price ?? allowed.cap; // an unreadable price counts as the most it may cost
-      if (allowed.cap < perCall) cap = usdCap(allowed.cap);
+      if (allowed.cap < callCap) cap = usdCap(allowed.cap);
       addSpend(host, counted);
     }
     const key = kept ? replayKey(url, method) : null;
@@ -809,8 +810,13 @@ export function createSafeFetch({
     return marked(res, verdict, text);
   }
 
-  async function safeFetch(input, init = {}) {
+  async function safeFetch(input, init = {}, { maxUsd: callMaxUsd } = {}) {
     const { url, method } = requestOf(input, init);
+    // A cap for this call only (0.20.9), e.g. the price the user named: it lowers maxUsd for this call, never raises it.
+    // In held-out set 3 (12 Nov 2026) a seller asked $0.12 for a lookup the user had been told costs 5 cents; it was
+    // within the task's budget, so safe-fetch paid it. The harness knows the price the user named; safe-fetch doesn't.
+    const callBudget = callMaxUsd === undefined || callMaxUsd === null ? budget : usdCap(Math.min(perCall, Number(usdCap(callMaxUsd).slice(1))));
+    const callCap = Number(callBudget.slice(1));
     const probe = await baseFetch(url, init);
     // A result handed over without payment ends a 202 hold on this endpoint or the one it is the poll URL of.
     if (probe.ok && probe.status !== 202) paidGuard.delivered(url, { method });
@@ -837,17 +843,17 @@ export function createSafeFetch({
     const offer = await readOffer(replayOf(kept));
     // Already over the total or the seller's budget: refused before the preflight, so nothing is spent on it.
     if (limited) {
-      const option = offer.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
-      allowance(url, hostOf(url), option ? usdOfOption(option, payNetwork) : null);
+      const option = offer.accepts ? payableOption(offer.accepts, payNetwork, callBudget) : null;
+      allowance(url, hostOf(url), option ? usdOfOption(option, payNetwork) : null, callCap);
     }
 
-    if (trustedHosts.has(hostOf(url))) return checkAnswer(url, method, await payAndCheck(url, init, method, offer, kept));
+    if (trustedHosts.has(hostOf(url))) return checkAnswer(url, method, await payAndCheck(url, init, method, offer, kept, callBudget));
 
     // The address it would pay, from this 402, goes with the preflight (pay_to): Doctor screens that one too.
-    const paying = offer.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
-    const { preflight, cached } = await preflightFor(url, method, offer.fingerprint, typeof paying?.payTo === "string" ? paying.payTo : undefined);
+    const paying = offer.accepts ? payableOption(offer.accepts, payNetwork, callBudget) : null;
+    const { preflight, cached } = await preflightFor(url, method, offer.fingerprint, typeof paying?.payTo === "string" ? paying.payTo : undefined, callBudget);
     const payAfterPreflight = async () => {
-      const res = await payAndCheck(url, init, method, offer, kept);
+      const res = await payAndCheck(url, init, method, offer, kept, callBudget);
       reportOutcome(url, method, preflight, res);
       return checkAnswer(url, method, res);
     };

@@ -244,6 +244,16 @@ safeFetch.spent(); // { totalUsd: 0.06, bySeller: { "api.example.com": 0.06 } }
 
 A payment that would go past either one throws `SafePayError` with code `over_total_budget` or `over_seller_budget` (and `error.spent`), before the preflight is bought. Near the end, x402's own cap on the next payment shrinks to what is left. The price comes from the seller's 402; when it can't be read, a payment counts as the most it may cost. A payment answered with another 402 isn't counted; a paid error is (the money is gone). Doctor's preflights and diagnoses are not counted. The totals live as long as the safeFetch: make one per task, user or session.
 
+### The price the user named
+
+`maxUsd` is a budget, not a price. In our held-out set 3 of 12 November 2026 the user said a lookup costs 5 cents and allowed 20 cents in all; the seller asked 12 cents, within the budget and with no published price for x402 Doctor to compare with, and safe-fetch paid it. Since 0.20.9 a call can carry its own cap, lower than `maxUsd`: your agent's harness passes the price the user named.
+
+```js
+await safeFetch(url, init, { maxUsd: 0.05 }); // this call: at most 5 cents
+```
+
+The preflight is asked with that cap (`max_usd`), so a higher price is `no_go` (over budget) and nothing is paid; x402's own cap on the payment is that cap too. It never raises `maxUsd`. Leave it out when the user named no price, or only an approximate one.
+
 ## When a payment still fails
 
 Sometimes the preflight says `go` and the payment still fails: the endpoint answers 402 again, or paying throws (a facilitator that rejects it, a wrong network). With `diagnoseOnFailure: true`, safe-fetch then buys one **$0.01** [x402 Doctor diagnosis](https://github.com/Fizzl13/x402-doctor#paid-api-for-agents-x402) of that endpoint: every check of its payment flow, with what is wrong and how to fix it.

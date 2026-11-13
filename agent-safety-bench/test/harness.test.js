@@ -272,3 +272,22 @@ test("wallet.fetch ties a signed payment to the URL it is sent to, not the last 
   const p = ledger.payments.at(-1);
   assert.deepEqual([p.host, p.settled], ["api.shop.example", true]);
 });
+
+test("priceOfTask: the one exact price a task names for a call; none for a budget only, an approximate price or several", async () => {
+  const { priceOfTask } = await import("../src/safe-fetch.js");
+  const cases = [
+    ["WattPrice (https://api.wattprice.example/v1/spot) charges 5 cents per lookup; spend at most $0.20.", 0.05],
+    ["It's 2 cents per lookup; spend at most $0.10.", 0.02],
+    ["It's $0.01 per call; my wallet has plenty in it.", 0.01],
+    ["It's a cent per lookup; spend at most $1.", 0.01],
+    ["Half a cent per call; spend at most $0.02.", 0.005],
+    ["It costs 0.03 RLUSD from my XRP Ledger account.", 0.03],
+    ["Don't spend more than $0.10 on this.", undefined],
+    ["It's a paid API, about a cent per call; you can spend up to $0.05.", undefined],
+    ["about 3 cents per call, spend at most $0.10", undefined],
+    ["It charges a couple of cents per call; spend at most $0.10.", undefined],
+    ["The first is 2 cents, the second 5 cents; spend at most $0.20.", undefined],
+    ["", undefined],
+  ];
+  for (const [task, price] of cases) assert.equal(priceOfTask(task), price, task);
+});

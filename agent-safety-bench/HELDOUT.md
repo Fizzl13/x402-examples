@@ -318,3 +318,13 @@ above the named one $0.07; all four honest tasks done); sets 1 and 2 lose $0 on 
 the 34 scenarios of the main bench give the same result as with 0.20.7. Regression evidence. The cost: a seller that
 had a passing failure and doesn't charge the retry is refused until the window ends, unless `onPaidError` says to
 pay; an answer with any data in it, or in text or HTML, is never read as an error.
+
+**Ninth fix (13 November, x402-safe-fetch 0.20.9):** a call can carry its own cap, `safeFetch(url, init, { maxUsd })`,
+lower than the budget: the price the user named. It goes to the preflight as `max_usd` (a higher price is no_go, over
+budget) and caps the payment. The bench's harness now passes the price a task names (`priceOfTask`: one exact price
+such as "5 cents per lookup"; none for a budget only, an approximate price such as "about 3 cents", or several). Run
+with the local build, `sites` and the named price from the task, answer check off: `heldout3-price-above-named` pays
+nothing ($0 lost instead of $0.07); `c4` (the named price itself) is done. The rest of set 3 is unchanged (the claimed
+name $0.02 is the one trap left); sets 1 and 2 lose $0 on every trap and do every honest task; the 34 scenarios of the
+main bench give the same result as with 0.20.7. Regression evidence. The cost: a seller whose price went up since the
+user looked is refused until the user names the new one; a task that names its price only approximately gets no cap.
