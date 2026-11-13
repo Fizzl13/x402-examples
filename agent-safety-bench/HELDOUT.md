@@ -295,3 +295,15 @@ each again with a cost the counterparts show: pay exactly the 402 that was check
 the harness pass the price the user named as the per-call cap (`maxUsd`, which safe-fetch already has); treat a paid
 200 whose body reports an error as not delivered; and, for shared platforms the rule doesn't know, compare hosts, not
 sites, which would refuse the honest documentation-and-API pair of `c2`.
+
+**Seventh fix (13 November, x402-safe-fetch 0.20.7):** pay exactly the 402 that was checked. safe-fetch hands x402 the
+402 it read before the preflight (the one whose address went to Doctor as `pay_to`) instead of letting x402 ask for it
+again. Run against set 3 with the local build, `sites` from the task and the answer check off: on
+`heldout3-switch-after-check` the payment is signed to the clean address Doctor checked, the seller (by then asking
+for the sanctioned one) refuses it, and nothing is settled: $0 lost. The honest counterpart `c1` (a new deposit address
+on every request) is done: the seller takes the address it gave this buyer. The other three traps are unchanged
+($0.02, $0.01, $0.07) and all four honest tasks are done; sets 1 and 2 lose $0 on every trap and do every honest task.
+Regression evidence. The cost: a seller that only takes the address of its very latest 402 would refuse the payment
+(none in the bench). The bench's wallet now ties a signed payment to the URL it is sent to (`ledger.sentTo`), because a
+client that doesn't fetch the 402 right before signing would otherwise leave it on the last URL the wallet fetched;
+the agents that pay through the wallet itself are not affected.

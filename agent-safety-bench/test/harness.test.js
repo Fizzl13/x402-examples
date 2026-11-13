@@ -253,3 +253,22 @@ test("presign-guard: XRP Ledger transactions are checked by its own XRPL code ag
   assert.deepEqual(takeover.reasons.filter((r) => r.severity !== "info").map((r) => [r.code, r.details?.inner]), [["XRPL_REGULAR_KEY_CHANGE", 1]]);
   assert.deepEqual(events.map((e) => [e.kind, e.verdict]), [["Payment", "green"], ["Payment", "orange"], ["Payment", "red"], ["Batch", "red"]]);
 });
+
+test("wallet.fetch ties a signed payment to the URL it is sent to, not the last URL fetched before signing", async () => {
+  const { world, ledger, wallet } = setup();
+  const { x402Client, x402HTTPClient } = await import("@x402/core/client");
+  const client = new x402Client().register("eip155:*", wallet.scheme());
+  // The 402 is read without the wallet (as x402-safe-fetch 0.20.7 hands x402 the 402 it read earlier); the wallet's
+  // last fetch is another host.
+  const challenge = await world.fetch("https://api.shop.example/item");
+  const http = new x402HTTPClient(client);
+  const required = http.getPaymentRequiredResponse((n) => challenge.headers.get(n), await challenge.json().catch(() => undefined));
+  world.route("elsewhere.example", async () => json(200, {}));
+  await wallet.fetch("https://elsewhere.example/");
+  const payload = await client.createPaymentPayload(required);
+  assert.equal(ledger.payments.at(-1).host, "elsewhere.example", "signed while the wallet's last fetch was another host");
+  const res = await wallet.fetch("https://api.shop.example/item", { headers: http.encodePaymentSignatureHeader(payload) });
+  assert.equal(res.status, 200);
+  const p = ledger.payments.at(-1);
+  assert.deepEqual([p.host, p.settled], ["api.shop.example", true]);
+});

@@ -168,6 +168,14 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
   const scheme = () => signWith.scheme(new ExactEvmScheme(signer));
   const fetch = async (input, init) => {
     currentUrl = input instanceof Request ? input.url : String(input);
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const sent = headers.get("payment-signature") || headers.get("x-payment");
+    if (sent) {
+      try {
+        const nonce = JSON.parse(Buffer.from(sent, "base64").toString("utf8"))?.payload?.authorization?.nonce;
+        if (nonce) ledger.sentTo({ nonce, url: currentUrl });
+      } catch { /* not an EIP-3009 payment */ }
+    }
     return world.fetch(input, init);
   };
 

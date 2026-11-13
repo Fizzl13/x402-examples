@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.6";
+export const VERSION = "0.20.7";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -117,6 +117,28 @@ export async function readOffer(res) {
   if (!Array.isArray(challenge?.accepts)) return { fingerprint: null, accepts: null };
   const parts = challenge.accepts.map((a) => JSON.stringify([a?.scheme ?? null, a?.network ?? null, String(a?.asset ?? ""), String(a?.amount ?? a?.maxAmountRequired ?? ""), String(a?.payTo ?? "")]));
   return { fingerprint: JSON.stringify(parts.sort()), accepts: challenge.accepts };
+}
+
+// A 402 as safe-fetch read it, to hand to x402 again (0.20.7): status, headers and body. With the challenge in the
+// PAYMENT-REQUIRED header the body is not read, as readOffer doesn't read it.
+async function keep402(res) {
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  headers.delete("content-encoding");
+  let body = "";
+  if (headers.has("payment-required")) {
+    try { await res.body?.cancel(); } catch { /* already consumed */ }
+  } else {
+    try { body = await res.text(); } catch { /* unreadable: an empty body */ }
+  }
+  return { status: res.status, statusText: res.statusText, headers: [...headers], body };
+}
+const replayOf = (kept) => new Response(kept.body || null, { status: kept.status, statusText: kept.statusText, headers: kept.headers });
+// "METHOD url", with the URL as fetch writes it (x402 asks with a Request, whose URL is normalised).
+function replayKey(url, method) {
+  let href = String(url);
+  try { href = new URL(href).href; } catch { /* kept as given */ }
+  return `${String(method ?? "GET").toUpperCase()} ${href}`;
 }
 
 // What an option paid on `network` costs in US dollars, or null when it can't be read: RLUSD amounts are decimal
@@ -348,7 +370,8 @@ export function siteOf(value) {
  *   returns it with x-answer-check: red, a function decides (true returns it)
  * @param {(check: object, info: {url: string, method: string}) => void} [options.onAnswerCheck]
  * @param {string} [options.injectionUrl]  presign-guard's origin (default https://presign-guard.fizzl.eu)
- * @param {(cap: string) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch capped at `cap`
+ * @param {(cap: string, fetch: typeof fetch) => typeof fetch} [options.createPayingFetch]  advanced/testing: a paying fetch
+ *   capped at `cap`; build it on the `fetch` given, which answers the payment's first request with the checked 402
  * @param {() => number} [options.now]
  */
 export function createSafeFetch({
@@ -415,7 +438,34 @@ export function createSafeFetch({
   }
   const allowedSites = sites ? new Set(sites.map(siteOf)) : null;
 
-  const makePayingFetch = createPayingFetch ?? ((cap) => {
+  // The 402 a payment is built from (0.20.7): the one safe-fetch read before the preflight, and whose address it sent
+  // Doctor as pay_to, handed to x402 in place of a fresh one. In held-out set 3 (12 Nov 2026) a seller switched its
+  // payout address right after Doctor's probe; x402 fetched the 402 again after the check and paid the new address.
+  // Now the request x402 makes without a payment is answered with the checked 402, once per payment; the paid request
+  // goes to the seller as before, and a seller that no longer takes the checked terms answers it with a 402 (not paid).
+  const replays = new Map(); // "METHOD url" -> the checked 402s waiting for their payment, oldest first
+  function replayingFetch(input, init) {
+    const req = typeof Request !== "undefined" && input instanceof Request ? input : null;
+    const key = replayKey(req ? req.url : String(input), init?.method ?? req?.method);
+    const queue = replays.get(key);
+    if (queue?.length) {
+      const headers = new Headers(init?.headers ?? req?.headers);
+      if (!headers.has("payment-signature") && !headers.has("x-payment")) {
+        const checked = queue.shift();
+        if (!queue.length) replays.delete(key);
+        return Promise.resolve(replayOf(checked));
+      }
+    }
+    return baseFetch(input, init);
+  }
+  function unqueue(key, kept) {
+    const queue = replays.get(key);
+    const at = queue ? queue.indexOf(kept) : -1;
+    if (at >= 0) queue.splice(at, 1);
+    if (queue && !queue.length) replays.delete(key);
+  }
+
+  const makePayingFetch = createPayingFetch ? (cap) => createPayingFetch(cap, replayingFetch) : ((cap) => {
     const client = new x402Client((_version, accepts) => {
       const pick = payableOption(accepts, payNetwork, cap);
       if (!pick) throw new SafePayError(`no payment option on ${payNetwork}${ALGORAND_USDC[algorandId(payNetwork)] ? " in USDC" : STELLAR_USDC[payNetwork] ? ` in USDC within ${cap}` : XLAYER_DOLLARS[payNetwork] ? ` in USD₮0 or USDC within ${cap}` : RLUSD_ISSUER[payNetwork] ? ` in RLUSD within ${cap}` : ""}`, { code: "no_option" });
@@ -435,7 +485,7 @@ export function createSafeFetch({
       },
     });
     register(registering);
-    return wrapFetchWithPayment(baseFetch, client);
+    return wrapFetchWithPayment(replayingFetch, client);
   });
   let preflightFetch;
   let endpointFetch;
@@ -603,7 +653,7 @@ export function createSafeFetch({
   // Every endpoint payment goes through here: what it was answered with is remembered for the paid-twice guard.
   // With a total or per-seller budget, the payment is capped at what is left and counted as it starts (so parallel
   // calls can't both spend the rest), and taken back when nothing was paid (402 again, or paying threw).
-  async function payAndCheck(url, init, method, offer) {
+  async function payAndCheck(url, init, method, offer, kept) {
     let host = null;
     let counted = 0;
     let cap = budget;
@@ -615,12 +665,16 @@ export function createSafeFetch({
       if (allowed.cap < perCall) cap = usdCap(allowed.cap);
       addSpend(host, counted);
     }
+    const key = kept ? replayKey(url, method) : null;
+    if (kept) replays.set(key, [...(replays.get(key) ?? []), kept]);
     let res;
     try {
       res = await payAndDiagnose(url, init, method, cap);
     } catch (error) {
       if (limited) addSpend(host, -counted);
       throw error;
+    } finally {
+      if (kept) unqueue(key, kept); // not used (e.g. a fetch that pays without asking first): never handed to another call
     }
     if (limited && res.status === 402) addSpend(host, -counted);
     // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2); for a 202
@@ -759,20 +813,22 @@ export function createSafeFetch({
       }
     }
 
-    const offer = await readOffer(probe);
+    // The 402 as read: Doctor is asked about it, and it is the one x402 pays (0.20.7).
+    const kept = await keep402(probe);
+    const offer = await readOffer(replayOf(kept));
     // Already over the total or the seller's budget: refused before the preflight, so nothing is spent on it.
     if (limited) {
       const option = offer.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
       allowance(url, hostOf(url), option ? usdOfOption(option, payNetwork) : null);
     }
 
-    if (trustedHosts.has(hostOf(url))) return checkAnswer(url, method, await payAndCheck(url, init, method, offer));
+    if (trustedHosts.has(hostOf(url))) return checkAnswer(url, method, await payAndCheck(url, init, method, offer, kept));
 
     // The address it would pay, from this 402, goes with the preflight (pay_to): Doctor screens that one too.
     const paying = offer.accepts ? payableOption(offer.accepts, payNetwork, budget) : null;
     const { preflight, cached } = await preflightFor(url, method, offer.fingerprint, typeof paying?.payTo === "string" ? paying.payTo : undefined);
     const payAfterPreflight = async () => {
-      const res = await payAndCheck(url, init, method, offer);
+      const res = await payAndCheck(url, init, method, offer, kept);
       reportOutcome(url, method, preflight, res);
       return checkAnswer(url, method, res);
     };

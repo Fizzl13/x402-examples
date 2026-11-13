@@ -103,8 +103,8 @@ export interface SafeFetchOptions {
   /** presign-guard's origin. Default https://presign-guard.fizzl.eu. */
   injectionUrl?: string;
   fetch?: typeof globalThis.fetch;
-  /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"). */
-  createPayingFetch?: (cap: string) => typeof globalThis.fetch;
+  /** Advanced/testing: a paying fetch capped at `cap` (e.g. "$0.05"), built on `fetch`, which answers the payment's first request with the checked 402. */
+  createPayingFetch?: (cap: string, fetch: typeof globalThis.fetch) => typeof globalThis.fetch;
   now?: () => number;
 }
 
