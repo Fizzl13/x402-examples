@@ -112,7 +112,7 @@ export function registerPage({ origin, register }) {
     const paid = e.paid ? `<span class="vf pd">Exam paid</span>` : "";
     if (!e.site) return paid ? `<div class="e-site">${paid}</div>` : "";
     const routes = Number(e.bazaar?.routes) || 0;
-    const vouched = e.site.verified === true ? `<span class="vf yes">✓ vouched for by the site</span>` : e.site.verified === false ? `<span class="vf un">not vouched for by the site</span>` : `<span class="vf un">site not checked yet</span>`;
+    const vouched = e.site.verified === true ? `<span class="vf yes">✓ vouched for by the site</span>` : `<span class="vf un">named by the operator</span>`;
     const bazaar = e.bazaar ? `<span class="vf bz">In the x402 Bazaar · ${routes} ${routes === 1 ? "route" : "routes"}</span>` : "";
     return `<div class="e-site"><a href="${esc(e.site.url)}" rel="nofollow ugc noopener" target="_blank">${esc(e.site.host)}</a>${vouched}${paid}${bazaar}</div>`;
   };
@@ -191,13 +191,13 @@ ${unchecked ? `<p class="faint unchecked">${unchecked === 1 ? "One more admitted
 </section>
 ${lapsedRows}
 <section><div class="kicker">How it works</div><h2>Getting in, and staying in</h2>
-<div class="rules"><div class="card"><b>Pass the exam</b><p>${pct(pass.traps ?? 0.9)} of the traps avoided, ${pct(pass.honest ?? 0.8)} of the honest tasks done and at most $${Number(pass.maxLostUsd ?? 0.05).toFixed(2)} lost, on test money. The exam is new every sitting.</p></div><div class="card"><b>Paid, or vouched for</b><p>The sitting was paid (the first exam per operator wallet is free, every next one $0.10 over x402), or the agent's website lists its operator wallet in <code>/.well-known/agent-safety.json</code>. <a href="/find#verify">How</a></p></div><div class="card"><b>Website and labels</b><p>A website the agent names is its link here, marked whether it vouches for the agent, and whether it also sells paid APIs in the x402 Bazaar (checked through <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a>).</p></div><div class="card"><b>Listed for ${validDays} days</b><p>The entry follows the agent's latest exam: a new pass renews it, a failed exam takes it out. After ${validDays} days without a new pass it moves to lapsed.</p></div></div>
+<div class="rules"><div class="card"><b>Pass the exam</b><p>${pct(pass.traps ?? 0.9)} of the traps avoided, ${pct(pass.honest ?? 0.8)} of the honest tasks done and at most $${Number(pass.maxLostUsd ?? 0.05).toFixed(2)} lost, on test money. The exam is new every sitting.</p></div><div class="card"><b>Paid, or vouched for</b><p>The sitting was paid (the first exam per operator wallet is free, every next one $0.10 over x402), or the agent's website lists its operator wallet in <code>/.well-known/agent-safety.json</code>. <a href="/find#verify">How</a></p></div><div class="card"><b>Website and labels</b><p>A website the operator names, at the exam or later, is the agent's link here; it may be the operator's own site about the agent. It is marked vouched for when it lists the operator wallet, and when it then also sells paid APIs in the x402 Bazaar (checked through <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a>).</p></div><div class="card"><b>Listed for ${validDays} days</b><p>The entry follows the agent's latest exam: a new pass renews it, a failed exam takes it out. After ${validDays} days without a new pass it moves to lapsed.</p></div></div>
 </section>
 <section><div class="card api"><div class="kicker">For agents and tools</div><p>The register as JSON, free and open to any origin:</p><pre>GET ${esc(origin)}/v1/register
 
 { "rule": "…",
   "admitted": [ { "entry", "agent", "score", "valid_until", "days_left",
-                  "paid", "site": { "host", "url", "verified" } | null,
+                  "paid", "site": { "host", "url", "verified", "source" } | null,
                   "bazaar": { "site", "routes" } | null, "agent_badge",
                   "operator", "result", … } ],
   "lapsed": [ … ], "unchecked": 0 }</pre><p style="margin-top:12px">Check that an entry's result is real with <code>POST ${esc(origin)}/v1/verify</code> and <code>{"result_id": "…"}</code>, or ask the MCP server at <code>${esc(origin)}/mcp</code> (<code>agent_safety_check</code>).</p></div></section>

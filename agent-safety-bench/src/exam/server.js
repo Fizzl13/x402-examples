@@ -27,6 +27,7 @@ import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage, registerP
 import { agentPrompt } from "./prompt.js";
 import { siteHost, createSiteVerifier, WELL_KNOWN } from "./site.js";
 import { createBazaarCheck } from "./bazaar.js";
+import { websiteOf } from "./websites.js";
 import { createHash } from "node:crypto";
 import { createMcpHandler, serverCard } from "./mcp.js";
 import { fileURLToPath } from "node:url";
@@ -498,7 +499,9 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   //  - it names a website (agent.url) that vouches for it: the site's /.well-known/agent-safety.json lists the agent's
   //    operator wallet (as on /find).
   // "admitted" while the admission is valid, "lapsed" once valid_until has passed; a later failed exam takes it out.
-  // A website an agent names is shown as its link, marked vouched for or not; whether it also sells in the CDP Bazaar
+  // A website an agent names (at the exam, or given later and listed in src/exam/websites.js) is shown as its link,
+  // marked vouched for when the site lists the operator wallet, else as named by the operator (it may be the operator's
+  // own site about the agent); whether it also sells in the CDP Bazaar
   // (src/exam/bazaar.js, asked of x402 Doctor) is a label. Reference rows and withdrawn results are left out. At most
   // REGISTER_SITE_CHECKS websites are checked per request; a free exam whose website file doesn't come within
   // REGISTER_SITE_WAIT_MS counts as not checked (unchecked); a Bazaar answer that doesn't come leaves the label off.
@@ -518,8 +521,14 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       clearTimeout(timer);
     }
   }
+  // The website shown for an agent: the one listed in src/exam/websites.js, else the one it named at the exam.
+  const websiteFor = (r) => {
+    const given = r.reference ? null : websiteOf(agentKey(r));
+    const url = given || r.agent?.url || null;
+    return url && siteHost(url) ? { url, host: siteHost(url), source: given ? "operator" : "exam" } : null;
+  };
   async function websiteChecks(rows) {
-    const hosts = [...new Set(rows.map((r) => siteHost(r.agent?.url)).filter(Boolean))].slice(0, REGISTER_SITE_CHECKS);
+    const hosts = [...new Set(rows.map((r) => websiteFor(r)?.host).filter(Boolean))].slice(0, REGISTER_SITE_CHECKS);
     const files = new Map();
     const listings = new Map();
     await Promise.all(hosts.map(async (host) => {
@@ -537,12 +546,13 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       const key = agentKey(r);
       if (!latest.has(key) || latest.get(key).finished_at < r.finished_at) latest.set(key, r);
     }
-    const rows = [...latest.values()].filter((r) => r.admitted && (r.paid || siteHost(r.agent?.url))).map(withCurrent);
+    const rows = [...latest.values()].filter((r) => r.admitted && (r.paid || websiteFor(r))).map(withCurrent);
     const { files, listings } = await websiteChecks(rows);
     const entries = [];
     let unchecked = 0;
     for (const r of rows) {
-      const host = siteHost(r.agent?.url);
+      const website = websiteFor(r);
+      const host = website?.host ?? null;
       const file = host ? files.get(host) : null;
       const listing = host ? listings.get(host) : null;
       const verified = file ? file.operators.includes(String(r.operator || "").toLowerCase()) : null;
@@ -560,7 +570,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
         ...publicRow(r),
         operator: r.operator,
         paid: Boolean(r.paid),
-        site: host ? { host, url: r.agent.url, verified } : null,
+        site: website ? { host, url: website.url, verified, source: website.source } : null,
         // The Bazaar label only for a website that vouches for the agent: a site it merely names says nothing about it.
         bazaar: verified && listing?.listed ? { site: listing.site, routes: listing.routes, read_at: listing.read_at } : null,
         days_left: r.current ? Math.max(0, left) : 0,

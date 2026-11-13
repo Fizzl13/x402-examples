@@ -919,7 +919,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.equal(paidOne.paid, true);
   assert.equal(paidOne.site, null, "no website: still in, without a link");
   const claimer = reg.admitted.find((e) => e.agent.name === "Paid claimer");
-  assert.deepEqual(claimer.site, { host: "agent-shop.dev", url: "https://agent-shop.dev/x", verified: false }, "a paid agent naming a site that doesn't vouch for it: in, marked not vouched for");
+  assert.deepEqual(claimer.site, { host: "agent-shop.dev", url: "https://agent-shop.dev/x", verified: false, source: "exam" }, "a paid agent naming a site that doesn't vouch for it: in, as named by the operator");
   assert.equal(reg.admitted.find((e) => e.agent.name === "Shop agent").paid, false);
   assert.deepEqual(reg.lapsed.map((e) => e.agent.name), ["Old agent"]);
   assert.equal(reg.unchecked, 1, "the slow site");
@@ -928,7 +928,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.equal(reg.admitted.find((e) => e.agent.name === "Doctor-down agent").bazaar, null, "no Bazaar answer: still in, without the label");
   for (const e of [...reg.admitted, ...reg.lapsed]) assert.match(e.entry, /^ASI-[0-9A-F]{8}$/);
   const shop = reg.admitted.find((e) => e.agent.name === "Shop agent");
-  assert.deepEqual(shop.site, { host: "agent-shop.dev", url: "https://www.agent-shop.dev/bot", verified: true });
+  assert.deepEqual(shop.site, { host: "agent-shop.dev", url: "https://www.agent-shop.dev/bot", verified: true, source: "exam" });
   assert.match(shop.agent_badge, /\/badge\/agent\/[0-9a-f]{16}\.svg$/);
   assert.deepEqual(shop.bazaar, { site: "agent-shop.dev", routes: 3, read_at: "2026-11-13T06:00:00.000Z" });
   assert.equal(shop.days_left, 28);
@@ -946,7 +946,7 @@ test("register: admitted agents whose exam was paid or whose own website vouches
   assert.equal(page.split("In the x402 Bazaar ·").length - 1, 2, "the label only where the site vouches for the agent (Shop agent, the escaped one), not on the paid claimer that only names it");
   assert.equal(claimer.bazaar, null);
   assert.equal(page.split('class="vf pd">Exam paid<').length - 1, 2, "the two paid agents are marked");
-  assert.ok(page.includes("not vouched for by the site"));
+  assert.ok(page.includes("named by the operator"));
   assert.ok(page.includes(`/badge/agent/${paidOne.agent_key}.svg?style=fizzl`), "every entry shows its badge");
   assert.ok(page.includes("✓ vouched for by the site"));
   assert.ok(page.includes("In the x402 Bazaar · 3 routes"));
@@ -992,4 +992,22 @@ test("bazaar check: asks x402 Doctor once per host for 6 hours; keeps the earlie
   assert.equal((await check("seller.ai")).listed, true, "Doctor down: the earlier answer");
   assert.equal(await check("new.dev"), null, "never answered: null, not 'not listed'");
   assert.equal(asked.length, 4);
+});
+
+test("register: a website the operator gave later (src/exam/websites.js) is the agent's link, named by the operator", async () => {
+  const { WEBSITES } = await import("../src/exam/websites.js");
+  const asked = [];
+  const siteCheck = async (host) => (asked.push(host), { file: `https://${host}/.well-known/agent-safety.json`, status: "missing", operators: [] });
+  const { origin, store } = await start({ siteCheck, bazaarCheck: async (host) => ({ site: host, listed: false, routes: 0, read_at: null }) });
+  const operator = "0x3D650013F46DD2d96B5afEFe4acAb7A7f2727561";
+  const now = Date.now();
+  await store.set("result:81c99a06f3f710a9169a8e4f", { id: "81c99a06f3f710a9169a8e4f", agent: { name: "FlowExecutor", version: "1" }, operator, paid: true, admitted: true, score: 100, traps: { avoided: 8, of: 8 }, honest: { done: 11, of: 11 }, lost_usd: 0, tasks: [], finished_at: new Date(now - 864e5).toISOString(), valid_until: new Date(now + 29 * 864e5).toISOString() });
+  const reg = await (await fetch(`${origin}/v1/register`)).json();
+  const flow = reg.admitted.find((e) => e.agent.name === "FlowExecutor");
+  assert.ok(WEBSITES[flow.agent_key], "listed by its agent key");
+  assert.deepEqual(flow.site, { host: "flow-kg4x.vercel.app", url: "https://flow-kg4x.vercel.app/", verified: false, source: "operator" });
+  assert.deepEqual(asked, ["flow-kg4x.vercel.app"]);
+  const page = await (await fetch(`${origin}/register`)).text();
+  assert.ok(page.includes('href="https://flow-kg4x.vercel.app/"'));
+  assert.ok(page.includes("named by the operator"));
 });
