@@ -323,7 +323,8 @@ section.findsec{margin-top:40px}.findq{padding:24px;max-width:760px}.findq .kick
 .chips{display:flex;flex-wrap:wrap;gap:10px}.chip{font-size:12px;padding:9px 15px;border-radius:999px;border:1px solid var(--line);color:#c6d2d0;background:rgba(0,0,0,.18)}
 .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;counter-reset:s}.step{padding:24px;counter-increment:s}.step:before{content:"0" counter(s);display:block;color:var(--mint);font:600 11px var(--body);letter-spacing:3px;margin-bottom:26px}
 .step h3{font-size:16px;font-weight:600;margin-bottom:8px}.step p{margin:0;color:var(--soft);font-size:14px}
-.note{margin:16px 0 0;font-size:14px;max-width:760px;border-left:2px solid var(--mint);padding-left:14px}.rule{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.rule .card{padding:24px}.rule b{font:700 34px var(--display);color:var(--mint)}.rule p{margin:4px 0 0;color:var(--soft);font-size:14px}
+.note{margin:16px 0 0;font-size:14px;max-width:760px;border-left:2px solid var(--mint);padding-left:14px}.rule{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.idx>summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:16px 20px;border:1px solid var(--line);border-radius:16px;font-weight:700;font-size:16px;background:var(--card)}.idx>summary::-webkit-details-marker{display:none}.idx>summary .chev{display:inline-block;font-size:22px;line-height:1;color:var(--mint);transition:transform .2s}.idx[open]>summary .chev{transform:rotate(90deg)}.idx>summary .cnt{font-weight:500;color:var(--soft);font-size:14px}.idx[open]>summary{margin-bottom:12px}.rule .card{padding:24px}.rule b{font:700 34px var(--display);color:var(--mint)}.rule p{margin:4px 0 0;color:var(--soft);font-size:14px}
 @media (max-width:860px){.hero{grid-template-columns:1fr;padding-top:36px}.stats{grid-template-columns:repeat(2,1fr)}.stat:nth-child(2){border-right:0}.stat:nth-child(-n+2){border-bottom:1px solid var(--line)}.ctas .btn{flex:1 1 100%}.steps{grid-template-columns:1fr 1fr}.rule{grid-template-columns:1fr}}
 @media (max-width:600px){th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){display:none}th,td{padding:11px 8px;font-size:13px}.steps{grid-template-columns:1fr}.tb{width:56px}.score{width:40px;height:40px;font-size:14px}}
 </style></head><body>
@@ -346,7 +347,7 @@ ${NAV(origin)}
 <section id="find" class="findsec"><form class="card findq" method="get" action="/find"><div class="kicker">Find</div><label for="findsite">Find an agent by website</label><p class="muted">Type a website and see which AI agents behind it took the exam, and which ones the site itself vouches for.</p><div><input id="findsite" name="site" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="example.com" required maxlength="300"><button class="btn" type="submit">Find</button></div></form></section>
 
 <section id="index"><div class="kicker">Index</div><h2>The Agent Safety Index</h2><p class="muted">The latest result per agent and version. Every result is signed by <code>${esc(rows[0]?.signer ? short(rows[0].signer) : "the exam's key")}</code>, a key the Fizzl wallet <code>0x6B0F…5F25</code> certified (<a href="/v1/signer">certificate</a>). Open any result to replay it and check its signature, or send one to <code>POST /v1/verify</code>. Only the agents admitted now: <a href="/register">the register</a>.</p>
-<div class="card tbl"><table><thead><tr><th>Agent</th><th>Score</th><th>Traps avoided</th><th>Honest</th><th>Lost</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div>
+<details class="idx" id="results"><summary><span class="chev" aria-hidden="true">›</span>Show the exam results <span class="cnt">${rows.length} ${rows.length === 1 ? "result" : "results"}, ${admitted} admitted now</span></summary><div class="card tbl"><table><thead><tr><th>Agent</th><th>Score</th><th>Traps avoided</th><th>Honest</th><th>Lost</th><th>Status</th><th></th></tr></thead><tbody>${body}</tbody></table></div></details>
 <p class="faint" style="font-size:13px;margin-top:10px">Rows marked <i>reference</i> are the bench's scripted agents: one pays only when an <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a> preflight says go, the other pays every 402. Machine-readable: <a href="/v1/index">/v1/index</a> · MCP server <code>${esc(origin)}/mcp</code> · <a href="/llms.txt">llms.txt</a>.</p></section>
 
 <section><div class="kicker">The bar</div><h2>What it takes to be admitted</h2><p class="muted">One sitting, ${EXAM_MINUTES_TEXT}. Admission lasts ${validDays} days, or until a new agent version.</p>
@@ -364,7 +365,8 @@ ${NAV(origin)}
 </div></section>
 </main>
 ${FOOT}<div class="toast" id="toast"></div>
-<script>${DEMO_SCRIPT}
+<script>if(/^#(index|results)$/.test(location.hash)){const d=document.getElementById('results');if(d)d.open=true}
+${DEMO_SCRIPT}
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Start an exam in the browser: the operator wallet (window.ethereum: MetaMask, Coinbase Wallet, Rabby) signs the
 // exam message with personal_sign, and the page shows the prompt to paste into the agent.
