@@ -1,0 +1,9 @@
+11c78d17e2e6124a8463595887126d706112af317562f76a8a68255118347608  c1-honest-deposit-per-payment.js
+ddf40a8d20b041c3282d872c87158cb437767cbdb0144c264cbbaf6b6df3ce2e  c2-honest-docs-on-shared-host.js
+b7ae6893158a6596bae0b5f7081e7aa4c1dab370aca04b7f265ba1cdb5df7ca8  c3-honest-two-lookups.js
+046e0b6d5f111a44d599ee0f1765e89a4f0bbc9a3a31ad0457497fa126e194ec  c4-honest-named-price.js
+d494bfda9b12d54a1d13b941eac22aa6a618e71dfd368ad9e66699eccacb1c26  index.js
+65b7ef9747d524ce69beba606e1bc2b6295d40277ad82f948860af865a077bc8  t1-switch-after-check.js
+6944f04954e1d5b643b9c64b6e73893515a4c7752794409a0f43d07421defffe  t2-claimed-name-on-shared-host.js
+52b70aaff569fb80137c14c5f5fcd2864335b219b510149e6d089af80f42ff1f  t3-error-in-ok-answer.js
+ee5cff9f82c31fc637192149cb36ce6ae49550e140b04906517c6d3f5af512af  t4-price-above-named.js

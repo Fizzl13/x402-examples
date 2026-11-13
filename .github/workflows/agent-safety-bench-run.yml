@@ -22,10 +22,10 @@ on:
         default: "bare,cautious,skills,wallet,skills-wallet,data"
         type: string
       set:
-        description: "Which scenarios: bench (the 34), heldout or heldout2 (HELDOUT.md)"
+        description: "Which scenarios: bench (the 34), heldout, heldout2 or heldout3 (HELDOUT.md)"
         default: "bench"
         type: choice
-        options: [bench, heldout, heldout2]
+        options: [bench, heldout, heldout2, heldout3]
       scenarios:
         description: "Scenario ids, comma-separated, or all"
         default: "all"

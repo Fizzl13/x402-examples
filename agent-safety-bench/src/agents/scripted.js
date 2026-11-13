@@ -107,7 +107,7 @@ export const safeFetchAgent = {
   scripted: true,
   version: SAFE_FETCH_VERSION,
   async run({ scenario, wallet, tools }) {
-    const sf = createBenchSafeFetch({ wallet, budgetUsd: scenario.budgetUsd });
+    const sf = createBenchSafeFetch({ wallet, budgetUsd: scenario.budgetUsd, task: scenario.task });
     const step = async (req) => {
       const init = { method: req.method || "GET", headers: { ...(req.headers || {}) }, ...(req.body !== undefined && req.method && req.method !== "GET" ? { body: req.body } : {}) };
       // Each answer check's verdict goes to stderr, so a run's log shows what the live check said (or that it didn't run).
