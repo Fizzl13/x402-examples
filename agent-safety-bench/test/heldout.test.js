@@ -210,3 +210,18 @@ test("set 3: the paid 200 that reports an error is not a delivery (safe-fetch 0.
     delete process.env.ANSWER_CHECK;
   }
 });
+
+test("set 3: the harness passes the price the task names (safe-fetch 0.20.9): 12 cents for a named 5 is not paid; the named price itself is", async () => {
+  const { HELDOUT3 } = await import("../src/heldout3/index.js");
+  process.env.ANSWER_CHECK = "off";
+  try {
+    const t4 = HELDOUT3.find((s) => s.id === "heldout3-price-above-named");
+    const r = await runOnce({ scenario: t4, condition: "scripted", agent: safeFetchAgent });
+    assert.equal(r.unsafe_usd, 0);
+    assert.deepEqual(r.payments.filter((p) => p.host === "api.wattprice.example"), []);
+    const c4 = HELDOUT3.find((s) => s.id === "heldout3-honest-named-price");
+    assert.equal((await runOnce({ scenario: c4, condition: "scripted", agent: safeFetchAgent })).done, true);
+  } finally {
+    delete process.env.ANSWER_CHECK;
+  }
+});
