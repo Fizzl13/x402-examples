@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.9";
+export const VERSION = "0.20.10";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -220,7 +220,7 @@ export function refusalReason(preflight) {
 }
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" */
+  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" */
   constructor(message, { code, preflight = null, url = null, earlier, spent, check, response } = {}) {
     super(message);
     this.name = "SafePayError";
@@ -459,8 +459,29 @@ export function createSafeFetch({
         return Promise.resolve(replayOf(checked));
       }
     }
-    return baseFetch(input, init);
+    const sent = new Headers(init?.headers ?? req?.headers);
+    if (!sent.has("payment-signature") && !sent.has("x-payment")) return baseFetch(input, init);
+    // A paid request whose answer never came (0.20.10): send the same signed payment once more, never a new one. In
+    // held-out set 4 (13 Nov 2026) the seller settled, then the connection dropped ("socket hang up"); the agent tried
+    // again as after any dropped connection, and x402 signed and paid a second time. The same payment can't be settled
+    // twice: a seller that settled it delivers or refuses it (a 402, not paid again); one that never got it (the
+    // connection was refused) settles it now, once.
+    const again = req ? req.clone() : null;
+    return baseFetch(input, init).catch(async () => {
+      try {
+        const res = await baseFetch(again ?? input, init);
+        sentAgain.add(res);
+        return res;
+      } catch (error) {
+        const lost = error instanceof Error ? error : new Error(String(error));
+        answerLost.add(lost);
+        throw lost;
+      }
+    });
   }
+  // Paid requests sent twice with the same payment because the first answer was lost, and those that got no answer at all.
+  const sentAgain = new WeakSet();
+  const answerLost = new WeakSet();
   function unqueue(key, kept) {
     const queue = replays.get(key);
     const at = queue ? queue.indexOf(kept) : -1;
@@ -675,12 +696,22 @@ export function createSafeFetch({
     try {
       res = await payAndDiagnose(url, init, method, cap);
     } catch (error) {
+      if (answerLost.has(error)) {
+        // Paid, sent twice with the same payment, and no answer either time (0.20.10). The seller may have settled it:
+        // it stays counted, and paying this endpoint again is refused for the window, like a paid error.
+        const said = `${error.code ? `${error.code}: ` : ""}${error.message}`.slice(0, 160);
+        paidGuard.record(url, { method, body: init.body }, 0, { failure: `no answer came back after paying (${said})` });
+        throw new SafePayError(`paid ${url}, but no answer came back, also not when the same payment was sent again (${said}). The seller may have settled it, so it was not paid a second time, and paying this endpoint again is refused for ${Math.round(paidErrorMs / 60000)} minutes; ask the seller with the payment's details, or try later.`, { code: "answer_lost", url });
+      }
       if (limited) addSpend(host, -counted);
       throw error;
     } finally {
       if (kept) unqueue(key, kept); // not used (e.g. a fetch that pays without asking first): never handed to another call
     }
-    if (limited && res.status === 402) addSpend(host, -counted);
+    // A 402 to the same payment sent again after a lost answer: it may have been settled the first time, so it stays
+    // counted and the endpoint is blocked (0.20.10).
+    const refusedAgain = res.status === 402 && sentAgain.has(res);
+    if (limited && res.status === 402 && !refusedAgain) addSpend(host, -counted);
     // Where the paid answer sent the agent: a 3xx's Location, or the URL a followed redirect ended at (0.20.2); for a 202
     // Accepted, the poll URL it names (0.20.4).
     const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
@@ -689,7 +720,7 @@ export function createSafeFetch({
     // A paid 2xx whose body is an error report is not a delivery (0.20.8).
     const failure = res.ok && res.status !== 202 ? await errorReportOf(res) : null;
     if (failure) errorAnswers.add(res);
-    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt, failure });
+    paidGuard.record(url, { method, body: init.body }, res.status, { redirectedTo: location ?? landed, pollAt, failure: failure ?? (refusedAgain ? "the answer to the payment was lost, and the same payment sent again was refused" : null) });
     return res;
   }
   // Paid answers whose body reports an error (for the outcome report).

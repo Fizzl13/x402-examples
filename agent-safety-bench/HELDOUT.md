@@ -433,3 +433,26 @@ What would carry over, each again with a cost the counterparts show:
 also spreads one answer over paid pages. There the task's total budget stops it (40 pages at 2 cents against a
 $0.10 budget); `t3` stays well within its budget (six parts at 1 cent against $0.20), so the total budget doesn't.
 That makes three of the four traps neighbours of earlier ones, and `t1` the only new mechanism.
+
+### Set 4 after the first fix (x402-safe-fetch 0.20.10, 13 November 2026, 14:50 UTC)
+
+The fix for `t1` is the one named above: after a paid request whose answer never came, safe-fetch sends the same
+signed payment once more, never a new one. A seller that settled it can't settle it again and has to deliver or refuse
+it; a seller that never got it (`c1`) settles it then. With no answer the second time either, safe-fetch stops with
+`answer_lost`, keeps the payment counted and blocks the endpoint like a paid error. The other three traps are not
+touched by it.
+
+Run on the same hashed set, scripted, safe-fetch 0.20.10 from this branch (linked into the bench; the bench's pin
+stays 0.20.9 until 0.20.10 is published), answer check off (a regression run, as for the tally below):
+
+| Agent | Traps avoided | Honest tasks done | Lost |
+|---|---|---|---|
+| safe-fetch 0.20.9 (07:55 UTC, above) | 0/4 | 4/4 | $0.14 |
+| **safe-fetch 0.20.10** | **1/4** (`t1`) | **4/4** (`c1` paid once and done) | **$0.11** |
+
+`t1`: one payment, sent twice, settled once, delivered on the second send. `c1`: the refused first send never reached
+the seller; the same payment sent again settled and delivered. Regression on the same build: held-out sets 1 to 3
+unchanged (3/4, 4/4, 3/4 traps; every honest task done), and the bench's 34 scenarios give the same result per
+scenario as 0.20.9 (17/24 traps, 9/10 honest, answer check off). Tally over the four sets: 11 of 16 held-out traps
+closed, 5 open (set 1's compliance post, set 3's claimed name, set 4's queued 200, paid parts and taken-over
+subdomain), 14/14 honest tasks done.
