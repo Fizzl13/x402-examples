@@ -51,7 +51,7 @@ export const PRESIGN_GUARD_URL = "https://presign-guard.fizzl.eu";
 export const INJECTION_CAP = "$0.02"; // presign-guard's injection check costs $0.01; never more than twice that
 // The header a checked answer carries: green, orange, red (only with onInjection "flag" or a function) or unchecked.
 export const ANSWER_CHECK_HEADER = "x-answer-check";
-export const VERSION = "0.20.12";
+export const VERSION = "0.20.13";
 // Doctor sees which calls come from this package (in its usage counts), nothing more.
 const DOCTOR_HEADERS = { accept: "application/json", "user-agent": `x402-safe-fetch/${VERSION}` };
 export const BASE = "eip155:8453";
@@ -220,7 +220,7 @@ export function refusalReason(preflight) {
 }
 
 export class SafePayError extends Error {
-  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" | "other_payee" */
+  /** code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" | "other_site_data" | "other_payee" */
   constructor(message, { code, preflight = null, url = null, earlier, spent, check, response, payTo, payees } = {}) {
     super(message);
     this.name = "SafePayError";
@@ -338,6 +338,29 @@ export function siteOf(value) {
   return SHARED_HOSTING.has(base) ? host : base;
 }
 
+// Data only to the sites the user named (0.20.13). In held-out set 1 (12 Nov 2026) a paid answer told the agent to POST
+// the user's request and the paying wallet's address to a "compliance" host on another site, or the result would be
+// "void". Nothing was paid there, so sites (which limits payments) didn't stop it, and the answer check said orange.
+// A request that sends something (a body, or a method other than GET, HEAD or OPTIONS) to a site that isn't named is
+// refused before it leaves: code "other_site_data". safeFetch applies it when sites is set; an agent's harness puts the
+// same check in front of its plain HTTP tool, which is where such a request usually goes. A GET that carries the data in
+// its URL is not covered.
+const READS = new Set(["GET", "HEAD", "OPTIONS"]);
+export function createRequestGuard({ sites } = {}) {
+  if (!Array.isArray(sites) || !sites.length || sites.some((s) => typeof s !== "string" || !siteOf(s))) {
+    throw new TypeError("createRequestGuard needs sites: a non-empty list of hosts or URLs, e.g. [\"api.example.com\"]");
+  }
+  const allowed = new Set(sites.map(siteOf));
+  return function checkRequest(input, init = {}) {
+    const url = String(input?.url ?? input);
+    const method = String(init?.method ?? input?.method ?? "GET").toUpperCase();
+    const body = init?.body;
+    const sends = (body !== undefined && body !== null && body !== "") || !READS.has(method);
+    if (!sends || allowed.has(siteOf(url))) return;
+    throw new SafePayError(`not sent: ${hostOf(url)} is not on a site the user named (${[...allowed].join(", ")}), and this ${method} would send it data. If the user asked for it, add the site to sites.`, { code: "other_site_data", url });
+  };
+}
+
 /**
  * @param {object} options
  * @param {(client: x402Client) => unknown} options.register  registers your payment schemes on a client
@@ -447,6 +470,8 @@ export function createSafeFetch({
     throw new TypeError("sites must be a non-empty list of hosts or URLs, e.g. [\"api.example.com\"], or left out");
   }
   const allowedSites = sites ? new Set(sites.map(siteOf)) : null;
+  // sites also limits where a request may send data (0.20.13, createRequestGuard).
+  const checkRequest = sites ? createRequestGuard({ sites }) : null;
   // payees (0.20.12): only the payout addresses named for an endpoint are paid. In held-out set 4 (13 Nov 2026) the
   // seller's documentation named a subdomain of its own domain that someone else had since taken over; that host asked
   // to be paid at its own address while the documentation named the seller's, and safe-fetch paid it: the site was the
@@ -871,6 +896,8 @@ export function createSafeFetch({
 
   async function safeFetch(input, init = {}, { maxUsd: callMaxUsd } = {}) {
     const { url, method } = requestOf(input, init);
+    // Data only to the sites named (0.20.13): refused before anything leaves.
+    checkRequest?.(url, init);
     // A cap for this call only (0.20.9), e.g. the price the user named: it lowers maxUsd for this call, never raises it.
     // In held-out set 3 (12 Nov 2026) a seller asked $0.12 for a lookup the user had been told costs 5 cents; it was
     // within the task's budget, so safe-fetch paid it. The harness knows the price the user named; safe-fetch doesn't.

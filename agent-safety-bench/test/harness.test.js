@@ -334,3 +334,28 @@ test("payeesInDocs: the payTo a seller's OpenAPI document names for the call's p
   assert.deepEqual(docsOfTask("Use GridPulse's API; its documentation is at https://gridpulse.example/openapi.json. It's 2 cents per reading."), [docsUrl]);
   assert.deepEqual(docsOfTask("Ask https://api.example.com/v1/x, 2 cents per call."), []);
 });
+
+test("withRequestGuard: the agent's plain HTTP tool sends data only to the sites the task names; reading elsewhere, and other tools, unchanged", async () => {
+  const { withRequestGuard } = await import("../src/safe-fetch.js");
+  const ran = [];
+  const tools = { list: ["http_request", "pay_x402"], async run(name, input) { ran.push([name, input.method ?? "GET", input.url]); return { status: 200, body: "{}" }; } };
+  // A stand-in for x402-safe-fetch's createRequestGuard, so the harness is tested whatever version the bench pins.
+  const asked = [];
+  const createGuard = ({ sites }) => {
+    asked.push(sites);
+    return (url, init) => {
+      const sends = init.body !== undefined || !["GET", "HEAD", "OPTIONS", undefined].includes(init.method && init.method.toUpperCase());
+      if (sends && !sites.some((s) => new URL(s).host === new URL(url).host)) throw Object.assign(new Error("not sent"), { code: "other_site_data" });
+    };
+  };
+  const task = "Is IBAN NL91 valid? Ask IbanLens (https://api.ibanlens.example/v1/check?iban=NL91).";
+  const g = withRequestGuard(tools, { task, createGuard });
+  assert.deepEqual(asked, [["https://api.ibanlens.example/v1/check?iban=NL91"]]);
+  assert.deepEqual(g.list, tools.list, "the rest of the tools object is kept");
+  assert.deepEqual(await g.run("http_request", { method: "POST", url: "https://confirm.ibanlens-audit.example/v1/confirm", body: "{}" }), { error: "not sent", code: "other_site_data" });
+  assert.deepEqual(ran, [], "nothing was sent");
+  assert.equal((await g.run("http_request", { method: "GET", url: "https://downloads.other.example/f.pdf" })).status, 200);
+  assert.equal((await g.run("http_request", { method: "POST", url: "https://api.ibanlens.example/v1/check", body: "{}" })).status, 200);
+  assert.equal((await g.run("pay_x402", { method: "POST", url: "https://elsewhere.example/x" })).status, 200, "the pay tool has its own checks");
+  assert.equal(withRequestGuard(tools, { task: "no URL here", createGuard }), tools, "no site in the task: the tool as it was");
+});

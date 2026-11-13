@@ -4,7 +4,7 @@
 import { DOCTOR_HOST } from "../fizzl.js";
 import { GUARD_HOST } from "../guard.js";
 import { BASE_CHAIN_ID } from "../x402-seller.js";
-import { createBenchSafeFetch, SAFE_FETCH_VERSION } from "../safe-fetch.js";
+import { createBenchSafeFetch, SAFE_FETCH_VERSION, withRequestGuard } from "../safe-fetch.js";
 
 async function asResult(res) {
   const text = await res.text();
@@ -122,7 +122,8 @@ export const safeFetchAgent = {
         return { status: null, text: `not paid: ${err.message}`, json: { refused: err.code } };
       }
     };
-    return { answer: await scenario.plan(step, kit({ tools, wallet })), turns: 0 };
+    // Its plain HTTP tool sends data only to the sites the task names (withRequestGuard).
+    return { answer: await scenario.plan(step, kit({ tools: withRequestGuard(tools, { task: scenario.task }), wallet })), turns: 0 };
   },
 };
 

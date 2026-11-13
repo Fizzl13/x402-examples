@@ -41,7 +41,7 @@ export interface Diagnosis {
 }
 
 export declare class SafePayError extends Error {
-  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" | "other_payee";
+  code: "no_go" | "caution" | "incomplete" | "preflight_failed" | "bad_receipt" | "no_option" | "paid_no_delivery" | "answer_lost" | "over_total_budget" | "over_seller_budget" | "answer_injection" | "other_site" | "other_site_data" | "other_payee";
   preflight: Preflight | null;
   url: string | null;
   /** With code "paid_no_delivery": when the same request was paid before, and what it was answered with. */
@@ -75,7 +75,7 @@ export interface SafeFetchOptions {
   onIncomplete?: "pay" | "stop" | ((preflight: Preflight) => boolean | Promise<boolean>);
   /** Hosts you already trust: paid without a preflight. */
   trusted?: string[];
-  /** The sites this safeFetch may pay (hosts or URLs, e.g. the ones the user named); elsewhere: code "other_site". Default: any site. */
+  /** The sites this safeFetch may pay (hosts or URLs, e.g. the ones the user named); elsewhere: code "other_site". Since 0.20.13 also where a request may send data (a body, or a method other than GET/HEAD/OPTIONS); elsewhere: code "other_site_data". Default: any site. */
   sites?: string[];
   /** The payout addresses this safeFetch may pay, or a function that names them per URL (e.g. the payTo the seller's documentation names for that endpoint); a 402 asking to be paid elsewhere: code "other_payee". None (null, undefined or []): any address. */
   payees?: string[] | ((url: string, info: { method: string }) => string[] | null | undefined | Promise<string[] | null | undefined>);
@@ -180,3 +180,10 @@ export declare const PAID_ERROR_MS: number;
 
 /** The site behind a host or URL, as x402 Doctor groups sellers: the domain without subdomains; on shared hosting the full host. */
 export declare function siteOf(value: string): string | null;
+
+/**
+ * Data only to the sites the user named (0.20.13): a check for an agent's own HTTP tool. It throws a SafePayError with
+ * code "other_site_data" when a request would send something (a body, or a method other than GET, HEAD or OPTIONS) to
+ * a site not in `sites`. safeFetch applies the same check to its own requests when `sites` is set.
+ */
+export function createRequestGuard(options: { sites: string[] }): (input: string | URL | { url: string; method?: string }, init?: { method?: string; body?: unknown }) => void;
