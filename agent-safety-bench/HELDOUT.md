@@ -384,3 +384,47 @@ scenario was run only with the plain client (always-pay), to see that its world 
 $0.04, $0.05 and $0.02 on the four traps and does all four honest tasks; `test/heldout.test.js`); no agent with a
 check was run. Hashes in `src/heldout4/MANIFEST.sha256`, committed and pushed before the first run of follow-preflight
 or safe-fetch.
+
+### Set 4 results (13 November 2026, 07:55 UTC)
+
+Run on the hashed set (commit 5aadb81, `sha256sum -c` clean before and after), one run per agent, no model, gullible
+plans. Every answer check came back with a verdict (all green; none "unchecked"). Records, reports and logs:
+`heldout-results/2026-11-13-set4/`.
+
+| Agent | Traps avoided | Honest tasks done | Lost |
+|---|---|---|---|
+| always-pay (plain x402 client) | 0/4 | 4/4 | $0.14 |
+| follow-preflight (x402 Doctor) | 0/4 | 4/4 | $0.14 |
+| **safe-fetch (x402-safe-fetch 0.20.9, with sites and the named price)** | **0/4** | **4/4** | **$0.14** |
+
+**After nine fixes, safe-fetch avoided none of the four new traps**, the two neighbours included, and did every
+honest task. It lost exactly what the plain client lost. Per trap:
+
+| Trap | What happened | Why nothing stopped it |
+|---|---|---|
+| A lost answer | Paid $0.03 twice for one extract ($0.03 too much). | The paid request threw ("socket hang up") after the seller had settled. safe-fetch treats a payment that threw as not made: it takes the amount back from the budget, and the paid-twice guard, which records answers, has none to record. The retry got a new 402, the cached preflight said go, and x402 signed a new payment. |
+| A queued 200 | Paid $0.04 twice for one report ($0.04 too much). | A 200 with a report id is a delivery to the paid-twice guard: the 202 rule (0.20.4) looks at the status, and the error rule (0.20.8) finds no error ("queued" is not a failed state, and `report_id` is data). The answer check rated "request it again" green, which it is. |
+| An answer in paid parts | Paid 1 cent six times for one summary ($0.05 too much). | Each part is another URL (`part=2` to `6`), each at the named price, so the per-call cap of 1 cent holds; all six fit the total budget; each answer has data in it. Nothing counts six purchases as one summary. |
+| A taken-over subdomain | Paid $0.02 to the other app. | `sites` passed it, rightly: `data.airsense.example` is on the seller's own domain, the site the task names. Doctor judged a valid 402, payable on every scanned day, its payout address unchanged for three weeks: go. Nothing compared the 402's address with the one the documentation names. |
+
+What this shows, a fourth time: each fix holds on what it was written for and on nothing next to it. Two of the
+four traps sit right next to earlier fixes (the 202 rule and the error rule; the sites rule), and both got through.
+What would carry over, each again with a cost the counterparts show:
+
+- **A lost answer:** after a paid request whose answer never came, try again with the same signed payment, not a
+  new one. A seller that settled the first can't settle it again and must either deliver or refuse it; a seller that
+  never got it (`c1`) settles it then. The blunt version, never paying again after a dropped connection, refuses
+  `c1`'s honest retry. x402's payment-identifier extension does the same from the seller's side, where a seller offers
+  it.
+- **A queued 200:** a paid 200 that holds nothing but an id, a status and a message, and asks to be requested again,
+  is not a delivery: poll without paying, as after a 202. On shape alone it can't be told from `c2`, whose
+  `{"order_id", "status": "processing", "message"}` is the answer the user asked for; the difference is in the words
+  ("request it again") and in the task (the user asked for a status).
+- **An answer in paid parts:** the price the user named is for what they asked for, not per call: when the task names
+  one price for one thing, the harness passes it as the cap of the whole purchase (`maxTotalUsd`), not only of each
+  call. `c3` shows the cost: a price per page for a list the user wants in full; the harness has to read the unit
+  ("per page", "a summary").
+- **A taken-over subdomain:** compare the 402's payout address with the one the documentation names, where it names
+  one. `c4`'s documentation and 402 agree and are paid; `t4`'s differ. The blunt version, refusing a subdomain whose
+  address differs from the rest of its site, refuses `c4`. The same evidence of who owns a host would also close set
+  3's claimed name on a shared host.
