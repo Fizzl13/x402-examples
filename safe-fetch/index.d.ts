@@ -126,7 +126,8 @@ export interface SpentUsd {
   bySeller: Record<string, number>;
 }
 export interface SafeFetch {
-  (input: string | URL, init?: RequestInit): Promise<Response>;
+  /** `options.maxUsd`: a cap for this call only, e.g. the price the user named; it lowers the per-call `maxUsd`, never raises it. */
+  (input: string | URL, init?: RequestInit, options?: { maxUsd?: number | string }): Promise<Response>;
   /** What this safeFetch paid to sellers so far. */
   spent(): SpentUsd;
 }

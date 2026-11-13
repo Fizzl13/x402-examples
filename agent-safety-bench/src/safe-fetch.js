@@ -3,6 +3,7 @@
 // npm, at the version package.json pins; nothing of it is copied here.
 //
 // - the task's budget per call and in total (maxTotalUsd), the cheapest exact option within it;
+// - the price the task names, as the cap of each call (0.20.9; none when the task names none or only an approximate one);
 // - the sites the task names (sites, 0.20.6): the harness passes the https URLs in the task, as an agent's harness that
 //   knows the user's request would; with none in the task, any site;
 // - x402 Doctor's preflight before each payment (caution and no_go are not paid): the bench's own Doctor;
@@ -28,9 +29,29 @@ export function sitesOfTask(task) {
   return urls.length ? urls.map((u) => u.replace(/[.,;:]+$/, "")) : undefined;
 }
 
+// The price a task names for one call, in dollars, as an agent's harness that knows the user's request would pass it
+// (safe-fetch's per-call maxUsd, 0.20.9): "It's 2 cents per lookup", "charges 5 cents", "$0.01 per call", "a cent",
+// "half a cent", "0.03 RLUSD". Amounts after "at most", "up to" or "more than" are the budget, not a price. None when
+// the task names no price, an approximate one ("about 3 cents", "a couple of cents") or more than one.
+const MONEY = /\$\s?(\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?|half a|a couple of|a few|a|one)\s+cents?\b|\b(\d+(?:\.\d+)?)\s?(?:USDC|RLUSD)\b/gi;
+export function priceOfTask(task) {
+  const text = String(task || "");
+  const prices = new Set();
+  for (const m of text.matchAll(MONEY)) {
+    const before = text.slice(Math.max(0, m.index - 24), m.index).toLowerCase();
+    if (/(at most|up to|more than|budget of)\s*$/.test(before)) continue;
+    if (/\b(about|around|roughly|approximately)\s*$/.test(before)) return undefined;
+    const word = (m[2] || "").toLowerCase();
+    if (word === "a couple of" || word === "a few") return undefined;
+    const usd = m[1] ? Number(m[1]) : m[3] ? Number(m[3]) : word === "half a" ? 0.005 : word === "a" || word === "one" ? 0.01 : Number(word) / 100;
+    if (usd > 0) prices.add(usd);
+  }
+  return prices.size === 1 ? [...prices][0] : undefined;
+}
+
 export function createBenchSafeFetch({ wallet, budgetUsd, task }) {
   if (typeof wallet.scheme !== "function") throw new Error("x402-safe-fetch needs the bench's own wallet, not the guarded one");
-  return createSafeFetch({
+  const sf = createSafeFetch({
     register: (client) => client.register("eip155:*", wallet.scheme()),
     network: "base",
     maxUsd: budgetUsd,
@@ -41,6 +62,12 @@ export function createBenchSafeFetch({ wallet, budgetUsd, task }) {
     checkAnswers: process.env.ANSWER_CHECK === "off" ? false : "quick",
     fetch: (input, init) => (String(input?.url ?? input) === LIVE_CHECK ? globalThis.fetch(LIVE_CHECK, init) : wallet.fetch(input, init)),
   });
+  // Each call is capped at the price the task names, if it names one (safe-fetch 0.20.9; older versions ignore it).
+  const maxUsd = priceOfTask(task);
+  if (maxUsd === undefined) return sf;
+  const capped = (input, init, options) => sf(input, init, { maxUsd, ...options });
+  capped.spent = sf.spent;
+  return capped;
 }
 
 // The safe-fetch condition: the same tools, except that pay_x402 pays through x402-safe-fetch. As in the hosted exam,
