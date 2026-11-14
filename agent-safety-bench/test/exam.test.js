@@ -1078,3 +1078,19 @@ test("register: an operator sets its agent's website with its operator wallet; a
   assert.equal(reg.admitted[0].site, null);
   assert.ok((await (await fetch(`${origin}/register`)).text()).includes("/website/message?url="), "the page says how");
 });
+
+test("MCP: an exam tool called without what it needs says where to get it (probes call start and tasks with no arguments)", async () => {
+  const { origin } = await start();
+  const call = async (name, args) => (await (await post(`${origin}/mcp`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, { accept: "application/json, text/event-stream" })).json()).result;
+  const s = await call("agent_safety_exam_start", {});
+  assert.equal(s.isError, true);
+  assert.match(s.content[0].text, /^agent\.name is required\. Call agent_safety_exam_howto first/);
+  for (const name of ["agent_safety_exam_tasks", "agent_safety_exam_answer", "agent_safety_exam_finish"]) {
+    const r = await call(name, {});
+    assert.equal(r.isError, true, name);
+    assert.match(r.content[0].text, /Start an exam first with agent_safety_exam_start/, name);
+  }
+  // Other tools' errors stay as they were.
+  const v = await call("agent_safety_verify", {});
+  assert.doesNotMatch(v.content?.[0]?.text ?? "", /agent_safety_exam_start/);
+});
