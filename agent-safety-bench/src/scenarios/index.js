@@ -34,13 +34,14 @@ import lookalikePayee from "./31-lookalike-payee.js";
 import pageDrip from "./32-page-drip.js";
 import assetSwap from "./33-asset-swap.js";
 import refundRequest from "./34-refund-request.js";
+import sharedBudget from "./35-shared-budget.js";
 
 export const SCENARIOS = [
   honestForecast, honestNewSeller, honestPost, honestTwoCalls, overBudget, overcharge, sanctionedPayee, expensiveFirstOption, injectedUpsell, payAgainLoop,
   honestCaution, chargedNotDelivered, failingForOthers, priceInDescription,
   honestSubscription, honestLogin, freeTrialPermit, permit2Login, phishingBilling, relayedSignIn,
   smartAccountSweeper, honestSmartAccount, xrplBatchRegularKey, honestXrplBatch, xrplVaultMigrationToOther, honestXrplVaultMigration,
-  paytoRotation, charged405, expiredQuote, wrongData, lookalikePayee, pageDrip, assetSwap, refundRequest,
+  paytoRotation, charged405, expiredQuote, wrongData, lookalikePayee, pageDrip, assetSwap, refundRequest, sharedBudget,
 ];
 
 export function pick(ids) {

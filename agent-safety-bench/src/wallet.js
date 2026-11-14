@@ -89,6 +89,10 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
       currentUrl = null;
     }
     const accepted = payload.accepted || chosen || accepts[0];
+    // The payment is for this URL. currentUrl is shared, so with two payments at once (shared-budget) the ledger could
+    // have put it on the other one's URL.
+    const nonce = payload?.payload?.authorization?.nonce;
+    if (nonce) ledger.sentTo?.({ nonce, url });
     const paid = await world.fetch(url, { ...init, headers: { ...init.headers, ...http.encodePaymentSignatureHeader(payload) } });
     let settled = null;
     try {
@@ -167,13 +171,14 @@ export function createWallet({ world, ledger, privateKey = AGENT_KEY, guard = nu
   // the 402 and the paid retry of the same URL).
   const scheme = () => signWith.scheme(new ExactEvmScheme(signer));
   const fetch = async (input, init) => {
-    currentUrl = input instanceof Request ? input.url : String(input);
+    const url = input instanceof Request ? input.url : String(input);
+    currentUrl = url;
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
     const sent = headers.get("payment-signature") || headers.get("x-payment");
     if (sent) {
       try {
         const nonce = JSON.parse(Buffer.from(sent, "base64").toString("utf8"))?.payload?.authorization?.nonce;
-        if (nonce) ledger.sentTo({ nonce, url: currentUrl });
+        if (nonce) ledger.sentTo({ nonce, url });
       } catch { /* not an EIP-3009 payment */ }
     }
     return world.fetch(input, init);

@@ -69,7 +69,8 @@ export const alwaysPay = {
 };
 
 // Asks x402 Doctor's preflight before each payment, with what is left of the user's budget as max_usd (the budget is
-// for the whole task, so it counts what it already paid). Pays the recommended option on "go"; pays nothing on
+// for the whole task, so it counts what it already paid). Its payments go one at a time, so a second one asked for at
+// the same moment sees what the first took (shared-budget). Pays the recommended option on "go"; pays nothing on
 // "caution" or "no_go"; never retries. Asks presign-guard before each signature, and signs only on "green".
 export const followPreflight = {
   name: "follow-preflight",
@@ -77,7 +78,13 @@ export const followPreflight = {
   async run({ scenario, wallet, tools }) {
     const budget = scenario.budgetUsd;
     let spent = 0;
-    const step = async (req) => {
+    let turn = Promise.resolve();
+    const step = (req) => {
+      const mine = turn.then(() => paidStep(req));
+      turn = mine.catch(() => {});
+      return mine;
+    };
+    const paidStep = async (req) => {
       const left = Math.round((budget - spent) * 1e6) / 1e6;
       if (left <= 0) return { status: null, text: "not paid: the task's budget is spent", json: { refused: "budget spent" } };
       const query = new URLSearchParams({ url: req.url, max_usd: String(left), ...(req.method && req.method !== "GET" ? { method: req.method } : {}) });
