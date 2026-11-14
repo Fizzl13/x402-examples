@@ -34,7 +34,9 @@ export function memoryStore() {
 
 export async function redisStore(url, { prefix = "exam:" } = {}) {
   const { createClient } = await import("redis");
-  const client = createClient({ url });
+  // pingInterval: the Redis host closes a connection that sits idle for a while ("[exam] redis: Socket closed
+  // unexpectedly", 10 Nov, ~50 min after a start). A PING every 4 minutes keeps it open; node-redis reconnects anyway.
+  const client = createClient({ url, pingInterval: 4 * 60 * 1000 });
   client.on("error", (err) => console.error(`[exam] redis: ${err.message}`));
   await client.connect();
   const k = (key) => `${prefix}${key}`;
