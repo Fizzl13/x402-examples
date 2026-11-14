@@ -15,7 +15,7 @@ import { buildPayment } from '../src/scheme.js';
 import { createApp } from '../src/app.js';
 
 const TESTNET = 'ccd:4221332d34e1694168c2a0c0b3fd0f27';
-const SELLER_FILE = JSON.parse(readFileSync(new URL('../demo/concordium-proof.json', import.meta.url), 'utf8'));
+const SELLER_FILE = JSON.parse(readFileSync(new URL('./fixtures/seller-proof-2026-11-06.json', import.meta.url), 'utf8'));
 const SUBJECT = SELLER_FILE.presentation.verifiableCredential[0].credentialSubject;
 const CRED = SUBJECT.id.split(':cred:')[1];
 const NOW = Date.parse('2026-11-06T18:00:00Z');
