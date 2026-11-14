@@ -3,7 +3,8 @@
 //
 // Env: PORT (3000), EXAM_ORIGIN (https://exam.fizzl.eu), EXAM_SIGNING_KEY (signs results), USAGE_LOG_TOKEN (+ optional
 // USAGE_LOG_REPO, USAGE_LOG_SALT, USAGE_OWN_WALLETS: anonymous usage in Fizzl13/usage-log), REDIS_URL (keeps the index
-// and the free-exam rule across restarts; memory without it), EXAM_FACILITATOR_URL (PayAI's by default).
+// and the free-exam rule across restarts; memory without it), EXAM_FACILITATOR_URL (PayAI's by default),
+// SELLER_CATALOG_URL (the shop whose tools the seller bench checks: x402 Forge's catalog by default; "off" turns it off).
 
 // The sellers take Base Sepolia only; set before anything reads it.
 process.env.X402_BENCH_NETWORK = "base-sepolia";
@@ -17,7 +18,9 @@ if (!process.env.EXAM_SIGNING_KEY) console.warn("[exam] no EXAM_SIGNING_KEY: res
 const { usageFromEnv } = await import("../src/exam/usage.js");
 const usage = usageFromEnv();
 if (!usage.enabled) console.warn("[exam] no USAGE_LOG_TOKEN: usage is not logged");
-const { app, exams, startReference } = createExamServer({ store, usage });
+const { createSellerBench } = await import("../src/exam/seller-bench.js");
+const sellerBench = createSellerBench({ store });
+const { app, exams, startReference } = createExamServer({ store, usage, sellerBench });
 const port = Number(process.env.PORT || 3000);
 app.listen(port, () => console.log(`[exam] listening on ${port}`));
 
@@ -41,4 +44,11 @@ if (process.env.EXAM_REFERENCES !== "off") {
   };
   setTimeout(seed, 60_000).unref();
   setInterval(seed, 86400_000).unref();
+}
+
+// The seller bench (src/exam/seller-bench.js): the shop's tools are checked two minutes after start, then every 6 hours.
+if (!sellerBench.off) {
+  const bench = () => sellerBench.run().catch((err) => console.error(`[seller-bench] run failed: ${err.message}`));
+  setTimeout(bench, 120_000).unref();
+  setInterval(bench, 6 * 3600_000).unref();
 }
