@@ -32,7 +32,7 @@ on:
         default: "1"
       facilitator:
         description: "pay mode: through this deployed facilitator (empty = in the job itself)"
-        default: "https://concordium-facilitator.onrender.com"
+        default: "https://ccd-facilitator.fizzl.eu"
       url:
         description: "buy mode: the x402 seller to buy from once (empty = our demo seller)"
         default: ""
@@ -68,7 +68,7 @@ jobs:
           ASSET: ${{ inputs.asset || 'CCD' }}
           AMOUNT: ${{ inputs.amount || '1000' }}
           COUNT: ${{ inputs.count || '1' }}
-          FACILITATOR_URL: ${{ github.event_name == 'schedule' && 'https://concordium-facilitator.onrender.com' || inputs.facilitator }}
+          FACILITATOR_URL: ${{ github.event_name == 'schedule' && 'https://ccd-facilitator.fizzl.eu' || inputs.facilitator }}
         run: node scripts/testnet.js pay
       - name: Buy from the demo seller (x402, 402 -> pay -> answer)
         if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'buy') || github.event_name == 'schedule'

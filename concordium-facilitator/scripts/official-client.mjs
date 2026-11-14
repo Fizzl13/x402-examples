@@ -10,7 +10,7 @@ const fail = (m) => { console.log(`FAIL ${m}`); process.exitCode = 1; };
 const ok = (m) => console.log(`ok   ${m}`);
 const missing = ['BUYER_ADDRESS', 'BUYER_KEY'].filter((k) => !process.env[k]?.trim());
 if (missing.length) { fail(`set ${missing.join(', ')}`); process.exit(1); }
-const url = process.env.DEMO_URL?.trim() || 'https://concordium-facilitator.onrender.com/demo/paid';
+const url = process.env.DEMO_URL?.trim() || 'https://ccd-facilitator.fizzl.eu/demo/paid';
 
 const signer = { accountAddress: AccountAddress.fromBase58(process.env.BUYER_ADDRESS.trim()), signer: buildBasicAccountSigner(process.env.BUYER_KEY.trim()) };
 // CCD is not one of the package's default assets (USDR is), so the buyer allows it explicitly, capped at 0.01 CCD.
