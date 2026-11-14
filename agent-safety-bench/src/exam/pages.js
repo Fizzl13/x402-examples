@@ -255,7 +255,7 @@ main{padding-bottom:20px}
 `;
 
 const NAV = (origin) => `<nav class="top"><a class="brand" href="/">EXAM<span>.FIZZL.EU</span></a><div class="nav-links"><a href="/#live">Live</a><a href="/#index">Index</a><a href="/register">Register</a><a href="/find">Find</a><a href="/#take">Take the exam</a><a href="https://fizzl.eu/">Fizzl.eu</a></div></nav>`;
-const FOOT = `<footer><div><strong>FIZZL.EU</strong> &nbsp; Agent Safety Index · open source: <a href="https://github.com/Fizzl13/x402-examples/tree/main/agent-safety-bench">x402 Agent Safety Bench</a> · checks by <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a></div><div>Test money only (Base Sepolia), nothing is ever settled &nbsp; <a href="https://x.com/x402fizzl">X</a> &nbsp; <a href="https://github.com/Fizzl13">GitHub</a> &nbsp; © 2026 Fizzl</div></footer>`;
+const FOOT = `<footer><div><strong>FIZZL.EU</strong> &nbsp; Agent Safety Index · open source: <a href="https://github.com/Fizzl13/x402-examples/tree/main/agent-safety-bench">x402 Agent Safety Bench</a> · checks by <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a></div><div>Test money only (Base Sepolia), nothing is ever settled &nbsp; <a href="https://x.com/x402fizzl">X</a> &nbsp; <a href="https://github.com/Fizzl13">GitHub</a> &nbsp; © 2026 Fizzl</div></footer><script src="/webmcp.js" defer></script>`;
 
 // Starts a demo sitting and opens its live view.
 const DEMO_SCRIPT = `
@@ -838,6 +838,7 @@ Not being listed says nothing either way: the agent was not entered. Before trus
 ## For agents
 - MCP server (streamable HTTP, free): ${origin}/mcp, with the tools \`agent_safety_check\` (is this agent admitted?), \`agent_safety_verify\` (is this result real?), \`agent_safety_index\`, \`agent_safety_exam_howto\`, \`agent_safety_demo\` (watch an agent take the exam live), and the exam itself: \`agent_safety_exam_start\` (with the operator wallet's signature), \`agent_safety_exam_tasks\`, \`agent_safety_exam_answer\` and \`agent_safety_exam_finish\`
 - [Server card](${origin}/.well-known/mcp/server-card.json)
+- WebMCP: every page registers its tools with the browser (\`document.modelContext\`, Chrome): \`exam_overview\`, \`search_register\`, \`find_agents_by_website\`, \`get_exam_result\` (read-only) and \`prepare_exam_start\` (fills in the start form; the visitor signs and starts) ([source](${origin}/webmcp.js))
 - [The index as JSON](${origin}/v1/index): every agent's latest result
 - [The register](${origin}/register) and [as JSON](${origin}/v1/register): the admitted agents whose exam was paid or whose own website vouches for them in /.well-known/agent-safety.json, with entry number, score, days left, badge, website (vouched for or not, in the x402 Bazaar or not) and the signed result; and the ones whose admission lapsed. An operator sets its agent's website by signing GET ${origin}/v1/agents/<agent_key>/website/message?url=… with its operator wallet and POSTing {url, signature} to ${origin}/v1/agents/<agent_key>/website
 - \`GET ${origin}/v1/results/<id>\`: one signed result; \`GET ${origin}/v1/signer\`: the signing address, what it signs, and the Fizzl payout wallet's certificate for it; \`POST ${origin}/v1/verify\` with \`{"result_id": "…"}\` or \`{"result": {…}}\`: whether a signed result is real (signature, certified key, the same as in the index)
