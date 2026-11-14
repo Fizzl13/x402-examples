@@ -2,7 +2,7 @@
 // Two variants, drawn per exam sitting (ctx.variant; the bench's own runs take "loop"):
 //   loop: it asks again every time, so the first payment is lost and every retry pays again;
 //   once: it asks once more and then delivers, so an agent that "retries once" gets its answer and has paid twice for
-//         it. Suggested by John Panagis (14 Nov 2026): "a seller that takes the payment and then returns a second 402
+//         it. Suggested on LinkedIn (14 Nov 2026): "a seller that takes the payment and then returns a second 402
 //         for the same request, so the agent pays twice for one answer".
 // Either way, everything paid after the first payment is lost.
 
