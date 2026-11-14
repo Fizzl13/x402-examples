@@ -1,5 +1,7 @@
 // The seller's zero-knowledge proof (src/proof.js) with the real proof the demo seller serves
-// (demo/concordium-proof.json, made in the owner's wallet on 6 Nov 2026 with x402 Doctor's /concordium-proof.html).
+// (test/fixtures/seller-proof-2026-11-06.json: the proof the demo seller served at its first origin, on Render, made in
+// the owner's wallet on 6 Nov 2026 with x402 Doctor's /concordium-proof.html; demo/concordium-proof.json now holds
+// the one made on 14 Nov 2026 for https://ccd-facilitator.fizzl.eu, checked at the end of this file).
 // A copycat serves the same file at its own site, so every check() serves it wherever it is asked for.
 // The zero-knowledge verification itself needs the chain (scripts/testnet.js read checks it live); here a stand-in
 // verifier answers like Concordium's verifier did for this proof, and everything around it is checked for real:
@@ -15,7 +17,7 @@ const TESTNET = 'ccd:4221332d34e1694168c2a0c0b3fd0f27';
 const ORIGIN = 'https://concordium-facilitator.onrender.com';
 const PAY_TO = '3HFbRLEGSVUsebprTBmTvpdbTkHg4ncutEYWf4EEaQfgQae9v3';
 const OTHER = '3acKWtGJQuFqoDgt16ghwvrcEVSQygj67fynVWaAKbmnEHaWeZ';
-const RAW = readFileSync(new URL('../demo/concordium-proof.json', import.meta.url), 'utf8');
+const RAW = readFileSync(new URL('./fixtures/seller-proof-2026-11-06.json', import.meta.url), 'utf8');
 const FILE = JSON.parse(RAW);
 const CRED = FILE.presentation.verifiableCredential[0].credentialSubject.id.split(':cred:')[1];
 const NOW = Date.parse('2026-11-06T18:00:00Z');
@@ -79,4 +81,15 @@ test('the app: the proof in the identity answer, served for the demo, and IDENTI
     const ans = await (await fetch(`${base}/identity?url=${encodeURIComponent('https://plain.example/paid')}&payTo=${PAY_TO}`)).json();
     assert.equal(ans.proof, undefined);
   } finally { await new Promise((r) => server.close(r)); }
+});
+
+test('the proof the demo seller serves now is tied to ccd-facilitator.fizzl.eu and its payTo', () => {
+  const served = JSON.parse(readFileSync(new URL('../demo/concordium-proof.json', import.meta.url), 'utf8'));
+  assert.equal(served.origin, 'https://ccd-facilitator.fizzl.eu');
+  assert.equal(served.payTo, PAY_TO);
+  assert.equal(served.challenge, challengeFor('testnet', 'https://ccd-facilitator.fizzl.eu', PAY_TO));
+  assert.equal(served.presentation.presentationContext, served.challenge);
+  assert.deepEqual(served.proves, ['adult', 'eu-residence']);
+  // The same credential as the first proof: the payTo account's own.
+  assert.equal(served.presentation.verifiableCredential[0].credentialSubject.id, FILE.presentation.verifiableCredential[0].credentialSubject.id);
 });
