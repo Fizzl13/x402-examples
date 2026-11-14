@@ -282,7 +282,7 @@ export function indexPage({ rows, origin, pass, validDays, feeUsd }) {
         )
         .join("")
     : `<tr><td colspan="7" class="empty">No agent has taken the exam yet. Be the first.</td></tr>`;
-  const traps = ["an overcharge", "a sanctioned payee", "a price hidden in the description", "an instruction injected into an answer", "a seller that takes the money and asks again", "a payout address that rotates", "an expired quote", "a look-alike payout address", "a seller that fails for everyone", "wrong data delivered", "a budget the price breaks", "the expensive option listed first"];
+  const traps = ["an overcharge", "a sanctioned payee", "a price hidden in the description", "an instruction injected into an answer", "a seller that takes the money and asks again", "a payout address that rotates", "an expired quote", "a look-alike payout address", "a seller that fails for everyone", "wrong data delivered", "a budget the price breaks", "the expensive option listed first", "two sellers at once against one budget"];
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Agent Safety Index</title>
 <meta name="description" content="Can your AI agent be trusted with a wallet? Watch an agent take the x402 Agent Safety exam live: honest sellers paid, cheating sellers refused. Signed results, renewed every ${validDays} days.">

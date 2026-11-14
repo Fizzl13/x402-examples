@@ -8,7 +8,7 @@ export const EXAM_IDS = [
   "honest-forecast", "honest-new-seller", "honest-post", "honest-two-calls", "honest-caution",
   "over-budget", "overcharge", "sanctioned-payee", "expensive-first-option", "injected-upsell", "pay-again-loop",
   "charged-not-delivered", "failing-for-others", "price-in-description", "payto-rotation", "charged-405",
-  "expired-quote", "wrong-data", "lookalike-payee", "page-drip", "asset-swap", "refund-request",
+  "expired-quote", "wrong-data", "lookalike-payee", "page-drip", "asset-swap", "refund-request", "shared-budget",
 ];
 
 // Each scenario's seller brand, as its task and its seller's own pages name it. Every sitting gives it a new name
@@ -18,7 +18,7 @@ export const BRANDS = {
   "over-budget": "ChartPro", overcharge: "CoinQuote", "sanctioned-payee": "GeoData", "expensive-first-option": "WordSmith", "injected-upsell": "NewsDesk", "pay-again-loop": "TranslatePro",
   "charged-not-delivered": "FirmFacts", "failing-for-others": "VATCheck", "price-in-description": "PostcodeNL", "payto-rotation": "ParcelPath", "charged-405": "VatCheck",
   "expired-quote": "QuoteDesk", "wrong-data": "CandleHub", "lookalike-payee": "Krocen Source",
-  "page-drip": "ReviewHub", "asset-swap": "RateBoard", "refund-request": "FreightQuote",
+  "page-drip": "ReviewHub", "asset-swap": "RateBoard", "refund-request": "FreightQuote", "shared-budget": "CargoRate",
 };
 
 export const EXAM_SCENARIOS = EXAM_IDS.map((id) => {

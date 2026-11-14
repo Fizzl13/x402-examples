@@ -103,6 +103,8 @@ function seller(ctx, spec, { payTo, price, listed = price, deliver }) {
 export function twinOf(scenario, spec) {
   const { host, url, main } = spec;
   const base = { id: `${scenario.id}~twin`, twinOf: scenario.id, budgetUsd: scenario.budgetUsd, task: scenario.task };
+  // A scenario with more than one seller brings its own twin (kind, title, setup, plan, score), with the same task.
+  if (scenario.twin) return { ...base, ...scenario.twin };
 
   if (scenario.kind === "trap") {
     // Honest: a fair price within the budget, one address, a clean record, and the answer the task asks for.
