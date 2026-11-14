@@ -264,6 +264,15 @@ export function createMcpHandler({ handlers, name = "agent-safety-exam", onCall 
     agent_safety_exam_finish: handlers.finish,
   };
 
+  // What to do next when an exam tool refuses: probes and first-time agents call start or tasks with no arguments,
+  // and the bare error ("agent.name is required", "no such exam") doesn't say where the missing piece comes from.
+  const NEXT = {
+    agent_safety_exam_start: "Call agent_safety_exam_howto first: it gives the message the operator wallet signs (free, no gas) and the fields start needs (agent.name, operator, signature).",
+    agent_safety_exam_tasks: "Start an exam first with agent_safety_exam_start; its answer has the exam id.",
+    agent_safety_exam_answer: "Start an exam first with agent_safety_exam_start; its answer has the exam id and the task ids.",
+    agent_safety_exam_finish: "Start an exam first with agent_safety_exam_start, answer its tasks, then finish with its exam id.",
+  };
+
   async function one(msg, req) {
     if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return { jsonrpc: "2.0", id: msg?.id ?? null, error: { code: -32600, message: "invalid request" } };
     const isNote = msg.id === undefined || msg.id === null;
@@ -287,7 +296,8 @@ export function createMcpHandler({ handlers, name = "agent-safety-exam", onCall 
           return reply({ content: [{ type: "text", text: JSON.stringify(out, null, 2) }], structuredContent: out, isError: false });
         } catch (err) {
           onCall(msg.params.name, req, false);
-          return reply({ content: [{ type: "text", text: err.message }], isError: true });
+          const next = NEXT[msg.params.name];
+          return reply({ content: [{ type: "text", text: next ? `${err.message} ${next}` : err.message }], isError: true });
         }
       }
       case "resources/list":
