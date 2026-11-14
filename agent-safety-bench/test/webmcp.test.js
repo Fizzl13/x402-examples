@@ -68,6 +68,14 @@ test("every page loads /webmcp.js; the script registers five tools, four of them
   assert.match(await (await fetch(`${origin}/llms.txt`)).text(), /WebMCP: every page registers its tools/);
 });
 
+test("the homepage and llms.txt ask for new traps, with a prefilled GitHub issue", async () => {
+  const { origin } = await start();
+  const home = await (await fetch(`${origin}/`)).text();
+  assert.match(home, /Suggest a trap/);
+  assert.match(home, /href="https:\/\/github\.com\/Fizzl13\/x402-examples\/issues\/new\?title=Trap%20idea%3A%20&amp;body=/);
+  assert.match(await (await fetch(`${origin}/llms.txt`)).text(), /\[Suggest a trap\]\(https:\/\/github\.com\/Fizzl13\/x402-examples\/issues\/new\?/);
+});
+
 test("the read-only tools answer from the public APIs; a bad id or a missing site is an error, not a throw", async () => {
   const { origin } = await start();
   const b = browser(origin);
