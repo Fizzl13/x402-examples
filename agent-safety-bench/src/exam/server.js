@@ -24,6 +24,7 @@ import { memoryStore } from "./store.js";
 import { noUsage } from "./usage.js";
 import { createFacilitator, decodePayment, feeChallenge, FEE_USD } from "./pay.js";
 import { indexPage, badgeSvg, badgeBlock, livePage, llmsTxt, findPage, registerPage } from "./pages.js";
+import { SELLER_CHECKS } from "./seller-bench.js";
 import { agentPrompt } from "./prompt.js";
 import { siteHost, createSiteVerifier, WELL_KNOWN } from "./site.js";
 import { createBazaarCheck } from "./bazaar.js";
@@ -130,7 +131,7 @@ export const SECURITY_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), bazaarCheck = createBazaarCheck({ now }), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), bazaarCheck = createBazaarCheck({ now }), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY, sellerBench = null } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   // The payout wallet's certificate for this signer (src/exam/cert.js), or null.
@@ -610,6 +611,11 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
       unchecked,
       admitted: entries.filter((e) => e.current).sort((a, b) => (a.finished_at < b.finished_at ? 1 : -1)),
       lapsed: entries.filter((e) => !e.current).sort((a, b) => (a.valid_until < b.valid_until ? 1 : -1)),
+      // Seller tools the exam benched itself (src/exam/seller-bench.js): the buyer's traps turned around and run against
+      // each tool of a shop's catalog (x402 Forge), from its unpaid 402 and free example. A separate list: tools are not
+      // agents, and they are in it only while they pass every check.
+      benched_tools: sellerBench ? (await sellerBench.list().catch(() => [])).filter((t) => t.passed) : [],
+      seller_checks: SELLER_CHECKS,
     };
   }
 
