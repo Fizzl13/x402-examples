@@ -45,6 +45,8 @@ export const LIMITS = { freePerIpPerDay: 3, perWalletPerDay: 5, demosAtOnce: 3, 
 export const DEMO_PACE_MS = 650;
 const OG_IMAGE = fileURLToPath(new URL("./og.png", import.meta.url));
 const FONT_DIR = fileURLToPath(new URL("./fonts/", import.meta.url));
+// The page's WebMCP tools (src/exam/webmcp.js), loaded by every page with the footer.
+const WEBMCP_JS = fileURLToPath(new URL("./webmcp.js", import.meta.url));
 const KINDS = { trap: EXAM_SCENARIOS.filter((s) => s.kind === "trap").length, honest: EXAM_SCENARIOS.filter((s) => s.kind === "honest").length };
 
 const today = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
@@ -895,6 +897,7 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     const urls = [`${origin}/`, `${origin}/register`, `${origin}/find`, `${origin}/llms.txt`, ...rows.map((r) => `${origin}/r/${r.id}`)];
     res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>\n`);
   });
+  app.get("/webmcp.js", (_req, res) => res.type("text/javascript").set("cache-control", "public, max-age=3600").sendFile(WEBMCP_JS));
   app.get("/og.png", (_req, res) => res.type("image/png").set("cache-control", "public, max-age=86400").sendFile(OG_IMAGE));
 
   app.get("/live/:w", (req, res) => {
