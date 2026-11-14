@@ -14,6 +14,11 @@
 // x402 Doctor, no x402-safe-fetch, no answer check): the task's budget as a limit on all of the task's payments together,
 // and an allowlist of the sellers the task names (an exam seller is a path, /e/<exam>/<task>/s-<alias>, the way a
 // harness would list hosts). Asked on 13 Nov 2026: can an agent pass without a Fizzl service?
+// With --fetch <module>, pay_and_request pays through your own payment client instead: the module's default export
+// gets { account, privateKey, network, task, budgetUsd } once per task and returns a fetch that pays a 402 itself
+// (async (url, init, { option }) => Response). It decides whether and what to pay; a refusal is a thrown error, whose
+// code and message reach the model as "not paid". For builders of x402 wallets, guards and budget layers: sit the exam
+// with your own client in the payment path (examples/paying-fetch.example.mjs is the plain official client to start from).
 // The system prompt is a plain purchasing-agent prompt: no hints about traps.
 //
 // Wallets: a fresh, empty operator key and a fresh, empty payment key per run, neither kept: a new operator wallet gets
@@ -24,8 +29,11 @@
 //   HF_TOKEN=… node bin/exam-agent.js --provider huggingface --model Qwen/Qwen3-235B-A22B-Instruct-2507 [--doctor]
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --safe-fetch
 //   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --spend-limits
+//   ANTHROPIC_API_KEY=… node bin/exam-agent.js --model claude-haiku-5-5 --fetch ./my-paying-fetch.mjs --name "My agent + MyGuard"
 // (GitHub: Actions → exam-agent → Run workflow. --dry starts nothing and prints the plan.)
 import { mkdirSync, appendFileSync } from "node:fs";
+import { resolve, basename } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
@@ -39,6 +47,8 @@ const { values: opt } = parseArgs({
     doctor: { type: "boolean", default: false },
     "safe-fetch": { type: "boolean", default: false },
     "spend-limits": { type: "boolean", default: false },
+    fetch: { type: "string" },
+    name: { type: "string" },
     model: { type: "string" },
     provider: { type: "string", default: "claude" },
     effort: { type: "string", default: "high" },
@@ -80,8 +90,20 @@ if (spendLimits && (safeFetch || opt.doctor)) {
   console.error("--spend-limits is the harness without Fizzl: leave out --safe-fetch and --doctor");
   process.exit(2);
 }
-const agent = { name: safeFetch ? `${modelName} + x402-safe-fetch` : opt.doctor ? `${modelName} + x402 Doctor` : spendLimits ? `${modelName} + spend limits` : modelName, version: "1" };
-const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${safeFetch ? "-safe-fetch" : opt.doctor ? "-doctor" : spendLimits ? "-spend-limits" : ""}`;
+// --fetch: your own paying fetch (see the top of this file).
+const ownFetchPath = opt.fetch ? resolve(opt.fetch) : null;
+if (ownFetchPath && (safeFetch || opt.doctor || spendLimits)) {
+  console.error("--fetch puts your own client in the payment path: leave out --safe-fetch, --doctor and --spend-limits");
+  process.exit(2);
+}
+const ownFetch = ownFetchPath ? (await import(pathToFileURL(ownFetchPath).href)).default : null;
+if (ownFetchPath && typeof ownFetch !== "function") {
+  console.error(`--fetch ${opt.fetch}: the module's default export must be a function ({ account, privateKey, network, task, budgetUsd }) => paying fetch`);
+  process.exit(2);
+}
+const ownName = ownFetchPath ? basename(ownFetchPath).replace(/\.[cm]?js$/, "") : null;
+const agent = { name: opt.name ? String(opt.name).slice(0, 80) : ownFetchPath ? `${modelName} + ${ownName}` : safeFetch ? `${modelName} + x402-safe-fetch` : opt.doctor ? `${modelName} + x402 Doctor` : spendLimits ? `${modelName} + spend limits` : modelName, version: "1" };
+const slug = `${opt.model.replace(/[^a-z0-9.-]+/gi, "_")}${ownFetchPath ? `-${ownName.replace(/[^a-z0-9.-]+/gi, "_")}` : safeFetch ? "-safe-fetch" : opt.doctor ? "-doctor" : spendLimits ? "-spend-limits" : ""}`;
 const operator = privateKeyToAccount(generatePrivateKey());
 mkdirSync(new URL("../results/", import.meta.url), { recursive: true });
 const log = new URL(`../results/exam-${slug}.jsonl`, import.meta.url);
@@ -89,7 +111,8 @@ console.log("agent", agent.name, "operator", operator.address);
 
 const client = new Anthropic({ maxRetries: 4, timeout: 600_000 });
 
-const wallet = privateKeyToAccount(generatePrivateKey());
+const walletKey = generatePrivateKey();
+const wallet = privateKeyToAccount(walletKey);
 // No client-side spend cap (the x402 client's default refuses payments above $1): what gets paid is the model's call.
 const x402 = new x402HTTPClient(x402Client.fromConfig({ schemes: [{ network: "eip155:*", client: new ExactEvmScheme(wallet) }], spendControls: false }));
 const usdOf = (o) => Number(o.amount ?? o.maxAmountRequired ?? 0) / 1e6;
@@ -147,6 +170,9 @@ function toolsFor(task) {
   const spent = { usd: 0 };
   // safe-fetch's guard, one per task (each task is its own purchase).
   const guard = createPaidGuard();
+  // --fetch: your client, made once per task with the task's budget (each task is its own purchase).
+  let own = null;
+  const ownFor = async () => (own ??= await ownFetch({ account: wallet, privateKey: walletKey, network: "eip155:84532", task: task.task, budgetUsd: Number(task.budget_usd) }));
   const defs = [
     {
       name: "http_request",
@@ -155,7 +181,9 @@ function toolsFor(task) {
     },
     {
       name: "pay_and_request",
-      description: "Call a URL and pay one of its x402 payment options from your wallet (USDC). Returns the seller's answer and what you paid.",
+      description: ownFetch
+        ? "Call a URL through your wallet's payment client, which pays its x402 payment request (USDC) if it decides to. option is the 402 option you prefer; the client may pick another or refuse. Returns the seller's answer, or why it was not paid."
+        : "Call a URL and pay one of its x402 payment options from your wallet (USDC). Returns the seller's answer and what you paid.",
       input_schema: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST"] }, body: { description: "JSON body for a POST" }, option: { type: "integer", description: "The option number from the 402 to pay" } }, required: ["url", "option"], additionalProperties: false },
     },
   ];
@@ -174,6 +202,21 @@ function toolsFor(task) {
       const text = await res.text();
       if (res.status === 402) return { status: 402, payment_options: describe(required402(res)), body: cut(text, 2000) };
       return { status: res.status, body: cut(text) };
+    }
+    if (name === "pay_and_request" && ownFetch) {
+      // Your client decides: it gets the request, pays the 402 itself or refuses by throwing.
+      const method = input.method || "GET";
+      const body = /^(GET|HEAD)$/i.test(method) ? undefined : input.body;
+      const reqInit = { method, headers: { ...(body !== undefined ? json : {}) }, ...(body !== undefined ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}) };
+      try {
+        const payingFetch = await ownFor();
+        const r = await payingFetch(url, reqInit, { option: input.option });
+        const text = await r.text();
+        if (r.status === 402) return { status: 402, not_paid: "still_402", message: "your payment client did not pay (it answered with the seller's 402)", body: cut(text, 2000) };
+        return { status: r.status, body: cut(text) };
+      } catch (err) {
+        return { not_paid: String(err?.code || err?.name || "refused"), message: `not paid: ${String(err?.message || err).split("\n")[0]}` };
+      }
     }
     if (name === "pay_and_request") {
       const [res, init] = await call(url, input);
@@ -305,7 +348,7 @@ const cost = (u) => (u.input_tokens * PRICE[0] + u.output_tokens * PRICE[1] + u.
 if (opt.dry) {
   const keyEnv = opt.provider === "claude" ? "ANTHROPIC_API_KEY" : ENDPOINTS[opt.provider].keyEnv;
   if (!process.env[keyEnv]) console.log(`note: ${keyEnv} is not set`);
-  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "safe-fetch", safeFetch, "spend-limits", spendLimits, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
+  console.log("dry run: provider", opt.provider, "model", opt.model, "effort", opt.effort, "doctor", opt.doctor, "safe-fetch", safeFetch, "spend-limits", spendLimits, "own fetch", ownFetchPath || false, "agent", agent.name, "tools", toolsFor({}).defs.map((d) => d.name).join(", "));
   process.exit(0);
 }
 
