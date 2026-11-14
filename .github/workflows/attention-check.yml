@@ -1,0 +1,26 @@
+# Tests of the attention-check example (no network, nothing paid).
+name: Attention check
+
+on:
+  pull_request:
+    paths: ["attention-check/**", ".github/workflows/attention-check.yml"]
+  push:
+    branches: [main]
+    paths: ["attention-check/**", ".github/workflows/attention-check.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: attention-check
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm test

@@ -1,0 +1,18 @@
+{
+  "name": "attention-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An agent pays two x402 services (Voxight coin attention, Ichimoku Signal on 4h and 1d) and combines them into one read: is the talk about a coin running with the trend or against it?",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dry-run": "node attention-check.mjs SOL --dry-run",
+    "test": "node --test attention-check.test.mjs"
+  },
+  "dependencies": {
+    "@x402/evm": "^2.27.0",
+    "@x402/fetch": "^2.27.0",
+    "viem": "^2.56.8"
+  },
+  "license": "MIT"
+}
