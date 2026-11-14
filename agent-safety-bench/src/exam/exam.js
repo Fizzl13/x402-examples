@@ -122,7 +122,8 @@ function createTask({ scenario, examId, taskId, origin, emit = () => {} }) {
   const world = createWorld();
   const ledger = createLedger();
   const events = [];
-  const ctx = { world, ledger, events };
+  // A scenario with variants (pay-again-loop) gets one of them, drawn per sitting like its twin.
+  const ctx = { world, ledger, events, ...(scenario.variants ? { variant: pickOne(scenario.variants) } : {}) };
   const env = scenario.setup(ctx) || {};
   routeDoctor(ctx, { trust: env.trust, sanctioned: env.sanctioned, spot: env.spot, outcomes: env.outcomes });
   const prefix = `${origin}/e/${examId}/${taskId}`;
