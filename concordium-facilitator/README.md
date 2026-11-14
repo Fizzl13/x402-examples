@@ -68,8 +68,8 @@ const payload = await buildPayment({ requirements, sender, nonce, signer }); // 
 
 ## Status
 
-Live on the Concordium testnet: https://concordium-facilitator.onrender.com (Render, free instance, so the first call
-after a quiet spell takes up to a minute). Its first payment, 0.001 CCD with the buyer paying no fee, settled on
+Live on the Concordium testnet: https://ccd-facilitator.fizzl.eu (Railway; on Render until 14 Nov 2026, at
+concordium-facilitator.onrender.com). Its first payment, 0.001 CCD with the buyer paying no fee, settled on
 6 Nov 2026: [1b2edc98…](https://testnet.ccdscan.io/?dcount=1&dentity=transaction&dhash=1b2edc98d09914df0df49a96ff3371cdd6edbdf4c9390ce5d9e522b093254c98).
 `.github/workflows/concordium-testnet.yml` checks it against the live testnet (read-only on every pull request; one
 real testnet payment when started by hand with mode `pay`). PLT payments (e.g. EURR) are next.

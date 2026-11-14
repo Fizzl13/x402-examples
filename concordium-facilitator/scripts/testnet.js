@@ -117,7 +117,7 @@ async function purchase(url, { proof = null, probe = false } = {}) {
 async function buy() {
   const missing = ['BUYER_ADDRESS', 'BUYER_KEY'].filter((k) => !process.env[k]?.trim());
   if (missing.length) return fail(`set ${missing.join(', ')} (repository secrets)`);
-  const url = process.env.DEMO_URL?.trim() || 'https://concordium-facilitator.onrender.com/demo/paid';
+  const url = process.env.DEMO_URL?.trim() || 'https://ccd-facilitator.fizzl.eu/demo/paid';
   const { req, status, body } = await purchase(url);
   ok(`402: ${req.amount} ${req.asset} to ${req.payTo.slice(0, 8)}…, fee payer ${req.extra?.feePayer?.slice(0, 8)}…`);
   if (status !== 200) return fail(`paid request: ${status} ${body.error ?? ''}`);

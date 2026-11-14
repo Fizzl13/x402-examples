@@ -1,7 +1,7 @@
 {
   "name": "Fizzl x402 facilitator demo seller (Concordium testnet)",
   "description": "A paid demo endpoint on Concordium testnet, settled by Fizzl's x402 facilitator for Concordium. The facilitator checks this agent in the Agent Registry before it sponsors a payment.",
-  "url": "https://concordium-facilitator.onrender.com/.well-known/agent-card.json",
+  "url": "https://ccd-facilitator.fizzl.eu/.well-known/agent-card.json",
   "version": "1.0.0",
   "defaultInputModes": [
     "text/markdown",

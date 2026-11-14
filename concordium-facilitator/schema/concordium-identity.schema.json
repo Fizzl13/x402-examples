@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://concordium-facilitator.onrender.com/schema/concordium-identity.json",
+  "$id": "https://ccd-facilitator.fizzl.eu/schema/concordium-identity.json",
   "title": "concordium-identity",
   "description": "What Concordium says about the seller of an x402 payment: the payTo account's identity credential and, when the paid endpoint's Agent Card shows a Concordium badge, that agent in the Agent Registry (CIS-8004); and, when the seller serves one, a zero-knowledge proof about the person behind its payTo. Carried in x402 /verify and /settle answers as extensions[\"concordium-identity\"] and returned by GET /identity. Read-only facts, never a score.",
   "type": "object",
