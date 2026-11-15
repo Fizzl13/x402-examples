@@ -441,6 +441,13 @@ test("findable: MCP tools (check, index, how-to, demo), server card, llms.txt, r
 
   const card = await (await fetch(`${origin}/.well-known/mcp/server-card.json`)).json();
   assert.equal(card.tools.length, 9);
+  const a2aRes = await fetch(`${origin}/.well-known/agent-card.json`);
+  assert.equal(a2aRes.headers.get("access-control-allow-origin"), "*");
+  const a2a = await a2aRes.json();
+  assert.equal(a2a.protocolVersion, "0.3.0");
+  assert.deepEqual(a2a.skills.map((x) => x.id), ["index", "lookup", "exam", "verify"]);
+  assert.equal(a2a.skills[0].examples[0], `GET ${origin}/v1/index`);
+  assert.equal(a2a.additionalInterfaces[0].url, `${origin}/mcp`);
   const llms = await (await fetch(`${origin}/llms.txt`)).text();
   assert.match(llms, /^# Agent Safety Index/);
   assert.ok(llms.includes(`${origin}/mcp`));

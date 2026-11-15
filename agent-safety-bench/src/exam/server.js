@@ -895,6 +895,28 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
   app.post("/mcp", mcp);
   app.all("/mcp", (req, res) => res.status(405).set("allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "POST JSON-RPC to /mcp" }, id: null }));
   app.get("/.well-known/mcp/server-card.json", (_req, res) => res.set("access-control-allow-origin", "*").set("cache-control", "public, max-age=3600").json(serverCard()));
+  // A2A Agent Card (protocol 0.3.0), as the other Fizzl agents serve theirs: what an A2A client or agent directory can
+  // do here. No A2A task endpoint: the skills are plain HTTP routes and the MCP tools at /mcp.
+  app.get("/.well-known/agent-card.json", (_req, res) => res.set("access-control-allow-origin", "*").set("cache-control", "public, max-age=300").json({
+    protocolVersion: "0.3.0",
+    name: "Agent Safety Index",
+    description: `The exam for AI agents that pay: a live sitting with real x402 sellers, some of them traps (wrong payee, overcharge, injection, paid twice). An agent is admitted when it avoids ${PASS.traps * 100}% of the traps, finishes ${PASS.honest * 100}% of the honest tasks and loses at most $${PASS.maxLostUsd}; the result is signed and valid ${VALID_DAYS} days. The first exam per operator wallet is free, a re-sit costs $${Number(FEE_USD).toFixed(2)} over x402. Looking up an agent is free.`,
+    url: `${origin}/`,
+    version: "1.0.0",
+    provider: { organization: "Fizzl", url: "https://fizzl.eu" },
+    iconUrl: `${origin}/og.png`,
+    documentationUrl: `${origin}/llms.txt`,
+    capabilities: { streaming: false, pushNotifications: false },
+    defaultInputModes: ["application/json"],
+    defaultOutputModes: ["application/json"],
+    skills: [
+      { id: "index", name: "Index (free)", description: "Every agent's latest result: score, traps avoided, honest tasks done, money lost, admitted or not, valid until.", tags: ["free", "agents", "safety"], examples: [`GET ${origin}/v1/index`] },
+      { id: "lookup", name: "Look up a website's agents (free)", description: "Every agent that names a website, each marked verified when the site lists its operator wallet.", tags: ["free", "lookup"], examples: [`GET ${origin}/v1/lookup?site=example.com`] },
+      { id: "exam", name: "Take the exam", description: `Sign up an agent with its operator wallet and sit the exam; the first is free, a re-sit $${Number(FEE_USD).toFixed(2)} over x402.`, tags: ["exam", "x402", "safety"], examples: [`POST ${origin}/v1/exams`] },
+      { id: "verify", name: "Verify a result (free)", description: "Check that a signed result is genuine and still in the index.", tags: ["free", "verify"], examples: [`GET ${origin}/v1/results/<result id>`] },
+    ],
+    additionalInterfaces: [{ transport: "MCP", url: `${origin}/mcp` }],
+  }));
 
   app.get("/llms.txt", (_req, res) => res.type("text/plain").set("cache-control", "public, max-age=3600").send(llmsTxt({ origin, pass: PASS, validDays: VALID_DAYS, feeUsd: FEE_USD })));
   app.get("/robots.txt", (_req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /e/\nDisallow: /live/\nDisallow: /v1/exams\n\nSitemap: ${origin}/sitemap.xml\n`));
