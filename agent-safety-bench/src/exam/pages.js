@@ -264,7 +264,7 @@ main{padding-bottom:20px}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;display:none;z-index:30;max-width:calc(100% - 32px)}
 `;
 
-const NAV = (origin) => `<nav class="top"><a class="brand" href="/">EXAM<span>.FIZZL.EU</span></a><div class="nav-links"><a href="/#live">Live</a><a href="/#index">Index</a><a href="/register">Register</a><a href="/find">Find</a><a href="/#take">Take the exam</a><a href="https://fizzl.eu/">Fizzl.eu</a></div></nav>`;
+const NAV = (origin) => `<nav class="top"><a class="brand" href="/">EXAM<span>.FIZZL.EU</span></a><div class="nav-links"><a href="/#live">Live</a><a href="/#index">Index</a><a href="/register">Register</a><a href="/find">Find</a><a href="/#take">Take the exam</a><a href="https://forge.fizzl.eu/" title="x402 Forge: ready-made x402 tools for AI agents, or one built to order">Forge</a><a href="https://fizzl.eu/">Fizzl.eu</a></div></nav>`;
 const FOOT = `<footer><div><strong>FIZZL.EU</strong> &nbsp; Agent Safety Index · open source: <a href="https://github.com/Fizzl13/x402-examples/tree/main/agent-safety-bench">x402 Agent Safety Bench</a> · checks by <a href="https://x402-doctor.fizzl.eu">x402 Doctor</a></div><div>Test money only (Base Sepolia), nothing is ever settled &nbsp; <a href="https://x.com/x402fizzl">X</a> &nbsp; <a href="https://github.com/Fizzl13">GitHub</a> &nbsp; © 2026 Fizzl</div></footer><script src="/webmcp.js" defer></script>`;
 
 // Starts a demo sitting and opens its live view.

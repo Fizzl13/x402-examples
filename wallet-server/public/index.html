@@ -483,6 +483,9 @@ dialog.receipt::backdrop { background: rgba(2,7,8,.72); backdrop-filter: blur(4p
 .login .err:empty { display: none; } /* no empty error lines taking room on the sign-in card */
 .demo-banner { border-bottom: 1px solid var(--line); background: rgba(97,245,195,.08); color: var(--mint); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; padding-block: 10px; }
 .demo-banner a { text-decoration: underline; }
+.outlink { color: var(--soft); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; white-space: nowrap; }
+.outlink:hover { color: var(--mint); }
+@media (max-width: 600px) { .outlink { letter-spacing: 1px; } .who:not([hidden]) ~ .outlink { display: none; } }
 .footbuy { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; text-transform: none; letter-spacing: 0; }
 .footbuy .note { font-size: 12px; }
 @keyframes flash { 0%, 100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px var(--mint); } }
@@ -623,6 +626,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
   <div style="display:flex;gap:12px;align-items:center">
     <span class="who" id="who" hidden></span>
     <span class="live" id="live"><i></i><span id="liveText">connecting</span></span>
+    <a class="outlink" href="https://forge.fizzl.eu/" title="x402 Forge: ready-made x402 tools for AI agents, or one built to order" target="_blank" rel="noopener noreferrer">Forge ↗</a>
     <button class="button primary small" id="addAgentTop" type="button" hidden aria-label="Add agent">+ <span class="long">Add agent</span><span class="short">Agent</span></button>
     <button class="button ghost small" id="logout" hidden>Log out</button>
   </div>
