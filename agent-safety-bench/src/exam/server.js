@@ -11,6 +11,8 @@
 //   GET  /live/:watch, /v1/watch/:watch(/stream)           a sitting followed live (its watch link, never the exam id)
 //   GET  /r/:id, /v1/replay/:id                            a finished result, and its sitting replayed
 //   GET  /v1/live, POST /v1/demo                           sittings under way; a scripted demo agent to watch
+//   GET  /v1/results/:id/erc8004/message, POST /v1/results/:id/erc8004  a result as feedback on the operator's own
+//                                                          ERC-8004 agent (src/exam/erc8004.js; needs EXAM_ATTEST_KEY)
 //
 // Limits: one free exam per operator wallet, ever; at most 3 free exams per IP per day; at most 5 exams per wallet per
 // day. A result expires after 30 days (or with a new agent version): admission must be renewed.
@@ -39,6 +41,7 @@ import { withdrawnReason } from "./withdrawn.js";
 import { EXAM_COUNTS, EXAM_SCENARIOS } from "./catalog.js";
 import { randomBytes } from "node:crypto";
 import { BASE } from "../x402-seller.js";
+import { CHAINS, DAILY_LIMIT as ATTEST_DAILY_LIMIT, agentControl, createAttester, createChains, feedbackFile, hashOf, isOperatorOf, parseTarget, publishMessage } from "./erc8004.js";
 
 const DAY = 86400;
 export const VALID_DAYS = 30;
@@ -131,7 +134,7 @@ export const SECURITY_HEADERS = {
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
 };
 
-export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), bazaarCheck = createBazaarCheck({ now }), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY, sellerBench = null } = {}) {
+export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://exam.fizzl.eu", store = memoryStore(), facilitator = createFacilitator(), signingKey = process.env.EXAM_SIGNING_KEY, now = () => Date.now(), log = console, demoPace = DEMO_PACE_MS, usage = noUsage, siteCheck = createSiteVerifier(), bazaarCheck = createBazaarCheck({ now }), proxyHops = trustProxyHops(), twins = TWINS, signerCert = process.env.EXAM_SIGNER_CERT, certAuthority = AUTHORITY, sellerBench = null, chains = createChains(), attester = createAttester({ key: process.env.EXAM_ATTEST_KEY, chains, log }) } = {}) {
   if (BASE !== "eip155:84532") throw new Error("the exam runs on Base Sepolia only: start it with X402_BENCH_NETWORK=base-sepolia");
   const signer = signerFrom(signingKey, log);
   // The payout wallet's certificate for this signer (src/exam/cert.js), or null.
@@ -650,6 +653,87 @@ export function createExamServer({ origin = process.env.EXAM_ORIGIN || "https://
     if (!ok) return res.status(401).json({ error: "sign this message with the agent's operator wallet and send it as signature", message });
     await store.set(`website:${req.params.key}`, { key: req.params.key, url, at: new Date(now()).toISOString() });
     res.json({ agent_key: req.params.key, website: url, register: `${origin}/register`, note: url ? "shown as named by the operator; vouched for once the site's /.well-known/agent-safety.json lists the operator wallet" : "taken away" });
+  });
+
+  // A result on the agent's ERC-8004 record (src/exam/erc8004.js): the operator wallet of the result signs
+  // publishMessage, the agent must be that wallet's on chain (owner or agent wallet), and the exam's attester wallet
+  // gives the feedback in the ERC-8004 Reputation Registry. Once per result and agent; at most ATTEST_DAILY_LIMIT a day.
+  const resultFor = async (id) => {
+    const r = /^[0-9a-f]{24}$/.test(id) ? await store.get(`result:${id}`) : null;
+    return r && !r.reference && r.operator && !withdrawnReason(r.id) ? r : null;
+  };
+  app.get("/v1/results/:id/erc8004/message", async (req, res) => {
+    res.set("access-control-allow-origin", "*");
+    const r = await resultFor(req.params.id);
+    if (!r) return res.status(404).json({ error: "no result with that id (an operator's own exam, not withdrawn)" });
+    const t = parseTarget(req.query);
+    if (t.error) return res.status(t.status).json({ error: t.error });
+    const operator = getAddress(r.operator);
+    res.json({
+      message: publishMessage({ resultId: r.id, chainId: t.chainId, agentId: t.agentId, operator, date: today(now()) }),
+      sign_with: `personal_sign (EIP-191) by the operator wallet ${operator}, which must own the agent (or be its agent wallet) on ${CHAINS[t.chainId].name}`,
+      then: `POST ${origin}/v1/results/${r.id}/erc8004 with {"chain": ${t.chainId}, "agent": "${t.agentId}", "signature"}`,
+      attester: attester.off ? null : attester.address,
+    });
+  });
+  app.post("/v1/results/:id/erc8004", async (req, res) => {
+    res.set("access-control-allow-origin", "*");
+    if (attester.off) return res.status(503).json({ error: "putting results on ERC-8004 isn't turned on on this server yet" });
+    if (await lookupLimited(req)) return res.status(429).json({ error: `at most ${LIMITS.lookupsPerIpPerHour} requests per hour` });
+    const r = await resultFor(req.params.id);
+    if (!r) return res.status(404).json({ error: "no result with that id (an operator's own exam, not withdrawn)" });
+    const b = req.body || {};
+    const t = parseTarget(b);
+    if (t.error) return res.status(t.status).json({ error: t.error });
+    if (Date.parse(r.finished_at) < now() - VALID_DAYS * DAY * 1000) return res.status(409).json({ error: `this result is older than ${VALID_DAYS} days: sit the exam again and put the new result on the agent` });
+    const operator = getAddress(r.operator);
+    const message = publishMessage({ resultId: r.id, chainId: t.chainId, agentId: t.agentId, operator, date: today(now()) });
+    const signed = typeof b.signature === "string" && (await verifyMessage({ address: operator, message, signature: b.signature }).catch(() => false));
+    if (!signed) return res.status(401).json({ error: "sign this message with the result's operator wallet and send it as signature", message });
+    const key = `erc8004:${r.id}:${t.chainId}:${t.agentId}`;
+    const before = await store.get(key);
+    if (before?.tx) return res.json(publication(r, t, before));
+    let control;
+    try { control = await agentControl(chains(t.chainId), t.agentId); } catch {
+      return res.status(404).json({ error: `no ERC-8004 agent ${t.agentId} on ${CHAINS[t.chainId].name} (or the chain could not be read)` });
+    }
+    if (!isOperatorOf(operator, control)) {
+      usage.record("erc8004", { req, operator, status: 403, input: { chain: t.chainId } });
+      return res.status(403).json({ error: `agent ${t.agentId} is not the operator wallet's: its owner is ${control.owner}${control.agentWallet ? ` and its agent wallet ${control.agentWallet}` : ""}, the result's operator ${operator}` });
+    }
+    if (control.owner === attester.address.toLowerCase()) return res.status(409).json({ error: "the exam's attester owns this agent; it can't give itself feedback" });
+    if ((await store.incr(`erc8004-day:${today(now())}`, DAY)) > ATTEST_DAILY_LIMIT) return res.status(429).json({ error: `at most ${ATTEST_DAILY_LIMIT} results go on chain a day; try again tomorrow` });
+    if (!(await store.setOnce(`${key}:sending`, { at: new Date(now()).toISOString() })) && !before?.failed) return res.status(409).json({ error: "this result is being put on that agent already; ask again in a minute" });
+    const createdAt = new Date(now()).toISOString();
+    const file = feedbackFile({ result: r, chainId: t.chainId, agentId: t.agentId, attester: attester.address, origin, createdAt });
+    const fileUrl = `${origin}/v1/results/${r.id}/erc8004/${t.chainId}/${t.agentId}.json`;
+    await store.set(key, { file, at: createdAt, sending: true });
+    try {
+      const out = await attester.give({ chainId: t.chainId, agentId: t.agentId, value: r.score, tag2: r.admitted ? "admitted" : "notAdmitted", endpoint: `${origin}/r/${r.id}`, feedbackURI: fileUrl, feedbackHash: hashOf(file) });
+      const done = { file, at: createdAt, tx: out.tx, feedback_index: out.feedbackIndex, attester: attester.address };
+      await store.set(key, done);
+      usage.record("erc8004", { req, operator, status: 200, input: { chain: t.chainId }, result: { score: r.score, admitted: r.admitted } });
+      log.info?.(`[exam] ${r.id} on ERC-8004 agent ${t.chainId}:${t.agentId}: ${out.tx}`);
+      res.json(publication(r, t, done));
+    } catch (err) {
+      await store.set(key, { file, at: createdAt, failed: String(err?.shortMessage || err?.message || err).slice(0, 200) });
+      log.error?.(`[exam] ${r.id} on ERC-8004 agent ${t.chainId}:${t.agentId} failed: ${err?.shortMessage || err?.message}`);
+      res.status(502).json({ error: `the feedback was not given: ${String(err?.shortMessage || err?.message || err).slice(0, 200)}` });
+    }
+  });
+  function publication(r, t, p) {
+    return {
+      result: r.id, chain: t.chainId, agent: t.agentId, score: r.score, admitted: r.admitted, attester: p.attester ?? attester.address,
+      transaction: p.tx, explorer: `${CHAINS[t.chainId].explorer}${p.tx}`, feedback_index: p.feedback_index ?? null,
+      feedback_uri: `${origin}/v1/results/${r.id}/erc8004/${t.chainId}/${t.agentId}.json`, feedback_hash: hashOf(p.file),
+      agent_page: `https://8004scan.io/agents/${CHAINS[t.chainId].name.toLowerCase()}/${t.agentId}`,
+    };
+  }
+  // The feedback file, byte for byte as hashed on chain.
+  app.get(/^\/v1\/results\/([0-9a-f]{24})\/erc8004\/(\d+)\/(\d{1,30})\.json$/, async (req, res) => {
+    const p = await store.get(`erc8004:${req.params[0]}:${req.params[1]}:${req.params[2]}`);
+    if (!p?.tx) return res.status(404).json({ error: "no such feedback" });
+    res.set("access-control-allow-origin", "*").set("cache-control", "public, max-age=86400").type("application/json").send(p.file);
   });
 
   app.get("/v1/register", async (req, res) => {
