@@ -1,6 +1,6 @@
 # presign-guard-wallet
 
-A [viem](https://viem.sh) wallet for AI agents that asks [presign-guard](https://presign-guard.fizzl.eu) before it signs. Solana signers too: see [Solana](#solana-usdc).
+A [viem](https://viem.sh) wallet for AI agents that asks [presign-guard](https://presign-guard.fizzl.eu) before it signs. [Tether WDK](#tether-wdk-accounts) accounts and Solana signers too: see [Solana](#solana-usdc).
 
 Before every `sendTransaction`, `writeContract`, `signTypedData` and `signAuthorization` (EIP-7702), the wallet pays **$0.01** (x402, USDC on Base) for a verdict on exactly what is about to be signed, and acts on it:
 
@@ -361,6 +361,38 @@ The check itself is paid through `pay`, which can pay it in USDC on Solana too (
 const sol = guarded.solanaSigner(keypair, { any: true });
 // limits: { tokens: { USDC: { perDay: "5" }, SOL: { perTx: "0.1", perDay: "0.5" } } }
 ```
+
+## Tether WDK accounts
+
+`guardWdkAccount` puts the same guard in front of a [Tether WDK](https://docs.wdk.tether.io) EVM account (`@tetherto/wdk-wallet-evm`). Your agent keeps calling the WDK methods it knows; each one that signs is checked by presign-guard first, counts toward your limits, and stops on red:
+
+| WDK method | Checked as |
+|---|---|
+| `transfer({ token, recipient, amount })` | the ERC-20 `transfer` it sends |
+| `approve({ token, spender, amount })` | the ERC-20 `approve` it sends (an unlimited approve to a plain wallet is red) |
+| `sendTransaction(tx)`, `signTransaction(tx)` | the transaction, simulated from the account; EIP-7702 authorizations in `authorizationList` too |
+| `signTypedData({ domain, types, message })` | the signature, with the one top-level type WDK will sign (two top-level types: refused) |
+| `sign(message)` | the message (unless `checkMessages: false`) |
+| `signAuthorization(auth)`, `delegate(address)` | an EIP-7702 authorization, signed for exactly the contract and chain checked |
+
+Balances, quotes and every other read go straight to the account. A transaction that is already signed (a raw hex string for `sendTransaction`) is refused, because it can't be checked before it was signed.
+
+```js
+import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
+import { guardWdkAccount } from "presign-guard-wallet";
+
+const wallet = new WalletManagerEvm(process.env.SEED_PHRASE, { provider: "https://rpc.xlayer.tech" });
+const account = guardWdkAccount(await wallet.getAccount(0), {
+  chainId: 196, // X Layer; 8453 for Base, 1 for Ethereum, …
+  pay, // or creditKey
+  limits: { tokens: { "196:0x779Ded0c9e1022225f8E0630b35a9b54bE713736": { perTx: "5", perDay: "20", decimals: 6 } } }, // USD₮0
+});
+
+await account.transfer({ token: "0x779Ded0c9e1022225f8E0630b35a9b54bE713736", recipient: shop, amount: 2_000_000n });
+// red → PresignBlockedError, nothing signed; over 5 USD₮0 → over_limit
+```
+
+Already guarding a viem wallet? `guarded.wdkAccount(account, { chainId })` gives the WDK account the same checks, pause and budget. To pay x402 APIs with the guarded account, hand it to `wdkEvmSigner` from `x402-safe-fetch/wdk`: the payment's EIP-3009 signature is checked like any other `signTypedData`.
 
 ## MPP sessions on Tempo
 

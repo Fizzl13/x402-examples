@@ -75,7 +75,7 @@ export { memoryStore };
 
 export const PRESIGN_URL = "https://presign-guard.fizzl.eu";
 export const PRESIGN_SIGNERS = ["0xf084Ea47Ca4D99BB4De3ECB0332b316bE6521EaE"];
-export const SUPPORTED_CHAINS = [1, 10, 56, 137, 8453, 42161, 4663, 43114];
+export const SUPPORTED_CHAINS = [1, 10, 56, 137, 143, 196, 8453, 42161, 4663, 43114];
 // Tempo: the stablecoins the wallet may send there (the ones the USDC limit covers).
 export const TEMPO_TOKENS = {
   4217: ["0x20c000000000000000000000b9537d11c60e8b50"],
@@ -89,6 +89,35 @@ const ESCROW_ABI = parseAbi([
   "function topUp((address payer, address payee, address operator, address token, bytes32 salt, address authorizedSigner, bytes32 expiringNonceHash) descriptor, uint96 additionalDeposit)",
 ]);
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount)"]);
+const APPROVE_ABI = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
+
+// Tether WDK (@tetherto/wdk-wallet-evm). Its EVM account signs EIP-712 with ethers, which works out the primary type
+// itself: the one struct type no other type refers to.
+function wdkRootTypes(types) {
+  const used = new Set();
+  for (const fields of Object.values(types)) for (const f of fields ?? []) used.add(String(f?.type ?? "").replace(/\[\d*\]/g, ""));
+  return Object.keys(types).filter((n) => !used.has(n));
+}
+// A signed authorization as ethers gives it ({ address, chainId, nonce, signature: { r, s, yParity } }), as viem has it.
+function viemAuthorization(a) {
+  const sig = a?.signature ?? a;
+  return {
+    address: a?.address,
+    ...(a?.chainId !== undefined && a?.chainId !== null && { chainId: Number(a.chainId) }),
+    ...(a?.nonce !== undefined && a?.nonce !== null && { nonce: Number(a.nonce) }),
+    r: sig?.r, s: sig?.s, yParity: sig?.yParity,
+  };
+}
+// A WDK transaction ({ to, value, data, chainId?, authorizationList?, gas fields }) as viem's sendTransaction takes it.
+function wdkTransaction(tx) {
+  if (typeof tx === "string") throw new PresignBlockedError("a transaction that is already signed can't be checked before signing: pass the transaction itself; nothing was sent", { code: "check_failed" });
+  if (!tx || typeof tx !== "object") throw new TypeError("a WDK transaction is an object { to, value, data }");
+  return {
+    to: tx.to ?? undefined, data: tx.data ?? "0x", value: BigInt(tx.value ?? 0),
+    ...(tx.chainId !== undefined && tx.chainId !== null && { chain: { id: Number(tx.chainId) } }),
+    ...(Array.isArray(tx.authorizationList) && tx.authorizationList.length && { authorizationList: tx.authorizationList.map(viemAuthorization) }),
+  };
+}
 const VOUCHER_DOMAIN = "TIP20 Channel Reserve";
 export const XRPL_NETWORKS = ["xrpl:0", "xrpl:1"];
 export const VERSION = "0.23.0";
@@ -715,6 +744,18 @@ export function guardWallet(wallet, {
       if (!ALGORAND_USDC[network]) throw new TypeError(`algorandSigner: network must be one of ${Object.keys(ALGORAND_USDC).join(", ")}`);
       return { address: signer.address, signTransactions: (txns, indexesToSign) => algorandSign(signer, network, txns, indexesToSign, any === true) };
     },
+    /**
+     * The same guard on a Tether WDK EVM account (@tetherto/wdk-wallet-evm WalletAccountEvm) on chain chainId:
+     * transfer, approve, sendTransaction, signTransaction, signTypedData, sign, signAuthorization and delegate are
+     * each checked by presign-guard first and count toward the limits like the viem calls they match; red is never
+     * signed. Every other method (balances, quotes, getAddress) is the account's own. The returned account also has
+     * pause, resume, paused, spending and withPurchase.
+     */
+    wdkAccount: (account, { chainId } = {}) => {
+      if (!account || typeof account.getAddress !== "function" || typeof account.signTypedData !== "function") throw new TypeError("wdkAccount(account): needs a Tether WDK EVM account (WalletAccountEvm from @tetherto/wdk-wallet-evm)");
+      if (!Number.isInteger(chainId) || chainId <= 0) throw new TypeError("wdkAccount(account, { chainId }): chainId is the chain the account is on, e.g. 8453 for Base");
+      return wdkProxy(account, chainId);
+    },
     /** Stop every checked method until resume(). */
     pause: () => { paused = true; },
     resume: () => { paused = false; },
@@ -759,6 +800,53 @@ export function guardWallet(wallet, {
     },
   };
 
+  // A WDK account behind the guard: each signing method is checked as the viem call it matches (guarded), then the
+  // account itself signs exactly what was checked. Calls go to the account itself, so its own inner calls (approve
+  // sends through sendTransaction) are not checked twice.
+  function wdkProxy(account, chainId) {
+    let address = null;
+    const target = async () => {
+      if (address === null) {
+        const a = String(await account.getAddress());
+        if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new TypeError(`the WDK account gave no EVM address (${a.slice(0, 60)})`);
+        address = a;
+      }
+      return { chain: { id: chainId }, account: { address } };
+    };
+    const call = async (method, args, run) => guarded(await target(), method, (checked) => run(checked), args, []);
+    const amount = (v) => {
+      try { return BigInt(v); } catch { throw new TypeError(`amount must be a whole number of base units (got ${String(v).slice(0, 40)})`); }
+    };
+    const withAuthorizations = (o) => (Array.isArray(o?.authorizationList) && o.authorizationList.length ? { authorizationList: o.authorizationList.map(viemAuthorization) } : {});
+    const methods = {
+      sendTransaction: (tx) => call("sendTransaction", wdkTransaction(tx), () => account.sendTransaction(tx)),
+      signTransaction: (tx) => call("signTransaction", wdkTransaction(tx), () => account.signTransaction(tx)),
+      transfer: (o) => call("writeContract", { address: o?.token, abi: TRANSFER_ABI, functionName: "transfer", args: [o?.recipient, amount(o?.amount)], ...withAuthorizations(o) }, () => account.transfer(o)),
+      approve: (o) => call("writeContract", { address: o?.token, abi: APPROVE_ABI, functionName: "approve", args: [o?.spender, amount(o?.amount)] }, () => account.approve(o)),
+      signTypedData: async (typedData) => {
+        const { EIP712Domain: _domainType, ...types } = typedData?.types ?? {};
+        const roots = wdkRootTypes(types);
+        if (roots.length !== 1) throw new PresignBlockedError(`typed data with ${roots.length ? `several top-level types (${roots.join(", ")})` : "no top-level type"}: WDK would pick one itself, so it is not checked or signed`, { code: "check_failed" });
+        return call("signTypedData", { domain: typedData.domain, types, primaryType: roots[0], message: typedData.message }, () => account.signTypedData({ ...typedData, types }));
+      },
+      sign: (message) => (checkMessages
+        ? call("signMessage", { message: typeof message === "string" ? message : { raw: message } }, () => account.sign(message))
+        : account.sign(message)),
+      // Signed for exactly the contract and chain id checked (a chain id of 0 only when asked for explicitly).
+      signAuthorization: (auth) => call("signAuthorization", { contractAddress: auth?.address, ...(auth?.chainId !== undefined && auth?.chainId !== null && { chainId: Number(auth.chainId) }), ...(auth?.nonce !== undefined && auth?.nonce !== null && { nonce: auth.nonce }) },
+        (checked) => account.signAuthorization({ ...auth, address: checked.address, chainId: checked.chainId })),
+      delegate: (delegateAddress) => call("signAuthorization", { contractAddress: delegateAddress }, () => account.delegate(delegateAddress)),
+    };
+    return new Proxy(account, {
+      get(t, prop) {
+        if (Object.hasOwn(methods, prop) && typeof t[prop] === "function") return async (...args) => methods[prop](...args);
+        if (Object.hasOwn(extras, prop) && !(prop in t) && ["pause", "resume", "paused", "spending", "withPurchase"].includes(prop)) return extras[prop];
+        const value = Reflect.get(t, prop, t);
+        return typeof value === "function" ? value.bind(t) : value;
+      },
+    });
+  }
+
   const proxyFor = (w) => new Proxy(w, {
     get(target, prop, receiver) {
       if (Object.hasOwn(extras, prop) && !(prop in target)) return extras[prop];
@@ -768,4 +856,12 @@ export function guardWallet(wallet, {
     },
   });
   return proxyFor(wallet);
+}
+
+/**
+ * A Tether WDK EVM account (@tetherto/wdk-wallet-evm) that asks presign-guard before it signs: the same options as
+ * guardWallet, plus chainId, the chain the account is on. Same as guardWallet(..., options).wdkAccount(account, { chainId }).
+ */
+export function guardWdkAccount(account, { chainId, ...options } = {}) {
+  return guardWallet({ chain: { id: chainId } }, options).wdkAccount(account, { chainId });
 }
