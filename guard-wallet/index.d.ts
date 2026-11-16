@@ -179,7 +179,22 @@ export interface GuardControls {
   solanaSigner<S extends { address: string; signTransactions(txs: readonly { messageBytes: Uint8Array }[], config?: unknown): Promise<readonly Record<string, Uint8Array>[]> }>(signer: S, opts?: { network?: string; any?: boolean }): Pick<S, "address" | "signTransactions">;
   /** The same guard (checks, limits, pause, purchases) on another WalletClient, e.g. one for Tempo: both spend from one budget. */
   wrap<W extends object>(wallet: W): W & GuardControls;
+  /**
+   * The same guard on a Tether WDK EVM account (@tetherto/wdk-wallet-evm) on chain chainId: transfer, approve,
+   * sendTransaction, signTransaction, signTypedData, sign, signAuthorization and delegate are checked by presign-guard
+   * first and count toward the limits; red is never signed. A signed raw transaction is refused.
+   */
+  wdkAccount<A extends WdkEvmAccount>(account: A, opts: { chainId: number }): A & WdkGuardControls;
 }
+
+/** What the guard needs from a Tether WDK EVM account (WalletAccountEvm). Methods it doesn't have are not added. */
+export interface WdkEvmAccount {
+  getAddress(): Promise<string>;
+  signTypedData(typedData: { domain: Record<string, unknown>; types: Record<string, unknown>; message: Record<string, unknown> }): Promise<string>;
+  [method: string]: unknown;
+}
+/** pause, resume, paused, spending and withPurchase, as on the guarded viem wallet. */
+export type WdkGuardControls = Pick<GuardControls, "pause" | "resume" | "paused" | "spending" | "withPurchase">;
 
 export interface GuardOptions {
   /** A fetch that pays x402, e.g. wrapFetchWithPayment(fetch, client) with spend controls. Each check costs $0.01. Optional when creditKey is set. */
@@ -224,6 +239,11 @@ export interface GuardOptions {
  * sendCalls and sendCallsSync (every call), deployContract (its value counts toward the limits).
  */
 export declare function guardWallet<W extends WalletClient>(wallet: W, options: GuardOptions): W & GuardControls;
+/**
+ * A Tether WDK EVM account (@tetherto/wdk-wallet-evm) that asks presign-guard before it signs: guardWallet's options
+ * plus chainId, the chain the account is on (8453 Base, 196 X Layer, 1 Ethereum, …).
+ */
+export declare function guardWdkAccount<A extends WdkEvmAccount>(account: A, options: GuardOptions & { chainId: number }): A & WdkGuardControls;
 export declare function checkRequestFor(method: string, args: unknown, options?: { chainId?: number; origin?: string; x402?: Record<string, unknown>; from?: string }): CheckRequest | null;
 /**
  * Wrap an x402 client scheme so the payment requirements it pays go along with the presign-guard check of its
