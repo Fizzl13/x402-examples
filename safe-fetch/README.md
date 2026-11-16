@@ -82,6 +82,28 @@ const safeFetch = createSafeFetch({
 // facilitator (PayAI) pays the gas.
 ```
 
+### A Tether WDK wallet
+
+Since 0.20.14 an agent whose keys live in [Tether's Wallet Development Kit](https://docs.wdk.tether.io) pays through safe-fetch too: the endpoint is checked first (preflight, budget, sites, payees), and only then does WDK sign. `wdkEvmSigner` turns a WDK EVM account (`@tetherto/wdk-wallet-evm`) into the signer `ExactEvmScheme` takes; the key never leaves WDK.
+
+```js
+import { createSafeFetch } from "x402-safe-fetch";
+import { wdkEvmSigner } from "x402-safe-fetch/wdk";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
+import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
+
+const wallet = new WalletManagerEvm(process.env.SEED_PHRASE); // or the account your WDK app already has
+const account = await wallet.getAccount(0);                     // a WalletAccountEvm with a few dollars of USDC
+const signer = await wdkEvmSigner(account);
+
+const safeFetch = createSafeFetch({
+  register: (client) => client.register("eip155:8453", new ExactEvmScheme(signer)),
+  maxUsd: 0.05,
+});
+```
+
+WDK signs EIP-712 with ethers, which picks the type to sign by itself and refuses an `EIP712Domain` entry. `wdkEvmSigner` drops that entry and refuses to sign when the type ethers would sign is not the one x402 asked for. Checked with `@tetherto/wdk-wallet-evm` 1.0.0-beta.26: for the same key, WDK's signature on an x402 USDC authorization is byte-for-byte viem's. X Layer works the same way (`network: "xlayer"`, `eip155:196`).
+
 ### Escrowed payments (auth-capture)
 
 Some sellers on Base take payment through Coinbase's escrow instead of a direct transfer: the x402 scheme
