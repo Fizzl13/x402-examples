@@ -61,6 +61,8 @@ const UNCERTAIN = new Set(["settled_no_answer", "outcome_unknown"]); // paid wit
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const unb64 = (s) => { try { return JSON.parse(Buffer.from(String(s), "base64").toString("utf8")); } catch { return null; } };
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+// Two EVM addresses are the same account whatever their letter case (a payTo may come in lower case).
+export const sameEvm = (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
 // A GET carries no body, so an agent's input for a GET (an object, or a JSON object as a string, often a pick's
 // example) goes into the URL's query instead; parameters already in the URL stay as they are. Anything else as a GET
 // body is refused rather than dropped: the seller would answer (and charge for) a request without the input.
@@ -86,13 +88,13 @@ const usd = (units) => Number(units) / 1e6;
 // What pay_x402 checked before asking the owner, in words, so the app can tell its user (a Grok test on 30 Oct 2026
 // found the checks were only implied). The limits are the owner's agent limits: an owner-signed payment above one is
 // not refused, since the owner signs it themselves, but the app is told so it can say it.
-export function checksOf({ screened, record, owner, offer, balance, lowOnBase, price, budget }) {
+export function checksOf({ screened, record, owner, offer, balance, lowOnBase, selfOnBase = false, price, budget }) {
   const n = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
   const perTx = n(budget?.perTx), left = n(budget?.left);
   return {
     sanctions: screened ? "The payout address is not on the OFAC sanctions list." : "The OFAC sanctions list couldn't be read just now, so the payout address wasn't screened.",
     payout_record: record === null ? "x402 Doctor didn't answer, so there is no payout record to show." : !record.known ? "Not in x402 Doctor's Trust Index yet: no payout record." : record.days ? `x402 Doctor saw it paying out on ${record.payableDays ?? 0} of the ${record.days} days it checked${record.verdict ? `; last verdict ${record.verdict}` : ""}.` : `In x402 Doctor's Trust Index${record.verdict ? ` (last verdict ${record.verdict})` : ""}, without a payout record yet.`,
-    balance: !owner ? "Your user picks the wallet when signing; its balance is checked then." : lowOnBase ? `${short(owner)} has too little USDC on Base, so only the other ways are offered.` : offer && balance !== null ? `${short(owner)} has enough USDC on Base.` : offer ? `The USDC balance of ${short(owner)} couldn't be read just now.` : "Checked in your user's wallet when they sign.",
+    balance: !owner ? "Your user picks the wallet when signing; its balance is checked then." : selfOnBase ? `${short(owner)} is this API's own payout address on Base, and a wallet can't pay itself, so only the other ways are offered.` : lowOnBase ? `${short(owner)} has too little USDC on Base, so only the other ways are offered.` : offer && balance !== null ? `${short(owner)} has enough USDC on Base.` : offer ? `The USDC balance of ${short(owner)} couldn't be read just now.` : "Checked in your user's wallet when they sign.",
     limits: perTx !== null && price > perTx ? `$${price} is above your user's limit of $${perTx} per payment. They can still sign it themselves; tell them.`
       : left !== null && price > left ? `$${price} is more than the $${left} left of your user's daily limit. They can still sign it themselves; tell them.`
       : budget ? `Within your user's limits${left !== null ? ` ($${left} left today)` : ""}.` : "Your user's limits couldn't be read just now.",
@@ -353,6 +355,14 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     const [listed, record, balance, budgets] = await Promise.all([Promise.all(payTos.map((a) => sanctioned(a))), sellerRecord(url, account), owner && offer ? usdcBalance(owner) : null, spendingOf(account)]);
     const hit = payTos.find((_, i) => listed[i]);
     if (hit) return { error: `This API's payout address ${hit} is on the OFAC sanctions list. Nothing was asked or paid.` };
+    // The owner's own wallet is the seller's payout address (17 Nov 2026: an owner testing their own service, and CDP
+    // answered self_send_not_allowed only after they had signed). A wallet can't pay itself: leave Base out before asking.
+    let selfOnBase = false;
+    if (owner && offer && sameEvm(owner, offer.payTo)) {
+      if (!onSol && !onXrpl) return { error: `This API pays out to your user's own wallet ${short(owner)} on Base, and a wallet can't pay itself. Nothing was asked or paid. To test it, link another wallet to the account.` };
+      offer = null;
+      selfOnBase = true;
+    }
     let lowOnBase = false;
     if (owner && offer && balance !== null && balance < BigInt(offer.amount)) {
       if (!onSol && !onXrpl) return { error: `Your user's wallet ${short(owner)} has $${usd(balance)} USDC on Base, less than the $${usd(offer.amount)} this API asks. They can add USDC on Base to that address and ask again.${cardHint(origin)}` };
@@ -360,7 +370,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       lowOnBase = true;
     }
     const price = offer ? usd(offer.amount) : onSol ? onSol.price : onXrpl.price;
-    const checks = checksOf({ screened: listed.every((x) => x === false), record, owner, offer, balance, lowOnBase, price, budget: budgets?.find((b) => b.token === (offer || onSol ? "USDC" : "RLUSD")) ?? budgets?.find((b) => b.token === "USDC") ?? null });
+    const checks = checksOf({ screened: listed.every((x) => x === false), record, owner, offer, balance, lowOnBase, selfOnBase, price, budget: budgets?.find((b) => b.token === (offer || onSol ? "USDC" : "RLUSD")) ?? budgets?.find((b) => b.token === "USDC") ?? null });
     const previous = await store.peekOnce("conpay-uncertain", requestKey(account, method, url, sendBody ?? null)).catch(() => null);
 
     let r = {
@@ -597,6 +607,7 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
       // No address on the account: the wallet the owner signs with on the page pays, if it can.
       const picked = typeof req.body?.from === "string" && /^0x[0-9a-fA-F]{40}$/.test(req.body.from) ? getAddress(req.body.from) : null;
       if (!picked) return res.status(400).json({ error: "no_wallet", message: "Connect the wallet you want to pay with." });
+      if (sameEvm(picked, r.offer.payTo)) return res.status(400).json({ error: "wrong_wallet", message: `${short(picked)} is this API's own payout address, and a wallet can't pay itself. Connect another wallet, or pick another way.` });
       const [onList, balance] = await Promise.all([sanctioned(picked), usdcBalance(picked)]);
       if (onList) return res.status(403).json({ error: "sanctioned", message: `${short(picked)} is on the OFAC sanctions list. Nothing was paid.` });
       if (balance !== null && balance < BigInt(r.offer.amount)) return res.status(400).json({ error: "low_balance", message: `${short(picked)} has $${usd(balance)} USDC on Base, less than $${r.price}. Add USDC on Base to it, or pick another wallet.${cardHint(r.origin)}` });
@@ -644,7 +655,8 @@ export function createPayments({ accounts, store, usage, csp, approveHtml, presi
     if (!r.sol) return res.status(409).json({ error: "no_solana", message: "This API doesn't take USDC on Solana.", view: ownerView(r) });
     const from = isSolanaAddress(req.body?.from) ? req.body.from : null;
     if (!from) return res.status(400).json({ error: "no_wallet", message: "Connect the Solana wallet you want to pay with." });
-    if (from === r.sol.feePayer || from === r.sol.payTo) return res.status(400).json({ error: "wrong_wallet", message: "That account belongs to the seller. Pay from your own wallet." });
+    if (from === r.sol.payTo) return res.status(400).json({ error: "wrong_wallet", message: `${short(from)} is this API's own payout address, and a wallet can't pay itself. Switch to another account in your wallet and sign again.` });
+    if (from === r.sol.feePayer) return res.status(400).json({ error: "wrong_wallet", message: "That account belongs to the seller's facilitator. Pay from your own wallet." });
     try {
       const [onList, balance] = await Promise.all([sanctioned(from), solana.usdc(from)]);
       if (onList) return res.status(403).json({ error: "sanctioned", message: `${short(from)} is on the OFAC sanctions list. Nothing was paid.` });
