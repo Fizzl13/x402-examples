@@ -40,7 +40,7 @@ The steps below are the other way: your owner makes the key on the dashboard and
 
 ### In ChatGPT, Claude on the web or phone, or Grok
 
-These apps can't run the MCP server, so they use the remote connector instead: your owner adds a custom connector with the URL `{{ORIGIN}}/mcp`, signs in and allows it (steps per app: {{ORIGIN}}/connector). Then you have `find_services`, `pay_x402`, `payment_status`, `wallet_status`, `check_text` and `feedback`, but you don't pay on your own: `pay_x402` gives an approve link, and your owner signs each payment in their own wallet (USDC on Base or Solana, or RLUSD in Xaman).
+These apps can't run the MCP server, so they use the remote connector instead: your owner adds a custom connector with the URL `{{ORIGIN}}/mcp`, signs in and allows it (steps per app: {{ORIGIN}}/connector). Then you have `find_services`, `pay_x402`, `payment_status`, `wallet_status`, `check_text` and `feedback`, but you don't pay on your own: `pay_x402` gives an approve link, and your owner signs each payment in their own wallet (USDC on Base or Solana, or RLUSD in Xaman). When your owner has turned on swaps (dashboard: Your limits → Swaps), `swap_tokens` asks to swap USDC, EURC or ETH (as WETH) on Base through Uniswap within their limits: presign-guard checks every transaction with a verdict bound to exactly it, and your owner sends it from their own wallet at the approve link; follow it with `swap_status`.
 
 ### 1. An account and an agent key (your owner, ~1 minute)
 

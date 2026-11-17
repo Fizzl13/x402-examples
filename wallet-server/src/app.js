@@ -26,6 +26,7 @@ const GROK_GUIDE = fileURLToPath(new URL("../public/grok.html", import.meta.url)
 // The consent page of the connector for ChatGPT, Grok and other remote MCP apps (src/connector.js).
 const CONNECT = fileURLToPath(new URL("../public/connect.html", import.meta.url));
 const APPROVE = fileURLToPath(new URL("../public/approve.html", import.meta.url));
+const SWAP = fileURLToPath(new URL("../public/swap.html", import.meta.url));
 const LEGAL = { "/privacy": fileURLToPath(new URL("../public/privacy.html", import.meta.url)), "/terms": fileURLToPath(new URL("../public/terms.html", import.meta.url)) };
 const SKILL = fileURLToPath(new URL("../public/skill.md", import.meta.url));
 const LLMS = fileURLToPath(new URL("../public/llms.txt", import.meta.url));
@@ -508,6 +509,9 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
   owner.post("/setup/check", wrap(async (req, res) => res.json(await accounts.setupCheck(req.account, { agentId: typeof req.body?.agentId === "string" ? req.body.agentId : null, telegram: req.body?.telegram === true }))));
   owner.put("/follow", wrap(async (req, res) => res.json(await accounts.setFollow(req.account, req.body?.categories))));
   owner.put("/tell-sellers", wrap(async (req, res) => res.json(await accounts.setTellSellers(req.account, req.body?.on))));
+  owner.put("/swaps", wrap(async (req, res) => res.json(await accounts.setSwapSettings(req.account, req.body))));
+  // The owner's recent swaps (connector swap requests, newest first).
+  owner.get("/swaps", wrap(async (req, res) => res.json({ swaps: (oauthStore ? await oauthStore.peekOnce("swaprecent", req.account) : null) ?? [] })));
   owner.delete("/agents/:id", wrap(async (req, res) => { await req.wallet.removeAgent(req.params.id); res.json({ ok: true }); }));
   owner.post("/approvals/:id", wrap(async (req, res) => {
     const d = req.body?.decision;
@@ -787,7 +791,7 @@ export function createApp({ errorReporter = null, accounts, auth, telegram = nul
       .replaceAll("{{CONTACT}}", operator.email ? `<a href="mailto:${escapeHtml(operator.email)}">${escapeHtml(operator.email)}</a>` : missing("CONTACT_EMAIL")));
   });
   // The wallet as a connector for ChatGPT, Grok and other remote MCP apps: OAuth and /mcp (src/connector.js).
-  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, feedback: { submit: agentFeedback, shape: feedback.mcpShape }, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), version: WALLET_MCP_VERSION ?? "0", cardBuy: !!onramp?.enabled, ...connector }));
+  if (oauthStore) app.use(createConnector({ accounts, auth, catalog, store: oauthStore, usage, feedback: { submit: agentFeedback, shape: feedback.mcpShape }, publicUrl, csp: CSP, consentHtml: readFileSync(CONNECT, "utf8"), approveHtml: readFileSync(APPROVE, "utf8"), swapHtml: readFileSync(SWAP, "utf8"), version: WALLET_MCP_VERSION ?? "0", cardBuy: !!onramp?.enabled, ...connector }));
   app.use((_req, res) => res.status(404).json({ error: "not_found" }));
   // Client errors passed on as errors (a missing file or a folder in /icons, /app or /fonts, which bots ask for,
   // or a body that isn't JSON): answered without a stack trace in the log, so the log keeps only real (5xx) errors.

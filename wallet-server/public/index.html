@@ -871,6 +871,16 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
           <label class="note" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="tellOn"> Tell sellers why my agents didn't pay</label>
           <span class="msg" id="tellMsg" role="status"></span>
         </div>
+        <div class="card" id="swapBox" hidden>
+          <span class="tag">SWAPS</span>
+          <p class="note" style="margin:10px 0 10px">Let your agent ask to swap USDC, EURC or ETH (as WETH) on Base through Uniswap. You send every swap from your own wallet; presign-guard checks it first, bound to exactly that swap, and a red verdict is never offered. Off unless you turn it on.</p>
+          <label class="note" style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="swapOn"> Let my agent ask to swap</label>
+          <div class="slider"><label for="swapPer"><span>Max per swap</span><span id="swapPerLbl"></span></label><input id="swapPer" type="range" min="5" max="500" step="5"></div>
+          <div class="slider"><label for="swapDay"><span>Max per day</span><span id="swapDayLbl"></span></label><input id="swapDay" type="range" min="5" max="1000" step="5"></div>
+          <div class="slider"><label for="swapSlip"><span>Max price slip</span><span id="swapSlipLbl"></span></label><input id="swapSlip" type="range" min="10" max="300" step="10"></div>
+          <div class="save"><button class="button primary" id="saveSwaps">Save swaps</button><span class="msg" id="swapMsg" role="status"></span></div>
+          <div id="swapList" class="note" style="margin-top:10px"></div>
+        </div>
         <details class="advanced"><summary>More rules: what they may buy, other tokens</summary><div class="rule">
         <div class="card">
           <span class="tag">WHAT MAY THEY BUY? IN YOUR OWN WORDS</span>
@@ -1702,7 +1712,7 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
     }
     $("#deleteBox").hidden = me.admin || DEMO;
     if (!DEMO) loadMonitors();
-    renderFollow(); renderTell(); setupAgents(); renderApp(); renderMail(); renderKeys();
+    renderFollow(); renderTell(); renderSwaps(); setupAgents(); renderApp(); renderMail(); renderKeys();
     $("#addrLine").hidden = !me.address;
     // Your own wallet on Base can be topped up with a card too (Coinbase Onramp, POST /api/onramp checks it's yours).
     const evm = /^0x[0-9a-fA-F]{40}$/.test(me.address ?? "");
@@ -2437,6 +2447,33 @@ footer { padding: 26px 0 40px; border-top: 1px solid var(--line); color: var(--d
       me.tellSellers = r.tellSellers;
       $("#tellMsg").textContent = r.tellSellers ? "On: sellers hear the reason, nothing else." : "Off: sellers hear nothing."; $("#tellMsg").className = "msg good";
     } catch (err) { e.target.checked = !on; $("#tellMsg").textContent = err.message; $("#tellMsg").className = "msg bad"; }
+  });
+
+  // ---------- swaps from the connector: off by default, the owner's own limits ----------
+  function renderSwaps() {
+    if (!me || !me.swaps) return;
+    $("#swapBox").hidden = false;
+    const s = me.swaps;
+    $("#swapOn").checked = s.on === true;
+    $("#swapPer").value = s.perSwapUsd; $("#swapDay").value = s.perDayUsd; $("#swapSlip").value = s.slipBps;
+    swapLabels();
+    api("GET", "/api/swaps").then((r) => {
+      const list = r.swaps ?? [];
+      $("#swapList").innerHTML = list.length ? `<b>Recent swaps</b><br>${list.slice(0, 8).map((x) => `${new Date(x.at).toLocaleString()} · ${esc(x.agent)} · ${esc(x.pay)} → at least ${esc(x.atLeast)} · ${esc(x.status)}${x.tx ? ` · <a href="https://basescan.org/tx/${esc(x.tx)}" target="_blank" rel="noopener">tx</a>` : ""}`).join("<br>")}` : "";
+    }).catch(() => {});
+  }
+  function swapLabels() {
+    $("#swapPerLbl").textContent = `$${$("#swapPer").value}`;
+    $("#swapDayLbl").textContent = `$${$("#swapDay").value}`;
+    $("#swapSlipLbl").textContent = `${Number($("#swapSlip").value) / 100}%`;
+  }
+  for (const x of ["#swapPer", "#swapDay", "#swapSlip"]) $(x).addEventListener("input", swapLabels);
+  $("#saveSwaps").addEventListener("click", async () => {
+    try {
+      const r = await api("PUT", "/api/swaps", { on: $("#swapOn").checked, perSwapUsd: Number($("#swapPer").value), perDayUsd: Number($("#swapDay").value), slipBps: Number($("#swapSlip").value) });
+      me.swaps = r.swaps;
+      $("#swapMsg").textContent = r.swaps.on ? `On: up to $${r.swaps.perSwapUsd} a swap, $${r.swaps.perDayUsd} a day. You send each one yourself.` : "Off: your agent can't ask to swap."; $("#swapMsg").className = "msg good";
+    } catch (err) { $("#swapMsg").textContent = err.message; $("#swapMsg").className = "msg bad"; }
   });
 
   // ---------- new providers on the phone or Telegram, per category ----------

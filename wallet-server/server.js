@@ -37,6 +37,8 @@
 //                       Fizzl's Xaman account); "off" turns paying in RLUSD off
 //   XAMAN_API_KEY       optional: the public API key of a Xaman app (apps.xumm.dev, redirect URI
 //                       <PUBLIC_URL>/api/signin/xaman/callback); turns on signing in with Xaman (XRP Ledger)
+//   FIZZL_INTERNAL_KEY  optional: presign-guard's internal key (the same value as on presign-guard); turns on swaps
+//                       from the connector, each checked by presign-guard with a verdict bound to the transaction
 //   XAMAN_API_SECRET    optional: that app's API secret; with it, apps connected at /mcp can ask for payments in RLUSD
 //                       on the XRP Ledger that the owner signs in Xaman
 //   XRPL_RPC_URL        optional: an XRPL JSON-RPC node to check those payments (default https://xrplcluster.com)
@@ -177,7 +179,7 @@ catalog.refresh().catch((err) => console.warn(`[catalog] ${err.message}`));
 // Errors (5xx, crashes) to Sentry when SENTRY_DSN is set: never request data (src/error-report.js).
 const errorReporter = createErrorReporter({ dsn: env.SENTRY_DSN, service: "fizzl-wallet-server", release: JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version });
 errorReporter.installProcessHooks();
-const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, whatsapp, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, onramp: env.ONRAMP_KEY?.trim() ? createOnramp({ key: env.ONRAMP_KEY.trim() }) : null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
+const app = createApp({ errorReporter, passJwks: passKey ? publicJwks(passKey) : null, accounts, auth, telegram, whatsapp, catalog, usage, stats, outreach, allowance, likes: store.global, oauthStore: store.global, connector: { internalKey: env.FIZZL_INTERNAL_KEY?.trim() || null, xaman: env.XAMAN_API_KEY?.trim() && env.XAMAN_API_SECRET?.trim() ? { apiKey: env.XAMAN_API_KEY.trim(), apiSecret: env.XAMAN_API_SECRET.trim() } : null, xrplRpc: env.XRPL_RPC_URL || undefined, solanaRpc: env.SOLANA_RPC_URL || undefined }, publicUrl: env.PUBLIC_URL?.startsWith("https://") ? env.PUBLIC_URL : null, outreachKey: env.OUTREACH_KEY?.trim() || null, draftKey: env.DRAFT_KEY?.trim() || null, passSaleKey: env.PASS_SALE_KEY?.trim() || null, onramp: env.ONRAMP_KEY?.trim() ? createOnramp({ key: env.ONRAMP_KEY.trim() }) : null, ownerChatId: env.TELEGRAM_CHAT_ID?.trim() || null, signInWithWallet: env.WALLET_SIGNIN !== "off", operator: { name: env.OPERATOR_NAME?.trim() || null, email: env.CONTACT_EMAIL?.trim() || null, address: env.OPERATOR_ADDRESS?.trim() || null } });
 const port = Number(env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`[wallet-server] on :${port}${telegram ? " · telegram on" : ""}`);
