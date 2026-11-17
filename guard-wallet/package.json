@@ -22,6 +22,9 @@
     },
     "./limits": {
       "default": "./limits.js"
+    },
+    "./binding": {
+      "default": "./binding.js"
     }
   },
   "main": "./index.js",
@@ -41,7 +44,8 @@
     "ac2.js",
     "ac2.d.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "binding.js"
   ],
   "engines": {
     "node": ">=20"
