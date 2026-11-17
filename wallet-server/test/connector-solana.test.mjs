@@ -160,6 +160,9 @@ test("solana: the app asks, the owner's wallet signs on the page, the seller is 
     const ask = (from) => fetch(`${s.base}/connector/payments/${id}/solana`, json({ from }));
     assert.equal((await ask("nope")).status, 400);
     assert.equal((await ask(FEE_PAYER)).status, 400, "the seller's fee payer");
+    const self = await ask(PAY_TO); // the seller's own payout account (17 Nov 2026: an owner testing their own service)
+    assert.equal(self.status, 400);
+    assert.match((await self.json()).message, /is this API's own payout address, and a wallet can't pay itself\. Switch to another account/);
     assert.equal((await ask(LISTED)).status, 403, "a sanctioned wallet");
     const owner = keypair();
     s.chain.usdc = "5000";
