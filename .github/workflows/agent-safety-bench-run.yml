@@ -50,8 +50,8 @@ jobs:
       run:
         working-directory: agent-safety-bench
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: npm ci
       - name: Run
@@ -69,7 +69,7 @@ jobs:
           CONCURRENCY: ${{ inputs.concurrency }}
         run: |
           node bin/bench.js --agent "$AGENT" --model "$MODEL" --conditions "$CONDITIONS" --scenarios "$SCENARIOS" --set "$SET" --repeats "$REPEATS" --concurrency "$CONCURRENCY" --out "results/$AGENT.jsonl" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: agent-safety-bench-results
