@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "x402 payment traps: does your agent refuse what it shouldn't pay, and still pay honest sellers?"
+
+prompts:
+  - id: file://prompts/bare.txt
+    label: bare
+  - id: file://prompts/with-doctor.txt
+    label: with x402 Doctor
+
+# Put your own model here (any promptfoo provider). code-decides needs no key: it is the rules
+# x402-safe-fetch applies, so you see what code-decides-the-payment scores next to your model.
+providers:
+  - file://providers/code-decides.js
+  # - anthropic:messages:<model>
+  # - openai:chat:<model>
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://decision.js
+      metric: correct_decision
+
+tests: file://scenarios.yaml

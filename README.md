@@ -61,6 +61,7 @@ Small, open examples of AI agents combining paid APIs with [x402](https://x402.o
 | [payer-screen](payer-screen) | **npm package** `presign-guard-payer-screen`: for sellers. Express middleware that screens who pays your x402 API against the OFAC SDN list before the payment settles (EVM, Solana, Algorand, XRP Ledger); a listed payer gets 451 and is never charged | [presign-guard](https://presign-guard.fizzl.eu) open list (free) | free |
 | [safe-fetch](safe-fetch) | **npm package** `x402-safe-fetch`: the safe-pay logic as a drop-in `fetch` for your own agent (preflight, go / caution / no_go, budget cap, trusted hosts, 10-minute verdict cache) | [x402 Doctor](https://x402-doctor.fizzl.eu) + the endpoint | $0.001 + the endpoint |
 | [safe-pay](safe-pay) | Before paying an x402 endpoint it has never used, the agent pays $0.001 for a preflight and pays only on go, within a budget | [x402 Doctor](https://x402-doctor.fizzl.eu) + the endpoint | $0.001 + the endpoint |
+| [promptfoo-x402-traps](promptfoo-x402-traps) | **promptfoo eval pack**: 13 x402 payment scenarios (9 traps, 4 honest sellers) for any model, each with and without x402 Doctor's preflight, next to a rule baseline that needs no key | none (offline), [x402 Doctor](https://x402-doctor.fizzl.eu) for the real preflight | free |
 
 Each example has a `--dry-run` that shows the prices without paying. Use a dedicated wallet with a little USDC, keep its key in your environment, and never commit it.
 
