@@ -1,0 +1,32 @@
+# x402 payment traps for promptfoo: an offline self-test on every change (no API key, no network calls to models).
+# code-decides must score 26/26; an agent that refuses everything must fail exactly the 8 honest-seller rows.
+name: promptfoo-x402-traps
+
+on:
+  push:
+    branches: [main]
+    paths: ["promptfoo-x402-traps/**", ".github/workflows/promptfoo-x402-traps.yml"]
+  pull_request:
+    paths: ["promptfoo-x402-traps/**", ".github/workflows/promptfoo-x402-traps.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: promptfoo-x402-traps/test
+    env:
+      PROMPTFOO_DISABLE_TELEMETRY: "1"
+      PROMPTFOO_DISABLE_UPDATE: "1"
+      PROMPTFOO_DISABLE_SHARING: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      # promptfoo exits non-zero when a row fails, and refuse-all is meant to fail 8: check.mjs judges the run.
+      - run: npx --yes promptfoo@0.125.1 eval -c selftest.config.yaml --no-cache --no-table --no-write -o out.json || true
+      - run: node check.mjs out.json
