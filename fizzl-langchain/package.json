@@ -25,16 +25,16 @@
     "example": "node example/agent.mjs"
   },
   "dependencies": {
-    "presign-guard-ai-sdk": "^0.11.0"
+    "presign-guard-ai-sdk": "^0.11.1"
   },
   "peerDependencies": {
     "@langchain/core": ">=0.3.58 <2.0.0",
     "zod": "^3.25.0 || ^4.0.0"
   },
   "devDependencies": {
-    "@langchain/core": "^1.2.0",
-    "@langchain/langgraph": "^1.0.0",
-    "zod": "^4.0.0"
+    "@langchain/core": "^1.4.1",
+    "@langchain/langgraph": "^1.7.4",
+    "zod": "^4.6.7"
   },
   "keywords": [
     "langchain",
