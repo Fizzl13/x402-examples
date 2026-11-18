@@ -16,18 +16,18 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@noble/curves": "^1.9.7",
-    "@x402/evm": "^2.29.0",
-    "express": "^5.2.1",
+    "@x402/evm": "^2.31.0",
+    "express": "^5.3.0",
     "presign-guard-wallet": "file:../guard-wallet",
     "qrcode-generator": "^1.5.2",
-    "redis": "^5.12.1",
-    "viem": "^2.56.9",
-    "x402-safe-fetch": "^0.9.0",
+    "redis": "^5.12.2",
+    "viem": "^2.57.20",
+    "x402-safe-fetch": "^0.20.13",
     "xrpl": "^4.7.0",
     "zod": "^4.6.7"
   },
   "license": "AGPL-3.0-only",
   "devDependencies": {
-    "algosdk": "^3.7.0"
+    "algosdk": "^3.9.0"
   }
 }
