@@ -37,8 +37,8 @@ jobs:
       run:
         working-directory: paypal-guard-mcp
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: npm ci
       - run: npm test
@@ -56,8 +56,8 @@ jobs:
       run:
         working-directory: paypal-guard-mcp
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - name: Versions match
         run: |
@@ -65,7 +65,7 @@ jobs:
       - run: npm ci --omit=dev
       - run: npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json
       - run: npx -y @anthropic-ai/mcpb@2.1.2 pack . fizzl-paypal-guard-mcp.mcpb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fizzl-paypal-guard-mcp-mcpb
           path: paypal-guard-mcp/fizzl-paypal-guard-mcp.mcpb
@@ -92,8 +92,8 @@ jobs:
       run:
         working-directory: paypal-guard-mcp
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
       - run: npm install -g npm@latest # trusted publishing needs npm 11.5 or newer
       - run: npm ci
@@ -121,7 +121,7 @@ jobs:
       run:
         working-directory: paypal-guard-mcp
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install mcp-publisher
         run: curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
       # npm takes a few minutes to show a new version; the registry checks npm, so wait for it.

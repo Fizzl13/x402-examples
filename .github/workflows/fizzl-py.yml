@@ -30,8 +30,8 @@ jobs:
       run:
         working-directory: fizzl-py
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "${{ matrix.python }}" }
       - run: pip install ".[langchain,x402]" pytest
       - run: pip install ".[openai-agents]" # needs Python 3.10+
@@ -46,8 +46,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - run: pip install build && python -m build fizzl-py
       - uses: pypa/gh-action-pypi-publish@release/v1

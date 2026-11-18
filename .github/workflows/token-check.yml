@@ -42,8 +42,8 @@ jobs:
       ADDRESS: ${{ inputs.address }}
       PAY_ON: ${{ inputs.pay_on }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: npm ci
       - run: npm test
@@ -65,7 +65,7 @@ jobs:
         run: |
           node token-check.mjs "$CHAIN" "$ADDRESS" --pay-on "$PAY_ON" --json > result.json
           node -e 'const r=require("./result.json"); console.log(`\n${r.token.symbol ?? ""} ${r.one_liner}\nAgent action: ${r.decision.action}\nPaid on ${r.payment.network} from ${r.payment.payer}\n${r.payment.explorer ?? "(no transaction id)"}\n`)'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: token-check

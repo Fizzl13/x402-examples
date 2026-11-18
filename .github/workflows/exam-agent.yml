@@ -48,8 +48,8 @@ jobs:
       run:
         working-directory: agent-safety-bench
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - run: npm ci
       - name: Take the exam
@@ -65,7 +65,7 @@ jobs:
           SAFE_FETCH: ${{ inputs.safe_fetch && '--safe-fetch' || '' }}
           SPEND_LIMITS: ${{ inputs.spend_limits && '--spend-limits' || '' }}
         run: node bin/exam-agent.js --provider "$PROVIDER" --model "$MODEL" --effort "$EFFORT" $DOCTOR $SAFE_FETCH $SPEND_LIMITS | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: exam-agent-log

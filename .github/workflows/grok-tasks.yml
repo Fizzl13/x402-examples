@@ -34,8 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24 }
       - run: node --test grok-tasks/run-task.test.mjs
 
@@ -61,9 +61,9 @@ jobs:
           case "$task" in A|B|D|F|H|V) ;; *) echo "::error::Unknown task $task"; exit 1 ;; esac
           echo "task=$task" >> "$GITHUB_OUTPUT"
           if [ -z "$XAI_API_KEY" ]; then echo "No XAI_API_KEY secret, nothing to run." >> "$GITHUB_STEP_SUMMARY"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: steps.pick.outputs.skip != '1'
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         if: steps.pick.outputs.skip != '1'
         with: { node-version: 24 }
       - name: Run task ${{ steps.pick.outputs.task }}
