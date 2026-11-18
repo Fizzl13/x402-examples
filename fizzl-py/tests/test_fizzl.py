@@ -258,3 +258,54 @@ def test_avalanche_chain():
     f = Fizzl(session=s)
     assert f.check_before_signing(type="transaction", chainId=43114, to="0x" + "1" * 40, data="0x")["verdict"] == "green"
     assert f.check_token("avalanche", "0x" + "2" * 40)["verdict"] == "green"
+
+
+def test_pydantic_ai_tools_call_the_checks():
+    pytest.importorskip("pydantic_ai")
+    from fizzl.pydantic_ai import fizzl_tools
+    s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
+    tools = fizzl_tools(session=s)
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_stellar_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"]
+    by = {t.name: t for t in tools}
+    pre = by["check_endpoint_before_paying"]
+    assert "BEFORE paying" in pre.description
+    assert pre.tool_def.parameters_json_schema["required"] == ["url"]
+    assert pre.function(url="https://api.example.com/x", max_usd=0.01)["verdict"] == "no_go"
+    assert "max_usd=0.01" in s.calls[0]["url"]
+    assert by["check_token"].function(chain="dogechain", address="x")["error"] == "bad_input" and len(s.calls) == 1
+    assert [t.name for t in fizzl_tools(session=s, only=["check_token"])] == ["check_token"]
+    with pytest.raises(ValueError):
+        fizzl_tools(session=s, only=["nope"])
+
+
+def test_pydantic_ai_agent_runs_the_check_with_a_test_model():
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai import Agent
+    from pydantic_ai.models.test import TestModel
+    from fizzl.pydantic_ai import fizzl_tools
+    s = StandIn({"/api/v1/preflight": (200, {"verdict": "go"})})
+    agent = Agent(TestModel(call_tools=["check_endpoint_before_paying"]), tools=fizzl_tools(session=s, only=["check_endpoint_before_paying"]))
+    agent.run_sync("Is it safe to pay?")
+    assert len(s.calls) == 1 and "/api/v1/preflight" in s.calls[0]["url"]
+
+
+def test_crewai_tools_call_the_checks():
+    pytest.importorskip("crewai")
+    from crewai.tools import BaseTool
+    from fizzl.crewai import fizzl_tools
+    s = StandIn({"/api/v1/preflight": (200, {"verdict": "no_go", "summary": "Do not pay: over budget."})})
+    tools = fizzl_tools(session=s)
+    assert all(isinstance(t, BaseTool) for t in tools)
+    assert [t.name for t in tools] == ["check_before_signing", "check_xrpl_transaction", "check_solana_transaction", "check_algorand_transaction", "check_stellar_transaction", "check_message", "check_token", "check_wallet_approvals", "screen_wallet", "check_endpoint_before_paying"]
+    by = {t.name: t for t in tools}
+    pre = by["check_endpoint_before_paying"]
+    assert "BEFORE paying" in pre.description
+    out = json.loads(pre.run(url="https://api.example.com/x", max_usd=0.01))
+    assert out["verdict"] == "no_go" and "max_usd=0.01" in s.calls[0]["url"]
+    with pytest.raises(ValueError):  # CrewAI validates against args_schema itself and hands the error to the agent
+        by["check_token"].run(chain="dogechain", address="x")
+    assert len(s.calls) == 1  # so a bad argument never reaches (or pays for) the check
+    assert json.loads(by["check_token"]._run(chain="dogechain", address="x"))["error"] == "bad_input"
+    assert [t.name for t in fizzl_tools(session=s, only=["check_token"])] == ["check_token"]
+    with pytest.raises(ValueError):
+        fizzl_tools(session=s, only=["nope"])

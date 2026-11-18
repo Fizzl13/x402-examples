@@ -1,6 +1,6 @@
 # fizzl
 
-Safety checks for Python AI agents that pay: LangChain, LangGraph, the OpenAI Agents SDK, CrewAI or your own loop.
+Safety checks for Python AI agents that pay: LangChain, LangGraph, the OpenAI Agents SDK, Pydantic AI, CrewAI or your own loop.
 
 An [official LangChain integration](https://docs.langchain.com/oss/python/integrations/tools#security): listed in the LangChain docs among the security tools.
 
@@ -65,6 +65,8 @@ fizzl.pay_api("https://api.example.com/weather?city=Amsterdam")
 pip install "fizzl[x402]"              # with the x402 client, to pay per check
 pip install "fizzl[langchain,x402]"    # plus LangChain tools
 pip install "fizzl[openai-agents]"     # OpenAI Agents SDK tools (Python 3.10+)
+pip install "fizzl[pydantic-ai]"       # Pydantic AI tools (Python 3.10+)
+pip install "fizzl[crewai]"            # CrewAI tools (Python 3.10–3.13)
 ```
 
 ## Use
@@ -130,7 +132,7 @@ agent = create_react_agent(model, tools + your_tools,
     prompt="Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.")
 ```
 
-The tools are plain `StructuredTool`s with typed arguments, so CrewAI and other frameworks that take LangChain tools can use them too.
+The tools are plain `StructuredTool`s with typed arguments, so other frameworks that take LangChain tools can use them too.
 
 ## OpenAI Agents SDK
 
@@ -145,6 +147,35 @@ print(Runner.run_sync(agent, "Is https://api.example.com/funding safe to pay, at
 
 The checks run in a worker thread, so a blocking `requests` session doesn't stall the agent's event loop. Bad
 arguments from the model come back as `{"error": "bad_input", ...}` without calling (or paying for) the check.
+
+## Pydantic AI
+
+```python
+from pydantic_ai import Agent
+from fizzl.pydantic_ai import fizzl_tools
+
+agent = Agent(model, tools=fizzl_tools(session=session),   # or credit_keys={...}, or nothing for the free checks
+    instructions="Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.")
+print(agent.run_sync("Is https://api.example.com/funding safe to pay, at most $0.05?").output)
+```
+
+Each tool's schema is the check's typed arguments. Bad arguments from the model come back as
+`{"error": "bad_input", ...}` without calling (or paying for) the check.
+
+## CrewAI
+
+```python
+from crewai import Agent, Crew, Task
+from fizzl.crewai import fizzl_tools
+
+buyer = Agent(role="Buyer", goal="Buy data from paid APIs without getting cheated", tools=fizzl_tools(session=session),
+    backstory="Before you pay any API you call check_endpoint_before_paying, and you never pay on red or no_go.")
+Crew(agents=[buyer], tasks=[Task(description="Is https://api.example.com/funding safe to pay, at most $0.05?",
+     expected_output="go, caution or no_go, and why", agent=buyer)]).kickoff()
+```
+
+Native CrewAI `BaseTool`s with the check's typed arguments as `args_schema`; CrewAI validates the model's
+arguments before the check runs, so a wrong argument never reaches (or pays for) it.
 
 ## Want the wallet to enforce it, not just inform the model?
 

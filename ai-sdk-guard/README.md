@@ -109,6 +109,23 @@ fizzlTools({ creditKeys: { presign: process.env.PRESIGN_CREDIT_KEY, doctor: proc
 
 **Only some tools:** `fizzlTools({ fetch: pay, only: ["check_endpoint_before_paying", "check_before_signing"] })`.
 
+## Mastra
+
+Mastra agents take AI SDK tools as they are, so the same tools work there:
+
+```js
+import { Agent } from "@mastra/core/agent";
+import { fizzlTools } from "presign-guard-ai-sdk";
+
+const buyer = new Agent({
+  id: "buyer", name: "buyer", model,
+  instructions: "Before you pay any API, call check_endpoint_before_paying. Before you sign anything, call check_before_signing. Never continue on red or no_go.",
+  tools: fizzlTools(),   // or { creditKeys }, { fetch: payingFetch }, { safeFetch } for pay_api
+});
+```
+
+Tested with `@mastra/core` 1.x in CI (`test/mastra.test.mjs`).
+
 ## Options
 
 | Option | Default | |

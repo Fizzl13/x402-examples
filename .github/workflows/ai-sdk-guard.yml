@@ -34,6 +34,8 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npm test
+      # The tools in a Mastra agent too (Mastra takes AI SDK tools as they are); not a dependency of the package.
+      - run: npm i --no-save --no-audit --no-fund @mastra/core@1 && node --test test/mastra.test.mjs
       - run: npm pack --dry-run
 
   publish:
