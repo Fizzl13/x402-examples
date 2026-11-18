@@ -41,6 +41,8 @@ updates:
         update-types: ["version-update:semver-major"]
       # Prerelease line (10.0.0-alpha -> -beta): moved by hand, with the Algorand payment code that uses it.
       - dependency-name: "@algorandfoundation/algokit-utils"
+      # The contracts pin `pragma solidity 0.8.26` (deployed bytecode must match): the compiler stays on that version.
+      - dependency-name: "solc"
     commit-message:
       prefix: "deps"
   - package-ecosystem: "github-actions"
