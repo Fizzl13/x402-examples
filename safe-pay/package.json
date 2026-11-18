@@ -12,7 +12,7 @@
     "test": "node --test safe-pay.test.mjs"
   },
   "dependencies": {
-    "@algorandfoundation/algokit-utils": "^10.0.0-alpha.46",
+    "@algorandfoundation/algokit-utils": "^10.0.0-beta.4",
     "@algorandfoundation/xhd-wallet-api": "2.0.0-canary.1",
     "@scure/bip39": "^1.6.0",
     "@solana/kit": "^5.5.1",
