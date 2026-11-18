@@ -12,9 +12,9 @@
     "test": "node --test p0-guard.test.mjs"
   },
   "dependencies": {
-    "@solana/kit": "^5.5.1",
-    "@x402/fetch": "^2.27.0",
-    "@x402/svm": "^2.27.0"
+    "@solana/kit": "^8.6.0",
+    "@x402/fetch": "^2.31.0",
+    "@x402/svm": "^2.31.0"
   },
   "license": "MIT"
 }
