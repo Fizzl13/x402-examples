@@ -1189,7 +1189,13 @@ test("Solana: sign in with a Solana wallet, pay Pro in USDC on Solana, checked o
   };
   const rpc = async (method, params) => {
     if (method === "getLatestBlockhash") return { value: { blockhash, lastValidBlockHeight: 1 } };
-    if (method === "getTransaction") return txs.get(params[0]) ?? null;
+    if (method === "getTransaction") {
+      // Like mainnet: asking for an older version than the transaction's is an error. Phantom sends version 1
+      // transactions since Nov 2026.
+      const t = txs.get(params[0]);
+      if (t && !(params[1]?.maxSupportedTransactionVersion >= (t.version ?? 0))) throw new Error(`Transaction version (${t.version}) is not supported by the requesting client.`);
+      return t ?? null;
+    }
     return null;
   };
   const { base, server } = await boot({ rpc, solana: { payTo: SOL_PAY_TO, rpcUrl: "https://sol.test" } });
@@ -1233,6 +1239,7 @@ test("Solana: sign in with a Solana wallet, pay Pro in USDC on Solana, checked o
 
     // A real payment: Pro for a month, once.
     const good = solPay(alice, 5);
+    txs.get(good).version = 1; // paid from Phantom: a version 1 transaction
     const paid = (await call("POST", "/api/billing/claim", { txHash: good })).body;
     assert.equal(paid.plan, "pro");
     assert.equal(paid.payments[0].chain, "solana");

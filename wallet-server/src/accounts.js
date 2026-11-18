@@ -1434,7 +1434,7 @@ export function createAccounts({ store, telegram = null, whatsapp = null, adminC
     if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
     if (!isSolanaSignature(signature)) throw Object.assign(new Error("that is not a Solana transaction signature"), { status: 400 });
     if ((a.payments ?? []).some((p) => p.tx === signature)) return api.me(a.id);
-    const tx = await solRpc("getTransaction", [signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]);
+    const tx = await solRpc("getTransaction", [signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 1 }]);
     if (!tx) throw Object.assign(new Error("not confirmed yet: try again in a few seconds"), { status: 409 });
     if (tx.meta?.err) throw Object.assign(new Error("that transaction failed on-chain"), { status: 400 });
     const paid = usdcPaid(tx, { payer: a.address, payee: solPayTo }) ?? 0n;
