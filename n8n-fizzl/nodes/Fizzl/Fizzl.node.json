@@ -1,0 +1,10 @@
+{
+	"node": "n8n-nodes-fizzl.fizzl",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Development", "Finance & Accounting"],
+	"resources": {
+		"credentialDocumentation": [{ "url": "https://github.com/Fizzl13/x402-examples/tree/main/n8n-fizzl#credentials" }],
+		"primaryDocumentation": [{ "url": "https://github.com/Fizzl13/x402-examples/tree/main/n8n-fizzl" }]
+	}
+}
