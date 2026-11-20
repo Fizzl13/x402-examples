@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "description": "An agent wants to pay or sign. Exactly one of url (pay an x402 API) or sign (a transaction, approval or signature, presign-guard's /v1/check body).",
+  "properties": {
+    "url": { "type": "string", "description": "The x402 endpoint the agent wants to pay" },
+    "method": { "type": "string", "enum": ["GET", "POST"], "description": "HTTP method of that endpoint (default GET)" },
+    "sign": { "type": "object", "description": "What the agent wants to sign, in presign-guard's /v1/check body: { type, chainId, ... }" },
+    "note": { "type": "string", "description": "Why the agent wants to pay (shown back in the reply)" }
+  },
+  "oneOf": [{ "required": ["url"] }, { "required": ["sign"] }]
+}

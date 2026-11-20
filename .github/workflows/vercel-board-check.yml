@@ -1,0 +1,26 @@
+# Fizzl payment check for Vercel Board: unit tests and the watcher on a real in-memory board (no network).
+name: vercel-board-check
+
+on:
+  push:
+    branches: [main]
+    paths: ["vercel-board-check/**", ".github/workflows/vercel-board-check.yml"]
+  pull_request:
+    paths: ["vercel-board-check/**", ".github/workflows/vercel-board-check.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vercel-board-check
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
