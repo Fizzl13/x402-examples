@@ -35,10 +35,10 @@ jobs:
     env:
       SCRIPT: ${{ inputs.script || 'script.json' }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with: { python-version: "3.11" }
       - name: Voice (Kokoro, or the Piper voice a script names, since Kokoro has no Dutch)
         run: |
@@ -84,7 +84,7 @@ jobs:
             ffmpeg -loglevel error -y -ss "$t" -i "out/$NAME.mp4" -frames:v 1 -update 1 -vf scale=640:-1 "out/f$i.jpg"; i=$((i+1))
           done
           ffmpeg -loglevel error -y -framerate 1 -i out/f%d.jpg -vf "tile=3x$(( (i + 2) / 3 ))" -frames:v 1 -update 1 out/contact.jpg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.NAME }}
           path: |

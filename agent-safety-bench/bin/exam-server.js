@@ -5,6 +5,8 @@
 // USAGE_LOG_REPO, USAGE_LOG_SALT, USAGE_OWN_WALLETS: anonymous usage in Fizzl13/usage-log), REDIS_URL (keeps the index
 // and the free-exam rule across restarts; memory without it), EXAM_FACILITATOR_URL (PayAI's by default),
 // SELLER_CATALOG_URL (the shop whose tools the seller bench checks: x402 Forge's catalog by default; "off" turns it off).
+// EXAM_ATTEST_KEY: the exam's attester wallet (a key of its own, with a little ETH on Base for gas), which puts results
+// on an operator's ERC-8004 agent as Reputation Registry feedback (src/exam/erc8004.js); off without it.
 
 // The sellers take Base Sepolia only; set before anything reads it.
 process.env.X402_BENCH_NETWORK = "base-sepolia";

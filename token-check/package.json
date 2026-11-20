@@ -12,11 +12,11 @@
     "test": "node --test token-check.test.mjs"
   },
   "dependencies": {
-    "@solana/kit": "^5.5.1",
-    "@x402/evm": "^2.27.0",
-    "@x402/fetch": "^2.27.0",
-    "@x402/svm": "^2.27.0",
-    "viem": "^2.56.9"
+    "@solana/kit": "^8.6.0",
+    "@x402/evm": "^2.31.0",
+    "@x402/fetch": "^2.31.0",
+    "@x402/svm": "^2.31.0",
+    "viem": "^2.58.0"
   },
   "license": "MIT"
 }

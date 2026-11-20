@@ -1,0 +1,56 @@
+{
+  "name": "n8n-nodes-fizzl",
+  "version": "0.1.0",
+  "description": "n8n node that checks before money moves: an x402 paid API before paying it (x402 Doctor), a transaction, token approval or signature before signing it, and a token before buying it (presign-guard). Each item goes to Go, Ask or Stop.",
+  "license": "MIT",
+  "homepage": "https://github.com/Fizzl13/x402-examples/tree/main/n8n-fizzl",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fizzl13/x402-examples.git",
+    "directory": "n8n-fizzl"
+  },
+  "author": {
+    "name": "Fizzl",
+    "url": "https://fizzl.eu"
+  },
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "x402",
+    "payments",
+    "wallet",
+    "security",
+    "ai-agents"
+  ],
+  "main": "index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs');fs.cpSync('nodes/Fizzl/fizzl.svg','dist/nodes/Fizzl/fizzl.svg');fs.cpSync('nodes/Fizzl/Fizzl.node.json','dist/nodes/Fizzl/Fizzl.node.json');fs.cpSync('credentials/fizzl.svg','dist/credentials/fizzl.svg')\"",
+    "test": "npm run build && node --test test/*.test.cjs",
+    "prepublishOnly": "npm run build"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "strict": true,
+    "credentials": [
+      "dist/credentials/FizzlApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Fizzl/Fizzl.node.js"
+    ]
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "devDependencies": {
+    "n8n-workflow": "2.45.4",
+    "typescript": "5.9.3"
+  }
+}

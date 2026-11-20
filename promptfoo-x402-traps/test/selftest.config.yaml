@@ -1,0 +1,16 @@
+# CI self-test (no API key, no network): code-decides must pass all 26, and an agent that refuses everything must
+# fail exactly the 4 honest sellers in both prompts (8), so the pack rewards paying honest sellers too.
+description: self-test of the x402 payment traps pack
+prompts:
+  - id: file://../prompts/bare.txt
+    label: bare
+  - id: file://../prompts/with-doctor.txt
+    label: with x402 Doctor
+providers:
+  - file://../providers/code-decides.js
+  - file://refuse-all.js
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://../decision.js
+tests: file://../scenarios.yaml

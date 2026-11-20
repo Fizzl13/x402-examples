@@ -9,6 +9,7 @@
 // The owner of the server signs in with ADMIN_PASSWORD as "admin": unlimited,
 // with the Telegram chat from TELEGRAM_CHAT_ID. That is the original
 // single-owner setup, unchanged.
+import { cleanSwapSettings } from "./swap.js";
 import { issuerFor } from "./mandate.js";
 import { WALLET_MCP } from "./mcp-package.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -557,6 +558,8 @@ export function createAccounts({ store, telegram = null, whatsapp = null, adminC
         follow: a.follow ?? [],
         // Whether the connector tells sellers why it didn't pay (refusal extension): off until the owner turns it on.
         tellSellers: a.tellSellers === true,
+        // Swaps from the connector: off by default; the owner's own wallet sends each one.
+        swaps: cleanSwapSettings(a.swaps ?? {}),
         // RLUSD on the XRP Ledger: any account can pay (no XRPL wallet to connect), with its own destination tag.
         xrplPay: a.admin || !xrplPayTo ? null : { payTo: xrplPayTo, destinationTag: destinationTag(a.id), token: "RLUSD", issuer: RLUSD_ISSUER, ...prices(), periodDays: PERIOD_MS / DAY },
         // USDC on Algorand: for accounts that signed in with Pera (the payment must come from that address).
@@ -810,6 +813,21 @@ export function createAccounts({ store, telegram = null, whatsapp = null, adminC
       else await serial(id, async () => touch((await g.getAccount(id)) ?? a, { tellSellers: on }));
       usage.record("tell_sellers", { account: id, input: { on } });
       return { tellSellers: on };
+    },
+    // Swaps from the connector (src/connector-swap.js): off until the owner turns them on, with their own limits.
+    async setSwapSettings(id, settings) {
+      if (!settings || typeof settings !== "object") throw Object.assign(new Error("settings: {on, perSwapUsd, perDayUsd, slipBps}"), { status: 400 });
+      const clean = cleanSwapSettings(settings);
+      const a = id === ADMIN ? ((await g.getAccount(ADMIN)) ?? { id: ADMIN }) : await account(id);
+      if (!a) throw Object.assign(new Error("no such account"), { status: 401 });
+      if (id === ADMIN) await g.putAccount({ ...a, swaps: clean });
+      else await serial(id, async () => touch((await g.getAccount(id)) ?? a, { swaps: clean }));
+      usage.record("swap_settings", { account: id, input: { on: clean.on } });
+      return { swaps: clean };
+    },
+    async swapSettings(id) {
+      const a = id ? await g.getAccount(id).catch(() => null) : null;
+      return cleanSwapSettings(a?.swaps ?? {});
     },
     async tellsSellers(id) {
       const a = id ? await g.getAccount(id).catch(() => null) : null;
@@ -1416,7 +1434,7 @@ export function createAccounts({ store, telegram = null, whatsapp = null, adminC
     if (!solPayTo) throw Object.assign(new Error("paying on Solana is not set up on this server"), { status: 503 });
     if (!isSolanaSignature(signature)) throw Object.assign(new Error("that is not a Solana transaction signature"), { status: 400 });
     if ((a.payments ?? []).some((p) => p.tx === signature)) return api.me(a.id);
-    const tx = await solRpc("getTransaction", [signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]);
+    const tx = await solRpc("getTransaction", [signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 1 }]);
     if (!tx) throw Object.assign(new Error("not confirmed yet: try again in a few seconds"), { status: 409 });
     if (tx.meta?.err) throw Object.assign(new Error("that transaction failed on-chain"), { status: 400 });
     const paid = usdcPaid(tx, { payer: a.address, payee: solPayTo }) ?? 0n;

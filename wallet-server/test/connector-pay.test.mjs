@@ -43,9 +43,14 @@ function seller() {
     seen.push({ url: req.url, method: req.method, headers: req.headers, body });
     if (req.url.startsWith("/free")) { res.setHeader("content-type", "application/json"); return res.end(JSON.stringify({ free: true })); }
     if (req.url === "/.well-known/x402-refusal") { res.statusCode = 204; return res.end(); }
-    const payTo = req.url.startsWith("/bad") ? SANCTIONED : SELLER;
+    // /mine...?to=<address>: a seller whose payout address is the one given (the owner's own wallet, in a test).
+    const payTo = req.url.startsWith("/bad") ? SANCTIONED : req.url.startsWith("/mine") ? new URL(req.url, "http://x").searchParams.get("to") : SELLER;
     const amount = req.url.startsWith("/dear") ? "2000000" : "2000";
-    const c = req.url.startsWith("/solana") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(0, 1) } : challenge(req, payTo, amount);
+    const c = req.url.startsWith("/solana") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(0, 1) }
+      : req.url.startsWith("/mine-base") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.slice(1) }
+      // /mine: its Solana offer names a fee payer, so the connector offers Solana too.
+      : req.url.startsWith("/mine") ? { ...challenge(req, payTo, amount), accepts: challenge(req, payTo, amount).accepts.map((a, i) => (i === 0 ? { ...a, extra: { feePayer: "Vote111111111111111111111111111111111111111" } } : a)) }
+      : challenge(req, payTo, amount);
     // ...-refusing: the 402 names a refusal url on the seller's own site (the draft refusal extension).
     if (req.url.includes("-refusing")) c.extensions = { refusal: { info: { url: `http://${req.headers.host}/.well-known/x402-refusal`, version: "0.3-draft" } } };
     if (req.url.startsWith("/escrow")) {
@@ -292,6 +297,51 @@ test("connector payments: too little USDC in the owner's wallet is said before a
     assert.match(r.content[0].text, /has \$0\.001 USDC on Base, less than the \$0\.002/);
     assert.doesNotMatch(r.content[0].text, /card/); // no Onramp on this server
     assert.equal(told.length, 0);
+    await client.close();
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: a seller that pays out to the owner's own wallet is not offered on Base (a wallet can't pay itself)", async () => {
+  const s = await seller();
+  const { base, server, told } = await boot();
+  try {
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const client = await connect(base, await signIn(base, owner));
+    // Base only: refused before asking (CDP answers self_send_not_allowed only after the owner signed).
+    const only = await call(client, "pay_x402", { url: `${s.url}/mine-base?to=${owner.address.toLowerCase()}` });
+    assert.equal(only.isError, true);
+    assert.match(only.content[0].text, /pays out to your user's own wallet 0x.{4}….{4} on Base, and a wallet can't pay itself\. Nothing was asked or paid/);
+    // Base and Solana: only Solana is offered, and the checks say why.
+    const a = (await call(client, "pay_x402", { url: `${s.url}/mine?to=${owner.address}` })).structuredContent;
+    assert.equal(a.status, "waiting_for_owner");
+    assert.deepEqual(a.pay_with, ["USDC on Solana (Phantom)"]);
+    assert.match(a.checks.balance, /is this API's own payout address on Base, and a wallet can't pay itself, so only the other ways are offered/);
+    const v = await (await fetch(`${base}/connector/payments/${a.payment_id}`)).json();
+    assert.equal(v.options.base, null);
+    assert.equal((await fetch(`${base}/connector/payments/${a.payment_id}/typed`, { method: "POST" })).status, 409);
+    assert.equal(s.seen.filter((x) => x.headers["payment-signature"]).length, 0);
+    assert.equal(told.length, 1); // the one request that was asked
+    await client.close();
+  } finally { server.close(); s.server.close(); }
+});
+
+test("connector payments: a wallet picked on the page that is the seller's payout address is refused before signing", async () => {
+  const s = await seller();
+  const { base, server } = await boot();
+  try {
+    const client = await connect(base, await logIn(base));
+    const me = privateKeyToAccount(generatePrivateKey());
+    const a = (await call(client, "pay_x402", { url: `${s.url}/mine?to=${me.address.toLowerCase()}` })).structuredContent;
+    assert.equal(a.status, "waiting_for_owner");
+    const r = await fetch(`${base}/connector/payments/${a.payment_id}/typed`, json({ from: me.address }));
+    assert.equal(r.status, 400);
+    const body = await r.json();
+    assert.equal(body.error, "wrong_wallet");
+    assert.match(body.message, /is this API's own payout address, and a wallet can't pay itself\. Connect another wallet, or pick another way\./);
+    // Another wallet still pays.
+    const payer = privateKeyToAccount(generatePrivateKey());
+    const paid = await (await signOnPage(base, a.payment_id, payer)).json();
+    assert.deepEqual([paid.status, paid.from], ["done", payer.address]);
     await client.close();
   } finally { server.close(); s.server.close(); }
 });

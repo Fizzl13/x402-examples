@@ -5,6 +5,7 @@
 // Its tools: the wallet's status, the catalog search, the free prompt-injection check, and paying (src/connector-pay.js),
 // where every payment waits until the owner signs it in their own wallet: Fizzl never holds a key for it.
 import express from "express";
+import { createSwapRequests } from "./connector-swap.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -114,10 +115,13 @@ export function fizzlBuyOption({ query, cap, sellers }) {
 // The feedback tool's description (the same words as the npm MCP server's tool, wallet-mcp/lib.js).
 const FEEDBACK_DESCRIPTION = "Tell Fizzl what is missing or broken in this wallet: a network or coin an API asks for that the wallet can't pay, a kind of service you couldn't find, a limit or step that gets in the way, or a bug. Free, and it costs your user nothing. A person at Fizzl reads every report; nothing in it is run or changed automatically. Never put keys, passwords or your user's personal data in it. If it is about a payment that went wrong (paid but no answer, a wrong answer), add payment with its tx (the settlement transaction from the pay answer) and network, or receipt (the receipt_id): the wallet adds your own receipt for it to the report.";
 
-export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals, cardBuy = false, feedback = null }) {
+export function createConnector({ accounts, auth, catalog = null, store, usage, publicUrl = null, csp, consentHtml, approveHtml, swapHtml = null, internalKey = null, swapEngine = null, swapRpc = null, swapSigners, presignUrl = "https://presign-guard.fizzl.eu", doctorUrl, baseRpc, xaman = null, xrplRpc, solanaRpc, fetch: fetchImpl = globalThis.fetch, sellerFetch, lookup, allowPrivate = false, statusWaitMs, paidTimeoutMs, retryPauseMs, version = "0", now = () => Date.now(), refusals, cardBuy = false, feedback = null }) {
   const router = express.Router();
   const payments = createPayments({ accounts, store, usage, csp, approveHtml, presignUrl, doctorUrl, baseRpc, xaman, xrplRpc, solanaRpc, fetch: fetchImpl, sellerFetch, lookup, allowPrivate, statusWaitMs, paidTimeoutMs, retryPauseMs, version, now, refusals, cardBuy });
   router.use(payments.router);
+  // Swaps (src/connector-swap.js): only with presign-guard's internal key, so every swap is checked and bound.
+  const swaps = createSwapRequests({ accounts, store, usage, csp, swapHtml: swapHtml ?? "", presignUrl, internalKey, baseRpc, fetch: fetchImpl, now, statusWaitMs, engine: swapEngine, rpc: swapRpc, signers: swapSigners });
+  router.use(swaps.router);
   const origin = (req) => (publicUrl ? new URL(publicUrl).origin : `${req.protocol}://${req.get("host")}`);
   const metadataUrl = (req) => `${origin(req)}/.well-known/oauth-protected-resource/mcp`;
   const registrations = new Map(); // ip -> { n, since }
@@ -385,6 +389,35 @@ export function createConnector({ accounts, auth, catalog = null, store, usage, 
         return out.error && !out.status ? failure(out.error) : result(out);
       } catch (err) { console.error("[connector] status", err); return failure("The payment's status can't be read right now. Try again in a minute."); }
     });
+    if (swaps.enabled) {
+      server.registerTool("swap_tokens", {
+        title: "Swap tokens on Base (your user sends it)",
+        description: "Swap USDC, EURC or WETH (say ETH; you get WETH, wrapped ETH) on Base through Uniswap, from your user's own wallet. Only when your user turned swaps on (dashboard: Your limits → Swaps) and within their limits (default $50 per swap, $100 a day). It doesn't swap by itself: it quotes the best Uniswap pool, sets the minimum your user gets (their slippage, default 0.5%), approves exactly the amount when needed (never unlimited), has presign-guard check every transaction with a verdict bound to exactly that transaction (red is refused), and returns an approve_url where your user sends it from their own wallet (also sent to their phone). The price holds about 2 minutes; the page can refresh it. Then call swap_status.",
+        inputSchema: {
+          from_token: z.enum(["USDC", "EURC", "WETH", "ETH"]).describe("What your user pays with"),
+          to_token: z.enum(["USDC", "EURC", "WETH", "ETH"]).describe("What your user gets (ETH means WETH)"),
+          amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/, { error: "amount is a number as text, like \"40\" or \"0.01\"" }).describe("How much of from_token, like \"40\""),
+          reason: z.string().max(200).optional().describe("Why, in a few words: shown to your user"),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      }, async (args) => {
+        try {
+          const out = await swaps.request(ctx, args);
+          return out.error ? failure(out.error) : result(out);
+        } catch (err) { console.error("[connector] swap", err); return failure("The swap request couldn't be made. Try again in a minute."); }
+      });
+      server.registerTool("swap_status", {
+        title: "Swap status",
+        description: "After swap_tokens: has your user sent the swap, and did it go through on Base? Waits up to 25 seconds for a change. status: waiting (give them approve_url again if needed), approving, swapping, done, failed, changed (what was sent is not what presign-guard checked: tell your user), denied or expired.",
+        inputSchema: { swap_id: z.string().min(20).max(64).describe("swap_id from swap_tokens") },
+        annotations: { readOnlyHint: true },
+      }, async ({ swap_id }) => {
+        try {
+          const out = await swaps.status(ctx, swap_id);
+          return out.error ? failure(out.error) : result(out);
+        } catch (err) { console.error("[connector] swap status", err); return failure("The swap's status can't be read right now. Try again in a minute."); }
+      });
+    }
     if (feedback) {
       server.registerTool("feedback", {
         title: "Send feedback to Fizzl (free)",
