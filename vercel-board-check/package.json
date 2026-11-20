@@ -1,0 +1,17 @@
+{
+  "name": "fizzl-vercel-board-check",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Vercel Board watcher that checks every payment request in a channel with x402 Doctor or presign-guard before an agent pays or signs.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@vercel/board": "0.54.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}
