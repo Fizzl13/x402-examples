@@ -14,7 +14,7 @@
   "files": ["index.js", "index.d.ts", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "scripts": { "test": "node --test test/*.test.mjs", "demo": "node example/demo.mjs" },
-  "dependencies": { "presign-guard-wallet": "^0.27.0" },
+  "dependencies": { "presign-guard-wallet": "^0.28.0" },
   "peerDependencies": { "@coinbase/agentkit": ">=0.10.0", "zod": "^3.22.0 || ^4.0.0" },
   "devDependencies": { "@coinbase/agentkit": "^0.10.4", "zod": "^3.25.0" },
   "keywords": ["agentkit", "coinbase", "x402", "agents", "wallet", "security", "presign", "spending-limits", "budget", "approvals", "telegram", "human-in-the-loop", "usdc", "permit2", "solana"],
